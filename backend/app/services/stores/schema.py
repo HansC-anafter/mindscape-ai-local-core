@@ -1,0 +1,701 @@
+"""
+Database schema definitions for Mindscape stores
+Contains all table creation and index definitions organized by domain
+"""
+
+import sqlite3
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def init_profiles_schema(cursor):
+    """Initialize profiles table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT,
+            roles TEXT,
+            domains TEXT,
+            preferences TEXT,
+            onboarding_state TEXT,
+            self_description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            version INTEGER DEFAULT 1
+        )
+    ''')
+
+
+def init_intents_schema(cursor):
+    """Initialize intents table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS intents (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            tags TEXT,
+            category TEXT,
+            progress_percentage INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            due_date TEXT,
+            parent_intent_id TEXT,
+            child_intent_ids TEXT,
+            metadata TEXT,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intents_profile ON intents(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intents_status ON intents(status)')
+
+
+def init_intent_tags_schema(cursor):
+    """Initialize intent_tags table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS intent_tags (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            label TEXT NOT NULL,
+            confidence REAL,
+            status TEXT NOT NULL DEFAULT 'candidate',
+            source TEXT NOT NULL,
+            execution_id TEXT,
+            playbook_code TEXT,
+            message_id TEXT,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            confirmed_at TEXT,
+            rejected_at TEXT,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            FOREIGN KEY (profile_id) REFERENCES profiles (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_tags_workspace ON intent_tags(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_tags_profile ON intent_tags(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_tags_status ON intent_tags(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_tags_execution ON intent_tags(execution_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_tags_workspace_status ON intent_tags(workspace_id, status)')
+
+
+def init_agent_executions_schema(cursor):
+    """Initialize agent_executions table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS agent_executions (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            task TEXT NOT NULL,
+            intent_ids TEXT,
+            status TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            duration_seconds REAL,
+            output TEXT,
+            error_message TEXT,
+            used_profile TEXT,
+            used_intents TEXT,
+            metadata TEXT,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_executions_profile ON agent_executions(profile_id)')
+
+
+def init_habit_schema(cursor):
+    """Initialize habit-related tables and indexes"""
+    # Habit observations table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS habit_observations (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            habit_key TEXT NOT NULL,
+            habit_value TEXT NOT NULL,
+            habit_category TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT,
+            source_context TEXT,
+            observed_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id)
+        )
+    ''')
+
+    # Habit candidates table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS habit_candidates (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            habit_key TEXT NOT NULL,
+            habit_value TEXT NOT NULL,
+            habit_category TEXT NOT NULL,
+            evidence_count INTEGER DEFAULT 0,
+            confidence REAL DEFAULT 0.0,
+            first_seen_at TEXT,
+            last_seen_at TEXT,
+            evidence_refs TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id),
+            UNIQUE(profile_id, habit_key, habit_value)
+        )
+    ''')
+
+    # Habit audit logs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS habit_audit_logs (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            candidate_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            previous_status TEXT,
+            new_status TEXT,
+            actor_type TEXT DEFAULT 'system',
+            actor_id TEXT,
+            reason TEXT,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id),
+            FOREIGN KEY (candidate_id) REFERENCES habit_candidates (id)
+        )
+    ''')
+
+    # Habit indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_observations_profile ON habit_observations(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_observations_key ON habit_observations(habit_key)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_observations_observed_at ON habit_observations(observed_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_candidates_profile ON habit_candidates(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_candidates_status ON habit_candidates(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_candidates_key ON habit_candidates(habit_key)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_audit_logs_profile ON habit_audit_logs(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_audit_logs_candidate ON habit_audit_logs(candidate_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_habit_audit_logs_created_at ON habit_audit_logs(created_at DESC)')
+
+
+def init_workspaces_schema(cursor):
+    """Initialize workspaces table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            primary_project_id TEXT,
+            default_playbook_id TEXT,
+            default_locale TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (owner_user_id) REFERENCES profiles (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(primary_project_id)')
+
+    # Migration: Add mode column if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE workspaces ADD COLUMN mode TEXT')
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
+
+    # Migration: Add data_sources column if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE workspaces ADD COLUMN data_sources TEXT')
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
+
+    # Migration: Add playbook_auto_execution_config column if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE workspaces ADD COLUMN playbook_auto_execution_config TEXT')
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
+
+    # Migration: Add suggestion_history column if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE workspaces ADD COLUMN suggestion_history TEXT')
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
+
+    # Migration: Add storage configuration columns if they don't exist
+    # These will be properly handled by migration_004, but we add them here for backward compatibility
+    for column_name in ['storage_base_path', 'artifacts_dir', 'uploads_dir', 'storage_config']:
+        try:
+            cursor.execute(f'ALTER TABLE workspaces ADD COLUMN {column_name} TEXT')
+        except sqlite3.OperationalError:
+            # Column already exists, ignore
+            pass
+
+
+def init_events_schema(cursor):
+    """Initialize mind_events table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mind_events (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            project_id TEXT,
+            workspace_id TEXT,
+            event_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            entity_ids TEXT,
+            metadata TEXT,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id),
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_profile ON mind_events(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_project ON mind_events(project_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_type ON mind_events(event_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_timestamp ON mind_events(timestamp DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_profile_timestamp ON mind_events(profile_id, timestamp DESC)')
+
+    # Check if workspace_id column exists before creating workspace-related indexes
+    # This handles existing databases that don't have workspace_id yet (migration will add it)
+    cursor.execute("PRAGMA table_info(mind_events)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'workspace_id' in columns:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_workspace ON mind_events(workspace_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_workspace_timestamp ON mind_events(workspace_id, timestamp DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_workspace_timestamp_id ON mind_events(workspace_id, timestamp DESC, id DESC)')
+
+
+def init_intent_logs_schema(cursor):
+    """Initialize intent_logs table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS intent_logs (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            raw_input TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            project_id TEXT,
+            workspace_id TEXT,
+            pipeline_steps TEXT NOT NULL,
+            final_decision TEXT NOT NULL,
+            user_override TEXT,
+            metadata TEXT,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id),
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_logs_profile ON intent_logs(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_logs_timestamp ON intent_logs(timestamp DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_logs_profile_timestamp ON intent_logs(profile_id, timestamp DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_logs_has_override ON intent_logs(user_override) WHERE user_override IS NOT NULL')
+
+    # Check if workspace_id column exists before creating workspace-related indexes
+    # This handles existing databases that don't have workspace_id yet (migration will add it)
+    cursor.execute("PRAGMA table_info(intent_logs)")
+    intent_logs_columns = [row[1] for row in cursor.fetchall()]
+    if 'workspace_id' in intent_logs_columns:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_logs_workspace ON intent_logs(workspace_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_intent_logs_workspace_timestamp ON intent_logs(workspace_id, timestamp DESC)')
+
+
+def init_entities_schema(cursor):
+    """Initialize entities, tags, and entity_tags tables and indexes"""
+    # Entities table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            description TEXT,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id)
+        )
+    ''')
+
+    # Tags table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            description TEXT,
+            color TEXT,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles (id)
+        )
+    ''')
+
+    # Entity-Tag associations table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS entity_tags (
+            entity_id TEXT NOT NULL,
+            tag_id TEXT NOT NULL,
+            value TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (entity_id, tag_id),
+            FOREIGN KEY (entity_id) REFERENCES entities (id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Entities indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_profile ON entities(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_profile_type ON entities(profile_id, entity_type)')
+
+    # Tags indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_profile ON tags(profile_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_profile_category ON tags(profile_id, category)')
+
+    # Entity-Tag indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_entity_tags_entity ON entity_tags(entity_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_entity_tags_tag ON entity_tags(tag_id)')
+
+
+def init_tasks_schema(cursor):
+    """Initialize tasks table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            execution_id TEXT,
+            pack_id TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            params TEXT NOT NULL,
+            result TEXT,
+            execution_context TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            error TEXT,
+            notification_sent_at TEXT,
+            displayed_at TEXT,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+
+    # Migration: Add notification_sent_at and displayed_at columns if they don't exist
+    try:
+        cursor.execute('ALTER TABLE tasks ADD COLUMN notification_sent_at TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE tasks ADD COLUMN displayed_at TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: Add execution_context column if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE tasks ADD COLUMN execution_context TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_message ON tasks(message_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks(workspace_id, status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_execution_id ON tasks(execution_id)')
+
+
+def init_task_feedback_schema(cursor):
+    """Initialize task_feedback table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS task_feedback (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            reason_code TEXT,
+            comment TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks (id),
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_feedback_task ON task_feedback(task_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_feedback_workspace ON task_feedback(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_feedback_user ON task_feedback(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_feedback_action ON task_feedback(action)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_feedback_created_at ON task_feedback(created_at DESC)')
+
+
+def init_task_preference_schema(cursor):
+    """Initialize task_preference table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS task_preference (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            pack_id TEXT,
+            task_type TEXT,
+            action TEXT NOT NULL,
+            auto_suggest INTEGER NOT NULL DEFAULT 1,
+            last_feedback TEXT,
+            reject_count_30d INTEGER NOT NULL DEFAULT 0,
+            accept_count_30d INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            UNIQUE(workspace_id, user_id, pack_id, task_type)
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_preference_workspace ON task_preference(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_preference_user ON task_preference(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_preference_pack ON task_preference(pack_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_preference_task_type ON task_preference(task_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_preference_auto_suggest ON task_preference(auto_suggest)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_preference_workspace_user ON task_preference(workspace_id, user_id)')
+
+
+def init_timeline_items_schema(cursor):
+    """Initialize timeline_items table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS timeline_items (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            task_id TEXT,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            data TEXT NOT NULL,
+            cta TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            FOREIGN KEY (task_id) REFERENCES tasks (id)
+        )
+    ''')
+
+    # Migration: Make task_id nullable if it was previously NOT NULL
+    try:
+        # SQLite doesn't support MODIFY COLUMN, so we need to recreate the table
+        # Check if task_id is currently NOT NULL by examining pragma
+        cursor.execute("PRAGMA table_info(timeline_items)")
+        columns = cursor.fetchall()
+        task_id_col = next((col for col in columns if col[1] == 'task_id'), None)
+
+        if task_id_col and task_id_col[3] == 1:  # NOT NULL constraint exists
+            # Recreate table with nullable task_id
+            logger.info("Migrating timeline_items table: making task_id nullable")
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS timeline_items_new (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    task_id TEXT,
+                    type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    cta TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+                    FOREIGN KEY (task_id) REFERENCES tasks (id)
+                )
+            ''')
+            cursor.execute('INSERT INTO timeline_items_new SELECT * FROM timeline_items')
+            cursor.execute('DROP TABLE timeline_items')
+            cursor.execute('ALTER TABLE timeline_items_new RENAME TO timeline_items')
+    except Exception as e:
+        logger.warning(f"Migration for timeline_items.task_id nullable failed (may already be migrated): {e}")
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_items_workspace ON timeline_items(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_items_message ON timeline_items(message_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_items_task ON timeline_items(task_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_items_type ON timeline_items(type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_items_created_at ON timeline_items(created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_items_workspace_created_at ON timeline_items(workspace_id, created_at DESC)')
+
+
+def init_artifacts_schema(cursor):
+    """Initialize artifacts table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS artifacts (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            intent_id TEXT,
+            task_id TEXT,
+            execution_id TEXT,
+            playbook_code TEXT NOT NULL,
+            artifact_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT,
+            content TEXT NOT NULL,
+            storage_ref TEXT,
+            sync_state TEXT,
+            primary_action_type TEXT NOT NULL,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            FOREIGN KEY (task_id) REFERENCES tasks (id)
+        )
+    ''')
+
+    # Migration: Add source_execution_id and source_step_id columns if they don't exist
+    try:
+        cursor.execute('ALTER TABLE artifacts ADD COLUMN source_execution_id TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE artifacts ADD COLUMN source_step_id TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_workspace ON artifacts(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_intent ON artifacts(intent_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_playbook ON artifacts(playbook_code)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_created_at ON artifacts(created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_workspace_created_at ON artifacts(workspace_id, created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_workspace_intent ON artifacts(workspace_id, intent_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_execution ON artifacts(source_execution_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_step ON artifacts(source_step_id)')
+
+
+def init_tool_calls_schema(cursor):
+    """Initialize tool_calls table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tool_calls (
+            id TEXT PRIMARY KEY,
+            execution_id TEXT NOT NULL,
+            step_id TEXT,
+            tool_name TEXT NOT NULL,
+            tool_id TEXT,
+            parameters TEXT NOT NULL,
+            response TEXT,
+            status TEXT NOT NULL,
+            error TEXT,
+            duration_ms INTEGER,
+            factory_cluster TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_execution ON tool_calls(execution_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_step ON tool_calls(step_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_tool ON tool_calls(tool_name)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_cluster ON tool_calls(factory_cluster)')
+
+
+def init_stage_results_schema(cursor):
+    """Initialize stage_results table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stage_results (
+            id TEXT PRIMARY KEY,
+            execution_id TEXT NOT NULL,
+            step_id TEXT,
+            stage_name TEXT NOT NULL,
+            result_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            preview TEXT,
+            requires_review INTEGER NOT NULL DEFAULT 0,
+            review_status TEXT,
+            artifact_id TEXT,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_stage_results_execution ON stage_results(execution_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_stage_results_step ON stage_results(step_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_stage_results_review ON stage_results(requires_review, review_status)')
+
+
+def init_background_routines_schema(cursor):
+    """Initialize background_routines table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS background_routines (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            playbook_code TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            config TEXT NOT NULL,
+            last_run_at TEXT,
+            next_run_at TEXT,
+            last_status TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Migration: Add readiness status fields if they don't exist
+    for column_def in [
+        ('readiness_status', 'TEXT'),
+        ('tool_statuses', 'TEXT'),
+        ('error_count', 'INTEGER DEFAULT 0'),
+        ('auto_paused', 'INTEGER DEFAULT 0')
+    ]:
+        column_name, column_type = column_def
+        try:
+            cursor.execute(f'ALTER TABLE background_routines ADD COLUMN {column_name} {column_type}')
+        except sqlite3.OperationalError:
+            # Column already exists, ignore
+            pass
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_background_routines_workspace ON background_routines(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_background_routines_playbook ON background_routines(playbook_code)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_background_routines_enabled ON background_routines(enabled)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_stage_results_artifact ON stage_results(artifact_id)')
+
+
+def init_schema(cursor):
+    """
+    Initialize all database tables and indexes
+
+    This function should be called in the correct order to respect foreign key dependencies:
+    1. Profiles (no dependencies)
+    2. Intents, AgentExecutions, Habit tables (depend on Profiles)
+    3. Workspaces (depends on Profiles)
+    4. Events, IntentLogs (depend on Profiles and Workspaces)
+    5. Entities, Tags (depend on Profiles)
+    """
+    # Core tables (no dependencies)
+    init_profiles_schema(cursor)
+
+    # Tables that depend on Profiles
+    init_intents_schema(cursor)
+    init_agent_executions_schema(cursor)
+    init_habit_schema(cursor)
+    init_workspaces_schema(cursor)
+
+    # Tables that depend on Profiles and Workspaces
+    init_intent_tags_schema(cursor)
+
+    # Tables that depend on Profiles and Workspaces
+    init_events_schema(cursor)
+    init_intent_logs_schema(cursor)
+
+    # Tables that depend on Profiles
+    init_entities_schema(cursor)
+
+    # Tables that depend on Workspaces
+    init_tasks_schema(cursor)
+    init_task_feedback_schema(cursor)
+    init_task_preference_schema(cursor)
+    init_timeline_items_schema(cursor)
+    init_artifacts_schema(cursor)
+    init_tool_calls_schema(cursor)
+    init_stage_results_schema(cursor)
+    init_background_routines_schema(cursor)

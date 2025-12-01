@@ -1,0 +1,1338 @@
+"""
+Execution Coordinator
+
+Coordinates pack and playbook execution based on side_effect_level.
+Handles readonly auto-execution, soft_write suggestion cards, and external_write confirmation.
+"""
+
+import logging
+import sys
+from typing import Dict, Any, Optional, List, Callable
+from datetime import datetime
+import uuid
+
+from ...models.workspace import Task, TaskStatus, TimelineItem, TimelineItemType, SideEffectLevel, ExecutionPlan, ExecutionSession
+from ...models.mindscape import MindEvent, EventType, EventActor
+from ...services.mindscape_store import MindscapeStore
+from ...services.stores.tasks_store import TasksStore
+from ...services.stores.timeline_items_store import TimelineItemsStore
+from ...core.execution_context import ExecutionContext
+
+logger = logging.getLogger(__name__)
+
+
+class ExecutionCoordinator:
+    """Coordinates pack and playbook execution based on side_effect_level"""
+
+    def __init__(
+        self,
+        store: MindscapeStore,
+        tasks_store: TasksStore,
+        timeline_items_store: TimelineItemsStore,
+        task_manager,
+        plan_builder,
+        playbook_runner,
+        message_generator,
+        default_locale: str = "en"
+    ):
+        """
+        Initialize ExecutionCoordinator
+
+        Args:
+            store: MindscapeStore instance
+            tasks_store: TasksStore instance
+            timeline_items_store: TimelineItemsStore instance
+            task_manager: TaskManager instance
+            plan_builder: PlanBuilder instance
+            playbook_runner: PlaybookRunner instance
+            message_generator: MessageGenerator instance
+            default_locale: Default locale for i18n
+        """
+        self.store = store
+        self.tasks_store = tasks_store
+        self.timeline_items_store = timeline_items_store
+        self.task_manager = task_manager
+        self.plan_builder = plan_builder
+        self.playbook_runner = playbook_runner
+        self.message_generator = message_generator
+        self.default_locale = default_locale
+        from ...services.config_store import ConfigStore
+        self.config_store = ConfigStore(db_path=store.db_path)
+
+    async def execute_plan(
+        self,
+        execution_plan: ExecutionPlan,
+        workspace_id: str,
+        profile_id: str,
+        message_id: str,
+        files: List[str],
+        message: str,
+        project_id: Optional[str] = None,
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute execution plan based on side_effect_level
+
+        Args:
+            execution_plan: Execution plan with tasks
+            workspace_id: Workspace ID
+            profile_id: User profile ID
+            message_id: Message/event ID
+            files: List of file IDs
+            message: User message
+            project_id: Optional project ID
+
+        Returns:
+            Dict with execution results
+        """
+        ctx = ExecutionContext(
+            actor_id=profile_id,
+            workspace_id=workspace_id,
+            tags={"mode": "local"}
+        )
+        return await self.execute_plan_with_ctx(
+            execution_plan=execution_plan,
+            ctx=ctx,
+            message_id=message_id,
+            files=files,
+            message=message,
+            project_id=project_id,
+            task_event_callback=task_event_callback
+        )
+
+    async def execute_plan_with_ctx(
+        self,
+        execution_plan: ExecutionPlan,
+        ctx: ExecutionContext,
+        message_id: str,
+        files: List[str],
+        message: str,
+        project_id: Optional[str] = None,
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute execution plan based on side_effect_level (using ExecutionContext)
+
+        Args:
+            execution_plan: Execution plan with tasks
+            ctx: Execution context
+            message_id: Message/event ID
+            files: List of file IDs
+            message: User message
+            project_id: Optional project ID
+
+        Returns:
+            Dict with execution results
+        """
+        results = {
+            "executed_tasks": [],
+            "suggestion_cards": [],
+            "skipped_tasks": []
+        }
+
+        # Store callback for task events
+        self.task_event_callback = task_event_callback
+
+        # Get workspace auto-execution config
+        workspace = self.store.workspaces.get_workspace(ctx.workspace_id)
+        auto_exec_config = workspace.playbook_auto_execution_config if workspace else None
+
+        for task_plan in execution_plan.tasks:
+            side_effect_level = self.plan_builder.determine_side_effect_level(task_plan.pack_id)
+
+            # Check if playbook has custom auto-execution config
+            should_auto_execute = task_plan.auto_execute
+            if auto_exec_config and task_plan.pack_id in auto_exec_config:
+                playbook_config = auto_exec_config[task_plan.pack_id]
+                confidence_threshold = playbook_config.get('confidence_threshold', 0.8)
+                auto_execute_enabled = playbook_config.get('auto_execute', False)
+
+                # Get confidence from task_plan params (from LLM analysis)
+                llm_confidence = task_plan.params.get('llm_analysis', {}).get('confidence', 0.0) if task_plan.params else 0.0
+
+                if auto_execute_enabled and llm_confidence >= confidence_threshold:
+                    should_auto_execute = True
+                    logger.info(f"ExecutionCoordinator: Playbook {task_plan.pack_id} meets auto-exec threshold (confidence={llm_confidence:.2f} >= {confidence_threshold:.2f})")
+                else:
+                    should_auto_execute = False
+                    logger.info(f"ExecutionCoordinator: Playbook {task_plan.pack_id} does not meet auto-exec threshold (confidence={llm_confidence:.2f} < {confidence_threshold:.2f})")
+
+            logger.info(f"ExecutionCoordinator: Processing task_plan {task_plan.pack_id}, side_effect_level={side_effect_level}, auto_execute={should_auto_execute}")
+            print(f"ExecutionCoordinator: Processing task_plan {task_plan.pack_id}, side_effect_level={side_effect_level}, auto_execute={should_auto_execute}", file=sys.stderr)
+
+            if should_auto_execute and side_effect_level == SideEffectLevel.READONLY:
+                logger.info(f"ExecutionCoordinator: Executing READONLY task {task_plan.pack_id}")
+                print(f"ExecutionCoordinator: Executing READONLY task {task_plan.pack_id}", file=sys.stderr)
+                result = await self._execute_readonly_task(
+                    task_plan, ctx, message_id, files, message, project_id, self.task_event_callback
+                )
+                if result:
+                    results["executed_tasks"].append(result)
+                    logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} completed")
+                    print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} completed", file=sys.stderr)
+
+            elif side_effect_level == SideEffectLevel.SOFT_WRITE:
+                # Check if should auto-execute based on workspace config
+                should_auto_execute_soft = False
+                if auto_exec_config and task_plan.pack_id in auto_exec_config:
+                    playbook_config = auto_exec_config[task_plan.pack_id]
+                    confidence_threshold = playbook_config.get('confidence_threshold', 0.8)
+                    auto_execute_enabled = playbook_config.get('auto_execute', False)
+
+                    llm_confidence = task_plan.params.get('llm_analysis', {}).get('confidence', 0.0) if task_plan.params else 0.0
+
+                    if auto_execute_enabled and llm_confidence >= confidence_threshold:
+                        should_auto_execute_soft = True
+                        logger.info(f"ExecutionCoordinator: SOFT_WRITE playbook {task_plan.pack_id} meets auto-exec threshold (confidence={llm_confidence:.2f} >= {confidence_threshold:.2f}), executing directly")
+                        # Execute directly (even though it's SOFT_WRITE, user has configured auto-exec)
+                        # For playbooks, use execute_playbook which will handle side_effect_level
+                        # But we need to force execution by temporarily treating it as READONLY
+                        # Actually, we should use _execute_readonly_playbook directly for auto-exec
+                        playbook_context = task_plan.params.get('context', task_plan.params.copy() if task_plan.params else {})
+                        if task_plan.params:
+                            playbook_context.update(task_plan.params)
+
+                        # Execute playbook directly (bypassing suggestion card creation)
+                        playbook_result = await self._execute_readonly_playbook(
+                            playbook_code=task_plan.pack_id,
+                            playbook_context=playbook_context,
+                            ctx=ctx,
+                            message_id=message_id,
+                            project_id=project_id
+                        )
+                        if playbook_result:
+                            results["executed_tasks"].append(playbook_result)
+                        continue
+
+                logger.info(f"ExecutionCoordinator: Creating suggestion card for SOFT_WRITE task {task_plan.pack_id}")
+                print(f"ExecutionCoordinator: Creating suggestion card for SOFT_WRITE task {task_plan.pack_id}", file=sys.stderr)
+                suggestion = await self._create_suggestion_card(
+                    task_plan, ctx.workspace_id, message_id
+                )
+                if suggestion:
+                    results["suggestion_cards"].append(suggestion)
+                    logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id}")
+                    print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id}", file=sys.stderr)
+
+            elif side_effect_level == SideEffectLevel.EXTERNAL_WRITE:
+                # EXTERNAL_WRITE tasks should also create suggestion cards (like SOFT_WRITE)
+                # They require explicit confirmation, so show as suggestion
+                logger.info(f"ExecutionCoordinator: Creating suggestion card for EXTERNAL_WRITE task {task_plan.pack_id}")
+                print(f"ExecutionCoordinator: Creating suggestion card for EXTERNAL_WRITE task {task_plan.pack_id}", file=sys.stderr)
+                suggestion = await self._create_suggestion_card(
+                    task_plan, ctx.workspace_id, message_id
+                )
+                if suggestion:
+                    results["suggestion_cards"].append(suggestion)
+                    logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id}")
+                    print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id}", file=sys.stderr)
+                else:
+                    logger.warning(f"Failed to create suggestion card for EXTERNAL_WRITE task {task_plan.pack_id}")
+                    results["skipped_tasks"].append(task_plan.pack_id)
+
+        return results
+
+    async def _execute_readonly_task(
+        self,
+        task_plan,
+        ctx: ExecutionContext,
+        message_id: str,
+        files: List[str],
+        message: str,
+        project_id: Optional[str],
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Execute readonly task automatically"""
+        pack_id = task_plan.pack_id
+
+        # Check execution method dynamically
+        from ...capabilities.registry import get_registry
+        registry = get_registry()
+        execution_method = registry.get_execution_method(pack_id)
+
+        logger.info(f"ExecutionCoordinator: Pack {pack_id} execution method: {execution_method}")
+
+        # Handle hardcoded pack executors first (for backward compatibility)
+        if pack_id == "semantic_seeds":
+            # Allow execution even without files (can extract from message)
+            return await self._execute_semantic_seeds(
+                ctx.workspace_id, ctx.actor_id, message_id, files, message, task_event_callback
+            )
+        elif pack_id == "daily_planning":
+            return await self._execute_daily_planning(
+                ctx.workspace_id, ctx.actor_id, message_id, files, message, task_event_callback
+            )
+        elif pack_id == "content_drafting":
+            output_type = task_plan.params.get("output_type", "summary")
+            return await self._execute_content_drafting(
+                ctx.workspace_id, ctx.actor_id, message_id, files, message, output_type, task_event_callback
+            )
+
+        # Handle dynamic execution methods
+        if execution_method == 'playbook':
+            # Execute via playbook
+            return await self._execute_pack_via_playbook(
+                pack_id, task_plan, ctx, message_id, files, message, project_id
+            )
+        elif execution_method == 'pack_executor':
+            # Try to load and execute pack executor dynamically
+            logger.warning(f"Pack {pack_id} has pack_executor but no hardcoded handler in _execute_readonly_task")
+            # For now, fall back to creating suggestion card
+            return None
+
+        logger.warning(f"Unknown execution method for pack {pack_id}: {execution_method}")
+        return None
+
+    async def _execute_pack_via_playbook(
+        self,
+        pack_id: str,
+        task_plan,
+        ctx: ExecutionContext,
+        message_id: str,
+        files: List[str],
+        message: str,
+        project_id: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Execute pack via playbook for readonly tasks"""
+        try:
+            from ...capabilities.registry import get_registry
+            registry = get_registry()
+            playbooks = registry.get_capability_playbooks(pack_id)
+
+            if not playbooks:
+                logger.warning(f"No playbooks found for pack {pack_id}")
+                return None
+
+            # Try to find appropriate playbook
+            playbook_code = None
+            from ...services.playbook_loader import PlaybookLoader
+            playbook_loader = PlaybookLoader()
+
+            # Try pack_id first, then try playbook filenames (without extension)
+            playbook_codes_to_try = [pack_id]
+            for playbook_filename in playbooks:
+                base_name = playbook_filename.replace('.yaml', '').replace('.yml', '')
+                if base_name not in playbook_codes_to_try:
+                    playbook_codes_to_try.append(base_name)
+
+            for code in playbook_codes_to_try:
+                try:
+                    playbook = playbook_loader.get_playbook_by_code(code, locale=self.default_locale)
+                    if playbook:
+                        playbook_code = code
+                        logger.info(f"Found playbook {playbook_code} for pack {pack_id}")
+                        break
+                except Exception:
+                    continue
+
+            if not playbook_code:
+                logger.warning(f"Could not find executable playbook for pack {pack_id}")
+                return None
+
+            # Execute playbook
+            logger.info(f"ExecutionCoordinator: Starting playbook execution for pack {pack_id}, playbook_code={playbook_code}, workspace_id={ctx.workspace_id}")
+            try:
+                execution_result = await self.playbook_runner.start_playbook_execution(
+                    playbook_code=playbook_code,
+                    profile_id=ctx.actor_id,
+                    inputs={
+                        **(task_plan.params if task_plan.params else {}),
+                        "files": files,
+                        "message": message
+                    },
+                    workspace_id=ctx.workspace_id
+                )
+
+                execution_id = execution_result.get("execution_id") if execution_result else None
+                if execution_id:
+                    logger.info(f"ExecutionCoordinator: Playbook {playbook_code} started successfully, execution_id={execution_id}")
+                else:
+                    logger.warning(f"ExecutionCoordinator: Playbook {playbook_code} started but no execution_id returned. Result: {execution_result}")
+
+                return {
+                    "pack_id": pack_id,
+                    "playbook_code": playbook_code,
+                    "execution_id": execution_id
+                }
+            except Exception as playbook_error:
+                logger.error(
+                    f"ExecutionCoordinator: Failed to start playbook execution for pack {pack_id}, "
+                    f"playbook_code={playbook_code}: {playbook_error}",
+                    exc_info=True
+                )
+                raise
+        except Exception as e:
+            logger.error(
+                f"ExecutionCoordinator: Failed to execute pack {pack_id} via playbook {playbook_code}: {e}",
+                exc_info=True
+            )
+            return None
+
+    async def _execute_semantic_seeds(
+        self,
+        workspace_id: str,
+        profile_id: str,
+        message_id: str,
+        files: List[str],
+        message: str,
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Execute semantic_seeds pack - can work with or without files"""
+        try:
+            pack_id = "semantic_seeds"
+
+            # Allow execution even without files - can extract from message
+            # If no files, use message content for intent extraction
+
+            task = Task(
+                id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
+                message_id=message_id,
+                execution_id=None,
+                pack_id=pack_id,
+                task_type="extract_intents",
+                status=TaskStatus.RUNNING,
+                params={
+                    "files": files,
+                    "message": message
+                },
+                result=None,
+                created_at=datetime.utcnow(),
+                started_at=datetime.utcnow(),
+                completed_at=None,
+                error=None
+            )
+            self.tasks_store.create_task(task)
+            logger.info(f"ExecutionCoordinator: Created RUNNING task {task.id} for semantic_seeds (pack_id={pack_id}, workspace={workspace_id})")
+            print(f"ExecutionCoordinator: Created RUNNING task {task.id} for semantic_seeds (pack_id={pack_id}, workspace={workspace_id})", file=sys.stderr)
+
+            # Notify about task creation if callback provided
+            if task_event_callback:
+                try:
+                    task_event_callback('created', {
+                        'id': task.id,
+                        'pack_id': pack_id,
+                        'status': task.status.value,
+                        'task_type': task.task_type,
+                        'workspace_id': workspace_id
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to call task_event_callback: {e}")
+
+            extracted_intents = []
+            file_contents = []
+
+            try:
+                if self.timeline_items_store:
+                    recent_timeline_items = self.timeline_items_store.list_timeline_items_by_workspace(
+                        workspace_id=workspace_id,
+                        limit=10
+                    )
+                    for item in recent_timeline_items:
+                        if item.type == TimelineItemType.INTENT_SEEDS:
+                            item_data = item.data if isinstance(item.data, dict) else {}
+                            if 'intents' in item_data:
+                                intents_list = item_data.get('intents', [])
+                                if isinstance(intents_list, list):
+                                    for intent_obj in intents_list:
+                                        if isinstance(intent_obj, dict):
+                                            intent_text = intent_obj.get('title') or intent_obj.get('text') or str(intent_obj)
+                                        else:
+                                            intent_text = str(intent_obj)
+                                        if intent_text and intent_text not in extracted_intents:
+                                            extracted_intents.append(intent_text)
+                                logger.info(f"Found {len(intents_list)} intents from IntentExtractor timeline_item {item.id}")
+            except Exception as e:
+                logger.warning(f"Failed to get intents from timeline_items: {e}")
+
+            recent_events = self.store.get_events_by_workspace(
+                workspace_id=workspace_id,
+                limit=50
+            )
+
+            for event in recent_events:
+                if event.event_type == EventType.MESSAGE:
+                    payload = event.payload if isinstance(event.payload, dict) else {}
+                    metadata = event.metadata if isinstance(event.metadata, dict) else {}
+
+                    file_analysis = metadata.get('file_analysis', {})
+                    collaboration = file_analysis.get('collaboration_results', {})
+                    semantic_seeds = collaboration.get('semantic_seeds', {})
+
+                    if semantic_seeds.get('enabled') and semantic_seeds.get('intents'):
+                        intents = semantic_seeds.get('intents', [])
+                        for intent in intents:
+                            intent_text = intent if isinstance(intent, str) else (intent.get('title') or intent.get('text') or str(intent))
+                            if intent_text and intent_text not in extracted_intents:
+                                extracted_intents.append(intent_text)
+
+                        analysis = file_analysis.get('analysis', {})
+                        file_info = analysis.get('file_info', {})
+                        if file_info.get('text_content'):
+                            file_contents.append(file_info['text_content'])
+
+            if not extracted_intents and file_contents:
+                try:
+                    from ...capabilities.semantic_seeds.services.seed_extractor import SeedExtractor
+                    from ...services.agent_runner import LLMProviderManager
+                    import os
+
+                    # Get LLM API keys from user config (stored in settings), fallback to env vars
+                    config = self.config_store.get_or_create_config(profile_id)
+                    openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+                    anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+                    vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
+                    vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+                    vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+                    llm_manager = LLMProviderManager(
+                        openai_key=openai_key,
+                        anthropic_key=anthropic_key,
+                        vertex_api_key=vertex_api_key,
+                        vertex_project_id=vertex_project_id,
+                        vertex_location=vertex_location
+                    )
+                    llm_provider = llm_manager.get_provider()
+
+                    if llm_provider:
+                        extractor = SeedExtractor(llm_provider=llm_provider)
+
+                        combined_content = "\n\n".join(file_contents[:3])
+
+                        seeds = await extractor.extract_seeds_from_content(
+                            user_id=profile_id,
+                            content=combined_content,
+                            source_type="conversation",
+                            source_id=message_id,
+                            source_context=message
+                        )
+
+                        extracted_intents = [seed.get('text', '') for seed in seeds if seed.get('type') in ['intent', 'project']]
+                except Exception as e:
+                    logger.warning(f"Failed to extract seeds from files: {e}")
+
+            if not extracted_intents and not file_contents and message:
+                try:
+                    from ...capabilities.semantic_seeds.services.seed_extractor import SeedExtractor
+                    from ...services.agent_runner import LLMProviderManager
+                    import os
+
+                    # Get LLM API keys from user config (stored in settings), fallback to env vars
+                    config = self.config_store.get_or_create_config(profile_id)
+                    openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+                    anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+                    vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
+                    vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+                    vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+                    llm_manager = LLMProviderManager(
+                        openai_key=openai_key,
+                        anthropic_key=anthropic_key,
+                        vertex_api_key=vertex_api_key,
+                        vertex_project_id=vertex_project_id,
+                        vertex_location=vertex_location
+                    )
+                    llm_provider = llm_manager.get_provider()
+
+                    if llm_provider:
+                        extractor = SeedExtractor(llm_provider=llm_provider)
+                        seeds = await extractor.extract_seeds_from_content(
+                            user_id=profile_id,
+                            content=message,
+                            source_type="conversation",
+                            source_id=message_id,
+                            source_context=message
+                        )
+                        extracted_intents = [seed.get('text', '') for seed in seeds if seed.get('type') in ['intent', 'project']]
+                        logger.info(f"Extracted {len(extracted_intents)} intents from message content")
+                except Exception as e:
+                    logger.warning(f"Failed to extract seeds from message: {e}", exc_info=True)
+
+            if files:
+                title = f"Extracted {len(extracted_intents)} intents from {len(files)} file(s)"
+                summary = f"Found {len(extracted_intents)} potential intents or projects from files"
+                result_message = f"Extracted {len(extracted_intents)} intents from uploaded files"
+            else:
+                title = f"Extracted {len(extracted_intents)} intents from message"
+                summary = f"Found {len(extracted_intents)} potential intents or projects from message"
+                result_message = f"Extracted {len(extracted_intents)} intents from message"
+
+            execution_result = {
+                "title": title,
+                "summary": summary,
+                "message": result_message,
+                "intents": extracted_intents[:5],
+                "files_processed": len(files),
+                "source": "files" if files else "message"
+            }
+
+            self.tasks_store.update_task_status(
+                task_id=task.id,
+                status=TaskStatus.SUCCEEDED,
+                result=execution_result,
+                completed_at=datetime.utcnow()
+            )
+            logger.info(f"ExecutionCoordinator: Updated task {task.id} to SUCCEEDED")
+            print(f"ExecutionCoordinator: Updated task {task.id} to SUCCEEDED", file=sys.stderr)
+
+            # Notify about task update if callback provided
+            if hasattr(self, 'task_event_callback') and self.task_event_callback:
+                try:
+                    self.task_event_callback('updated', {
+                        'id': task.id,
+                        'pack_id': pack_id,
+                        'status': 'SUCCEEDED',
+                        'task_type': task.task_type,
+                        'workspace_id': workspace_id
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to call task_event_callback: {e}")
+
+            timeline_item = self.task_manager.create_timeline_item_from_task(
+                task=task,
+                execution_result=execution_result,
+                playbook_code=pack_id
+            )
+            if timeline_item:
+                logger.info(f"ExecutionCoordinator: Created TimelineItem {timeline_item.id} for completed task")
+                print(f"ExecutionCoordinator: Created TimelineItem {timeline_item.id} for completed task", file=sys.stderr)
+
+            logger.info(f"ExecutionCoordinator: Completed semantic_seeds task: {task.id}, created {len(extracted_intents)} intents")
+            print(f"ExecutionCoordinator: Completed semantic_seeds task: {task.id}, created {len(extracted_intents)} intents", file=sys.stderr)
+            return {"task": task, "pack_id": pack_id}
+        except Exception as e:
+            logger.error(f"Failed to execute semantic_seeds: {e}", exc_info=True)
+            if 'task' in locals():
+                try:
+                    self.tasks_store.update_task_status(
+                        task_id=task.id,
+                        status=TaskStatus.FAILED,
+                        error=str(e),
+                        completed_at=datetime.utcnow()
+                    )
+                except Exception:
+                    pass
+            return None
+
+    async def _execute_daily_planning(
+        self,
+        workspace_id: str,
+        profile_id: str,
+        message_id: str,
+        files: List[str],
+        message: str,
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Execute daily_planning pack"""
+        try:
+            from ...capabilities.daily_planning.services.pack_executor import DailyPlanningPackExecutor
+            from ...services.agent_runner import LLMProviderManager
+            import os
+
+            # Get LLM API keys from user config (stored in settings), fallback to env vars
+            config = self.config_store.get_or_create_config(profile_id)
+            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+            vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
+            vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+            vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+            llm_manager = LLMProviderManager(
+                openai_key=openai_key,
+                anthropic_key=anthropic_key,
+                vertex_api_key=vertex_api_key,
+                vertex_project_id=vertex_project_id,
+                vertex_location=vertex_location
+            )
+            llm_provider = llm_manager.get_provider()
+
+            executor = DailyPlanningPackExecutor(
+                store=self.store,
+                tasks_store=self.tasks_store,
+                task_manager=self.task_manager,
+                llm_provider=llm_provider
+            )
+            await executor.execute(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                message_id=message_id,
+                files=files,
+                message=message
+            )
+            return {"pack_id": "daily_planning"}
+        except Exception as e:
+            logger.error(f"Failed to execute daily_planning: {e}", exc_info=True)
+            return None
+
+    async def _execute_content_drafting(
+        self,
+        workspace_id: str,
+        profile_id: str,
+        message_id: str,
+        files: List[str],
+        message: str,
+        output_type: str,
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Execute content_drafting pack"""
+        try:
+            from ...capabilities.content_drafting.services.pack_executor import ContentDraftingPackExecutor
+            from ...services.agent_runner import LLMProviderManager
+            import os
+
+            # Get LLM API keys from user config (stored in settings), fallback to env vars
+            config = self.config_store.get_or_create_config(profile_id)
+            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+            vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
+            vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+            vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+            llm_manager = LLMProviderManager(
+                openai_key=openai_key,
+                anthropic_key=anthropic_key,
+                vertex_api_key=vertex_api_key,
+                vertex_project_id=vertex_project_id,
+                vertex_location=vertex_location
+            )
+            llm_provider = llm_manager.get_provider()
+
+            executor = ContentDraftingPackExecutor(
+                store=self.store,
+                tasks_store=self.tasks_store,
+                task_manager=self.task_manager,
+                llm_provider=llm_provider
+            )
+            await executor.execute(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                message_id=message_id,
+                files=files,
+                message=message,
+                output_type=output_type
+            )
+            return {"pack_id": "content_drafting"}
+        except Exception as e:
+            logger.error(f"Failed to execute content_drafting: {e}", exc_info=True)
+            return None
+
+    def _should_create_new_suggestion_task(
+        self,
+        existing_tasks: List[Task],
+        task_plan
+    ) -> bool:
+        """
+        Determine if a new suggestion task should be created
+
+        Args:
+            existing_tasks: List of existing suggestion tasks with same pack_id
+            task_plan: New task plan to compare against
+
+        Returns:
+            True if new task should be created, False if duplicate exists
+        """
+        if not existing_tasks:
+            return True
+
+        new_params_source = task_plan.params.get('source', '')
+        new_params_files = task_plan.params.get('files', [])
+
+        for existing_task in existing_tasks:
+            existing_params = existing_task.params or {}
+            existing_source = existing_params.get('source', '')
+            existing_files = existing_params.get('files', [])
+
+            # Compare params to determine if tasks are similar
+            source_match = new_params_source == existing_source
+            files_match = set(new_params_files) == set(existing_files)
+
+            # If source and files are the same, consider it a duplicate
+            if source_match and files_match:
+                logger.info(f"Found duplicate suggestion task {existing_task.id} for pack {task_plan.pack_id}, skipping creation")
+                return False
+
+        return True
+
+    async def _create_suggestion_card(
+        self,
+        task_plan,
+        workspace_id: str,
+        message_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Create suggestion card for soft_write task"""
+        try:
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+
+            # Check user preference for this pack/task_type
+            from ...services.stores.task_preference_store import TaskPreferenceStore
+            from ...services.mindscape_store import MindscapeStore
+            store = MindscapeStore()
+            preference_store = TaskPreferenceStore(store.db_path)
+
+            # Get workspace to get owner_user_id
+            workspace = store.get_workspace(workspace_id)
+            if workspace:
+                should_auto_suggest = preference_store.should_auto_suggest(
+                    workspace_id=workspace_id,
+                    user_id=workspace.owner_user_id,
+                    pack_id=task_plan.pack_id,
+                    task_type=task_plan.task_type
+                )
+
+                if not should_auto_suggest:
+                    logger.info(
+                        f"Skipping suggestion task creation for pack {task_plan.pack_id} "
+                        f"(auto_suggest disabled by user preference)"
+                    )
+                    return {
+                        "task_id": None,
+                        "timeline_item_id": None,
+                        "pack_id": task_plan.pack_id,
+                        "skipped": True,
+                        "reason": "auto_suggest_disabled"
+                    }
+
+            # Check for existing suggestion tasks with same pack_id
+            existing_tasks = self.tasks_store.find_existing_suggestion_tasks(
+                workspace_id=workspace_id,
+                pack_id=task_plan.pack_id,
+                created_within_hours=1
+            )
+
+            # Check if we should create a new task or reuse existing one
+            if not self._should_create_new_suggestion_task(existing_tasks, task_plan):
+                # Return existing task info instead of creating new one
+                existing_task = existing_tasks[0]
+                logger.info(f"Reusing existing suggestion task {existing_task.id} for pack {task_plan.pack_id}")
+                return {
+                    "task_id": existing_task.id,
+                    "timeline_item_id": None,
+                    "pack_id": task_plan.pack_id,
+                    "is_duplicate": True
+                }
+
+            # Extract LLM analysis from params if available
+            llm_analysis = task_plan.params.get("llm_analysis", {}) if task_plan.params else {}
+
+            # Check if this is a background playbook that auto-executes (doesn't require LLM analysis)
+            # These playbooks run automatically in the background and don't need user confirmation
+            background_playbooks = ["habit_learning"]
+            is_background_playbook = task_plan.pack_id.lower() in [p.lower() for p in background_playbooks]
+
+            # Ensure llm_analysis has all required fields with defaults
+            if not llm_analysis:
+                llm_analysis = {}
+            if "confidence" not in llm_analysis:
+                # Background playbooks don't need LLM confidence, but we still set it to 0.0 to indicate no LLM analysis
+                llm_analysis["confidence"] = 0.0
+            if "reason" not in llm_analysis:
+                # For background playbooks, set a default reason explaining it's auto-executed
+                if is_background_playbook:
+                    llm_analysis["reason"] = "此任務會在背景自動執行，無需 LLM 分析"
+                else:
+                    llm_analysis["reason"] = ""
+            if "content_tags" not in llm_analysis:
+                llm_analysis["content_tags"] = []
+            if "analysis_summary" not in llm_analysis:
+                if is_background_playbook:
+                    llm_analysis["analysis_summary"] = "背景自動執行任務"
+                else:
+                    llm_analysis["analysis_summary"] = ""
+
+            # Mark as background playbook in llm_analysis for frontend to handle differently
+            if is_background_playbook:
+                llm_analysis["is_background"] = True
+
+            suggestion_task = Task(
+                id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
+                message_id=message_id,
+                execution_id=None,
+                pack_id=task_plan.pack_id,
+                task_type="suggestion",
+                status=TaskStatus.PENDING,
+                params=task_plan.params,
+                result={
+                    "suggestion": True,
+                    "pack_id": task_plan.pack_id,
+                    "requires_cta": True,
+                    "llm_analysis": llm_analysis  # Include LLM analysis in result for frontend
+                },
+                created_at=datetime.utcnow(),
+                started_at=None,
+                completed_at=None,
+                error=None
+            )
+            self.tasks_store.create_task(suggestion_task)
+            logger.info(f"ExecutionCoordinator: Created suggestion task {suggestion_task.id} (status=PENDING) for {task_plan.pack_id}")
+            print(f"ExecutionCoordinator: Created suggestion task {suggestion_task.id} (status=PENDING) for {task_plan.pack_id}", file=sys.stderr)
+
+            # Notify about task creation if callback provided
+            if hasattr(self, 'task_event_callback') and self.task_event_callback:
+                try:
+                    self.task_event_callback('created', {
+                        'id': suggestion_task.id,
+                        'pack_id': task_plan.pack_id,
+                        'status': suggestion_task.status.value,
+                        'task_type': suggestion_task.task_type,
+                        'workspace_id': workspace_id
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to call task_event_callback: {e}")
+
+            item_type = TimelineItemType.PLAN
+            cta_action = "execute_pack"
+            cta_label = i18n.t("conversation_orchestrator", "suggestion.cta_add")
+
+            pack_id_lower = task_plan.pack_id.lower()
+            if "semantic_seeds" in pack_id_lower or "intent" in pack_id_lower:
+                item_type = TimelineItemType.INTENT_SEEDS
+                cta_action = "add_to_intents"
+            elif "daily_planning" in pack_id_lower or "habit_learning" in pack_id_lower or "task" in pack_id_lower or "plan" in pack_id_lower:
+                item_type = TimelineItemType.PLAN
+                cta_action = "add_to_tasks"
+
+            suggestion_message = await self.message_generator.generate_suggestion_message(
+                pack_id=task_plan.pack_id,
+                task_result=suggestion_task.result,
+                timeline_item={
+                    "title": f"Suggested: {task_plan.pack_id}",
+                    "summary": "",
+                    "data": task_plan.params
+                },
+                locale=self.default_locale
+            )
+
+            # Don't create TimelineItem for suggestions - they should only appear in Timeline after execution
+            # The suggestion task will show in PendingTasksPanel, and when user clicks CTA,
+            # a new TimelineItem will be created by CTAHandler after execution
+            logger.info(f"ExecutionCoordinator: Created suggestion task (no TimelineItem) for soft_write task: {task_plan.pack_id}, requires CTA")
+            print(f"ExecutionCoordinator: Created suggestion task (no TimelineItem) for soft_write task: {task_plan.pack_id}", file=sys.stderr)
+
+            return {
+                "task_id": suggestion_task.id,
+                "timeline_item_id": None,
+                "pack_id": task_plan.pack_id
+            }
+        except Exception as e:
+            logger.error(f"Failed to create suggestion card: {e}", exc_info=True)
+            return None
+
+    async def execute_playbook(
+        self,
+        playbook_code: str,
+        playbook_context: Dict[str, Any],
+        workspace_id: str,
+        profile_id: str,
+        message_id: str,
+        project_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Execute playbook based on side_effect_level
+
+        Args:
+            playbook_code: Playbook code
+            playbook_context: Playbook context
+            workspace_id: Workspace ID
+            profile_id: User profile ID
+            message_id: Message/event ID
+            project_id: Optional project ID
+
+        Returns:
+            Dict with execution result
+        """
+        ctx = ExecutionContext(
+            actor_id=profile_id,
+            workspace_id=workspace_id,
+            tags={"mode": "local"}
+        )
+        return await self.create_execution_with_ctx(
+            playbook_code=playbook_code,
+            playbook_context=playbook_context,
+            ctx=ctx,
+            message_id=message_id,
+            project_id=project_id
+        )
+
+    async def create_execution_with_ctx(
+        self,
+        playbook_code: str,
+        playbook_context: Dict[str, Any],
+        ctx: ExecutionContext,
+        message_id: str,
+        project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create execution based on side_effect_level and from_suggestion_action flag
+
+        Args:
+            playbook_code: Playbook code
+            playbook_context: Playbook context (may contain from_suggestion_action flag)
+            ctx: Execution context
+            message_id: Message/event ID
+            project_id: Optional project ID
+
+        Returns:
+            Dict with execution result (status: "started" or "suggestion")
+        """
+        # Determine side_effect_level
+        side_effect_level = self.plan_builder.determine_side_effect_level(playbook_code)
+
+        # Check if this is from suggestion action (user confirmed execution)
+        from_suggestion_action = playbook_context.get("from_suggestion_action", False)
+
+        logger.info(f"ExecutionCoordinator.create_execution_with_ctx: playbook={playbook_code}, side_effect_level={side_effect_level}, from_suggestion_action={from_suggestion_action}")
+
+        # If from_suggestion_action=True, execute directly (user confirmed)
+        # Otherwise, check side_effect_level
+        if from_suggestion_action:
+            # User confirmed execution, execute directly regardless of side_effect_level
+            logger.info(f"ExecutionCoordinator: Executing playbook {playbook_code} directly (user confirmed from suggestion)")
+            result = await self._execute_readonly_playbook(
+                playbook_code=playbook_code,
+                playbook_context=playbook_context,
+                ctx=ctx,
+                message_id=message_id,
+                project_id=project_id
+            )
+            return {
+                "status": "started",
+                "execution_id": result.get("execution_id"),
+                "task_id": result.get("task_id")
+            }
+        elif side_effect_level == SideEffectLevel.READONLY:
+            # READONLY: execute directly
+            logger.info(f"ExecutionCoordinator: Executing READONLY playbook {playbook_code} directly")
+            result = await self._execute_readonly_playbook(
+                playbook_code=playbook_code,
+                playbook_context=playbook_context,
+                ctx=ctx,
+                message_id=message_id,
+                project_id=project_id
+            )
+            return {
+                "status": "started",
+                "execution_id": result.get("execution_id"),
+                "task_id": result.get("task_id")
+            }
+        else:
+            # SOFT_WRITE or EXTERNAL_WRITE: create suggestion card
+            logger.info(f"ExecutionCoordinator: Creating suggestion card for {side_effect_level} playbook {playbook_code}")
+            result = await self._create_playbook_suggestion(
+                playbook_code=playbook_code,
+                playbook_context=playbook_context,
+                ctx=ctx,
+                message_id=message_id
+            )
+            return {
+                "status": "suggestion",
+                "task_id": result.get("task_id")
+            }
+
+    async def _execute_readonly_playbook(
+        self,
+        playbook_code: str,
+        playbook_context: Dict[str, Any],
+        ctx: ExecutionContext,
+        message_id: str,
+        project_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """Execute readonly playbook automatically"""
+        try:
+            playbook_inputs = playbook_context.copy()
+            playbook_inputs["workspace_id"] = ctx.workspace_id
+
+            execution_result = await self.playbook_runner.start_playbook_execution(
+                playbook_code=playbook_code,
+                profile_id=ctx.actor_id,
+                inputs=playbook_inputs,
+                workspace_id=ctx.workspace_id
+            )
+
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+
+            assistant_response = execution_result.get(
+                "message",
+                i18n.t("conversation_orchestrator", "workflow.started", playbook_code=playbook_code)
+            )
+
+            assistant_event = MindEvent(
+                id=str(uuid.uuid4()),
+                timestamp=datetime.utcnow(),
+                actor=EventActor.ASSISTANT,
+                channel="local_workspace",
+                profile_id=ctx.actor_id,
+                project_id=project_id,
+                workspace_id=ctx.workspace_id,
+                event_type=EventType.MESSAGE,
+                payload={
+                    "message": assistant_response,
+                    "response_to": message_id,
+                    "playbook_code": playbook_code
+                },
+                entity_ids=[],
+                metadata={}
+            )
+            self.store.create_event(assistant_event)
+
+            execution_id = execution_result.get("execution_id")
+
+            # Determine trigger source
+            trigger_source = "manual"
+            if playbook_context.get("suggestion_id"):
+                trigger_source = "suggestion"
+            elif playbook_context.get("auto_execute"):
+                trigger_source = "auto"
+
+            # Get confirmed intent if available
+            origin_intent_id = None
+            origin_intent_label = None
+            intent_confidence = None
+            if playbook_context.get("confirmed_intent_id"):
+                from ...services.stores.intent_tags_store import IntentTagsStore
+                intent_tags_store = IntentTagsStore(db_path=self.store.db_path)
+                intent_tag = intent_tags_store.get_intent_tag(playbook_context["confirmed_intent_id"])
+                if intent_tag and intent_tag.status.value == "confirmed":
+                    origin_intent_id = intent_tag.id
+                    origin_intent_label = intent_tag.label
+                    intent_confidence = intent_tag.confidence
+
+            # Calculate total_steps from playbook if not provided
+            total_steps = playbook_context.get("total_steps", 0)
+            if total_steps == 0:
+                # Try to get steps count from playbook YAML
+                try:
+                    from ...services.playbook_loader import PlaybookLoader
+                    import yaml
+                    from pathlib import Path
+                    playbook_loader = PlaybookLoader()
+                    playbook = playbook_loader.get_playbook_by_code(playbook_code)
+                    if playbook:
+                        # Try to load the YAML file directly to get steps count
+                        # Find the playbook file
+                        app_dir = Path(__file__).parent.parent.parent
+                        # Try capability packs first
+                        cap_dirs = [
+                            app_dir / "capabilities" / playbook_code.split('_')[0] / "playbooks",
+                            app_dir / "capabilities" / playbook_code / "playbooks"
+                        ]
+                        yaml_file = None
+                        for cap_dir in cap_dirs:
+                            if cap_dir.exists():
+                                for yf in cap_dir.glob('*.yaml'):
+                                    # Check if this file contains the playbook_code
+                                    try:
+                                        with open(yf, 'r', encoding='utf-8') as f:
+                                            yaml_data = yaml.safe_load(f)
+                                            if yaml_data and (yaml_data.get('code') == playbook_code or yaml_data.get('playbook_code') == playbook_code):
+                                                yaml_file = yf
+                                                break
+                                    except Exception:
+                                        continue
+                                if yaml_file:
+                                    break
+
+                        if yaml_file:
+                            with open(yaml_file, 'r', encoding='utf-8') as f:
+                                yaml_data = yaml.safe_load(f)
+                                if yaml_data and 'steps' in yaml_data:
+                                    steps = yaml_data['steps']
+                                    if isinstance(steps, list):
+                                        total_steps = len(steps)
+                                    else:
+                                        total_steps = 1
+                                else:
+                                    total_steps = 1
+                        else:
+                            # Fallback: default to 1 for markdown playbooks or if we can't find YAML
+                            total_steps = 1
+                except Exception as e:
+                    logger.warning(f"Failed to get step count from playbook: {e}")
+                    total_steps = 1  # Default to 1 if we can't determine
+
+            # Build execution_context
+            execution_context = {
+                "playbook_code": playbook_code,
+                "playbook_version": playbook_context.get("playbook_version"),
+                "trigger_source": trigger_source,
+                "current_step_index": 0,
+                "total_steps": total_steps,
+                "paused_at": None,
+                "origin_intent_id": origin_intent_id,
+                "origin_intent_label": origin_intent_label,
+                "intent_confidence": intent_confidence,
+                "origin_suggestion_id": playbook_context.get("suggestion_id"),
+                "initiator_user_id": ctx.actor_id,
+                "failure_type": None,
+                "failure_reason": None,
+                "default_cluster": playbook_context.get("default_cluster", "local_mcp")
+            }
+
+            # Merge ctx.tags if available (for future cloud support)
+            if ctx.tags:
+                execution_context.update(ctx.tags)
+
+            task = Task(
+                id=str(uuid.uuid4()) if not execution_id else execution_id,
+                workspace_id=ctx.workspace_id,
+                message_id=message_id,
+                execution_id=execution_id or str(uuid.uuid4()),
+                pack_id=playbook_code,
+                task_type="playbook_execution",
+                status=TaskStatus.RUNNING,
+                params={
+                    "playbook_code": playbook_code,
+                    "context": playbook_context
+                },
+                result=None,
+                execution_context=execution_context,
+                created_at=datetime.utcnow(),
+                started_at=datetime.utcnow(),
+                completed_at=None,
+                error=None
+            )
+            self.tasks_store.create_task(task)
+
+            # Notify about task creation if callback provided
+            if hasattr(self, 'task_event_callback') and self.task_event_callback:
+                try:
+                    self.task_event_callback('created', {
+                        'id': task.id,
+                        'pack_id': playbook_code,
+                        'status': task.status.value,
+                        'task_type': task.task_type,
+                        'workspace_id': ctx.workspace_id
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to call task_event_callback: {e}")
+
+            await self.task_manager.check_and_update_task_status(
+                task=task,
+                execution_id=execution_id,
+                playbook_code=playbook_code
+            )
+
+            return {
+                "status": "started",
+                "playbook_code": playbook_code,
+                "execution_id": execution_id,
+                "message": assistant_response
+            }
+        except Exception as e:
+            logger.error(f"Failed to start playbook {playbook_code}: {e}", exc_info=True)
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+            return {
+                "status": "failed",
+                "playbook_code": playbook_code,
+                "error": str(e),
+                "message": i18n.t("conversation_orchestrator", "workflow.failed", playbook_code=playbook_code, error=str(e))
+            }
+
+    async def _create_playbook_suggestion(
+        self,
+        playbook_code: str,
+        playbook_context: Dict[str, Any],
+        ctx: ExecutionContext,
+        message_id: str
+    ) -> Dict[str, Any]:
+        """Create suggestion card for soft_write playbook"""
+        try:
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+
+            # Extract LLM analysis from playbook_context if available
+            # playbook_context may contain llm_analysis from workbench suggestions
+            # Also check if llm_analysis is at top level of playbook_context
+            llm_analysis = {}
+            if playbook_context:
+                # Try to get from top level first (from workbench suggestions)
+                llm_analysis = playbook_context.get("llm_analysis", {})
+                # If not found, try to get from nested context
+                if not llm_analysis and isinstance(playbook_context.get("context"), dict):
+                    llm_analysis = playbook_context.get("context", {}).get("llm_analysis", {})
+
+            # Check if this is a background playbook that auto-executes (doesn't require LLM analysis)
+            # These playbooks run automatically in the background and don't need user confirmation
+            background_playbooks = ["habit_learning"]
+            is_background_playbook = playbook_code.lower() in [p.lower() for p in background_playbooks]
+
+            # Ensure llm_analysis has all required fields with defaults
+            if not llm_analysis or not isinstance(llm_analysis, dict):
+                llm_analysis = {}
+            if "confidence" not in llm_analysis:
+                # Background playbooks don't need LLM confidence, but we still set it to 0.0 to indicate no LLM analysis
+                llm_analysis["confidence"] = 0.0
+            if "reason" not in llm_analysis:
+                # For background playbooks, set a default reason explaining it's auto-executed
+                if is_background_playbook:
+                    llm_analysis["reason"] = "此任務會在背景自動執行，無需 LLM 分析"
+                else:
+                    llm_analysis["reason"] = ""
+            if "content_tags" not in llm_analysis:
+                llm_analysis["content_tags"] = []
+            if "analysis_summary" not in llm_analysis:
+                if is_background_playbook:
+                    llm_analysis["analysis_summary"] = "背景自動執行任務"
+                else:
+                    llm_analysis["analysis_summary"] = ""
+
+            # Mark as background playbook in llm_analysis for frontend to handle differently
+            if is_background_playbook:
+                llm_analysis["is_background"] = True
+
+            logger.info(f"ExecutionCoordinator: Extracted llm_analysis for playbook {playbook_code}: confidence={llm_analysis.get('confidence', 0.0):.2f}, tags={len(llm_analysis.get('content_tags', []))}, reason={bool(llm_analysis.get('reason'))}")
+
+            suggestion_task = Task(
+                id=str(uuid.uuid4()),
+                workspace_id=ctx.workspace_id,
+                message_id=message_id,
+                execution_id=None,
+                pack_id=playbook_code,
+                task_type="suggestion",
+                status=TaskStatus.PENDING,
+                params={
+                    "playbook_code": playbook_code,
+                    "context": playbook_context,
+                    "llm_analysis": llm_analysis
+                },
+                result={
+                    "suggestion": True,
+                    "playbook_code": playbook_code,
+                    "requires_cta": True,
+                    "llm_analysis": llm_analysis
+                },
+                created_at=datetime.utcnow(),
+                started_at=None,
+                completed_at=None,
+                error=None
+            )
+            self.tasks_store.create_task(suggestion_task)
+
+            item_type = TimelineItemType.PLAN
+            cta_action = "execute_playbook"
+            cta_label = i18n.t("conversation_orchestrator", "suggestion.cta_add")
+
+            playbook_lower = playbook_code.lower()
+            if "semantic_seeds" in playbook_lower or "intent" in playbook_lower:
+                item_type = TimelineItemType.INTENT_SEEDS
+                cta_action = "add_to_intents"
+            elif "habit_learning" in playbook_lower or "task" in playbook_lower or "plan" in playbook_lower:
+                item_type = TimelineItemType.PLAN
+                cta_action = "add_to_tasks"
+
+            # Don't create TimelineItem for suggestions - they should only appear in Timeline after execution
+            # The suggestion task will show in PendingTasksPanel, and when user clicks CTA,
+            # a new TimelineItem will be created by CTAHandler after execution
+            # suggestion_timeline_item = TimelineItem(...)  # Removed - don't create TimelineItem for suggestions
+
+            return {
+                "status": "suggestion",
+                "playbook_code": playbook_code,
+                "task_id": suggestion_task.id,
+                "timeline_item_id": None,  # No timeline item for suggestions until executed
+                "message": i18n.t("conversation_orchestrator", "suggestion.add_to_mindscape")
+            }
+        except Exception as e:
+            logger.error(f"Failed to create playbook suggestion: {e}", exc_info=True)
+            return {"status": "error", "error": str(e)}
+
+
