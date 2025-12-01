@@ -1,0 +1,147 @@
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mindscape-local-core-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Database
+      - DATABASE_URL=sqlite:///./data/mindscape.db
+      # PostgreSQL for vector storage (optional)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-mindscape_vectors}
+      - POSTGRES_USER=${POSTGRES_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mindscape_password}
+      # Security
+      - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-dev-secret-key-change-in-production}
+      # LLM Providers (configure these in .env file)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # LLM Intent Extractor
+      - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
+      # Timezone
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./backend:/app/backend:rw
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - mindscape-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Web Console
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: mindscape-local-core-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./web-console/src:/app/src:ro
+      - ./web-console/tsconfig.json:/app/tsconfig.json:ro
+      - ./web-console/next.config.js:/app/next.config.js:ro
+      - ./web-console/tailwind.config.js:/app/tailwind.config.js:ro
+      - ./web-console/postcss.config.js:/app/postcss.config.js:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    command: npm run dev
+    networks:
+      - mindscape-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # PostgreSQL with pgvector for vector storage (optional)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mindscape-local-core-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-mindscape_vectors}
+      - POSTGRES_USER=${POSTGRES_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mindscape_password}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - TZ=${TZ:-UTC}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - mindscape-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mindscape}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # OCR Service (Local PaddleOCR)
+  ocr-service:
+    build:
+      context: ./ocr-service
+      dockerfile: Dockerfile
+    container_name: mindscape-local-core-ocr
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - OCR_USE_GPU=${OCR_USE_GPU:-false}
+      - OCR_LANG=${OCR_LANG:-ch}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./data:/app/data:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - mindscape-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  mindscape-network:
+    driver: bridge
+    name: mindscape-network
+
