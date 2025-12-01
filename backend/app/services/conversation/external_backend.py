@@ -1,13 +1,13 @@
 """
 External Backend Protocol Interface
 
-Defines the protocol interface for external backend services (e.g., Site-Hub).
+Defines the protocol interface for external backend services.
 Mindscape core only recognizes this protocol and does not know specific implementations.
 
 Key Principles:
 - Mindscape core only knows this protocol, not specific implementations
-- All cloud services (site-hub, semantic-hub, custom tools) implement this protocol as plugins
-- Core has no site-hub hardcoding
+- All external services (cloud backends, custom tools) implement this protocol as plugins
+- Core has no hardcoding of specific backend implementations
 """
 
 import logging
@@ -241,9 +241,9 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
     try:
         # Dynamically load plugin package
         # Try multiple import strategies:
-        # 1. Relative import (for built-in backends like .site_hub_backend)
-        # 2. Absolute import (for external packages like mindscape_external_site_hub)
-        # 3. Built-in backend shortcut (site_hub_backend → .site_hub_backend)
+        # 1. Relative import (for built-in backends like .mock_external_backend)
+        # 2. Absolute import (for external packages like mindscape_external_backend)
+        # 3. Built-in backend shortcut (mock_external_backend → .mock_external_backend)
 
         module = None
 
@@ -253,7 +253,7 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
             current_package = __name__.rsplit(".", 1)[0]  # Get package name
             module = importlib.import_module(driver, package=current_package)
         # Strategy 2: Built-in backend shortcuts
-        elif driver in ["site_hub_backend", "mock_external_backend"]:
+        elif driver in ["mock_external_backend"]:
             # Use current module's package for relative imports
             current_package = __name__.rsplit(".", 1)[0]  # Get package name
             module = importlib.import_module(f".{driver}", package=current_package)
