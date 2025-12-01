@@ -38,13 +38,42 @@ See [Architecture Documentation](./docs/architecture/) for details.
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Option 1: Docker Deployment (Recommended)
+
+The easiest way to get started is using Docker:
+
+```bash
+# Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# Create .env file with your API keys
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY or ANTHROPIC_API_KEY
+
+# Start all services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+```
+
+Access the application:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+
+See [Docker Deployment Guide](./docs/getting-started/docker.md) for detailed instructions.
+
+### Option 2: Manual Installation
+
+#### Prerequisites
 
 - Python 3.9+
 - Node.js 18+ (for frontend)
 - SQLite (included with Python)
 
-### Installation
+#### Installation
 
 ```bash
 # Clone the repository
@@ -60,7 +89,7 @@ cd ../web-console
 npm install
 ```
 
-### Running
+#### Running
 
 ```bash
 # Start backend (from backend directory)
@@ -73,11 +102,13 @@ npm run dev
 
 Visit `http://localhost:3000` to access the web interface.
 
-For a more detailed setup guide, see [QUICKSTART.md](./QUICKSTART.md).
+For a more detailed setup guide, see [QUICKSTART.md](./QUICKSTART.md) or [Installation Guide](./docs/getting-started/installation.md).
 
 ## 📚 Documentation
 
 - [Getting Started](./docs/getting-started/quick-start.md) - Installation and setup guide
+- [Docker Deployment](./docs/getting-started/docker.md) - Deploy using Docker Compose
+- [Installation Guide](./docs/getting-started/installation.md) - Manual installation instructions
 - [Architecture Overview](./docs/architecture/port-architecture.md) - System architecture and design patterns
 - [Playbooks & Multi-step Workflows](./docs/architecture/playbooks-and-workflows.md) - Playbook architecture and workflow execution
 - [Memory & Intent Architecture](./docs/architecture/memory-intent-architecture.md) - Event, intent, and memory layer design

@@ -2,6 +2,8 @@
 
 This guide will help you install and set up Mindscape AI Local Core on **Windows**, **macOS**, and **Linux**.
 
+> **💡 Quick Start**: For the easiest setup, consider using [Docker Deployment](./docker.md) instead of manual installation.
+
 ## Prerequisites
 
 ### Required (All Platforms)
@@ -49,6 +51,23 @@ You need an API key from at least one LLM provider:
 - **Google Vertex AI** (alternative) - Supports Gemini models
 
 > **Note**: See [LLM Provider Configuration Guide](../guides/llm-providers.md) for detailed setup instructions.
+
+## Installation Methods
+
+### Method 1: Docker Deployment (Recommended)
+
+The easiest way to deploy Mindscape AI Local Core is using Docker Compose. See the [Docker Deployment Guide](./docker.md) for complete instructions.
+
+**Quick start:**
+```bash
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+docker compose up -d
+```
+
+### Method 2: Manual Installation
+
+Follow the steps below for manual installation on your system.
 
 ## Installation Steps
 
