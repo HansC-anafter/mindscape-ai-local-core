@@ -87,7 +87,7 @@ export function BasicSettingsPanel() {
                   <p className="text-sm text-gray-500">{t('localLLMDescription')}</p>
                 </div>
               </label>
-              <label className="flex items-center">
+              <label className="flex items-center opacity-50">
                 <input
                   type="radio"
                   name="mode"
@@ -95,10 +95,11 @@ export function BasicSettingsPanel() {
                   checked={mode === 'remote_crs'}
                   onChange={(e) => setMode(e.target.value)}
                   className="mr-2"
+                  disabled
                 />
                 <div>
                   <span className="font-medium">{t('remoteAgentService')}</span>
-                  <p className="text-sm text-gray-500">{t('remoteAgentServiceDescription')}</p>
+                  <p className="text-sm text-gray-500">{t('remoteAgentServiceDescription')} (Not available in local-only version)</p>
                 </div>
               </label>
             </div>
