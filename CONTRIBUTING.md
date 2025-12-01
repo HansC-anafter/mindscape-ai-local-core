@@ -1,6 +1,6 @@
 # Contributing to Mindscape AI Local Core
 
-Thank you for your interest in contributing to Mindscape AI Local Core!
+Thank you for your interest in contributing to the `mindscape-ai-local-core` repository!
 
 ## Code of Conduct
 

@@ -139,10 +139,10 @@ class UserConfig(BaseModel):
 
 
 class UpdateBackendConfigRequest(BaseModel):
-    """更新 Backend 配置请求"""
+    """Request to update Backend configuration"""
     mode: str = Field(
         ...,
-        description="Backend 模式：local | http_remote"
+        description="Backend mode: local | http_remote"
     )
 
     # Local mode configuration
@@ -158,18 +158,18 @@ class UpdateBackendConfigRequest(BaseModel):
 
 
 class AddRemoteBackendRequest(BaseModel):
-    """添加远端 Backend 请求"""
+    """Request to add remote Backend"""
     config: RemoteBackendConfig
 
 
 class SetActiveBackendRequest(BaseModel):
-    """设置当前 Backend 请求"""
+    """Request to set active Backend"""
     backend_type: str = Field(
         ...,
-        description="Backend 类型：local | http_remote"
+        description="Backend type: local | http_remote"
     )
 
     backend_name: Optional[str] = Field(
         None,
-        description="Backend 名称（用于 http_remote）"
+        description="Backend name (for http_remote)"
     )

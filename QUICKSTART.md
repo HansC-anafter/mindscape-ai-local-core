@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-This guide will help you get Mindscape AI Local Core up and running quickly.
+This guide will help you get the `mindscape-ai-local-core` repository up and running quickly.
 
 ## Prerequisites
 
@@ -13,8 +13,8 @@ This guide will help you get Mindscape AI Local Core up and running quickly.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/mindscape-local-core.git
-cd mindscape-local-core
+git clone https://github.com/your-org/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
 ```
 
 ### 2. Install Backend Dependencies
@@ -104,7 +104,7 @@ The frontend will start at `http://localhost:3000`.
 
 ## Getting Help
 
-- Check [GitHub Issues](https://github.com/your-org/mindscape-local-core/issues)
+- Check [GitHub Issues](https://github.com/your-org/mindscape-ai-local-core/issues)
 - Read the [Documentation](docs/README.md)
 - Open a new issue for bugs or questions
 

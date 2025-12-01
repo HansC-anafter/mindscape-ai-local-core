@@ -2,15 +2,16 @@
 title: Playbooks & Multi-step Workflow Architecture
 status: public-draft-v1
 last_updated: 2025-12-02
+repo: mindscape-ai-local-core
 ---
 
 # Playbooks & Multi-step Workflow Architecture
 
-This document explains how **Playbooks** and **multi-step workflows** work in Mindscape AI, using concepts that should feel familiar if you've used tools like LangChain, Claude Skills, GitHub Actions, or n8n.
+This document explains how **Playbooks** and **multi-step workflows** work inside the `mindscape-ai-local-core` repository – the local workspace engine of Mindscape AI.
 
-It's meant for **open-source contributors and plugin authors**.
-If you're looking for the low-level internal spec, see the internal doc
-`MULTI_STEP_WORKFLOW_ARCHITECTURE_2025-12-01.md` (not published here).
+If you've used tools like LangChain, Claude Skills, GitHub Actions, or n8n, the ideas here should feel familiar: we separate "talking to humans" from "running workflows", and we make those workflows **explicit and reusable** via Playbooks.
+
+This doc is meant for **open-source contributors and plugin authors**. If you're looking for the low-level internal spec, see the internal design doc `MULTI_STEP_WORKFLOW_ARCHITECTURE_2025-12-01.md` (kept out of the public repo).
 
 ---
 
@@ -27,7 +28,7 @@ Large language models are good at answering questions, but:
   - **stateful**
   - often require **tools** and **APIs**, not just text.
 
-Mindscape AI's answer is:
+The local core (`mindscape-ai-local-core`) solves this by introducing:
 
 > **Playbooks**: reusable, inspectable workflows that the LLM can _invoke_,
 > instead of reinventing a new ad-hoc plan on every prompt.
@@ -36,7 +37,7 @@ Mindscape AI's answer is:
 
 ## 2. Mental model (high level)
 
-At a high level, we separate two concerns:
+In `mindscape-ai-local-core`, we separate two concerns:
 
 1. **Talking to humans**
    – understanding what the user wants, explaining what will happen, summarizing results.

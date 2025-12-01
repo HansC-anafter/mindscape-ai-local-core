@@ -436,7 +436,7 @@ class ExecutionChatMessage(BaseModel):
     execution_id: str = Field(..., description="Associated execution ID")
     step_id: Optional[str] = Field(None, description="Optional: step ID this message is about")
     role: Literal["user", "assistant", "agent"] = Field(..., description="Message role")
-    speaker: Optional[str] = Field(None, description="Speaker name (e.g., 'Hans', '研究員', '編劇助手')")
+    speaker: Optional[str] = Field(None, description="Speaker name (e.g., 'Hans', 'Researcher', 'Script Assistant')")
     content: str = Field(..., description="Message content")
     message_type: ExecutionChatMessageType = Field(
         default=ExecutionChatMessageType.QUESTION,

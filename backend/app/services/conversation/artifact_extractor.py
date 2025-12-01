@@ -456,7 +456,7 @@ class ArtifactExtractor:
                 execution_result.get("document_title") or
                 (raw_summary.split('\n')[0][:100] if raw_summary else None) or
                 (raw_content.split('\n')[0][:100] if raw_content else None) or
-                "內容摘要"
+                "Content Summary"
             )
 
             # Extract meaningful summary
@@ -468,9 +468,9 @@ class ArtifactExtractor:
                 if content_lines:
                     summary = content_lines[0][:200] if len(content_lines[0]) > 200 else content_lines[0]
                 else:
-                    summary = "已生成內容摘要"
+                    summary = "Content summary generated"
             else:
-                summary = "已生成內容摘要"
+                summary = "Content summary generated"
 
             # Format summary content
             summary_content = raw_summary or raw_content or summary
@@ -1019,7 +1019,7 @@ class ArtifactExtractor:
         return storage_path
 
     def _get_allowed_directories(self) -> List[str]:
-        """獲取允許目錄列表（重用 workspace.py 中的函數）"""
+        """Get allowed directories list (reuse function from workspace.py)"""
         from ...routes.workspace import _get_allowed_directories
         return _get_allowed_directories()
 
@@ -1028,20 +1028,20 @@ class ArtifactExtractor:
         path: Path,
         allowed_directories: List[str]
     ) -> bool:
-        """驗證路徑是否在允許目錄內（重用 workspace.py 中的函數）"""
+        """Validate if path is within allowed directories (reuse function from workspace.py)"""
         from ...routes.workspace import _validate_path_in_allowed_directories
         return _validate_path_in_allowed_directories(path, allowed_directories)
 
     def _sanitize_filename(self, filename: str, max_length: int = 200) -> str:
         """
-        清理檔名，移除非法字元、保留字，確保跨平台兼容性
+        Sanitize filename, remove illegal characters and reserved names, ensure cross-platform compatibility
 
         Args:
-            filename: 原始檔名
-            max_length: 最大長度（預設 200）
+            filename: Original filename
+            max_length: Maximum length (default 200)
 
         Returns:
-            清理後的檔名
+            Sanitized filename
         """
         import re
         import platform
@@ -1092,20 +1092,20 @@ class ArtifactExtractor:
         extension: Optional[str] = None
     ) -> str:
         """
-        生成產物檔名
+        Generate artifact filename
 
-        格式：<slug>-v<序號>-<timestamp>.<ext>
+        Format: <slug>-v<version>-<timestamp>.<ext>
 
         Args:
             workspace_id: Workspace ID
-            playbook_code: Playbook 代碼
-            artifact_type: 產物類型
-            title: 產物標題（用於生成 slug）
-            version: 版本號（如果為 None，則從 DB 查詢最新版本）
-            extension: 副檔名（如果為 None，則根據 artifact_type 推斷）
+            playbook_code: Playbook code
+            artifact_type: Artifact type
+            title: Artifact title (used to generate slug)
+            version: Version number (if None, query latest version from DB)
+            extension: File extension (if None, infer from artifact_type)
 
         Returns:
-            檔名字符串（已清理非法字元）
+            Filename string (sanitized, illegal characters removed)
         """
         # Generate slug from title
         import re
@@ -1333,22 +1333,22 @@ class ArtifactExtractor:
         force: bool = False
     ) -> Dict[str, Any]:
         """
-        檢查檔案衝突
+        Check file conflict
 
-        檢查目標路徑是否已存在檔案，如果存在則：
-        - force=False: 自動生成新版本號，建議使用新檔名
-        - force=True: 返回衝突標記，允許強制覆蓋（需要前端確認）
+        Check if target path already exists. If it exists:
+        - force=False: Automatically generate new version number, suggest using new filename
+        - force=True: Return conflict flag, allow forced overwrite (requires frontend confirmation)
 
         Args:
-            target_path: 目標檔案路徑
-            workspace_id: Workspace ID（用於查詢版本號）
-            playbook_code: Playbook 代碼（用於查詢版本號）
-            artifact_type: 產物類型（用於查詢版本號）
-            force: 是否強制覆蓋（默認 False）
+            target_path: Target file path
+            workspace_id: Workspace ID (used to query version number)
+            playbook_code: Playbook code (used to query version number)
+            artifact_type: Artifact type (used to query version number)
+            force: Whether to force overwrite (default False)
 
         Returns:
             Dict with keys:
-            - has_conflict: bool, 是否存在衝突
+            - has_conflict: bool, whether conflict exists
             - suggested_version: Optional[int], Suggested version number (None if no conflict or forced overwrite)
         """
         if not target_path.exists():

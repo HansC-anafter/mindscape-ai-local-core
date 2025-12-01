@@ -825,14 +825,14 @@ class ExecutionCoordinator:
             if "reason" not in llm_analysis:
                 # For background playbooks, set a default reason explaining it's auto-executed
                 if is_background_playbook:
-                    llm_analysis["reason"] = "此任務會在背景自動執行，無需 LLM 分析"
+                    llm_analysis["reason"] = "This task will be executed automatically in the background, no LLM analysis needed"
                 else:
                     llm_analysis["reason"] = ""
             if "content_tags" not in llm_analysis:
                 llm_analysis["content_tags"] = []
             if "analysis_summary" not in llm_analysis:
                 if is_background_playbook:
-                    llm_analysis["analysis_summary"] = "背景自動執行任務"
+                    llm_analysis["analysis_summary"] = "Background auto-execution task"
                 else:
                     llm_analysis["analysis_summary"] = ""
 
@@ -1264,14 +1264,14 @@ class ExecutionCoordinator:
             if "reason" not in llm_analysis:
                 # For background playbooks, set a default reason explaining it's auto-executed
                 if is_background_playbook:
-                    llm_analysis["reason"] = "此任務會在背景自動執行，無需 LLM 分析"
+                    llm_analysis["reason"] = "This task will be executed automatically in the background, no LLM analysis needed"
                 else:
                     llm_analysis["reason"] = ""
             if "content_tags" not in llm_analysis:
                 llm_analysis["content_tags"] = []
             if "analysis_summary" not in llm_analysis:
                 if is_background_playbook:
-                    llm_analysis["analysis_summary"] = "背景自動執行任務"
+                    llm_analysis["analysis_summary"] = "Background auto-execution task"
                 else:
                     llm_analysis["analysis_summary"] = ""
 

@@ -586,7 +586,7 @@ async def workspace_chat(
                                 logger.info(f"Final system message contains - Intents: {'Active Intents' in system_msg_content}, Tasks: {'Current Tasks' in system_msg_content}, History: {'Recent Conversation' in system_msg_content}, Timeline: {'Recent Timeline Activity' in system_msg_content}")
                                 # Check for workspace title in context
                                 if workspace:
-                                    logger.info(f"Workspace title in system message: {'設計翹臀不粗腿的主題課程 5 小時' in system_msg_content if workspace.title == '設計翹臀不粗腿的主題課程 5 小時' else 'N/A'}")
+                                    logger.info(f"Workspace title in system message: {workspace.title in system_msg_content if workspace.title else 'N/A'}")
                             else:
                                 logger.warning("No system message found in messages")
                         else:

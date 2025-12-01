@@ -334,9 +334,9 @@ class ContextBuilder:
                         "If this is your first time",
                         "Let me know what you need help with",
                         "can help you:",
-                        "我可以幫助你",
-                        "快速開始",
-                        "建議"
+                        "I can help you",
+                        "Quick start",
+                        "Suggestions"
                     ]
                     # Skip generic welcome messages
                     if role == 'Assistant':
@@ -511,7 +511,7 @@ class ContextBuilder:
         Triggers:
         - High-level Task completed (TASK_COMPLETED with high importance)
         - Intent status transition: in_progress → paused/done
-        - User ending phrases: "好，那今天先到這裡", "這版當成 v1，大致 ok"
+        - User ending phrases: "ok, that's all for today", "let's call this v1, roughly ok"
         - Workspace mode switch
 
         Args:
@@ -552,12 +552,12 @@ class ContextBuilder:
                 message = payload.get('message', '')
                 if message:
                     ending_phrases = [
-                        "好，那今天先到這裡",
-                        "這版當成 v1",
-                        "大致 ok",
-                        "先這樣",
-                        "今天就到這裡",
-                        "先告一段落"
+                        "ok, that's all for today",
+                        "let's call this v1",
+                        "roughly ok",
+                        "that's it for now",
+                        "that's all for today",
+                        "let's wrap up for now"
                     ]
                     message_lower = message.lower()
                     if any(phrase in message_lower for phrase in ending_phrases):
@@ -593,8 +593,7 @@ class ContextBuilder:
         recent_text_lower = recent_text.lower()
 
         importance_keywords = [
-            "決定", "決定用", "就用", "固定", "以後都", "最終版本",
-            "決定", "決定用", "就用", "固定", "以後都", "最終版本",
+            "decided", "decide to use", "use this", "fixed", "always", "final version",
             "preference", "always", "never", "decided", "final", "permanent"
         ]
 
@@ -658,19 +657,19 @@ class ContextBuilder:
                 logger.error("No LLM provider available for summary generation")
                 raise ValueError("No LLM provider available")
 
-            summary_prompt = f"""請為以下對話歷史生成一個簡潔的摘要，重點包括：
-1. 用戶的主要目標和需求
-2. 已完成的進度和成果
-3. 待解決的問題或下一步行動
+            summary_prompt = f"""Please generate a concise summary of the following conversation history, focusing on:
+1. User's main goals and needs
+2. Completed progress and outcomes
+3. Pending issues or next steps
 
-對話歷史：
+Conversation history:
 {conversation_text[:5000]}  # Limit to 5000 chars for summary generation
 
-請用中文生成摘要，控制在 300 字以內。"""
+Please generate the summary in English, keep it within 300 words."""
 
             # Use chat_completion with messages format
             messages = [
-                {"role": "system", "content": "你是一個專業的對話摘要助手，擅長提取關鍵信息和進度。"},
+                {"role": "system", "content": "You are a professional conversation summarization assistant, skilled at extracting key information and progress."},
                 {"role": "user", "content": summary_prompt}
             ]
 

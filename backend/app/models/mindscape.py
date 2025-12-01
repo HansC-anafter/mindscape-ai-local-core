@@ -42,13 +42,13 @@ class ResponseLength(str, Enum):
 
 
 class ReviewPreferences(BaseModel):
-    """年度回顧偏好設定"""
-    cadence: str = Field(default="manual", description="回顧節奏：'manual' | 'weekly' | 'monthly'")
-    day_of_week: int = Field(default=6, ge=0, le=6, description="週幾提醒（0=Mon ... 6=Sun，如果是 weekly）")
-    day_of_month: int = Field(default=28, ge=1, le=31, description="每月幾號提醒（如果是 monthly）")
-    time_of_day: str = Field(default="21:00", description="提醒時間（例如 '21:00' local time）")
-    min_entries: int = Field(default=10, ge=0, description="至少累積幾條 entry 才提醒")
-    min_insight_events: int = Field(default=3, ge=0, description="至少有幾次 'has_insight_signal = True' 才提醒")
+    """Annual review preference settings"""
+    cadence: str = Field(default="manual", description="Review cadence: 'manual' | 'weekly' | 'monthly'")
+    day_of_week: int = Field(default=6, ge=0, le=6, description="Day of week reminder (0=Mon ... 6=Sun, if weekly)")
+    day_of_month: int = Field(default=28, ge=1, le=31, description="Day of month reminder (if monthly)")
+    time_of_day: str = Field(default="21:00", description="Reminder time (e.g., '21:00' local time)")
+    min_entries: int = Field(default=10, ge=0, description="Minimum accumulated entries before reminder")
+    min_insight_events: int = Field(default=3, ge=0, description="Minimum 'has_insight_signal = True' events before reminder")
 
 
 class UserPreferences(BaseModel):
@@ -78,7 +78,7 @@ class UserPreferences(BaseModel):
     )
     review_preferences: ReviewPreferences = Field(
         default_factory=ReviewPreferences,
-        description="年度回顧偏好設定"
+        description="Annual review preference settings"
     )
 
 
@@ -519,7 +519,7 @@ class IntentTag(BaseModel):
     profile_id: str = Field(..., description="Associated profile ID")
 
     # Intent information
-    label: str = Field(..., description="Intent label (e.g., '補助企劃草稿', '12 月行銷企劃規劃支援')")
+    label: str = Field(..., description="Intent label (e.g., 'Grant Proposal Draft', 'December Marketing Plan Support')")
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Confidence score (0-1)")
 
     # Status and source

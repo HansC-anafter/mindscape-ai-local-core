@@ -1,7 +1,7 @@
 """
 Workflow Tracker - Lightweight tracking helper for Playbook execution
 
-Based on the "取長補短" (leverage strengths) design:
+Based on the "leverage strengths" design:
 - ExecutionSession: Task view model (no separate table)
 - ExecutionStep: MindEvent(PLAYBOOK_STEP) view model (no separate table)
 - ToolCall: Independent table (for efficient querying)

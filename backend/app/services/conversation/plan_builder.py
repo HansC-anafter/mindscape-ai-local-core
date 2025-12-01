@@ -424,10 +424,10 @@ class PlanBuilder:
 - Do NOT execute file generation tasks, just inform about available options
 
 **Scenario B: User wants ACTION - actually generate/create something**
-- Examples: "Generate a file for me!" / "Output a file" / "Create a report" / "給我輸出檔案"
+- Examples: "Generate a file for me!" / "Output a file" / "Create a report" / "Export file for me"
 - Your response:
   1. Identify ALL relevant packs that can fulfill the request
-  2. For file generation requests (e.g., "輸出檔案"), consider ALL file-export capable packs:
+  2. For file generation requests (e.g., "export file"), consider ALL file-export capable packs:
      - content_drafting (for .docx/.pdf documents)
      - storyboard (for .pptx presentations)
      - core_export (for general file exports)
@@ -436,8 +436,8 @@ class PlanBuilder:
   4. DO NOT return a single task when multiple packs are relevant
 
 The user message might be:
-1. A direct action request (e.g., "帮我设计课程", "給我輸出檔案")
-2. A description of multiple AI teams/capabilities (e.g., "我有4个团队：课程设计、故事板、项目管理...")
+1. A direct action request (e.g., "Help me design a course", "Export file for me")
+2. A description of multiple AI teams/capabilities (e.g., "I have 4 teams: course design, storyboard, project management...")
 3. A combination of both
 
 **CRITICAL: Also analyze Assistant replies in the conversation history:**
@@ -452,8 +452,8 @@ Your task:
 - If the message describes multiple capabilities/teams, identify ALL of them
 - Map each capability to the appropriate pack from the available packs below
 - **CRITICAL for Scenario B (action requests)**: Return MULTIPLE tasks when the request can be fulfilled by multiple packs
-  - Example: "輸出檔案" → return tasks for: content_drafting, storyboard, core_export (if all are relevant)
-  - Example: "幫我出檔案" → return tasks for ALL file-export capable packs that match the context
+  - Example: "export file" → return tasks for: content_drafting, storyboard, core_export (if all are relevant)
+  - Example: "help me export file" → return tasks for ALL file-export capable packs that match the context
 - Generate one task for each relevant pack
 - **CRITICAL**: pack_id MUST be a valid pack identifier from the available packs list below, NEVER null or empty
 - **IMPORTANT**: The "tasks" array should contain MULTIPLE tasks when the request involves multiple capabilities or when multiple packs can fulfill a single action request. Do NOT return a single task object - always return an array of tasks.
@@ -488,13 +488,13 @@ Execution plan structure (pack_id is REQUIRED and must be valid):
 - The response MUST be a JSON object with a "tasks" key containing an ARRAY
 - The "tasks" array can contain 1 or more task objects
 - NEVER return a single task object directly - it must always be wrapped in {{"tasks": [...]}}
-- If multiple packs are relevant (e.g., "輸出檔案" can use content_drafting, storyboard, core_export), return ALL of them in the tasks array
+- If multiple packs are relevant (e.g., "export file" can use content_drafting, storyboard, core_export), return ALL of them in the tasks array
 
 Important principles:
 1. **pack_id is REQUIRED**: Every task MUST have a valid pack_id from the available packs list. If you cannot find a matching pack, do NOT create a task with null pack_id.
 2. **Semantic understanding**: Understand what the user wants to DO, not just what words they used
 3. **Multiple capabilities**: If the message describes multiple teams/capabilities, create multiple tasks (one for each)
-4. **Completeness for action requests**: Don't miss any capability mentioned in the message. For action requests like "輸出檔案" or "幫我出檔案" (Scenario B), you MUST consider ALL relevant file-export capable packs:
+4. **Completeness for action requests**: Don't miss any capability mentioned in the message. For action requests like "export file" or "help me export file" (Scenario B), you MUST consider ALL relevant file-export capable packs:
    - content_drafting (for .docx/.pdf documents)
    - storyboard (for .pptx presentations)
    - core_export (for general file exports)
@@ -584,28 +584,28 @@ Message analysis hints:
                         "pack_id": "content_drafting",
                         "task_type": "generate_draft",
                         "params": {"source": "message"},
-                        "reason": "Message describes '課程設計團隊' that helps design complete course flow with opening, theory, practice, Q&A - matches content_drafting pack's purpose",
+                        "reason": "Message describes 'course design team' that helps design complete course flow with opening, theory, practice, Q&A - matches content_drafting pack's purpose",
                         "confidence": 0.9
                     },
                     {
                         "pack_id": "storyboard",
                         "task_type": "generate_storyboard",
                         "params": {"source": "message"},
-                        "reason": "Message describes '教學腳本 & Storyboard 團隊' for creating teaching scripts, shot lists, and video content - directly matches storyboard pack",
+                        "reason": "Message describes 'teaching script & Storyboard team' for creating teaching scripts, shot lists, and video content - directly matches storyboard pack",
                         "confidence": 0.85
                     },
                     {
                         "pack_id": "daily_planning",
                         "task_type": "generate_tasks",
                         "params": {"source": "message"},
-                        "reason": "Message describes '課程專案管理 / 活動 PM 團隊' for breaking down projects into tasks, timelines, and checklists - matches daily_planning pack",
+                        "reason": "Message describes 'course project management / event PM team' for breaking down projects into tasks, timelines, and checklists - matches daily_planning pack",
                         "confidence": 0.8
                     },
                     {
                         "pack_id": "habit_learning",
                         "task_type": "generate_plan",
                         "params": {"source": "message"},
-                        "reason": "Message describes '習慣與執行教練團隊' for long-term habit building and continuous execution coaching - matches habit_learning pack",
+                        "reason": "Message describes 'habit and execution coaching team' for long-term habit building and continuous execution coaching - matches habit_learning pack",
                         "confidence": 0.75
                     }
                 ]
@@ -631,7 +631,7 @@ Message analysis hints:
                     logger.warning(f"tasks key not found in extracted_data, keys: {list(extracted_data.keys())}")
 
             if tasks_data and len(tasks_data) == 1:
-                logger.warning(f"LLM returned only 1 task. For requests like '輸出檔案', multiple tasks (content_drafting, storyboard, core_export) should be returned. Current task: {tasks_data[0].get('pack_id')}")
+                logger.warning(f"LLM returned only 1 task. For requests like 'export file', multiple tasks (content_drafting, storyboard, core_export) should be returned. Current task: {tasks_data[0].get('pack_id')}")
 
             logger.info(f"Extracted {len(tasks_data)} tasks from LLM response: {tasks_data}")
             logger.info(f"Available packs: {available_packs}")

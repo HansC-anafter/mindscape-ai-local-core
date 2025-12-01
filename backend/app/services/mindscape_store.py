@@ -107,7 +107,7 @@ class MindscapeStore:
             logger.info("Creating default-user profile...")
             default_profile = MindscapeProfile(
                 id='default-user',
-                name='預設使用者',
+                name='Default User',
                 email=None,
                 roles=[],
                 domains=[],

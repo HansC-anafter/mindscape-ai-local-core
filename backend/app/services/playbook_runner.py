@@ -489,7 +489,7 @@ class PlaybookRunner:
                         "agent_type": None,
                         "used_tools": [],
                         "description": start_message,
-                        "log_summary": f"開始執行 Playbook: {playbook.metadata.name}",
+                        "log_summary": f"Starting Playbook execution: {playbook.metadata.name}",
                         "requires_confirmation": False,
                         "confirmation_status": None,
                         "started_at": datetime.utcnow().isoformat(),
@@ -618,7 +618,7 @@ class PlaybookRunner:
                 used_tools = []
 
                 # Generate log_summary
-                log_summary = f"步驟 {step_index}: {assistant_response[:100]}..." if assistant_response else f"步驟 {step_index}: 執行中"
+                log_summary = f"Step {step_index}: {assistant_response[:100]}..." if assistant_response else f"Step {step_index}: Executing"
 
                 # Record playbook step with full payload using WorkflowTracker
                 step_event = self.workflow_tracker.create_playbook_step_event(

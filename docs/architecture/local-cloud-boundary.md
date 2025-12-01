@@ -84,7 +84,7 @@ Core services don't interpret `tags` - they just pass it through. Adapters and e
 ### Open Source Repository (This Repo)
 
 ```
-mindscape-local-core/
+mindscape-ai-local-core/
 ├── backend/app/
 │   ├── core/              # ExecutionContext, Ports
 │   ├── adapters/local/    # Local adapters only

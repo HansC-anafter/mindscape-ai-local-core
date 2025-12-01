@@ -34,23 +34,23 @@ def init_mindscape_tables():
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 user_id TEXT NOT NULL DEFAULT 'default_user',
 
-                -- 内容来源
+                -- Content source
                 source_type TEXT NOT NULL,  -- 'self_profile' / 'intent' / 'task' / 'weekly_review' / 'daily_journal' / 'reflection'
                 content TEXT NOT NULL,
                 metadata JSONB,
 
-                -- 来源信息（保留兼容性）
+                -- Source information (kept for compatibility)
                 source_id TEXT,
                 source_context TEXT,
 
-                -- 信心度与权重
+                -- Confidence and weight
                 confidence REAL DEFAULT 0.5,
                 weight REAL DEFAULT 1.0,
 
-                -- 向量嵌入（pgvector）
+                -- Vector embedding (pgvector)
                 embedding vector(1536),  -- OpenAI text-embedding-3-small
 
-                -- 时间戳
+                -- Timestamps
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )
@@ -96,23 +96,23 @@ def init_mindscape_tables():
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 user_id TEXT NOT NULL DEFAULT 'default_user',
 
-                -- 建议内容
+                -- Suggestion content
                 suggestion_type TEXT NOT NULL,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
                 suggested_data JSONB,
 
-                -- 来源信息
+                -- Source information
                 source_seed_ids UUID[],
                 source_summary TEXT,
                 confidence REAL NOT NULL,
 
-                -- 状态
+                -- Status
                 status TEXT DEFAULT 'pending',
                 reviewed_at TIMESTAMP,
                 reviewed_by TEXT,
 
-                -- 时间戳
+                -- Timestamps
                 generated_at TIMESTAMP DEFAULT NOW(),
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()

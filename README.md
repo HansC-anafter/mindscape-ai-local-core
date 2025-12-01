@@ -2,11 +2,11 @@
 
 > **Open-source, local-only version of Mindscape AI**
 
-Mindscape AI Local Core is a clean, local-first AI workspace that helps you organize thoughts, manage tasks, and execute workflows through an intelligent conversation interface.
+This repository (`mindscape-ai-local-core`) is a clean, local-first AI workspace that helps you organize thoughts, manage tasks, and execute workflows through an intelligent conversation interface.
 
 ## 🎯 What is Mindscape AI Local Core?
 
-Mindscape AI Local Core is the **open-source foundation** of Mindscape AI. It provides:
+The `mindscape-ai-local-core` repository is the **open-source foundation** of Mindscape AI. It provides:
 
 - **Intent/Workflow Engine**: AI-powered intent extraction and playbook execution
 - **Port/Adapter Architecture**: Clean separation between core and external integrations
@@ -43,8 +43,8 @@ See [Architecture Documentation](./docs/architecture/) for details.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/mindscape-local-core.git
-cd mindscape-local-core
+git clone https://github.com/your-org/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
 
 # Install backend dependencies
 cd backend
@@ -76,7 +76,7 @@ Visit `http://localhost:3000` to access the web interface.
 
 ## 🧩 Port Architecture
 
-Mindscape AI Local Core uses Port interfaces to enable clean separation:
+The local core (`mindscape-ai-local-core`) uses Port interfaces to enable clean separation:
 
 - **IdentityPort**: Get execution context (local adapter returns single-user context)
 - **IntentRegistryPort**: Resolve user input to intents (local adapter uses LLM)

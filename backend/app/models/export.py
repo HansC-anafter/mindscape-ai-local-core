@@ -13,7 +13,7 @@ class ConsoleKitTemplate(BaseModel):
     Console-Kit chainagent template format (Platform Extension)
 
     This format is specific to console-kit platform for creating chainagent blueprints.
-    Designed for product化 and multi-tenant scenarios.
+    Designed for productization and multi-tenant scenarios.
     """
 
     # Version info

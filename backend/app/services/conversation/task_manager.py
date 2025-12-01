@@ -107,19 +107,19 @@ class TaskManager:
 
             # Determine CTA label based on task type
             playbook_lower = playbook_code.lower()
-            view_result_label = "查看结果"  # Default label
+            view_result_label = "View Result"  # Default label
 
             # Customize label based on task type
             if "draft" in playbook_lower or "content" in playbook_lower or "writing" in playbook_lower:
-                view_result_label = "查看文件"
+                view_result_label = "View File"
             elif "plan" in playbook_lower or "planning" in playbook_lower:
-                view_result_label = "查看计划"
+                view_result_label = "View Plan"
             elif "summary" in playbook_lower or "summarize" in playbook_lower:
-                view_result_label = "查看摘要"
+                view_result_label = "View Summary"
             elif "intent" in playbook_lower or "seed" in playbook_lower:
-                view_result_label = "查看意图"
+                view_result_label = "View Intent"
             elif "task" in playbook_lower:
-                view_result_label = "查看任务"
+                view_result_label = "View Task"
 
             if side_effect_level == SideEffectLevel.SOFT_WRITE:
                 # Generate CTA for soft_write actions
@@ -514,10 +514,10 @@ class TaskManager:
         timeline_item_id: str
     ) -> Dict[str, Any]:
         """
-        重試創建 artifact（從 timeline_item 重試）
+        Retry creating artifact (from timeline_item)
 
-        從 timeline_item 中獲取 task 和 execution_result，重新嘗試創建 artifact。
-        如果成功，更新 timeline_item 移除警告信息。
+        Retrieves task and execution_result from timeline_item, then retries creating artifact.
+        If successful, updates timeline_item to remove warning message.
 
         Args:
             timeline_item_id: Timeline item ID
