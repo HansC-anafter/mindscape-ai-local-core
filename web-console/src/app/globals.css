@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  @keyframes slideDown {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .animate-slideDown {
+    animation: slideDown 0.5s ease-in-out;
+  }
+
+  /* 雷射字效果動畫 */
+  @keyframes laserSweep {
+    0%, 100% {
+      background-position: -200% 0;
+    }
+    50% {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes breathe {
+    0%, 100% {
+      opacity: 0.6;
+      filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.4));
+    }
+    50% {
+      opacity: 0.8;
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+    }
+  }
+
+  @keyframes breatheSlow {
+    0%, 100% {
+      opacity: 0.7;
+      filter: drop-shadow(0 0 6px rgba(251, 113, 133, 0.5));
+    }
+    50% {
+      opacity: 0.95;
+      filter: drop-shadow(0 0 12px rgba(251, 113, 133, 0.8));
+    }
+  }
+
+  /* Progress bar animation for running tasks */
+  @keyframes progressBar {
+    0% {
+      width: 0%;
+      left: 0%;
+    }
+    50% {
+      width: 70%;
+      left: 15%;
+    }
+    100% {
+      width: 0%;
+      left: 100%;
+    }
+  }
+
+  .animate-progressBar {
+    animation: progressBar 2s ease-in-out infinite;
+  }
+
+  .laser-text {
+    position: relative;
+    color: rgba(255, 255, 255, 0.65);
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.3) 0%,
+      rgba(255, 255, 255, 0.9) 50%,
+      rgba(255, 255, 255, 0.3) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow:
+      0 0 10px rgba(255, 255, 255, 0.3),
+      0 0 20px rgba(255, 255, 255, 0.2),
+      0 0 30px rgba(255, 255, 255, 0.1);
+    animation: laserSweep 4s ease-in-out infinite, breathe 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.4));
+  }
+
+  .laser-text-rose {
+    position: relative;
+    color: rgb(219, 39, 119);
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: linear-gradient(
+      90deg,
+      rgba(219, 39, 119, 0.6) 0%,
+      rgba(251, 113, 133, 1) 50%,
+      rgba(219, 39, 119, 0.6) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow:
+      0 0 8px rgba(251, 113, 133, 0.5),
+      0 0 16px rgba(251, 113, 133, 0.3),
+      0 1px 2px rgba(0, 0, 0, 0.15);
+    animation: laserSweep 4s ease-in-out infinite, breatheSlow 6s ease-in-out infinite;
+    filter: drop-shadow(0 0 4px rgba(251, 113, 133, 0.5));
+    text-rendering: optimizeLegibility;
+  }
+}

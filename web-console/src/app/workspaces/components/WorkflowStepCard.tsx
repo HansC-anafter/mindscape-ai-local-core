@@ -1,0 +1,362 @@
+'use client';
+
+import React from 'react';
+
+interface ToolCall {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  tool_name: string;
+  tool_id?: string;
+  parameters?: Record<string, any>;
+  response?: Record<string, any>;
+  status: string;
+  error?: string;
+  duration_ms?: number;
+  factory_cluster?: string;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+interface AgentCollaboration {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  collaboration_type: string;
+  participants: string[];
+  topic: string;
+  discussion?: Array<{ agent: string; content: string }>;
+  status: string;
+  result?: Record<string, any>;
+  started_at?: string;
+  completed_at?: string;
+}
+
+interface StageResult {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  stage_name: string;
+  result_type: string;
+  content: Record<string, any>;
+  preview?: string;
+  requires_review: boolean;
+  review_status?: string;
+  artifact_id?: string;
+  created_at: string;
+}
+
+interface ExecutionStep {
+  id: string;
+  execution_id: string;
+  step_index: number;
+  step_name: string;
+  status: string;
+  step_type: string;
+  agent_type?: string;
+  used_tools?: string[];
+  assigned_agent?: string;
+  collaborating_agents?: string[];
+  description?: string;
+  log_summary?: string;
+  requires_confirmation: boolean;
+  confirmation_prompt?: string;
+  confirmation_status?: string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+  failure_type?: string;
+}
+
+interface WorkflowStepCardProps {
+  step: ExecutionStep;
+  isActive: boolean;
+  toolCalls?: ToolCall[];
+  collaborations?: AgentCollaboration[];
+  stageResults?: StageResult[];
+  onConfirm?: (stepId: string) => void;
+  onReject?: (stepId: string) => void;
+}
+
+export default function WorkflowStepCard({
+  step,
+  isActive,
+  toolCalls = [],
+  collaborations = [],
+  stageResults = [],
+  onConfirm,
+  onReject
+}: WorkflowStepCardProps) {
+  const getStepStatusIcon = () => {
+    if (step.status === 'completed') return '✓';
+    if (step.status === 'running') return '⟳';
+    if (step.status === 'waiting_confirmation') return '⏸';
+    if (step.status === 'failed') return '✗';
+    return '○';
+  };
+
+  const getStepStatusColor = () => {
+    if (step.status === 'completed') return 'text-green-600 bg-green-50 border-green-200';
+    if (step.status === 'running') return 'text-blue-600 bg-blue-50 border-blue-200';
+    if (step.status === 'waiting_confirmation') return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+    if (step.status === 'failed') return 'text-red-600 bg-red-50 border-red-200';
+    return 'text-gray-400 bg-gray-50 border-gray-200';
+  };
+
+  const getToolStatusIcon = (status: string) => {
+    if (status === 'completed') return '✓';
+    if (status === 'running') return '⟳';
+    if (status === 'failed') return '✗';
+    return '○';
+  };
+
+  const getToolStatusColor = (status: string) => {
+    if (status === 'completed') return 'text-green-600';
+    if (status === 'running') return 'text-blue-600';
+    if (status === 'failed') return 'text-red-600';
+    return 'text-gray-400';
+  };
+
+  const formatDuration = (ms?: number) => {
+    if (!ms) return '';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  };
+
+  return (
+    <div className={`border rounded-lg p-4 transition-colors ${getStepStatusColor()} ${isActive ? 'ring-2 ring-blue-400' : ''}`}>
+      {/* Step Header */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-start gap-3 flex-1">
+          <div className={`text-lg font-semibold ${getStepStatusColor().split(' ')[0]}`}>
+            {getStepStatusIcon()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-base font-semibold text-gray-900 mb-1">
+              {step.step_name}
+            </h4>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              {step.agent_type && (
+                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded border border-blue-200">
+                  Agent: {step.agent_type}
+                </span>
+              )}
+              {step.assigned_agent && (
+                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded border border-purple-200">
+                  {step.assigned_agent}
+                </span>
+              )}
+              {step.used_tools && step.used_tools.length > 0 && (
+                <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border border-gray-200">
+                  🔧 {step.used_tools.length} tool{step.used_tools.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <span className={`text-xs font-medium px-2 py-1 rounded ${getStepStatusColor()}`}>
+          {step.status}
+        </span>
+      </div>
+
+      {/* Step Description / Log Summary */}
+      {step.log_summary && (
+        <div className="mb-3 text-sm text-gray-700 bg-white rounded p-2 border border-gray-200">
+          {step.log_summary}
+        </div>
+      )}
+
+      {/* Agent Collaboration */}
+      {collaborations.length > 0 && (
+        <div className="mb-3 bg-white rounded p-3 border border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold text-gray-900 flex items-center gap-1">
+              🤝 Agent 協作
+            </span>
+            <span className="text-xs text-gray-600">
+              {collaborations[0].collaboration_type}
+            </span>
+          </div>
+          <div className="text-xs text-gray-700 mb-2">
+            <span className="font-medium">參與者:</span>{' '}
+            {collaborations[0].participants.join(', ')}
+          </div>
+          {collaborations[0].topic && (
+            <div className="text-xs text-gray-600 mb-2">
+              <span className="font-medium">主題:</span> {collaborations[0].topic}
+            </div>
+          )}
+          {collaborations[0].discussion && collaborations[0].discussion.length > 0 && (
+            <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+              {collaborations[0].discussion.map((msg, i) => (
+                <div key={i} className="text-xs bg-gray-50 rounded p-2 border border-gray-100">
+                  <span className="font-medium text-gray-900">{msg.agent}:</span>{' '}
+                  <span className="text-gray-700">{msg.content}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {collaborations[0].result && (
+            <div className="mt-2 text-xs bg-green-50 rounded p-2 border border-green-200">
+              <span className="font-medium text-green-800">協作結果:</span>{' '}
+              <span className="text-green-700">
+                {JSON.stringify(collaborations[0].result).substring(0, 100)}
+                {JSON.stringify(collaborations[0].result).length > 100 ? '...' : ''}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tool Calls */}
+      {toolCalls.length > 0 && (
+        <div className="mb-3 bg-white rounded p-3 border border-gray-200">
+          <h5 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-1">
+            🔧 工具調用 ({toolCalls.length})
+          </h5>
+          <div className="space-y-2">
+            {toolCalls.map((toolCall) => (
+              <div
+                key={toolCall.id}
+                className="text-xs bg-gray-50 rounded p-2 border border-gray-100"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`font-medium ${getToolStatusColor(toolCall.status)}`}>
+                      {getToolStatusIcon(toolCall.status)}
+                    </span>
+                    <span className="font-semibold text-gray-900">{toolCall.tool_name}</span>
+                    {toolCall.factory_cluster && (
+                      <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px]">
+                        {toolCall.factory_cluster}
+                      </span>
+                    )}
+                  </div>
+                  {toolCall.duration_ms && (
+                    <span className="text-gray-500 text-[10px]">
+                      {formatDuration(toolCall.duration_ms)}
+                    </span>
+                  )}
+                </div>
+                {toolCall.parameters && Object.keys(toolCall.parameters).length > 0 && (
+                  <div className="text-[10px] text-gray-600 mt-1">
+                    <span className="font-medium">參數:</span>{' '}
+                    {JSON.stringify(toolCall.parameters).substring(0, 80)}
+                    {JSON.stringify(toolCall.parameters).length > 80 ? '...' : ''}
+                  </div>
+                )}
+                {toolCall.response && (
+                  <div className="text-[10px] text-gray-700 mt-1 bg-white rounded p-1 border border-gray-200">
+                    <span className="font-medium">回應:</span>{' '}
+                    {JSON.stringify(toolCall.response).substring(0, 100)}
+                    {JSON.stringify(toolCall.response).length > 100 ? '...' : ''}
+                  </div>
+                )}
+                {toolCall.error && (
+                  <div className="text-[10px] text-red-700 mt-1 bg-red-50 rounded p-1 border border-red-200">
+                    <span className="font-medium">錯誤:</span> {toolCall.error}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Stage Results */}
+      {stageResults.length > 0 && (
+        <div className="mb-3 bg-white rounded p-3 border border-gray-200">
+          <h5 className="text-sm font-semibold text-gray-900 mb-2">
+            📦 階段性結果 ({stageResults.length})
+          </h5>
+          <div className="space-y-2">
+            {stageResults.map((result) => (
+              <div
+                key={result.id}
+                className="text-xs bg-gray-50 rounded p-2 border border-gray-100"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-gray-900">{result.stage_name}</span>
+                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                    {result.result_type}
+                  </span>
+                </div>
+                {result.preview && (
+                  <div className="text-gray-700 mt-1">{result.preview}</div>
+                )}
+                {result.requires_review && (
+                  <div className="mt-1 text-yellow-700 bg-yellow-50 rounded px-1.5 py-0.5 border border-yellow-200">
+                    <span className="font-medium">需要審查</span>
+                    {result.review_status && (
+                      <span className="ml-1">({result.review_status})</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* User Confirmation */}
+      {step.requires_confirmation && step.status === 'waiting_confirmation' && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded p-3">
+          <div className="text-sm font-semibold text-yellow-800 mb-2">
+            ⏸ 等待確認
+          </div>
+          {step.confirmation_prompt && (
+            <div className="text-sm text-yellow-700 mb-3">
+              {step.confirmation_prompt}
+            </div>
+          )}
+          <div className="flex gap-2">
+            {onConfirm && (
+              <button
+                onClick={() => onConfirm(step.id)}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded transition-colors"
+              >
+                確認並繼續
+              </button>
+            )}
+            {onReject && (
+              <button
+                onClick={() => onReject(step.id)}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors"
+              >
+                拒絕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Error Information */}
+      {step.error && (
+        <div className="mt-3 bg-red-50 border border-red-200 rounded p-3">
+          <div className="text-sm font-semibold text-red-800 mb-1">錯誤</div>
+          <div className="text-sm text-red-700">{step.error}</div>
+          {step.failure_type && (
+            <div className="text-xs text-red-600 mt-1">
+              類型: {step.failure_type}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Timing Information */}
+      {(step.started_at || step.completed_at) && (
+        <div className="mt-3 text-xs text-gray-500 border-t border-gray-200 pt-2">
+          {step.started_at && (
+            <div>開始: {new Date(step.started_at).toLocaleString()}</div>
+          )}
+          {step.completed_at && (
+            <div>完成: {new Date(step.completed_at).toLocaleString()}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+

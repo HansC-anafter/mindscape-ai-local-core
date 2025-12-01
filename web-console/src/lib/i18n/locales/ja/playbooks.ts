@@ -1,0 +1,93 @@
+/**
+ * Playbooks i18n messages (Japanese)
+ * Playbooks, PlaybookChat, and playbook-related errors
+ */
+import type { MessageKey } from '../../keys';
+
+export const playbooksJa = {
+  // PlaybookChat
+  sendMessageFailed: 'メッセージの送信に失敗しました。再試行してください',
+  conversationCompleted: '会話が完了しました',
+  enterYourAnswer: '回答を入力...',
+  sending: '送信中...',
+  send: '送信',
+  quickStart: 'クイックスタート',
+  uploadFile: 'ファイルをアップロード',
+  dropFilesHere: 'ファイルをここにドロップ',
+  typeMessageOrDropFiles: 'メッセージを入力するか、ファイルをドロップ...',
+
+  aiWillUpdateProjectStatus: 'AI は使用記録からこれらのプロジェクトステータスを継続的に更新します',
+  lastUpdated: '最終更新：',
+  tellUsOneThingYouWantToPush: '最も推進したいことを 1 つ教えてください',
+  aiWillBreakItDown: 'AI が実行可能なステップに分解します',
+  autoCreateFirstIntent: '最初の「長期タスクカード」を自動作成',
+  aiWillUseThesePreferences: 'AI はこれらの好みを使用してタスクを計画します',
+  whatThreeThingsThisWeek: '今週何を 3 つする予定ですか',
+  whatToolsDoYouUse: '普段どのツールで作業していますか（WP / Notion / ...）',
+  whatWorkRhythmDoYouLike: 'どのような作業リズムが好きですか',
+
+  // Playbooks
+  playbooks: 'プレイブック',
+  playbooksTitle: 'プレイブックライブラリ',
+  playbookWorkflow: '再利用可能なワークフロー',
+  playbookStepMindscape: 'マインドスケープを読み取る',
+  playbookStepTools: 'ツールを使用',
+  playbookStepMembers: 'AI が実行',
+  playbooksDescription: 'これらのメンバーの「一緒に磨き上げた作業方法」、再利用可能',
+  playbookDetailDescription: 'これはあなたと AI が一緒に書いた「慣用的なワークフロー」です。次のことを行います：どのマインドスケープを読み取るか、どのツールを使用するか、どのメンバーが実行するか',
+  filterTags: 'タグでフィルター',
+  tags: 'タグ',
+  reload: '再読み込み',
+  searchPlaybooks: 'プレイブックを検索...',
+  coldStartTask: 'コールドスタートタスク',
+  noPlaybooksFound: '一致するプレイブックが見つかりません',
+  noPlaybooks: 'まだプレイブックがありません。API 経由で作成するか、今後のバージョンで UI 作成がサポートされるのを待つことができます。',
+  hasPersonalNotes: '個人メモあり',
+  noDescription: '説明なし',
+  backToList: 'プレイブックリストに戻る',
+  personalNotes: '個人メモ',
+  myNotes: '💬 私のメモ',
+  writeYourNotesHere: 'ここに個人メモを書いてください...',
+  saveNotes: 'メモを保存',
+  sopDocument: 'SOP ドキュメント',
+  noSopContent: 'SOP コンテンツなし',
+  associatedIntents: '関連する意図カード',
+  associatedIntentsIcon: '🎯 関連する意図カード',
+  usingMindscape: 'マインドスケープを使用',
+  participatingMembers: '参加 AI メンバー',
+  usingTools: '使用されるツール',
+  requiredTools: '🔧 必要なツール',
+  usageCount: '使用回数',
+  playbookInput: '入力',
+  playbookOutput: '出力',
+  executePlaybook: 'プレイブックを実行',
+  executing: '実行中...',
+  executionCompleted: '✅ 完了',
+  executionFailed: '実行失敗',
+  willReturnAfterCompletion: '完了後、自動的にマインドスケープに戻り、進捗を更新します',
+
+  // Playbook errors
+  playbookEnterVariantName: 'バリアント名を入力してください',
+  playbookSelectAtLeastOneSuggestion: '少なくとも 1 つの提案を選択してください',
+  playbookCreateVariantFailed: 'バリアントの作成に失敗しました：{error}',
+  playbookVariantCreated: '個人バリアント「{name}」が作成されました。今後の実行ではこのバリアントが使用されます。',
+  playbookSaveFailed: '保存失敗',
+  playbookCreateVariantFailedError: '個人バリアントの作成に失敗しました：{error}',
+  playbookGetSuggestionsFailed: '最適化提案の取得に失敗しました：{error}',
+  playbookVariantCreatedSuccess: 'バリアントが作成されました！',
+
+  // Playbook tabs
+  playbookTabInfo: '情報',
+  playbookTabSuggestions: '使用提案',
+  playbookTabHistory: '実行履歴',
+  playbookIntentStatusActive: 'アクティブ',
+  playbookIntentStatusCompleted: '完了',
+  playbookIntentPriorityHigh: '高優先度',
+  playbookIntentPriorityMedium: '中優先度',
+  playbookIntentPriorityLow: '低優先度',
+  playbookExecStatusRunning: '実行中',
+  playbookStatusLabel: 'ステータス: ',
+  playbookMyVariant: '私のバリアント：{name}',
+  playbookMyVariantDefault: '私のバリアント',
+} as const satisfies Partial<Record<MessageKey, string>>;
+

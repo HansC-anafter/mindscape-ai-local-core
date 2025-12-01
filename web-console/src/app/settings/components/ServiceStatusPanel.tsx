@@ -1,0 +1,430 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { t } from '../../../lib/i18n';
+
+interface ServiceStatus {
+  status: 'healthy' | 'unhealthy' | 'unavailable';
+  available: boolean;
+  error?: string;
+  [key: string]: any;
+}
+
+interface HealthStatus {
+  backend?: ServiceStatus;
+  ocr_service?: ServiceStatus;
+  llm_configured: boolean;
+  llm_provider?: string;
+  llm_available: boolean;
+  vector_db_connected: boolean;
+  tools: Record<string, ServiceStatus>;
+  issues: Array<{
+    type: string;
+    severity: 'error' | 'warning' | 'info';
+    message: string;
+    action_url?: string;
+  }>;
+  overall_status: 'healthy' | 'unhealthy';
+}
+
+export function ServiceStatusPanel() {
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const fetchHealthStatus = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+      // Try to get workspace ID from URL or localStorage
+      let workspaceId: string | null = null;
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        workspaceId = urlParams.get('workspace_id') || localStorage.getItem('currentWorkspaceId');
+      }
+
+      // If no workspace ID found, try to get first available workspace
+      if (!workspaceId) {
+        try {
+          // Try to get list of workspaces (requires owner_user_id, but we can try with a default)
+          // For now, skip workspace-specific health check if no workspace ID
+          // Use general health endpoint instead
+          const generalHealthResponse = await fetch(`${apiUrl}/health`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (generalHealthResponse.ok) {
+            const generalHealth = await generalHealthResponse.json();
+            // Use the detailed health check data if available
+            setHealthStatus({
+              backend: generalHealth.components?.backend ? {
+                status: generalHealth.components.backend === 'healthy' ? 'healthy' : 'unhealthy',
+                available: true,
+              } : {
+                status: 'healthy',
+                available: true,
+              },
+              llm_configured: generalHealth.llm_configured || false,
+              llm_available: generalHealth.llm_available || false,
+              llm_provider: generalHealth.llm_provider,
+              vector_db_connected: generalHealth.vector_db_connected || false,
+              tools: {},
+              issues: generalHealth.issues || [{
+                type: 'workspace_not_selected',
+                severity: 'info',
+                message: 'No workspace selected. Please select a workspace to see detailed health status.',
+              }],
+              overall_status: generalHealth.status || 'healthy',
+            });
+            setLastUpdated(new Date());
+            return;
+          }
+        } catch (e) {
+          // Fall through to error handling
+        }
+      }
+
+      // If we have a workspace ID, try workspace-specific health check
+      if (workspaceId) {
+        const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          // If workspace not found, show info message instead of error
+          if (response.status === 404) {
+            setHealthStatus({
+              backend: {
+                status: 'unavailable',
+                available: false,
+                error: 'Workspace not found',
+              },
+              llm_configured: false,
+              llm_available: false,
+              vector_db_connected: false,
+              tools: {},
+              issues: [{
+                type: 'workspace_not_found',
+                severity: 'warning',
+                message: `Workspace "${workspaceId}" not found. Please select a valid workspace.`,
+              }],
+              overall_status: 'unhealthy',
+            });
+            setLastUpdated(new Date());
+            return;
+          }
+          throw new Error(`Health check failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        setHealthStatus(data);
+        setLastUpdated(new Date());
+      } else {
+        // No workspace ID and general health also failed
+        throw new Error('No workspace selected and general health check failed');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch health status');
+      console.error('Health check error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHealthStatus();
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    const interval = setInterval(() => {
+      fetchHealthStatus();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [autoRefresh]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'healthy':
+      case 'ok':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'unhealthy':
+      case 'warning':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'unavailable':
+      case 'error':
+        return 'bg-red-100 text-red-800 border-red-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'healthy':
+      case 'ok':
+        return '✓';
+      case 'unhealthy':
+      case 'warning':
+        return '⚠';
+      case 'unavailable':
+      case 'error':
+        return '✗';
+      default:
+        return '?';
+    }
+  };
+
+  const ServiceCard = ({
+    title,
+    status,
+    details
+  }: {
+    title: string;
+    status: ServiceStatus | undefined;
+    details?: Record<string, any>
+  }) => {
+    if (!status) return null;
+
+    const statusValue = status.status || (status.available ? 'healthy' : 'unavailable');
+    const statusColor = getStatusColor(statusValue);
+    const statusIcon = getStatusIcon(statusValue);
+
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-medium text-gray-900">{title}</h3>
+          <span className={`px-2 py-1 rounded text-xs font-medium border ${statusColor}`}>
+            {statusIcon} {statusValue}
+          </span>
+        </div>
+        {status.error && (
+          <p className="text-xs text-red-600 mt-1">{status.error}</p>
+        )}
+        {details && Object.keys(details).length > 0 && (
+          <div className="mt-2 space-y-1">
+            {Object.entries(details).map(([key, value]) => (
+              <div key={key} className="text-xs text-gray-600">
+                <span className="font-medium">{key}:</span> {String(value)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (loading && !healthStatus) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-gray-500">Loading service status...</div>
+      </div>
+    );
+  }
+
+  if (error && !healthStatus) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-800 font-medium">Failed to load service status</p>
+        <p className="text-red-600 text-sm mt-1">{error}</p>
+        <button
+          onClick={fetchHealthStatus}
+          className="mt-3 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header with refresh controls */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Service Status</h2>
+          {lastUpdated && (
+            <p className="text-sm text-gray-500 mt-1">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center space-x-3">
+          <label className="flex items-center text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="mr-2"
+            />
+            Auto refresh (30s)
+          </label>
+          <button
+            onClick={fetchHealthStatus}
+            disabled={loading}
+            className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {/* Overall Status */}
+      {healthStatus && (
+        <div className={`rounded-lg border p-4 ${
+          healthStatus.overall_status === 'healthy'
+            ? 'bg-green-50 border-green-200'
+            : 'bg-yellow-50 border-yellow-200'
+        }`}>
+          <div className="flex items-center">
+            <span className={`text-2xl mr-2 ${
+              healthStatus.overall_status === 'healthy' ? 'text-green-600' : 'text-yellow-600'
+            }`}>
+              {healthStatus.overall_status === 'healthy' ? '✓' : '⚠'}
+            </span>
+            <div>
+              <p className="font-medium text-gray-900">
+                Overall Status: {healthStatus.overall_status.toUpperCase()}
+              </p>
+              <p className="text-sm text-gray-600">
+                {healthStatus.overall_status === 'healthy'
+                  ? 'All services are operational'
+                  : 'Some services have issues'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {healthStatus?.backend && (
+          <ServiceCard
+            title="Backend API"
+            status={healthStatus.backend}
+            details={{
+              url: healthStatus.backend.url,
+            }}
+          />
+        )}
+
+        {healthStatus?.ocr_service && (
+          <ServiceCard
+            title="OCR Service"
+            status={healthStatus.ocr_service}
+            details={{
+              gpu_available: healthStatus.ocr_service.gpu_available ? 'Yes' : 'No',
+              gpu_enabled: healthStatus.ocr_service.gpu_enabled ? 'Yes' : 'No',
+            }}
+          />
+        )}
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-900">LLM Configuration</h3>
+            <span className={`px-2 py-1 rounded text-xs font-medium border ${
+              healthStatus?.llm_available
+                ? 'bg-green-100 text-green-800 border-green-200'
+                : 'bg-red-100 text-red-800 border-red-200'
+            }`}>
+              {healthStatus?.llm_available ? '✓ Configured' : '✗ Not Configured'}
+            </span>
+          </div>
+          {healthStatus?.llm_provider && (
+            <p className="text-xs text-gray-600 mt-1">
+              Provider: {healthStatus.llm_provider}
+            </p>
+          )}
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-900">Vector DB</h3>
+            <span className={`px-2 py-1 rounded text-xs font-medium border ${
+              healthStatus?.vector_db_connected
+                ? 'bg-green-100 text-green-800 border-green-200'
+                : 'bg-yellow-100 text-yellow-800 border-yellow-200'
+            }`}>
+              {healthStatus?.vector_db_connected ? '✓ Connected' : '⚠ Not Connected'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tool Connections */}
+      {healthStatus?.tools && Object.keys(healthStatus.tools).length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-900 mb-3">Tool Connections</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Object.entries(healthStatus.tools).map(([toolName, toolStatus]) => (
+              <ServiceCard
+                key={toolName}
+                title={toolName.charAt(0).toUpperCase() + toolName.slice(1).replace('_', ' ')}
+                status={toolStatus as ServiceStatus}
+                details={{
+                  connections: toolStatus.connection_count || 0,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Issues */}
+      {healthStatus?.issues && healthStatus.issues.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-900 mb-3">Issues & Recommendations</h3>
+          <div className="space-y-2">
+            {healthStatus.issues.map((issue, index) => (
+              <div
+                key={index}
+                className={`rounded-lg border p-3 ${
+                  issue.severity === 'error'
+                    ? 'bg-red-50 border-red-200'
+                    : issue.severity === 'warning'
+                    ? 'bg-yellow-50 border-yellow-200'
+                    : 'bg-blue-50 border-blue-200'
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className={`text-sm font-medium ${
+                      issue.severity === 'error'
+                        ? 'text-red-800'
+                        : issue.severity === 'warning'
+                        ? 'text-yellow-800'
+                        : 'text-blue-800'
+                    }`}>
+                      {issue.message}
+                    </p>
+                  </div>
+                  {issue.action_url && (
+                    <a
+                      href={issue.action_url}
+                      className="ml-3 text-xs text-purple-600 hover:text-purple-800 underline"
+                    >
+                      Fix
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
