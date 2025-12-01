@@ -29,7 +29,7 @@ This document provides platform-specific installation notes and troubleshooting 
 
 ```cmd
 REM 1. Clone repository
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
 REM 2. Run setup script
@@ -47,7 +47,7 @@ uvicorn app.main:app --reload
 
 ```powershell
 # 1. Clone repository
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
 # 2. Run setup script
@@ -122,7 +122,7 @@ brew install node
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
 # 2. Run setup script
@@ -199,7 +199,7 @@ sudo pacman -S nodejs npm  # Optional, for frontend
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
 # 2. Run setup script

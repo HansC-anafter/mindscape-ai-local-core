@@ -56,13 +56,13 @@ You need an API key from at least one LLM provider:
 
 **All Platforms:**
 ```bash
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 ```
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 ```
 
