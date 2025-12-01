@@ -13,7 +13,7 @@ This guide will help you get the `mindscape-ai-local-core` repository up and run
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 ```
 
@@ -91,10 +91,6 @@ The frontend will start at `http://localhost:3000`.
 - **Database errors**: Ensure the `data/` directory exists and is writable
 - **LLM API errors**: Check your API key in `.env` file
 
-### Frontend Issues
-
-- **Cannot connect to backend**: Ensure backend is running on port 8000
-- **Build errors**: Try `npm install` again or clear `node_modules/`
 
 ## Next Steps
 
@@ -104,7 +100,7 @@ The frontend will start at `http://localhost:3000`.
 
 ## Getting Help
 
-- Check [GitHub Issues](https://github.com/your-org/mindscape-ai-local-core/issues)
+- Check [GitHub Issues](https://github.com/HansC-anafter/mindscape-ai-local-core/issues)
 - Read the [Documentation](docs/README.md)
 - Open a new issue for bugs or questions
 

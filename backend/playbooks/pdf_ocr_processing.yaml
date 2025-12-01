@@ -1,0 +1,180 @@
+---
+playbook_code: pdf_ocr_processing
+version: 1.0.0
+name: PDF OCR 文字提取
+description: 處理 PDF 檔案，執行 OCR 提取文字內容，支援多檔案批次處理
+tags:
+  - ocr
+  - pdf
+  - text-extraction
+  - document-processing
+
+language_strategy: model_native
+
+locale: zh-TW
+supported_locales:
+  - zh-TW
+  - en
+default_locale: zh-TW
+auto_localize: true
+
+entry_agent_type: planner
+icon: 📄
+
+tool_dependencies:
+  - type: builtin
+    name: core_files.ocr_pdf
+    required: true
+    description: PDF OCR 處理工具
+
+inputs:
+  - name: pdf_files
+    type: list[string]
+    required: true
+    description: PDF 檔案路徑列表（1-2 個檔案）
+  - name: dpi
+    type: integer
+    required: false
+    default: 300
+    description: PDF 轉換為圖片的 DPI（預設 300）
+  - name: output_format
+    type: string
+    required: false
+    default: "text"
+    enum: ["text", "structured"]
+    description: 輸出格式（text = 純文字，structured = 結構化資訊）
+
+outputs:
+  - name: ocr_text
+    type: string
+    description: 合併後的 OCR 文字內容（主要輸出，供後續 playbook 使用）
+  - name: ocr_results
+    type: object
+    description: 完整的 OCR 結果（包含結構化資訊）
+  - name: file_count
+    type: integer
+    description: 處理的檔案數量
+  - name: total_pages
+    type: integer
+    description: 總頁數
+
+scope:
+  visibility: public
+  editable: true
+
+owner:
+  type: user
+
+---
+
+# PDF OCR 文字提取 Playbook
+
+## 目標
+
+處理 PDF 檔案，執行 OCR（光學字元辨識）提取文字內容。支援多檔案批次處理，合併結果為單一文字輸出，供後續 playbook 使用。
+
+## 功能說明
+
+這個 Playbook 會：
+
+1. **驗證 PDF 檔案**：檢查檔案存在性、格式和大小
+2. **執行 OCR 處理**：對每個 PDF 檔案執行 OCR 文字提取
+3. **合併結果**：將多個 PDF 的文字內容合併為單一文字
+4. **輸出結果**：提供純文字和結構化兩種輸出格式
+
+## 執行流程
+
+### 步驟 1：驗證檔案
+
+系統會檢查：
+- 檔案是否存在
+- 檔案格式是否為 PDF
+- 檔案大小是否合理（避免過大檔案）
+
+### 步驟 2：執行 OCR 處理
+
+對每個 PDF 檔案：
+1. 使用 `core_files.ocr_pdf` 工具執行 OCR
+2. 提取每頁的文字內容
+3. 記錄頁數和處理狀態
+
+### 步驟 3：合併結果
+
+將多個 PDF 的 OCR 結果合併：
+- 按檔案順序合併文字內容
+- 保留頁面資訊（可選）
+- 生成統一的文字輸出
+
+### 步驟 4：輸出結果
+
+提供兩種輸出格式：
+- **純文字格式**（`ocr_text`）：合併後的文字內容，供後續 playbook 直接使用
+- **結構化格式**（`ocr_results`）：包含頁面資訊、區塊資訊等詳細資料
+
+## 使用範例
+
+```yaml
+playbook_code: pdf_ocr_processing
+inputs:
+  pdf_files:
+    - "/path/to/document1.pdf"
+    - "/path/to/document2.pdf"
+  dpi: 300
+  output_format: "text"
+```
+
+## 輸出格式
+
+### ocr_text（主要輸出）
+
+純文字格式，所有 PDF 的內容合併為單一字串：
+
+```
+[檔案 1 的內容]
+[檔案 2 的內容]
+...
+```
+
+### ocr_results（結構化輸出）
+
+包含詳細資訊的 JSON 物件：
+
+```json
+{
+  "files": [
+    {
+      "file_path": "/path/to/document1.pdf",
+      "pages": [
+        {
+          "page": 1,
+          "text": "...",
+          "blocks": [...]
+        }
+      ],
+      "total_pages": 10
+    }
+  ],
+  "merged_text": "...",
+  "total_pages": 20
+}
+```
+
+## 注意事項
+
+1. **處理時間**：OCR 處理可能需要 1-3 分鐘（取決於 PDF 大小和頁數）
+2. **資源消耗**：OCR 處理消耗較多計算資源，建議一次處理 1-2 個檔案
+3. **文字品質**：OCR 結果的品質取決於 PDF 的掃描品質和文字清晰度
+4. **檔案路徑**：確保提供的檔案路徑是絕對路徑或相對於工作區的路徑
+
+## 後續使用
+
+OCR 提取的文字內容（`ocr_text`）可以作為輸入傳遞給：
+- `ig_post_generation` playbook（生成 IG 貼文）
+- `yt_script_generation` playbook（生成 YT 影片腳本）
+- 其他需要文字內容的 playbook
+
+## 相關工具
+
+- `core_files.ocr_pdf` - PDF OCR 處理工具
+- OCR 服務：本地 PaddleOCR 服務（`ocr-service`）
+

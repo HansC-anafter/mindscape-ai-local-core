@@ -1,0 +1,72 @@
+{
+  "version": "1.0",
+  "playbook_code": "pdf_ocr_and_index",
+  "kind": "system_tool",
+  "steps": [
+    {
+      "id": "ocr",
+      "tool": "core_files.ocr_pdf",
+      "inputs": {
+        "file_path": "{{input.pdf_files[0]}}",
+        "dpi": 300
+      },
+      "outputs": {
+        "text": "ocr_text",
+        "pages": "ocr_pages"
+      }
+    },
+    {
+      "id": "embed",
+      "tool": "vector_store.embed_text",
+      "inputs": {
+        "text": "{{step.ocr.ocr_text}}",
+        "metadata": {
+          "source": "{{input.pdf_files[0]}}",
+          "playbook": "pdf_ocr_and_index"
+        }
+      },
+      "outputs": {
+        "vector_ids": "vector_ids",
+        "embedding_count": "embedding_count"
+      },
+      "depends_on": ["ocr"]
+    },
+    {
+      "id": "index",
+      "tool": "vector_store.create_index",
+      "inputs": {
+        "vector_ids": "{{step.embed.vector_ids}}",
+        "index_name": "pdf_documents"
+      },
+      "outputs": {
+        "index_id": "index_id"
+      },
+      "depends_on": ["embed"]
+    }
+  ],
+  "inputs": {
+    "pdf_files": {
+      "type": "list[string]",
+      "required": true,
+      "description": "PDF file paths"
+    }
+  },
+  "outputs": {
+    "ocr_text": {
+      "type": "string",
+      "description": "OCR extracted text content",
+      "source": "step.ocr.ocr_text"
+    },
+    "vector_ids": {
+      "type": "list[string]",
+      "description": "Vector IDs list",
+      "source": "step.embed.vector_ids"
+    },
+    "index_id": {
+      "type": "string",
+      "description": "Created index ID",
+      "source": "step.index.index_id"
+    }
+  }
+}
+

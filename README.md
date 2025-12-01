@@ -29,6 +29,11 @@ Mindscape AI Local Core uses a **Port/Adapter pattern** (Hexagonal Architecture)
 - **Local Adapters**: Single-user, single-workspace implementations
 - **No Cloud Dependencies**: Core is completely independent of cloud/tenant concepts
 
+In addition, `mindscape-ai-local-core` introduces a Playbook-based workflow layer:
+
+- A **Workspace LLM** for human-facing conversations
+- A **Playbook LLM + workflow runtime** for executing multi-step workflows (`playbook.run = playbook.md + playbook.json`)
+
 See [Architecture Documentation](./docs/architecture/) for details.
 
 ## 🚀 Quick Start
@@ -43,7 +48,7 @@ See [Architecture Documentation](./docs/architecture/) for details.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/mindscape-ai-local-core.git
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
 # Install backend dependencies
@@ -61,18 +66,23 @@ npm install
 # Start backend (from backend directory)
 uvicorn app.main:app --reload
 
-# Start frontend (from web-console directory)
+# Start frontend (from web-console directory, in a new terminal)
+cd web-console
 npm run dev
 ```
 
 Visit `http://localhost:3000` to access the web interface.
 
+For a more detailed setup guide, see [QUICKSTART.md](./QUICKSTART.md).
+
 ## 📚 Documentation
 
-- [Getting Started](./docs/getting-started/) - Installation and setup guide
-- [Architecture](./docs/architecture/) - System architecture and design patterns
-- [API Reference](./docs/api/) - Complete API documentation
-- [Guides](./docs/guides/) - User guides and tutorials
+- [Getting Started](./docs/getting-started/quick-start.md) - Installation and setup guide
+- [Architecture Overview](./docs/architecture/port-architecture.md) - System architecture and design patterns
+- [Playbooks & Multi-step Workflows](./docs/architecture/playbooks-and-workflows.md) - Playbook architecture and workflow execution
+- [Memory & Intent Architecture](./docs/architecture/memory-intent-architecture.md) - Event, intent, and memory layer design
+- [Local/Cloud Boundary](./docs/architecture/local-cloud-boundary.md) - Architectural separation principles
+- [ExecutionContext](./docs/architecture/execution-context.md) - Execution context abstraction
 
 ## 🧩 Port Architecture
 
@@ -80,6 +90,7 @@ The local core (`mindscape-ai-local-core`) uses Port interfaces to enable clean 
 
 - **IdentityPort**: Get execution context (local adapter returns single-user context)
 - **IntentRegistryPort**: Resolve user input to intents (local adapter uses LLM)
+- **PlaybookExecutorPort**: Execute Playbook runs (`playbook.run = md + json`) against a local or remote workflow runtime (planned)
 
 Future cloud extensions can implement these ports without modifying core code.
 
@@ -105,4 +116,3 @@ This is the **open-source, local-only version** of Mindscape AI. Cloud / multi-t
 ---
 
 **Built with ❤️ by the Mindscape AI team**
-

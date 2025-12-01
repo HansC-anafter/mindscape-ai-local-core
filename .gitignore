@@ -54,3 +54,17 @@ logs/
 temp/
 tmp/
 
+# Test files
+test_data/
+*.test.*
+*_test.py
+*_test.json
+*_test.yaml
+test_*.py
+test_*.json
+test_*.yaml
+
+# PDF test files
+*.pdf
+!docs/**/*.pdf
+
