@@ -16,7 +16,7 @@ Before starting, make sure you have:
 ### 1. Access the Web Interface
 
 Open your browser and navigate to:
-- **Frontend**: `http://localhost:3000` (if using web console)
+- **Frontend**: `http://localhost:3001` (Docker) or `http://localhost:3000` (manual install)
 - **API Docs**: `http://localhost:8000/docs` (FastAPI automatic documentation)
 
 ### 2. Create Your First Workspace
