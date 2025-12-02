@@ -2,25 +2,19 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install wget for healthcheck
 RUN apk add --no-cache wget
 
-# Copy package files
 COPY web-console/package*.json ./
-
-# Install dependencies
 RUN npm install
 
-# Copy source code (will be mounted as volume in development)
 COPY web-console/ ./
 
-# Expose port
+RUN rm -f node_modules/.bin/next && \
+    ln -s ../next/dist/bin/next node_modules/.bin/next
+
 EXPOSE 3000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
 
-# Run in development mode (for hot reload)
-CMD ["npm", "run", "dev"]
-
+CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0"]
