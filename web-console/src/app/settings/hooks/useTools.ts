@@ -37,18 +37,22 @@ export function useTools(): UseToolsReturn {
   const [vectorDBConfig, setVectorDBConfig] = useState<VectorDBConfig | null>(null);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [toolsStatus, setToolsStatus] = useState<Record<string, ToolStatusInfo>>({});
+  const [vectorDBConnected, setVectorDBConnected] = useState<boolean | null>(null);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
     try {
       const [connData, toolsData] = await Promise.all([
-        settingsApi.get<ToolConnection[]>('/api/v1/tools/connections').catch(() => []),
-        settingsApi.get<RegisteredTool[]>('/api/v1/tools?enabled_only=false').catch(() => []),
+        settingsApi.get<ToolConnection[]>('/api/v1/tools/connections', { silent: true }),
+        settingsApi.get<RegisteredTool[]>('/api/v1/tools?enabled_only=false').catch((err) => {
+          console.debug('Failed to load tools:', err);
+          return [];
+        }),
       ]);
-      setConnections(connData);
-      setTools(toolsData);
+      setConnections(connData || []);
+      setTools(toolsData || []);
     } catch (err) {
-      console.error('Failed to load tools:', err);
+      console.debug('Failed to load tools:', err);
     } finally {
       setLoading(false);
     }
@@ -56,13 +60,20 @@ export function useTools(): UseToolsReturn {
 
   const loadVectorDBConfig = useCallback(async () => {
     try {
-      const data = await settingsApi.get<VectorDBConfig>('/api/v1/vector-db/config');
-      setVectorDBConfig({
-        ...data,
-        enabled: data.enabled !== undefined ? data.enabled : true,
-      });
+      const data = await settingsApi.get<VectorDBConfig>('/api/v1/vector-db/config', { silent: true });
+      // If data is empty (501/404 handled by settingsApi), use default config
+      if (data && Object.keys(data).length > 0) {
+        setVectorDBConfig({
+          ...data,
+          enabled: data.enabled !== undefined ? data.enabled : true,
+        });
+      } else {
+        // 501 (Not Implemented) is expected when vector DB adapter is not configured
+        // Silently fallback to default config
+        setVectorDBConfig({ mode: 'local', enabled: true });
+      }
     } catch (err) {
-      console.error('Failed to load vector DB config:', err);
+      // Fallback to default config on any error
       setVectorDBConfig({ mode: 'local', enabled: true });
     }
   }, []);
@@ -72,16 +83,42 @@ export function useTools(): UseToolsReturn {
       const response = await settingsApi.get<{ tools: Record<string, ToolStatusInfo> }>('/api/v1/tools/status');
       setToolsStatus(response.tools || {});
     } catch (err) {
-      console.error('Failed to load tools status:', err);
+      console.debug('Failed to load tools status:', err);
       setToolsStatus({});
     }
   }, []);
+
+  const loadVectorDBHealthStatus = useCallback(async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/health`);
+      if (response.ok) {
+        const health = await response.json();
+        // Check both top-level and components.vector_db_connected
+        const connected = health.vector_db_connected ?? health.components?.vector_db_connected ?? false;
+        console.debug('Vector DB health status:', connected, health);
+        setVectorDBConnected(connected);
+      } else {
+        console.debug('Health endpoint returned non-OK status:', response.status);
+        setVectorDBConnected(null);
+      }
+    } catch (err) {
+      console.debug('Failed to load vector DB health status:', err);
+      setVectorDBConnected(null);
+    }
+  }, []);
+
+  // Load vector DB health status on mount
+  useEffect(() => {
+    loadVectorDBHealthStatus();
+  }, [loadVectorDBHealthStatus]);
 
   // Listen to tool status change events for real-time updates
   useEffect(() => {
     const cleanupStatus = listenToToolStatusChanged(() => {
       // Refresh tool status when any tool status changes
       loadToolsStatus();
+      loadVectorDBHealthStatus();
     });
 
     const cleanupConfig = listenToToolConfigUpdated(() => {
@@ -89,13 +126,14 @@ export function useTools(): UseToolsReturn {
       loadTools();
       loadVectorDBConfig();
       loadToolsStatus();
+      loadVectorDBHealthStatus();
     });
 
     return () => {
       cleanupStatus();
       cleanupConfig();
     };
-  }, [loadTools, loadVectorDBConfig, loadToolsStatus]);
+  }, [loadTools, loadVectorDBConfig, loadToolsStatus, loadVectorDBHealthStatus]);
 
   const testConnection = useCallback(
     async (connectionId: string) => {
@@ -158,7 +196,39 @@ export function useTools(): UseToolsReturn {
 
   const getToolStatus = useCallback(
     (toolType: string): ToolStatus => {
-      // Check new tools status API first
+      // For vector_db, prioritize health check over tools status API
+      if (toolType === 'vector_db') {
+        // Use actual connection status from health check if available
+        // Priority: health check > tools status API > config
+        if (vectorDBConnected !== null) {
+          if (vectorDBConnected) {
+            return { status: 'connected', label: 'Connected', icon: '✅' };
+          } else {
+            return { status: 'not_configured', label: 'Not connected', icon: '⚠️' };
+          }
+        }
+        // Fallback to tools status API
+        const statusInfo = toolsStatus[toolType];
+        if (statusInfo) {
+          if (statusInfo.status === 'connected') {
+            return { status: 'connected', label: 'Connected', icon: '✅' };
+          } else if (statusInfo.status === 'registered_but_not_connected') {
+            return { status: 'registered_but_not_connected', label: 'Not connected', icon: '⚠️' };
+          } else if (statusInfo.status === 'unavailable') {
+            return { status: 'unavailable', label: 'Not supported', icon: '🔴' };
+          }
+        }
+        // Fallback to config-based status
+        if (!vectorDBConfig) {
+          return { status: 'not_configured', label: 'Not configured', icon: '⚠️' };
+        }
+        if (vectorDBConfig.enabled) {
+          return { status: 'connected', label: 'Enabled', icon: '✅' };
+        }
+        return { status: 'inactive', label: 'Disabled', icon: '🔌' };
+      }
+
+      // For other tools, check tools status API first
       const statusInfo = toolsStatus[toolType];
       if (statusInfo) {
         if (statusInfo.status === 'connected') {
@@ -168,17 +238,6 @@ export function useTools(): UseToolsReturn {
         } else if (statusInfo.status === 'unavailable') {
           return { status: 'unavailable', label: 'Not supported', icon: '🔴' };
         }
-      }
-
-      // Fallback to legacy logic
-      if (toolType === 'vector_db') {
-        if (!vectorDBConfig) {
-          return { status: 'not_configured', label: 'Not configured', icon: '⚠️' };
-        }
-        if (vectorDBConfig.enabled) {
-          return { status: 'connected', label: 'Enabled', icon: '✅' };
-        }
-        return { status: 'inactive', label: 'Disabled', icon: '🔌' };
       }
 
       if (toolType === 'obsidian') {
@@ -194,7 +253,7 @@ export function useTools(): UseToolsReturn {
       }
       return { status: 'inactive', label: 'Disabled', icon: '🔌' };
     },
-    [connections, vectorDBConfig, toolsStatus]
+    [connections, vectorDBConfig, toolsStatus, vectorDBConnected]
   );
 
   const getToolStatusForPack = useCallback(
