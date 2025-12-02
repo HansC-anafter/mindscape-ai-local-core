@@ -68,6 +68,10 @@ export const executionZhTW = {
   explainWhyFailed: '解釋為何此次執行失敗',
   suggestNextSteps: '建議下一步',
   reviewPlaybookSteps: '檢視工作劇本步驟',
+  explainWhyFailedPrompt: '你能解釋為什麼這次執行失敗了嗎？出了什麼問題，我該如何修復？',
+  explainWhyFailedPromptAlt: '這次執行的當前狀態是什麼？',
+  suggestNextStepsPrompt: '我接下來應該做什麼來解決這個問題或繼續執行？',
+  reviewPlaybookStepsPrompt: '你能檢視工作劇本步驟並建議任何改進嗎？',
   playbookConversation: '工作劇本對話',
 
   // Workspace Loading
@@ -87,7 +91,9 @@ export const executionZhTW = {
   // Execution Chat
   discussPlaybookExecution: '與 AI 討論此工作劇本執行...',
   itKnowsStepsEventsErrors: '它知道步驟、事件和錯誤。',
+  executionChatDescription: '這是討論面板，用於詢問執行狀態、理解步驟內容或獲得建議。如需操作（重試、取消等），請使用主執行介面的按鈕。',
   recommended: '（推薦）',
   autoStart: '自動啟動：',
+  aiThinking: 'AI 正在思考...',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

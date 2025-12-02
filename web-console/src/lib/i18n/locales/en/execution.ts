@@ -68,6 +68,10 @@ export const executionEn = {
   explainWhyFailed: 'Explain why this execution failed',
   suggestNextSteps: 'Suggest next steps',
   reviewPlaybookSteps: 'Review playbook steps',
+  explainWhyFailedPrompt: 'Can you explain why this execution failed? What went wrong and how can I fix it?',
+  explainWhyFailedPromptAlt: 'What is the current status of this execution?',
+  suggestNextStepsPrompt: 'What should I do next to resolve this issue or continue the execution?',
+  reviewPlaybookStepsPrompt: 'Can you review the playbook steps and suggest any improvements?',
   playbookConversation: 'Playbook Conversation',
 
   // Workspace Loading
@@ -87,7 +91,9 @@ export const executionEn = {
   // Execution Chat
   discussPlaybookExecution: 'Discuss this playbook execution with AI...',
   itKnowsStepsEventsErrors: 'It knows the steps, events, and errors.',
+  executionChatDescription: 'This is a discussion panel for asking about execution status, understanding steps, or getting suggestions. For actions (retry, cancel, etc.), please use buttons in the main execution interface.',
   recommended: '(Recommended)',
   autoStart: 'Auto-start:',
+  aiThinking: 'AI is thinking...',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

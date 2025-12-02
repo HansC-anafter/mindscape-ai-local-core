@@ -68,6 +68,10 @@ export const executionJa = {
   explainWhyFailed: 'この実行が失敗した理由を説明する',
   suggestNextSteps: '次のステップを提案する',
   reviewPlaybookSteps: 'プレイブックステップを確認する',
+  explainWhyFailedPrompt: 'この実行が失敗した理由を説明できますか？何が問題で、どう修正すればよいですか？',
+  explainWhyFailedPromptAlt: 'この実行の現在のステータスは何ですか？',
+  suggestNextStepsPrompt: 'この問題を解決するか、実行を続行するために次に何をすべきですか？',
+  reviewPlaybookStepsPrompt: 'プレイブックステップを確認して、改善案を提案できますか？',
   playbookConversation: 'プレイブック会話',
 
   // Workspace Loading
@@ -87,7 +91,9 @@ export const executionJa = {
   // Execution Chat
   discussPlaybookExecution: 'このプレイブック実行について AI と議論する...',
   itKnowsStepsEventsErrors: 'ステップ、イベント、エラーを知っています。',
+  executionChatDescription: 'これは実行ステータスを尋ねたり、ステップを理解したり、提案を得るためのディスカッションパネルです。操作（再試行、キャンセルなど）が必要な場合は、メイン実行インターフェースのボタンを使用してください。',
   recommended: '（推奨）',
   autoStart: '自動開始：',
+  aiThinking: 'AIが考えています...',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
