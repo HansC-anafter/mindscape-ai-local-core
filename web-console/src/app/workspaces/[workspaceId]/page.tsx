@@ -59,30 +59,20 @@ interface Workspace {
   playbook_storage_config?: Record<string, { base_path?: string; artifacts_dir?: string }>;
 }
 
-export default function WorkspacePage() {
-  const params = useParams();
-  const workspaceId = params?.workspaceId as string;
-
-  if (!workspaceId) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Header />
-        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500">{t('workspaceNotFound')}</div>
-        </div>
-      </div>
-    );
-  }
-
+// Internal component that uses Context data
+function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
+  const contextData = useWorkspaceData();
   const router = useRouter();
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  
+  // Use Context data instead of local state
+  const workspace = contextData.workspace;
+  const loading = contextData.isLoadingWorkspace;
+  const error = contextData.error;
+  const systemStatus = contextData.systemStatus;
   const [rightSidebarTab, setRightSidebarTab] = useState<'timeline' | 'workbench'>('timeline');
   const [leftSidebarTab, setLeftSidebarTab] = useState<'timeline' | 'outcomes' | 'background'>('timeline');
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [updatingMode, setUpdatingMode] = useState(false);
-  const [systemStatus, setSystemStatus] = useState<any>(null);
   const [workbenchRefreshTrigger, setWorkbenchRefreshTrigger] = useState(0);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -91,222 +81,12 @@ export default function WorkspacePage() {
   const [focusedExecution, setFocusedExecution] = useState<any>(null);
   const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
   const [showSystemTools, setShowSystemTools] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isMountedRef = useRef(true);
-  const loadingRef = useRef(false);
-  const pendingRequestsRef = useRef<Set<string>>(new Set());
-  const loadedWorkspaceIdRef = useRef<string | null>(null);
 
-  // Helper function to handle 429 errors with retry - stops immediately on 429
-  const fetchWithRetry = useCallback(async (url: string, options: RequestInit = {}, retries = 2): Promise<Response | null> => {
-    const requestKey = `${url}-${JSON.stringify(options)}`;
+  // Removed: fetchWithRetry and related refs - workspace loading is now handled by WorkspaceDataContext
 
-    // Clear stale requests on Fast Refresh or component remount
-    if (pendingRequestsRef.current.has(requestKey)) {
-      console.log('[fetchWithRetry] Request already pending, clearing and retrying:', requestKey);
-      pendingRequestsRef.current.delete(requestKey);
-    }
-
-    pendingRequestsRef.current.add(requestKey);
-
-    try {
-      for (let i = 0; i < retries; i++) {
-        try {
-          console.log(`[fetchWithRetry] Attempt ${i + 1}/${retries} for ${url}`);
-          const response = await fetch(url, {
-            ...options,
-            signal: abortControllerRef.current?.signal
-          });
-
-          console.log(`[fetchWithRetry] Response status: ${response.status}, ok: ${response.ok}`);
-
-          if (response.status === 429) {
-            pendingRequestsRef.current.delete(requestKey);
-            const retryAfter = Math.max(parseInt(response.headers.get('Retry-After') || '10', 10), 10);
-            console.error(`Rate limited (429) for ${url}, stopping all requests. Retry after ${retryAfter}s`);
-            pendingRequestsRef.current.clear();
-
-            if (isMountedRef.current) {
-              const errorMessage = t('rateLimitExceeded', { seconds: retryAfter });
-              setError(errorMessage);
-              setLoading(false);
-              loadingRef.current = false;
-              loadedWorkspaceIdRef.current = null;
-            }
-
-            return null;
-          }
-
-          // Return response for any status (including 4xx errors) - let caller handle them
-          if (response.ok || response.status < 500) {
-            pendingRequestsRef.current.delete(requestKey);
-            return response;
-          }
-
-          // Server error (5xx), retry
-          console.warn(`[fetchWithRetry] Server error ${response.status} for ${url}, retrying...`);
-          if (i < retries - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-          }
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
-            // AbortError is expected in React Strict Mode (development only)
-            // Don't log as error, just return null
-            console.log('[fetchWithRetry] Request aborted (likely React Strict Mode)');
-            pendingRequestsRef.current.delete(requestKey);
-            return null;
-          }
-          console.error(`[fetchWithRetry] Error on attempt ${i + 1}/${retries}:`, err);
-          if (i === retries - 1) {
-            console.error('[fetchWithRetry] All retries exhausted, throwing error');
-            pendingRequestsRef.current.delete(requestKey);
-            throw err;
-          }
-          console.log(`[fetchWithRetry] Retrying after error, attempt ${i + 2}/${retries}`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-        }
-      }
-    } catch (err: any) {
-      console.error('[fetchWithRetry] Outer catch - unexpected error:', err);
-      pendingRequestsRef.current.delete(requestKey);
-      throw err;
-    } finally {
-      pendingRequestsRef.current.delete(requestKey);
-    }
-
-    console.warn(`[fetchWithRetry] All retries exhausted for ${url}, returning null`);
-    return null;
-  }, []);
-
-  // Load workspace function - available for both initial load and manual refresh
-  const loadWorkspace = useCallback(async () => {
-    console.log('[loadWorkspace] Starting, workspaceId:', workspaceId, 'mounted:', isMountedRef.current);
-    if (!isMountedRef.current) {
-      console.log('[loadWorkspace] Component not mounted, returning');
-      return;
-    }
-    try {
-      console.log('[loadWorkspace] Calling fetchWithRetry...');
-      let response = await fetchWithRetry(`${API_URL}/api/v1/workspaces/${workspaceId}`);
-      console.log('[loadWorkspace] fetchWithRetry response:', response ? `Status: ${response.status}, OK: ${response.ok}` : 'null');
-
-      if (!response) {
-        console.warn('[loadWorkspace] fetchWithRetry returned null, trying direct fetch for workspace', workspaceId);
-        try {
-          // Clear pending request before direct fetch
-          const directRequestKey = `${API_URL}/api/v1/workspaces/${workspaceId}-{}`;
-          pendingRequestsRef.current.delete(directRequestKey);
-
-          console.log('[loadWorkspace] Attempting direct fetch...');
-          // Don't use abort signal for direct fetch to avoid React Strict Mode abort issues
-          response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
-          console.log('[loadWorkspace] Direct fetch response:', response ? `Status: ${response.status}, OK: ${response.ok}, StatusText: ${response.statusText}` : 'null');
-
-          if (!response) {
-            console.error('[loadWorkspace] Direct fetch returned null response');
-            throw new Error('Direct fetch returned null');
-          }
-        } catch (fetchErr: any) {
-          console.error('[loadWorkspace] Direct fetch failed:', fetchErr, 'name:', fetchErr?.name, 'message:', fetchErr?.message);
-          if (fetchErr.name === 'AbortError') {
-            console.log('[loadWorkspace] Request aborted');
-            return;
-          }
-          if (isMountedRef.current) {
-            const errorMsg = fetchErr?.message || t('failedToLoadWorkspace');
-            console.error('[loadWorkspace] Setting error:', errorMsg);
-            setError(errorMsg);
-            setLoading(false);
-            loadingRef.current = false;
-          }
-          return;
-        }
-      }
-
-      if (!response) {
-        console.error('[loadWorkspace] No response after all attempts');
-        if (isMountedRef.current) {
-          setError(t('failedToLoadWorkspace'));
-          setLoading(false);
-          loadingRef.current = false;
-        }
-        return;
-      }
-
-      if (!isMountedRef.current) {
-        console.log('[loadWorkspace] Component unmounted before processing response');
-        return;
-      }
-
-      if (response.ok) {
-        console.log('[loadWorkspace] Response OK, parsing JSON...');
-        try {
-          const data = await response.json();
-          console.log('[loadWorkspace] Data parsed successfully:', data?.id, data?.title);
-          if (isMountedRef.current) {
-            console.log('[loadWorkspace] Setting workspace state...');
-            setWorkspace(data);
-            setError(null);
-            console.log('[loadWorkspace] Workspace state updated successfully');
-          } else {
-            console.log('[loadWorkspace] Component unmounted, skipping state update');
-          }
-        } catch (jsonErr) {
-          console.error('[loadWorkspace] JSON parse error:', jsonErr);
-          if (isMountedRef.current) {
-            setError(t('failedToLoadWorkspace'));
-            setLoading(false);
-            loadingRef.current = false;
-          }
-        }
-      } else {
-        console.error('[loadWorkspace] Response not OK:', response.status, response.statusText);
-        if (isMountedRef.current) {
-          const errorText = response.status === 404 ? t('workspaceNotFound') : t('failedToLoadWorkspace');
-          setError(errorText);
-          setLoading(false);
-          loadingRef.current = false;
-        }
-      }
-    } catch (err: any) {
-      console.error('[loadWorkspace] Exception caught:', err, 'name:', err?.name, 'message:', err?.message);
-      if (!isMountedRef.current || err.name === 'AbortError') {
-        console.log('[loadWorkspace] Component unmounted or aborted, returning');
-        return;
-      }
-      setError(t('failedToLoadWorkspace'));
-      setLoading(false);
-      loadingRef.current = false;
-    }
-  }, [workspaceId, fetchWithRetry]);
-
-  // Load system status function - now uses dedicated health endpoint to avoid duplicate workbench calls
-  // MindscapeAIWorkbench component already calls /workbench API, so we use /health for system status only
-  const loadSystemStatus = useCallback(async () => {
-    if (!isMountedRef.current) return;
-    try {
-      const response = await fetchWithRetry(`${API_URL}/api/v1/workspaces/${workspaceId}/health`);
-      if (!response || !isMountedRef.current) return;
-
-      if (response.ok) {
-        const data = await response.json();
-        if (isMountedRef.current) {
-          // Transform health data to match system_status format
-          setSystemStatus({
-            llm_configured: data.llm_configured,
-            llm_provider: data.llm_provider,
-            vector_db_connected: data.vector_db_connected,
-            tools: data.tools || {},
-            critical_issues_count: data.issues?.filter((i: any) => i.severity === 'error')?.length || 0,
-            has_issues: (data.issues?.length || 0) > 0
-          });
-        }
-      }
-    } catch (err: any) {
-      if (!isMountedRef.current || err.name === 'AbortError') return;
-      console.error('Failed to load system status:', err);
-    }
-  }, [workspaceId, fetchWithRetry]);
+  // Workspace loading is handled by WorkspaceDataContext
+  // Use Context's methods for manual refresh
+  const loadWorkspace = contextData.refreshWorkspace;
 
   // Listen for open-execution-inspector event
   useEffect(() => {
@@ -385,83 +165,7 @@ export default function WorkspacePage() {
     loadFocusedExecution();
   }, [focusExecutionId, workspaceId]);
 
-  useEffect(() => {
-    if (!workspaceId) return;
-
-    const currentWorkspaceId = workspaceId;
-
-    if (loadingRef.current && loadedWorkspaceIdRef.current === currentWorkspaceId) {
-      console.log('Already loading workspace, skipping:', currentWorkspaceId);
-      return;
-    }
-
-    console.log('[useEffect] Loading workspace:', currentWorkspaceId, 'current workspace:', workspace?.id, 'API_URL:', API_URL);
-    loadedWorkspaceIdRef.current = currentWorkspaceId;
-    isMountedRef.current = true;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-
-    // Cancel any pending requests from previous effect run (only if workspaceId changed)
-    if (abortControllerRef.current && loadedWorkspaceIdRef.current !== currentWorkspaceId) {
-      console.log('[useEffect] WorkspaceId changed, aborting previous requests');
-      abortControllerRef.current.abort();
-    }
-    // Create abort controller for this effect run
-    abortControllerRef.current = new AbortController();
-
-    // Load essential data only - tasks/executions are loaded by context
-    const loadData = async () => {
-      try {
-        if (!isMountedRef.current) {
-          loadingRef.current = false;
-          setLoading(false);
-          return;
-        }
-
-        await loadWorkspace();
-
-        if (!isMountedRef.current) {
-          loadingRef.current = false;
-          setLoading(false);
-          return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        if (loadedWorkspaceIdRef.current !== currentWorkspaceId) {
-          loadingRef.current = false;
-          setLoading(false);
-          return;
-        }
-        await loadSystemStatus();
-
-        if (isMountedRef.current && loadedWorkspaceIdRef.current === currentWorkspaceId) {
-          loadingRef.current = false;
-          setLoading(false);
-        }
-      } catch (err) {
-        console.error('[loadData] Failed to load workspace data:', err);
-        if (isMountedRef.current) {
-          loadingRef.current = false;
-          setLoading(false);
-          if (!error) {
-            setError(t('failedToLoadWorkspace'));
-          }
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      isMountedRef.current = false;
-      loadingRef.current = false;
-      pendingRequestsRef.current.clear();
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [workspaceId, loadWorkspace, loadSystemStatus]);
+  // Workspace loading is handled by WorkspaceDataContext - no need for useEffect here
 
 
   const handleModeChange = async (mode: WorkspaceMode) => {
@@ -469,25 +173,8 @@ export default function WorkspacePage() {
 
     try {
       setUpdatingMode(true);
-      // Explicitly send null to clear mode
-      const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ mode: mode === null ? null : mode }),
-        }
-      );
-
-      if (response.ok) {
-        const updated = await response.json();
-        setWorkspace(updated);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to update workspace mode:', errorData);
-      }
+      // Use Context's updateWorkspace method
+      await contextData.updateWorkspace({ mode: mode === null ? null : mode });
     } catch (err) {
       console.error('Failed to update workspace mode:', err);
     } finally {
@@ -568,11 +255,7 @@ export default function WorkspacePage() {
             {error && error.includes('Rate limit') && (
               <button
                 onClick={() => {
-                  setError(null);
-                  loadingRef.current = false;
-                  loadedWorkspaceIdRef.current = null;
-                  setLoading(true);
-                  loadWorkspace();
+                  contextData.refreshWorkspace();
                 }}
                 className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
               >
@@ -586,7 +269,6 @@ export default function WorkspacePage() {
   }
 
   return (
-    <WorkspaceDataProvider workspaceId={workspaceId}>
     <div className="min-h-screen bg-gray-50">
       <Header />
 
@@ -738,7 +420,7 @@ export default function WorkspacePage() {
                           systemStatus={systemStatus}
                           workspace={workspace || {}}
                           workspaceId={workspaceId}
-                          onRefresh={loadSystemStatus}
+                          onRefresh={() => contextData.refreshAll()}
                         />
                       ) : (
                         <div className="text-sm text-gray-500">Loading system status...</div>
@@ -833,6 +515,28 @@ export default function WorkspacePage() {
         confirmButtonClassName="bg-red-600 hover:bg-red-700"
       />
     </div>
+  );
+}
+
+// External component that provides Context
+export default function WorkspacePage() {
+  const params = useParams();
+  const workspaceId = params?.workspaceId as string;
+
+  if (!workspaceId) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+          <div className="text-gray-500">{t('workspaceNotFound')}</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <WorkspaceDataProvider workspaceId={workspaceId}>
+      <WorkspacePageContent workspaceId={workspaceId} />
     </WorkspaceDataProvider>
   );
 }
