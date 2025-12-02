@@ -102,6 +102,23 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                     onComplete(fullText, contextTokens);
                   }
                   window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+                } else if (data.type === 'task_update') {
+                  // Notify frontend about task creation/update
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received task_update event:', data.event_type, data.task);
+                  }
+                  window.dispatchEvent(new CustomEvent('workspace-task-updated', {
+                    detail: {
+                      event_type: data.event_type,
+                      task: data.task
+                    }
+                  }));
+                } else if (data.type === 'execution_results') {
+                  // Notify frontend about execution results (playbook tasks created)
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received execution_results event:', data.executed_tasks?.length || 0, 'executed tasks,', data.suggestion_cards?.length || 0, 'suggestions');
+                  }
+                  window.dispatchEvent(new CustomEvent('workspace-task-updated'));
                 } else if (data.type === 'error') {
                   throw new Error(data.message || 'Streaming error');
                 }
