@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
@@ -28,28 +28,61 @@ export default function WorkspacesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Workspace | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
+  const loadingRef = useRef(false);
 
-  useEffect(() => {
-    loadWorkspaces();
-  }, [ownerUserId]);
+  const loadWorkspaces = useCallback(async () => {
+    if (!isMountedRef.current) {
+      console.log('[loadWorkspaces] Component not mounted, skipping');
+      return;
+    }
 
-  const loadWorkspaces = async () => {
+    if (loadingRef.current) {
+      console.log('[loadWorkspaces] Already loading, skipping duplicate request');
+      return;
+    }
+
+    loadingRef.current = true;
+
     try {
       console.log('[loadWorkspaces] Starting, ownerUserId:', ownerUserId, 'API_URL:', API_URL);
-      const response = await fetch(
-        `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`
-      );
-      console.log('[loadWorkspaces] Response status:', response.status, 'ok:', response.ok);
       
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
+      const response = await fetch(
+        `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`,
+        {
+          signal: abortControllerRef.current.signal
+        }
+      );
+      
+      if (!isMountedRef.current) {
+        console.log('[loadWorkspaces] Component unmounted during fetch, aborting');
+        return;
+      }
+
+      console.log('[loadWorkspaces] Response status:', response.status, 'ok:', response.ok);
+
       if (response.ok) {
         try {
           const data = await response.json();
           console.log('[loadWorkspaces] Data received, count:', Array.isArray(data) ? data.length : 'not array');
-          setWorkspaces(Array.isArray(data) ? data : []);
-          setError(null);
+          
+          if (isMountedRef.current) {
+            setWorkspaces(Array.isArray(data) ? data : []);
+            setError(null);
+            setLoading(false);
+          }
         } catch (jsonErr) {
           console.error('[loadWorkspaces] JSON parse error:', jsonErr);
-          setError('Failed to parse workspace data');
+          if (isMountedRef.current) {
+            setError('Failed to parse workspace data');
+            setLoading(false);
+          }
         }
       } else {
         let errorMessage = 'Failed to load workspaces';
@@ -62,15 +95,38 @@ export default function WorkspacesPage() {
           errorMessage = `Failed to load workspaces: ${response.status} ${response.statusText}`;
         }
         console.error('[loadWorkspaces] Error response:', errorMessage);
-        setError(errorMessage);
+        if (isMountedRef.current) {
+          setError(errorMessage);
+          setLoading(false);
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.log('[loadWorkspaces] Request aborted');
+        return;
+      }
       console.error('[loadWorkspaces] Exception:', err);
-      setError(`Failed to load workspaces: ${err instanceof Error ? err.message : String(err)}`);
+      if (isMountedRef.current) {
+        setError(`Failed to load workspaces: ${err instanceof Error ? err.message : String(err)}`);
+        setLoading(false);
+      }
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
     }
-  };
+  }, [ownerUserId]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    loadWorkspaces();
+
+    return () => {
+      isMountedRef.current = false;
+      loadingRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [loadWorkspaces]);
 
   const handleCreateWorkspace = async (title: string, description: string) => {
     try {
