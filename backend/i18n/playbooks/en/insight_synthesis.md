@@ -19,7 +19,7 @@ visible_in:
 
 required_tools:
   - core_llm.generate
-  - core_llm.structured
+  - core_llm.structured_extract
 
 language_strategy: model_native
 locale: en

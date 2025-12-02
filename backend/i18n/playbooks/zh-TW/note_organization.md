@@ -18,7 +18,7 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
-  - core_llm.structured
+  - core_llm.structured_extract
 
 language_strategy: model_native
 locale: zh-TW

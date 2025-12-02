@@ -19,7 +19,7 @@ visible_in:
 
 required_tools:
   - semantic_seeds.extract_seeds
-  - core_llm.structured
+  - core_llm.structured_extract
 
 language_strategy: model_native
 locale: zh-TW
