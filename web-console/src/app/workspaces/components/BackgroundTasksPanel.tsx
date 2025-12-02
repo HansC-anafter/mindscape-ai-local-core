@@ -20,6 +20,13 @@ interface BackgroundRoutine {
   updated_at: string;
 }
 
+interface SystemTool {
+  playbook_code: string;
+  name: string;
+  description: string;
+  kind: 'system_tool';
+}
+
 interface BackgroundTasksPanelProps {
   workspaceId: string;
   apiUrl: string;
@@ -31,12 +38,12 @@ export default function BackgroundTasksPanel({
 }: BackgroundTasksPanelProps) {
   const t = useT();
   const [routines, setRoutines] = useState<BackgroundRoutine[]>([]);
+  const [systemTools, setSystemTools] = useState<SystemTool[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
 
   const loadRoutines = async () => {
     try {
-      setLoading(true);
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/background-routines`
       );
@@ -46,28 +53,56 @@ export default function BackgroundTasksPanel({
       }
     } catch (err) {
       console.error('Failed to load background routines:', err);
+    }
+  };
+
+  const loadSystemTools = async () => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/playbooks`);
+      if (response.ok) {
+        const allPlaybooks = await response.json();
+        const systemToolPlaybooks = allPlaybooks.filter((pb: any) => {
+          const kind = pb.kind;
+          return kind === 'system_tool' || kind === 'SYSTEM_TOOL';
+        });
+        setSystemTools(systemToolPlaybooks.map((pb: any) => ({
+          playbook_code: pb.playbook_code,
+          name: pb.name || pb.playbook_code,
+          description: pb.description || '',
+          kind: 'system_tool' as const
+        })));
+      }
+    } catch (err) {
+      console.error('Failed to load system tools:', err);
+    }
+  };
+
+  const loadAll = async () => {
+    try {
+      setLoading(true);
+      await Promise.all([loadRoutines(), loadSystemTools()]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadRoutines();
+    loadAll();
 
     // Listen for workspace updates
     const handleUpdate = () => {
-      loadRoutines();
+      loadAll();
     };
     window.addEventListener('workspace-chat-updated', handleUpdate);
 
     // Listen for tool status changes (affects readiness status)
     const cleanupToolStatus = listenToToolStatusChanged(() => {
-      loadRoutines();
+      loadAll();
     });
 
     // Listen for background routine status changes
     const cleanupRoutineStatus = listenToBackgroundRoutineStatusChanged(() => {
-      loadRoutines();
+      loadAll();
     }, workspaceId);
 
     return () => {
@@ -109,7 +144,7 @@ export default function BackgroundTasksPanel({
       }
 
       if (response.ok) {
-        await loadRoutines();
+        await loadAll();
         window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
         // Dispatch background routine status changed event
         dispatchBackgroundRoutineStatusChanged(workspaceId, routine.id);
@@ -213,102 +248,146 @@ export default function BackgroundTasksPanel({
     );
   }
 
+  const totalItems = routines.length + systemTools.length;
+
   return (
     <div className="h-full overflow-y-auto p-2">
       <div className="space-y-2">
-        {routines.length === 0 ? (
+        {/* Background Routines Section */}
+        {routines.length > 0 && (
+          <>
+            {routines.length > 0 && systemTools.length > 0 && (
+              <div className="text-xs font-semibold text-gray-700 mb-2 pt-2 border-t border-gray-200">
+                {t('backgroundRoutines')}
+              </div>
+            )}
+            {routines.map((routine) => (
+              <div
+                key={routine.id}
+                className={`border rounded p-2 transition-colors ${
+                  routine.enabled
+                    ? 'bg-gray-50 border-gray-200'
+                    : 'bg-gray-50 border-gray-200 opacity-60'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-xs font-medium text-gray-900 truncate">
+                      {routine.playbook_code}
+                    </span>
+                    {getStatusBadge(routine)}
+                  </div>
+
+                  {/* Enable/Disable Toggle */}
+                  <button
+                    onClick={() => toggleRoutine(routine)}
+                    disabled={updatingIds.has(routine.id)}
+                    className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${
+                      updatingIds.has(routine.id)
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : routine.enabled
+                        ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
+                    }`}
+                  >
+                    {updatingIds.has(routine.id)
+                      ? t('processing')
+                      : routine.enabled
+                      ? t('disable')
+                      : t('enable')}
+                  </button>
+                </div>
+
+                {/* Tool Status Chips */}
+                {routine.tool_statuses && Object.keys(routine.tool_statuses).length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(routine.tool_statuses).map(([toolType, status]) => (
+                        <ToolStatusChip
+                          key={toolType}
+                          toolType={toolType}
+                          status={status as 'unavailable' | 'registered_but_not_connected' | 'connected'}
+                          onClick={() => {
+                            // Navigate to tools settings page
+                            window.location.href = '/settings?tab=tools';
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Routine Details */}
+                <div className="text-xs text-gray-600 space-y-1 mt-2">
+                  {routine.last_run_at && (
+                    <div>
+                      <span className="font-medium">{t('lastExecution')}:</span>
+                      {formatDate(routine.last_run_at)}
+                    </div>
+                  )}
+                  {routine.next_run_at && routine.enabled && (
+                    <div>
+                      <span className="font-medium">{t('nextExecution')}:</span>
+                      {formatDate(routine.next_run_at)}
+                    </div>
+                  )}
+                  {routine.last_status === 'failed' && (
+                    <div className="text-red-600 text-[10px] mt-1">
+                      {t('lastExecutionFailed')}
+                    </div>
+                  )}
+                  {routine.readiness_status === 'needs_setup' && (
+                    <div className="text-yellow-600 text-[10px] mt-1">
+                      {t('toolsNeedConfiguration')}
+                    </div>
+                  )}
+                  {routine.readiness_status === 'unsupported' && (
+                    <div className="text-red-600 text-[10px] mt-1">
+                      {t('requiredToolsNotSupported')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* System Tools Section */}
+        {systemTools.length > 0 && (
+          <>
+            {routines.length > 0 && systemTools.length > 0 && (
+              <div className="text-xs font-semibold text-gray-700 mb-2 pt-2 border-t border-gray-200">
+                {t('systemTools') || 'System Tools'}
+              </div>
+            )}
+            {systemTools.map((tool) => (
+              <div
+                key={tool.playbook_code}
+                className="border rounded p-2 bg-gray-50 border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-900 truncate flex-1 min-w-0">
+                    {tool.name || tool.playbook_code}
+                  </span>
+                  <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 text-blue-700 border-blue-300 font-medium ml-2 flex-shrink-0">
+                    {t('systemTool') || 'System Tool'}
+                  </span>
+                </div>
+                {tool.description && (
+                  <div className="text-xs text-gray-600 mt-2">
+                    {tool.description}
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Empty State */}
+        {totalItems === 0 && (
           <div className="text-xs text-gray-500 italic py-4 text-center">
             {t('noBackgroundTasks')}
           </div>
-        ) : (
-          routines.map((routine) => (
-            <div
-              key={routine.id}
-              className={`border rounded p-2 transition-colors ${
-                routine.enabled
-                  ? 'bg-gray-50 border-gray-200'
-                  : 'bg-gray-50 border-gray-200 opacity-60'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <span className="text-xs font-medium text-gray-900 truncate">
-                    {routine.playbook_code}
-                  </span>
-                  {getStatusBadge(routine)}
-                </div>
-
-                {/* Enable/Disable Toggle */}
-                <button
-                  onClick={() => toggleRoutine(routine)}
-                  disabled={updatingIds.has(routine.id)}
-                  className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${
-                    updatingIds.has(routine.id)
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : routine.enabled
-                      ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
-                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
-                  }`}
-                >
-                  {updatingIds.has(routine.id)
-                    ? t('processing')
-                    : routine.enabled
-                    ? t('disable')
-                    : t('enable')}
-                </button>
-              </div>
-
-              {/* Tool Status Chips */}
-              {routine.tool_statuses && Object.keys(routine.tool_statuses).length > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-200">
-                  <div className="flex flex-wrap gap-1">
-                    {Object.entries(routine.tool_statuses).map(([toolType, status]) => (
-                      <ToolStatusChip
-                        key={toolType}
-                        toolType={toolType}
-                        status={status as 'unavailable' | 'registered_but_not_connected' | 'connected'}
-                        onClick={() => {
-                          // Navigate to tools settings page
-                          window.location.href = '/settings?tab=tools';
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Routine Details */}
-              <div className="text-xs text-gray-600 space-y-1 mt-2">
-                {routine.last_run_at && (
-                  <div>
-                    <span className="font-medium">{t('lastExecution')}:</span>
-                    {formatDate(routine.last_run_at)}
-                  </div>
-                )}
-                {routine.next_run_at && routine.enabled && (
-                  <div>
-                    <span className="font-medium">{t('nextExecution')}:</span>
-                    {formatDate(routine.next_run_at)}
-                  </div>
-                )}
-                {routine.last_status === 'failed' && (
-                  <div className="text-red-600 text-[10px] mt-1">
-                    {t('lastExecutionFailed')}
-                  </div>
-                )}
-                {routine.readiness_status === 'needs_setup' && (
-                  <div className="text-yellow-600 text-[10px] mt-1">
-                    {t('toolsNeedConfiguration')}
-                  </div>
-                )}
-                {routine.readiness_status === 'unsupported' && (
-                  <div className="text-red-600 text-[10px] mt-1">
-                    {t('requiredToolsNotSupported')}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))
         )}
       </div>
     </div>

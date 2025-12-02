@@ -100,12 +100,20 @@ export const commonZhTW = {
   toolsNeedConfiguration: '需要配置工具',
   requiredToolsNotSupported: '所需工具不支援',
   nextStep: '下一步',
+  startedAt: '開始時間',
 
   // Sidebar Tabs
   tabScheduling: '調度',
   tabOutcomes: '成果',
   tabBackgroundTasks: '背景任務',
   backgroundTasksPanel: '背景任務面板',
+  running: '執行中',
+  pending: '等待中',
+  createdAt: '建立時間',
+  activeExecutions: '執行中的任務',
+  backgroundRoutines: '背景任務',
+  systemTools: '系統工具',
+  systemTool: '系統工具',
 
   // Copy actions
   copyAll: '複製全部',
@@ -211,12 +219,20 @@ export const commonEn = {
   toolsNeedConfiguration: 'Tools need configuration',
   requiredToolsNotSupported: 'Required tools not supported',
   nextStep: 'Next Step',
+  startedAt: 'Started At',
 
   // Sidebar Tabs
   tabScheduling: 'Scheduling',
   tabOutcomes: 'Outcomes',
   tabBackgroundTasks: 'Background Tasks',
   backgroundTasksPanel: 'Background Tasks Panel',
+  running: 'Running',
+  pending: 'Pending',
+  createdAt: 'Created At',
+  activeExecutions: 'Active Executions',
+  backgroundRoutines: 'Background Routines',
+  systemTools: 'System Tools',
+  systemTool: 'System Tool',
 
   // Copy actions
   copyAll: 'Copy All',

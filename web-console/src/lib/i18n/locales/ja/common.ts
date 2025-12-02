@@ -99,6 +99,14 @@ export const commonJa = {
   toolsNeedConfiguration: 'ツールの設定が必要',
   requiredToolsNotSupported: '必要なツールがサポートされていません',
   nextStep: '次のステップ',
+  startedAt: '開始時刻',
+  running: '実行中',
+  pending: '待機中',
+  createdAt: '作成時刻',
+  activeExecutions: '実行中のタスク',
+  backgroundRoutines: 'バックグラウンドタスク',
+  systemTools: 'システムツール',
+  systemTool: 'システムツール',
 
   // Sidebar Tabs
   tabScheduling: 'スケジュール',

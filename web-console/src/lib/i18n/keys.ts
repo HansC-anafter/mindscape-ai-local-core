@@ -996,7 +996,6 @@ export const keys = {
   startingPlaybookExecution: true,
   stepNumber: true,
   unnamed: true,
-  tools: true,
   thisExecutionFailed: true,
   playbookInspector: true,
   playbookRun: true,
@@ -1004,7 +1003,13 @@ export const keys = {
   explainWhyFailed: true,
   suggestNextSteps: true,
   reviewPlaybookSteps: true,
+  explainWhyFailedPrompt: true,
+  explainWhyFailedPromptAlt: true,
+  suggestNextStepsPrompt: true,
+  reviewPlaybookStepsPrompt: true,
   playbookConversation: true,
+  aiThinking: true,
+  executionChatDescription: true,
   workspaceNotFound: true,
   failedToLoadWorkspace: true,
   loadingWorkspace: true,
@@ -1036,6 +1041,13 @@ export const keys = {
   'suggestion.create_intent_card_titl': true, // typo fallback
   'suggestion.create_intent_card_description': true,
   skip: true,
+  running: true,
+  pending: true,
+  createdAt: true,
+  activeExecutions: true,
+  backgroundRoutines: true,
+  systemTools: true,
+  systemTool: true,
 } as const;
 
 export type MessageKey = keyof typeof keys;

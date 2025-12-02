@@ -1,0 +1,137 @@
+{
+  "version": "1.0",
+  "playbook_code": "note_organization",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "normalize_notes",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.notes}}",
+        "schema_description": "A JSON object with two properties: 1) normalized_notes: array of objects, each with source (string), date (string), title (string), and key_points (array of strings). 2) grouped_by_source: object mapping source names to arrays of note titles. Normalize and organize the input notes, group them by source (meeting/article/idea) and date. Limit processing to the last {{input.date_range_days}} days or {{input.max_notes}} most recent notes if specified."
+      },
+      "outputs": {
+        "normalized_list": "extracted_data.normalized_notes",
+        "grouped_notes": "extracted_data.grouped_by_source"
+      }
+    },
+    {
+      "id": "cluster_topics",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{step.normalize_notes.normalized_list}}",
+        "schema_description": "A JSON object with a 'themes' property: array of theme objects, each with theme_name (string), description (one sentence string), and related_notes (array of strings). Cluster the normalized notes into {{input.max_themes}} main themes (5-8 range). Use priority themes if provided: {{input.priority_themes}}"
+      },
+      "outputs": {
+        "themes": "extracted_data.themes"
+      },
+      "depends_on": ["normalize_notes"]
+    },
+    {
+      "id": "build_structure",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{step.cluster_topics.themes}}",
+        "schema_description": "A JSON object with a 'knowledge_structure' property: array of theme objects, each with theme (string), theme_description (one-sentence string explaining what it is and why it's important), and subtopics (array of objects, each with subtopic (string) and description (one-sentence string)). Build a 2-level hierarchical knowledge structure. Output format: {{input.output_format}}"
+      },
+      "outputs": {
+        "structure": "extracted_data.knowledge_structure"
+      },
+      "depends_on": ["cluster_topics"]
+    },
+    {
+      "id": "generate_actions",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{step.build_structure.structure}}",
+        "schema_description": "A JSON object with three properties: 1) action_items: array of objects, each with action (string), priority (string: 'high', 'medium', 'low'), and description (string). 2) open_questions: array of strings (questions needing further research). 3) key_insights: array of objects, each with insight (string) and why_important (one-sentence string). Based on the knowledge structure, generate actionable next steps and open questions. Include actions only if include_actions is true: {{input.include_actions}}"
+      },
+      "outputs": {
+        "actions": "extracted_data.action_items",
+        "questions": "extracted_data.open_questions",
+        "insights": "extracted_data.key_insights"
+      },
+      "depends_on": ["build_structure"]
+    }
+  ],
+  "inputs": {
+    "notes": {
+      "type": "list[string]",
+      "required": true,
+      "description": "Input notes to organize (text or file paths)"
+    },
+    "date_range_days": {
+      "type": "integer",
+      "default": 7,
+      "description": "Limit processing to notes from last N days"
+    },
+    "max_notes": {
+      "type": "integer",
+      "default": 20,
+      "description": "Maximum number of notes to process"
+    },
+    "priority_themes": {
+      "type": "list[string]",
+      "default": [],
+      "description": "User's priority themes for clustering (e.g., ['personal efficiency', 'product strategy', 'learning notes'])"
+    },
+    "max_themes": {
+      "type": "integer",
+      "default": 8,
+      "description": "Maximum number of theme groups (5-10 range)"
+    },
+    "output_format": {
+      "type": "string",
+      "default": "hierarchical",
+      "description": "Output format: 'hierarchical' (2-level structure), 'simple' (theme list only), or 'detailed' (full outline)"
+    },
+    "include_actions": {
+      "type": "boolean",
+      "default": true,
+      "description": "Include action items and open questions section"
+    },
+    "tone": {
+      "type": "string",
+      "default": "concise",
+      "description": "Output tone: 'concise' (bullet points, minimal text) or 'detailed' (more explanation)"
+    },
+    "target_audience": {
+      "type": "string",
+      "default": "self",
+      "description": "Target audience: 'self' (current self) or 'future_self' (3 months later, needs more context)"
+    }
+  },
+  "outputs": {
+    "normalized_notes": {
+      "type": "list[object]",
+      "description": "Normalized and grouped notes by source and date",
+      "source": "step.normalize_notes.normalized_list"
+    },
+    "themes": {
+      "type": "list[object]",
+      "description": "Clustered themes with related notes",
+      "source": "step.cluster_topics.themes"
+    },
+    "knowledge_structure": {
+      "type": "list[object]",
+      "description": "2-level hierarchical knowledge structure (themes and subtopics)",
+      "source": "step.build_structure.structure"
+    },
+    "action_items": {
+      "type": "list[object]",
+      "description": "Actionable next steps with priorities",
+      "source": "step.generate_actions.actions"
+    },
+    "open_questions": {
+      "type": "list[string]",
+      "description": "Open questions requiring further research",
+      "source": "step.generate_actions.questions"
+    },
+    "key_insights": {
+      "type": "list[object]",
+      "description": "Key insights with importance explanations",
+      "source": "step.generate_actions.insights"
+    }
+  }
+}
+

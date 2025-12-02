@@ -12,6 +12,8 @@ import uuid
 from ...models.workspace import ExecutionPlan, TaskPlan
 from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
+from ...services.playbook_run_executor import PlaybookRunExecutor
+from ...services.playbook_loader import PlaybookLoader
 from ...capabilities.registry import get_registry
 from ...core.execution_context import ExecutionContext
 
@@ -43,6 +45,8 @@ class SuggestionActionHandler:
         self.playbook_runner = playbook_runner
         self.task_manager = task_manager
         self.execution_coordinator = execution_coordinator
+        self.playbook_run_executor = PlaybookRunExecutor()
+        self.playbook_loader = PlaybookLoader()
         self.default_locale = default_locale
 
     async def handle_action(
@@ -161,98 +165,68 @@ class SuggestionActionHandler:
         """Handle execute_playbook action"""
         playbook_code = action_params.get('playbook_code')
         if not playbook_code:
+            logger.error(f"_handle_execute_playbook: playbook_code missing in action_params: {action_params}")
             raise ValueError("playbook_code is required for execute_playbook action")
 
-        # Use execution_coordinator.create_execution_with_ctx to handle side_effect_level correctly
-        # This ensures that SOFT_WRITE/EXTERNAL_WRITE playbooks create suggestion tasks with llm_analysis
-        if self.execution_coordinator:
-            # Extract llm_analysis from action_params if available
-            playbook_context = action_params.copy()
+        logger.info(f"_handle_execute_playbook: Starting execution for playbook {playbook_code}, workspace={ctx.workspace_id}, profile={ctx.actor_id}")
 
-            # Mark that this is triggered from suggestion action (user confirmed execution)
-            # This allows create_execution_with_ctx to distinguish between first-time suggestion and user confirmation
-            playbook_context["from_suggestion_action"] = True
-            playbook_context["task_id"] = action_params.get("task_id")  # Original suggestion task ID if available
+        playbook_context = action_params.copy()
+        playbook_context["from_suggestion_action"] = True
+        playbook_context["task_id"] = action_params.get("task_id")
 
-            # execution_coordinator.create_execution_with_ctx will:
-            # - Check side_effect_level
-            # - Check from_suggestion_action flag
-            # - If from_suggestion_action=True: execute directly (user confirmed)
-            # - If from_suggestion_action=False: create suggestion card (first-time suggestion)
-            # - For READONLY: always execute directly
-            result = await self.execution_coordinator.create_execution_with_ctx(
-                playbook_code=playbook_code,
-                playbook_context=playbook_context,
-                ctx=ctx,
-                message_id=message_id or str(uuid.uuid4()),
-                project_id=project_id
+        locale = playbook_context.get("locale") or self.default_locale
+
+        logger.info(f"_handle_execute_playbook: Loading playbook_run for {playbook_code}, locale={locale}")
+        playbook_run = self.playbook_loader.load_playbook_run(
+            playbook_code=playbook_code,
+            locale=locale
+        )
+
+        if not playbook_run:
+            logger.error(f"_handle_execute_playbook: Playbook {playbook_code} not found")
+            raise ValueError(f"Playbook {playbook_code} not found")
+
+        if not playbook_run.has_json():
+            logger.error(f"_handle_execute_playbook: Playbook {playbook_code} does not have playbook.json")
+            raise ValueError(
+                f"Playbook {playbook_code} does not have playbook.json. "
+                f"HandoffPlan is required for execution. Please create playbook.json for structured workflow execution."
             )
 
-            self._create_user_event(
-                ctx.workspace_id, ctx.actor_id, project_id,
-                f"Execute playbook: {playbook_code}",
-                'execute_playbook', action_params
-            )
+        logger.info(f"_handle_execute_playbook: Calling execute_playbook_run for {playbook_code}")
+        execution_result = await self.playbook_run_executor.execute_playbook_run(
+            playbook_code=playbook_code,
+            profile_id=ctx.actor_id,
+            inputs=playbook_context,
+            workspace_id=ctx.workspace_id,
+            locale=locale
+        )
+        logger.info(f"_handle_execute_playbook: Execution completed for {playbook_code}, result keys: {list(execution_result.keys())}")
 
-            # Convert execution_coordinator result to suggestion_action_handler format
-            if result.get("status") == "suggestion":
-                return {
-                    "workspace_id": ctx.workspace_id,
-                    "display_events": [],
-                    "triggered_playbook": None,
-                    "pending_tasks": [{
-                        "task_id": result.get("task_id"),
-                        "playbook_code": playbook_code,
-                        "status": "pending"
-                    }] if result.get("task_id") else []
-                }
-            elif result.get("status") == "started":
-                return {
-                    "workspace_id": ctx.workspace_id,
-                    "display_events": [],
-                    "triggered_playbook": {
-                        "playbook_code": playbook_code,
-                        "execution_id": result.get("execution_id"),
-                        "status": "triggered"
-                    },
-                    "pending_tasks": []
-                }
-            else:
-                # Fallback to original behavior
-                return {
-                    "workspace_id": ctx.workspace_id,
-                    "display_events": [],
-                    "triggered_playbook": {
-                        "playbook_code": playbook_code,
-                        "status": result.get("status", "unknown")
-                    },
-                    "pending_tasks": []
-                }
-        else:
-            # Fallback: direct execution if execution_coordinator not available
-            execution_result = await self.playbook_runner.start_playbook_execution(
-                playbook_code=playbook_code,
-                profile_id=ctx.actor_id,
-                inputs=action_params,
-                workspace_id=ctx.workspace_id
-            )
+        self._create_user_event(
+            ctx.workspace_id, ctx.actor_id, project_id,
+            f"Execute playbook: {playbook_code}",
+            'execute_playbook', action_params
+        )
 
-            self._create_user_event(
-                ctx.workspace_id, ctx.actor_id, project_id,
-                f"Execute playbook: {playbook_code}",
-                'execute_playbook', action_params
-            )
+        execution_id = None
+        if execution_result.get("execution_id"):
+            execution_id = execution_result.get("execution_id")
+        elif execution_result.get("result", {}).get("execution_id"):
+            execution_id = execution_result.get("result", {}).get("execution_id")
 
-            return {
-                "workspace_id": ctx.workspace_id,
-                "display_events": [],
-                "triggered_playbook": {
-                    "playbook_code": playbook_code,
-                    "execution_id": execution_result.get("execution_id"),
-                    "status": "triggered"
-                },
-                "pending_tasks": []
-            }
+        logger.info(f"_handle_execute_playbook: Returning execution_id={execution_id} for {playbook_code}")
+
+        return {
+            "workspace_id": ctx.workspace_id,
+            "display_events": [],
+            "triggered_playbook": {
+                "playbook_code": playbook_code,
+                "execution_id": execution_id,
+                "status": "triggered"
+            },
+            "pending_tasks": []
+        }
 
     async def _handle_use_tool(
         self,
