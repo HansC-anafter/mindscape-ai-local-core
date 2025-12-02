@@ -4,37 +4,27 @@
   "kind": "user_workflow",
   "steps": [
     {
-      "id": "analyze_content",
-      "tool": "core_llm.analyze",
+      "id": "extract_topics",
+      "tool": "core_llm.structured_extract",
       "inputs": {
-        "content": "{{input.source_content}}",
-        "task": "extract_key_topics"
+        "text": "{{input.source_content}}",
+        "schema_description": "A JSON object with a 'topics' property: array of strings (key topics extracted from the content for Instagram post generation)."
       },
       "outputs": {
-        "topics": "topics"
+        "topics": "extracted_data.topics"
       }
     },
     {
       "id": "generate_posts",
-      "tool": "core_llm.generate",
+      "tool": "core_llm.structured_extract",
       "inputs": {
-        "prompt": "Generate {{input.post_count}} IG posts based on these topics: {{step.analyze_content.topics}}",
-        "format": "json",
-        "schema": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "text": {"type": "string"},
-              "hashtags": {"type": "array", "items": {"type": "string"}}
-            }
-          }
-        }
+        "text": "Source content: {{input.source_content}}\n\nExtracted topics: {{step.extract_topics.topics}}\n\nGenerate {{input.post_count}} Instagram posts based on the topics above.",
+        "schema_description": "A JSON object with an 'ig_posts' property: array of objects, each with 'text' (string, the post content) and 'hashtags' (array of strings, relevant hashtags for the post)."
       },
       "outputs": {
-        "ig_posts": "ig_posts"
+        "ig_posts": "extracted_data.ig_posts"
       },
-      "depends_on": ["analyze_content"]
+      "depends_on": ["extract_topics"]
     }
   ],
   "inputs": {
@@ -54,6 +44,11 @@
       "type": "list[object]",
       "description": "Generated IG posts list",
       "source": "step.generate_posts.ig_posts"
+    },
+    "topics": {
+      "type": "list[string]",
+      "description": "Extracted key topics",
+      "source": "step.extract_topics.topics"
     }
   }
 }

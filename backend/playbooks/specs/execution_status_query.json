@@ -5,39 +5,16 @@
   "steps": [
     {
       "id": "extract_query_intent",
-      "tool": "core_llm.structured",
+      "tool": "core_llm.structured_extract",
       "inputs": {
-        "prompt": "Extract execution query intent from user message. Identify execution_id, playbook_code, or task description.",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "execution_id": {
-              "type": "string",
-              "description": "Execution ID if mentioned"
-            },
-            "playbook_code": {
-              "type": "string",
-              "description": "Playbook code if mentioned"
-            },
-            "task_description": {
-              "type": "string",
-              "description": "Task description if mentioned"
-            },
-            "query_type": {
-              "type": "string",
-              "enum": ["single", "multiple", "all"],
-              "description": "Type of query: single execution, multiple, or all"
-            }
-          }
-        },
-        "user_message": "{{input.user_message}}",
-        "conversation_context": "{{input.conversation_context}}"
+        "text": "User message: {{input.user_message}}\n\nConversation context: {{input.conversation_context}}\n\nExtract execution query intent from the user message above. Identify execution_id, playbook_code, or task description.",
+        "schema_description": "A JSON object with the following properties: 1) execution_id: string (Execution ID if mentioned). 2) playbook_code: string (Playbook code if mentioned). 3) task_description: string (Task description if mentioned). 4) query_type: string, one of 'single', 'multiple', or 'all' (Type of query: single execution, multiple, or all)."
       },
       "outputs": {
-        "intent": "execution_id",
-        "playbook_code": "playbook_code",
-        "task_description": "task_description",
-        "query_type": "query_type"
+        "intent": "extracted_data.execution_id",
+        "playbook_code": "extracted_data.playbook_code",
+        "task_description": "extracted_data.task_description",
+        "query_type": "extracted_data.query_type"
       }
     },
     {
@@ -94,47 +71,13 @@
     },
     {
       "id": "summarize_execution_status",
-      "tool": "core_llm.structured",
+      "tool": "core_llm.structured_extract",
       "inputs": {
-        "prompt": "Summarize execution status into structured format. Extract progress, current step, errors, and last_updated_at from execution and steps data.",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "execution_id": {"type": "string"},
-            "playbook_code": {"type": "string"},
-            "status": {
-              "type": "string",
-              "enum": ["pending", "running", "succeeded", "failed", "cancelled"]
-            },
-            "progress": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "description": "Progress from 0 to 1"
-            },
-            "current_step_name": {"type": "string"},
-            "current_step_index": {"type": "integer"},
-            "total_steps": {"type": "integer"},
-            "last_error": {
-              "type": "string",
-              "description": "Last error message if any"
-            },
-            "estimated_remaining_time": {
-              "type": "string",
-              "description": "Estimated remaining time"
-            },
-            "last_updated_at": {
-              "type": "string",
-              "format": "date-time",
-              "description": "ISO datetime of last update. Source: execution.updated_at or last step event timestamp. Used for UI 'updated X seconds ago' display and stuck detection."
-            }
-          }
-        },
-        "execution": "{{step.query_execution_status.execution}}",
-        "steps": "{{step.get_execution_steps.steps}}"
+        "text": "Execution data: {{step.query_execution_status.execution}}\n\nSteps data: {{step.get_execution_steps.steps}}\n\nSummarize execution status into structured format. Extract progress, current step, errors, and last_updated_at from the execution and steps data above.",
+        "schema_description": "A JSON object with the following properties: 1) execution_id: string. 2) playbook_code: string. 3) status: string, one of 'pending', 'running', 'succeeded', 'failed', 'cancelled'. 4) progress: number between 0 and 1 (Progress from 0 to 1). 5) current_step_name: string. 6) current_step_index: integer. 7) total_steps: integer. 8) last_error: string (Last error message if any). 9) estimated_remaining_time: string (Estimated remaining time). 10) last_updated_at: string in ISO datetime format (Source: execution.updated_at or last step event timestamp. Used for UI 'updated X seconds ago' display and stuck detection)."
       },
       "outputs": {
-        "summary": "summary"
+        "summary": "extracted_data"
       },
       "depends_on": ["query_execution_status", "get_execution_steps"]
     },
@@ -142,13 +85,10 @@
       "id": "generate_status_report",
       "tool": "core_llm.generate",
       "inputs": {
-        "prompt": "Generate a natural language status report based on the structured summary. Be user-friendly and specific about progress, current step, and any issues.",
-        "summary": "{{step.summarize_execution_status.summary}}",
-        "user_query": "{{input.user_message}}",
-        "execution_details": "{{step.query_execution_status.execution}}"
+        "prompt": "Generate a natural language status report based on the following structured summary. Be user-friendly and specific about progress, current step, and any issues.\n\nStructured Summary: {{step.summarize_execution_status.summary}}\n\nUser's original query: {{input.user_message}}\n\nExecution details: {{step.query_execution_status.execution}}"
       },
       "outputs": {
-        "report": "report"
+        "report": "text"
       },
       "depends_on": ["summarize_execution_status"]
     }

@@ -4,79 +4,37 @@
   "kind": "user_workflow",
   "steps": [
     {
-      "id": "analyze_content",
-      "tool": "core_llm.analyze",
+      "id": "extract_topics",
+      "tool": "core_llm.structured_extract",
       "inputs": {
-        "content": "{{input.source_content}}",
-        "task": "extract_key_topics_for_video"
+        "text": "{{input.source_content}}",
+        "schema_description": "A JSON object with two properties: 1) topics: array of strings (key topics extracted from the content for video script generation). 2) key_points: array of strings (key points to cover in the video)."
       },
       "outputs": {
-        "topics": "topics",
-        "key_points": "key_points"
+        "topics": "extracted_data.topics",
+        "key_points": "extracted_data.key_points"
       }
     },
     {
       "id": "generate_script",
-      "tool": "core_llm.generate",
+      "tool": "core_llm.structured_extract",
       "inputs": {
-        "prompt": "Generate a {{input.duration_minutes}}-minute YouTube video script based on these topics: {{step.analyze_content.topics}}. Script type: {{input.script_type}}, Tone: {{input.tone}}. Include timestamps: {{input.include_timestamps}}",
-        "format": "json",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "title": {"type": "string"},
-            "duration_minutes": {"type": "integer"},
-            "script_type": {"type": "string"},
-            "tone": {"type": "string"},
-            "intro": {
-              "type": "object",
-              "properties": {
-                "start_time": {"type": "string"},
-                "end_time": {"type": "string"},
-                "content": {"type": "string"},
-                "hook": {"type": "string"}
-              }
-            },
-            "main_content": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "section_number": {"type": "integer"},
-                  "title": {"type": "string"},
-                  "start_time": {"type": "string"},
-                  "end_time": {"type": "string"},
-                  "content": {"type": "string"},
-                  "key_points": {"type": "array", "items": {"type": "string"}}
-                }
-              }
-            },
-            "outro": {
-              "type": "object",
-              "properties": {
-                "start_time": {"type": "string"},
-                "end_time": {"type": "string"},
-                "content": {"type": "string"},
-                "cta": {"type": "string"}
-              }
-            }
-          }
-        }
+        "text": "Source content: {{input.source_content}}\n\nExtracted topics: {{step.extract_topics.topics}}\n\nKey points: {{step.extract_topics.key_points}}\n\nGenerate a {{input.duration_minutes}}-minute YouTube video script. Script type: {{input.script_type}}, Tone: {{input.tone}}. Include timestamps: {{input.include_timestamps}}",
+        "schema_description": "A JSON object with the following structure: 1) title: string (Video title). 2) duration_minutes: integer. 3) script_type: string (Type of script, e.g., 'educational', 'tutorial', 'review', 'storytelling', 'interview'). 4) tone: string (Tone style, e.g., 'engaging', 'professional', 'casual', 'energetic', 'calm'). 5) intro: object with properties start_time (string), end_time (string), content (string), hook (string). 6) main_content: array of objects, each with section_number (integer), title (string), start_time (string), end_time (string), content (string), key_points (array of strings). 7) outro: object with properties start_time (string), end_time (string), content (string), cta (string)."
       },
       "outputs": {
-        "script": "script"
+        "script": "extracted_data"
       },
-      "depends_on": ["analyze_content"]
+      "depends_on": ["extract_topics"]
     },
     {
       "id": "format_markdown",
-      "tool": "core_llm.format",
+      "tool": "core_llm.generate",
       "inputs": {
-        "content": "{{step.generate_script.script}}",
-        "format": "markdown"
+        "prompt": "Convert the following YouTube video script JSON into a well-formatted Markdown document:\n\n{{step.generate_script.script}}\n\nFormat it as a markdown document with proper headings, sections, and timestamps."
       },
       "outputs": {
-        "script_markdown": "script_markdown"
+        "script_markdown": "text"
       },
       "depends_on": ["generate_script"]
     }
@@ -115,6 +73,16 @@
       "type": "object",
       "description": "Complete video script",
       "source": "step.generate_script.script"
+    },
+    "topics": {
+      "type": "list[string]",
+      "description": "Extracted key topics",
+      "source": "step.extract_topics.topics"
+    },
+    "key_points": {
+      "type": "list[string]",
+      "description": "Key points to cover",
+      "source": "step.extract_topics.key_points"
     },
     "script_markdown": {
       "type": "string",
