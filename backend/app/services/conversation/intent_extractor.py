@@ -61,9 +61,27 @@ class IntentExtractor:
 
         self.intent_registry = intent_registry
         self.intent_tags_store = IntentTagsStore(db_path=store.db_path)
+
+        # Get model name from system settings - must be configured by user
+        from ...services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore()
+        chat_setting = settings_store.get_setting("chat_model")
+
+        if not chat_setting or not chat_setting.value:
+            raise ValueError(
+                "LLM model not configured. Please select a model in the system settings panel."
+            )
+
+        model_name = str(chat_setting.value)
+        if not model_name or model_name.strip() == "":
+            raise ValueError(
+                "LLM model is empty. Please select a valid model in the system settings panel."
+            )
+
         self.context_builder = ContextBuilder(
             store=store,
-            timeline_items_store=timeline_items_store
+            timeline_items_store=timeline_items_store,
+            model_name=model_name
         )
         self.pack_suggester = PackSuggester()
         self.pack_info_collector = PackInfoCollector(db_path=store.db_path)

@@ -11,12 +11,12 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Path, Query, Depends
 
-from ...routes.workspace_schemas import EventsListResponse, TimelineListResponse
-from ...routes.workspace_dependencies import get_workspace, get_store, get_timeline_items_store
-from ...models.workspace import Workspace
-from ...services.mindscape_store import MindscapeStore
-from ...services.stores.timeline_items_store import TimelineItemsStore
-from ...services.stores.tasks_store import TasksStore
+from backend.app.routes.workspace_schemas import EventsListResponse, TimelineListResponse
+from backend.app.routes.workspace_dependencies import get_workspace, get_store, get_timeline_items_store
+from backend.app.models.workspace import Workspace
+from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.stores.timeline_items_store import TimelineItemsStore
+from backend.app.services.stores.tasks_store import TasksStore
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-timeline"])
 logger = logging.getLogger(__name__)

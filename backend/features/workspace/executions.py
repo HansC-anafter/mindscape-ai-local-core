@@ -13,16 +13,16 @@ from fastapi import APIRouter, HTTPException, Path, Depends, Query, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ...models.workspace import ExecutionSession, ExecutionStep, Task, ExecutionChatMessage
-from ...models.mindscape import MindEvent, EventType
-from ...models.playbook import PlaybookMetadata
-from ...services.mindscape_store import MindscapeStore
-from ...services.stores.tasks_store import TasksStore
-from ...services.stores.tool_calls_store import ToolCallsStore
-from ...services.stores.stage_results_store import StageResultsStore
-from ...core.ports.identity_port import IdentityPort
-from ...routes.workspace_dependencies import get_identity_port_or_default
-from ...services.conversation.execution_chat_service import generate_execution_chat_reply
+from backend.app.models.workspace import ExecutionSession, ExecutionStep, Task, ExecutionChatMessage
+from backend.app.models.mindscape import MindEvent, EventType
+from backend.app.models.playbook import PlaybookMetadata
+from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.stores.tasks_store import TasksStore
+from backend.app.services.stores.tool_calls_store import ToolCallsStore
+from backend.app.services.stores.stage_results_store import StageResultsStore
+from backend.app.core.ports.identity_port import IdentityPort
+from backend.app.routes.workspace_dependencies import get_identity_port_or_default
+from backend.app.services.conversation.execution_chat_service import generate_execution_chat_reply
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspace-executions"])
 logger = logging.getLogger(__name__)
@@ -397,7 +397,7 @@ async def cancel_execution(
             raise HTTPException(status_code=404, detail="Execution not found")
 
         # Update task status
-        from ..models.workspace import TaskStatus
+        from backend.app.models.workspace import TaskStatus
         tasks_store.update_task_status(
             task_id=task.id,
             status=TaskStatus.FAILED,
@@ -620,7 +620,7 @@ async def get_execution_workflow(
     Returns workflow result with step statuses and handoff plan if available.
     """
     try:
-        from ..services.stores.tasks_store import TasksStore
+        from backend.app.services.stores.tasks_store import TasksStore
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
         task = tasks_store.get_task_by_execution_id(execution_id)
@@ -722,9 +722,9 @@ async def post_execution_chat(
     Aligned with Port architecture using ExecutionContext.
     """
     try:
-        from ..models.workspace import ExecutionChatMessageType
-        from ..models.mindscape import EventActor
-        from ..services.playbook_loader import PlaybookLoader
+        from backend.app.models.workspace import ExecutionChatMessageType
+        from backend.app.models.mindscape import EventActor
+        from backend.app.services.playbook_loader import PlaybookLoader
         import uuid
 
         store = MindscapeStore()
@@ -774,7 +774,7 @@ async def post_execution_chat(
         # Get playbook metadata (for discussion_agent)
         playbook_metadata = None
         try:
-            from ..services.stores.tasks_store import TasksStore
+            from backend.app.services.stores.tasks_store import TasksStore
             tasks_store = TasksStore(db_path=store.db_path)
             task = tasks_store.get_task_by_execution_id(execution_id)
             if task and task.execution_context:

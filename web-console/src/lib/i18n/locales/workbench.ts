@@ -183,6 +183,15 @@ export const workbenchZhTW = {
   workspaceDelete: '刪除工作區',
   workspaceDeleteFailed: '刪除工作區失敗',
   workspaceDeleteConfirm: '確定要刪除工作區「{workspaceName}」嗎？此操作無法復原，所有相關資料都會被永久刪除。',
+
+  // Welcome messages (from backend i18n)
+  'welcome.new_workspace': '歡迎來到「{workspace_title}」工作區！\n\n這是您的工作協作空間，我可以在這裡協助您：\n\n**我可以幫您：**\n• 執行 Playbook 工作流程（如：每日規劃、專案拆解等）\n• 管理任務和追蹤進度\n• 回答問題和提供建議\n• 分析您的工作模式\n\n**快速開始：**\n• 直接告訴我您想要完成什麼任務\n• 或點擊下方的建議快速開始\n\n**建議：**\n如果您是第一次使用，建議先完成「心智空間」的冷啟動任務，這樣我能更好地理解您的需求和工作習慣。\n\n隨時告訴我您需要什麼幫助！',
+  'welcome.returning_workspace': '歡迎回到「{workspace_title}」工作區！\n\n我可以協助您：\n• 執行 Playbook 工作流程\n• 管理專案和任務\n• 回答問題和提供建議\n• 分析您的工作模式\n\n直接告訴我您想要做什麼，或點擊下方的建議快速開始！',
+  'welcome.fallback': '歡迎來到「{workspace_title}」工作區！我可以協助您執行 Playbook、管理任務、回答問題等。直接告訴我您想要做什麼吧！',
+  'suggestions.organize_tasks': '幫我整理今天的任務',
+  'suggestions.daily_planning': '執行每日規劃 Playbook',
+  'suggestions.view_progress': '查看我的專案進度',
+  'suggestions.execute_playbook': '執行 {playbook_name}',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const workbenchEn = {
@@ -364,4 +373,13 @@ export const workbenchEn = {
   workspaceDelete: 'Delete Workspace',
   workspaceDeleteFailed: 'Failed to delete workspace',
   workspaceDeleteConfirm: 'Are you sure you want to delete workspace "{workspaceName}"? This action cannot be undone and all associated data will be permanently deleted.',
+
+  // Welcome messages (from backend i18n)
+  'welcome.new_workspace': 'Welcome to "{workspace_title}" workspace!\n\nThis is your collaboration space where I can help you:\n\n**I can help you:**\n• Execute Playbook workflows (e.g., daily planning, project breakdown)\n• Manage tasks and track progress\n• Answer questions and provide suggestions\n• Analyze your work patterns\n\n**Quick start:**\n• Tell me directly what you want to accomplish\n• Or click the suggestions below to get started\n\n**Suggestion:**\nIf this is your first time, I recommend completing the "Mindscape" cold-start tasks so I can better understand your needs and work habits.\n\nLet me know what you need help with!',
+  'welcome.returning_workspace': 'Welcome back to "{workspace_title}" workspace!\n\nI can help you:\n• Execute Playbook workflows\n• Manage projects and tasks\n• Answer questions and provide suggestions\n• Analyze your work patterns\n\nTell me directly what you want to do, or click the suggestions below to get started!',
+  'welcome.fallback': 'Welcome to "{workspace_title}" workspace! I can help you execute Playbooks, manage tasks, answer questions, and more. Just tell me what you want to do!',
+  'suggestions.organize_tasks': 'Help me organize today\'s tasks',
+  'suggestions.daily_planning': 'Execute Daily Planning Playbook',
+  'suggestions.view_progress': 'View my project progress',
+  'suggestions.execute_playbook': 'Execute {playbook_name}',
 } as const satisfies Partial<Record<MessageKey, string>>;

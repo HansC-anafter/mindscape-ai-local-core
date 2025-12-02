@@ -11,12 +11,12 @@ import json
 from fastapi import APIRouter, HTTPException, Path, Body, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from ...models.workspace import Workspace, WorkspaceChatRequest, WorkspaceChatResponse
-from ...routes.workspace_dependencies import (
+from backend.app.models.workspace import Workspace, WorkspaceChatRequest, WorkspaceChatResponse
+from backend.app.routes.workspace_dependencies import (
     get_workspace,
     get_orchestrator
 )
-from ...services.conversation_orchestrator import ConversationOrchestrator
+from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-chat"])
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ async def workspace_chat(
                 """Generate streaming response"""
                 try:
                     # Create user event first
-                    from ..models.mindscape import MindEvent, EventType, EventActor
+                    from backend.app.models.mindscape import MindEvent, EventType, EventActor
                     from datetime import datetime
                     import uuid
 
@@ -162,14 +162,14 @@ async def workspace_chat(
                     yield f"data: {json.dumps({'type': 'user_message', 'event_id': user_event.id})}\n\n"
 
                     # Generate streaming response
-                    from ..services.conversation.qa_response_generator import QAResponseGenerator
-                    from ..services.stores.timeline_items_store import TimelineItemsStore
-                    from ..routes.workspace_dependencies import get_timeline_items_store
+                    from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
+                    from backend.app.services.stores.timeline_items_store import TimelineItemsStore
+                    from backend.app.routes.workspace_dependencies import get_timeline_items_store
 
                     timeline_items_store = TimelineItemsStore(orchestrator.store.db_path)
 
                     # Get locale from workspace and profile context
-                    from ..shared.i18n_loader import get_locale_from_context
+                    from backend.app.shared.i18n_loader import get_locale_from_context
                     profile = None
                     try:
                         if profile_id:
@@ -185,9 +185,9 @@ async def workspace_chat(
                     )
 
                     # Stream LLM response
-                    from ..services.conversation.context_builder import ContextBuilder
-                    from ..capabilities.core_llm.services.generate import run as generate_text
-                    from ..services.system_settings_store import SystemSettingsStore
+                    from backend.app.services.conversation.context_builder import ContextBuilder
+                    from backend.app.capabilities.core_llm.services.generate import run as generate_text
+                    from backend.app.services.system_settings_store import SystemSettingsStore
 
                     model_name = None
                     try:
@@ -220,7 +220,7 @@ async def workspace_chat(
 
                     try:
                         # First, load from file system (system defaults)
-                        from ..services.playbook_loader import PlaybookLoader
+                        from backend.app.services.playbook_loader import PlaybookLoader
                         playbook_loader = PlaybookLoader()
                         file_playbooks = playbook_loader.load_all_playbooks()
 
@@ -250,7 +250,7 @@ async def workspace_chat(
 
                     try:
                         # Then, load from database (user-imported and personalized)
-                        from ..services.playbook_store import PlaybookStore
+                        from backend.app.services.playbook_store import PlaybookStore
                         playbook_store = PlaybookStore(orchestrator.store.db_path)
                         db_playbooks = playbook_store.list_playbooks()
 
@@ -312,8 +312,8 @@ async def workspace_chat(
                     # Inject playbook capabilities into system prompt
                     if available_playbooks:
                         try:
-                            from ..shared.prompt_templates import build_workspace_context_prompt
-                            from ..shared.i18n_loader import get_locale_from_context
+                            from backend.app.shared.prompt_templates import build_workspace_context_prompt
+                            from backend.app.shared.i18n_loader import get_locale_from_context
 
                             # Get locale for language policy
                             profile = None
@@ -357,8 +357,8 @@ async def workspace_chat(
                         context_token_count = 0
 
                     # Stream from LLM
-                    from ..services.agent_runner import LLMProviderManager
-                    from ..services.config_store import ConfigStore
+                    from backend.app.services.agent_runner import LLMProviderManager
+                    from backend.app.services.config_store import ConfigStore
                     import os
 
                     config_store = ConfigStore()
@@ -403,7 +403,7 @@ async def workspace_chat(
                         # We need to extract:
                         # - system_part = system_instructions + context (everything up to and including context)
                         # - user_part = original user message
-                        from ..shared.llm_utils import build_prompt
+                        from backend.app.shared.llm_utils import build_prompt
 
                         # Extract system part: everything before "User question:" (system_instructions)
                         # PLUS everything from "Context from this workspace:" to "Please answer" (context)
@@ -466,8 +466,8 @@ async def workspace_chat(
                         logger.info(f"System prompt preview (first 500 chars): {system_part[:500]}...")
 
                         # Check token count and truncate if necessary
-                        from ..services.conversation.model_context_presets import get_context_preset
-                        from ..services.conversation.context_builder import ContextBuilder
+                        from backend.app.services.conversation.model_context_presets import get_context_preset
+                        from backend.app.services.conversation.context_builder import ContextBuilder
 
                         # Get model's context limit
                         model_to_use = model_name or "gpt-4o-mini"
@@ -632,7 +632,7 @@ async def workspace_chat(
                                         yield f"data: {json.dumps({'type': 'chunk', 'content': delta.content})}\n\n"
 
                         # Create assistant event
-                        from ..models.mindscape import MindEvent, EventType, EventActor
+                        from backend.app.models.mindscape import MindEvent, EventType, EventActor
                         assistant_event = MindEvent(
                             id=str(uuid.uuid4()),
                             timestamp=datetime.utcnow(),

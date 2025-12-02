@@ -11,11 +11,10 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Path, Query, Depends, Body
 from pydantic import BaseModel
 
-from ...models.workspace import BackgroundRoutine
-from ...routes.workspace_dependencies import get_workspace, get_store
-from ...models.workspace import Workspace
-from ...services.mindscape_store import MindscapeStore
-from ...services.stores.background_routines_store import BackgroundRoutinesStore
+from backend.app.models.workspace import BackgroundRoutine, Workspace
+from backend.app.routes.workspace_dependencies import get_workspace, get_store
+from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.stores.background_routines_store import BackgroundRoutinesStore
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-background-routines"])
 logger = logging.getLogger(__name__)

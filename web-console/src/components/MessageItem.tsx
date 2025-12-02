@@ -69,10 +69,14 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
     ? message.timestamp
     : new Date(message.timestamp);
 
-  const formattedTime = timestamp.toLocaleTimeString(undefined, {
+  const formattedTime = timestamp.toLocaleTimeString('zh-TW', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true
+  });
+
+  const formattedDate = timestamp.toLocaleDateString('zh-TW', {
+    day: 'numeric'
   });
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -103,21 +107,28 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
       >
         <div
           ref={messageContainerRef}
-          className={`relative max-w-[80%] rounded-lg px-6 py-3 ${
+          className={`relative max-w-[80%] min-w-0 rounded-lg px-6 py-3 ${
             message.role === 'user'
               ? 'bg-blue-600 text-white'
               : message.is_welcome
               ? 'bg-blue-50 border-2 border-blue-200 text-gray-900'
               : 'bg-gray-100 text-gray-900'
           }`}
+          style={{
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            overflow: 'hidden'
+          }}
         >
-          <div className="prose prose-sm max-w-none break-words text-sm">
+          <div className="prose prose-sm max-w-none break-words text-sm" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
             {isVisible || message.role === 'user' ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={markdownComponents}
               >
-                {message.content}
+                {message.is_welcome && (message.content.startsWith('welcome.') || message.content.includes('.'))
+                  ? (t(message.content as any) || message.content)
+                  : message.content}
               </ReactMarkdown>
             ) : (
               <div className="text-gray-400 text-xs">Loading...</div>
@@ -148,12 +159,14 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
           <div className={`flex items-center justify-between mt-1 ${
             message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
           }`}>
-            <span className="text-xs">{formattedTime}</span>
-            {/* Copy button - positioned at bottom right */}
+            <div className="flex flex-col items-start flex-shrink-0">
+              <span className="text-xs leading-tight">{formattedDate}</span>
+              <span className="text-xs leading-tight">{formattedTime}</span>
+            </div>
             {showCopyButton && (
               <button
                 onClick={handleCopy}
-                className={`ml-2 p-1 rounded-md transition-all ${
+                className={`flex-shrink-0 p-1 rounded-md transition-all ${
                   message.role === 'user'
                     ? 'bg-blue-700 hover:bg-blue-800 text-white'
                     : 'bg-gray-200 hover:bg-gray-300 text-gray-700'

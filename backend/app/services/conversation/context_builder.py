@@ -18,7 +18,7 @@ try:
 except ImportError:
     TIKTOKEN_AVAILABLE = False
 
-from backend.app.services.model_context_presets import get_context_preset, get_model_name_from_env
+from backend.app.services.model_context_presets import get_context_preset
 from backend.app.services.pack_info_collector import PackInfoCollector
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,18 @@ class ContextBuilder:
         Args:
             store: MindscapeStore instance
             timeline_items_store: TimelineItemsStore instance
-            model_name: Optional model name for context preset selection
-                       If None, will try to get from environment variables
+            model_name: Model name for context preset selection (required)
+                       Must be explicitly provided from SystemSettingsStore
         """
         self.store = store
         self.timeline_items_store = timeline_items_store
 
-        if not model_name:
-            model_name = get_model_name_from_env()
+        # Model name must be explicitly provided - no fallback allowed
+        if not model_name or model_name.strip() == "":
+            raise ValueError(
+                "model_name is required for ContextBuilder. "
+                "Please get the model name from SystemSettingsStore and pass it explicitly."
+            )
 
         self.model_name = model_name
         self.preset = get_context_preset(model_name)
@@ -673,9 +677,15 @@ Please generate the summary in English, keep it within 300 words."""
                 {"role": "user", "content": summary_prompt}
             ]
 
+            # Model must be configured - no fallback allowed
+            if not self.model_name or self.model_name.strip() == "":
+                raise ValueError(
+                    "LLM model not configured. Please select a model in the system settings panel."
+                )
+
             summary_text = await provider.chat_completion(
                 messages=messages,
-                model=self.model_name or "gpt-4o-mini",
+                model=self.model_name,
                 max_tokens=500,
                 temperature=0.3
             )
@@ -887,7 +897,16 @@ Please generate the summary in English, keep it within 300 words."""
             return len(text.split()) * 2
 
         try:
-            model_name = model_name or self.model_name or "gpt-4"
+            # For token estimation, use provided model_name or self.model_name
+            # If neither is available, raise error (no fallback)
+            if not model_name:
+                model_name = self.model_name
+
+            if not model_name or model_name.strip() == "":
+                raise ValueError(
+                    "LLM model not configured for token estimation. Please select a model in the system settings panel."
+                )
+
             encoding_name = "cl100k_base"
             if "gpt-4" in model_name.lower() or "gpt-3.5" in model_name.lower():
                 encoding_name = "cl100k_base"

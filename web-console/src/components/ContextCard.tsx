@@ -33,7 +33,11 @@ export default function ContextCard({ context, showRecentFile = true, showDetect
           <div className="text-[10px] text-gray-500 mb-0.5">{t('workspaceCurrentlyDoing') || '本工作空間目前在處理'}</div>
           <div className="text-xs text-gray-900 font-medium">
             {context.workspace_focus ? (
-              <span className="animate-fade-in">{context.workspace_focus}</span>
+              <span className="animate-fade-in">
+                {context.workspace_focus.startsWith('welcome.') || context.workspace_focus.includes('.') ?
+                  (t(context.workspace_focus as any) || context.workspace_focus) :
+                  context.workspace_focus}
+              </span>
             ) : (
               <span className="text-gray-400">{context.workspace_focus_key ? t(context.workspace_focus_key as any) : t('noClearWorkspaceFocus')}</span>
             )}

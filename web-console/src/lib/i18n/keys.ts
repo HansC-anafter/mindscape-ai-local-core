@@ -8,6 +8,7 @@
 
 export const keys = {
   acceptanceRate: true,
+  accept: true,
   accessMode: true,
   activated: true,
   activationStatus: true,
@@ -372,6 +373,8 @@ export const keys = {
   mindscape: true,
   mindscapeAcceptSuggestion: true,
   mindscapeAcceptSuggestionFailed: true,
+  longTermProject: true,
+  designPrinciple: true,
   mindscapeActivated: true,
   mindscapeCurrentState: true,
   mindscapeDashboardDescription: true,
@@ -1021,6 +1024,14 @@ export const keys = {
   recommended: true,
   autoStart: true,
   findPlaybook: true,
+  'welcome.new_workspace': true,
+  'welcome.returning_workspace': true,
+  'welcome.fallback': true,
+  'suggestions.organize_tasks': true,
+  'suggestions.daily_planning': true,
+  'suggestions.view_progress': true,
+  'suggestions.execute_playbook': true,
+  skip: true,
 } as const;
 
 export type MessageKey = keyof typeof keys;

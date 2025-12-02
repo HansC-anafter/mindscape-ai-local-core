@@ -64,16 +64,23 @@ async def run(
             )
 
             # Get conversation model from system settings
-            try:
-                settings_store = SystemSettingsStore()
-                chat_setting = settings_store.get_setting("chat_model")
-                if chat_setting and chat_setting.value:
-                    # Store model name in provider for later use
-                    model_name = str(chat_setting.value)
-                    logger.info(f"Using configured conversation model: {model_name}")
-                    # Note: model_name will be passed to call_llm() via the model parameter
-            except Exception as e:
-                logger.warning(f"Failed to get chat model from settings: {e}")
+            # Must be configured by user in settings panel, no fallback allowed
+            settings_store = SystemSettingsStore()
+            chat_setting = settings_store.get_setting("chat_model")
+
+            if not chat_setting or not chat_setting.value:
+                raise ValueError(
+                    "LLM model not configured. Please select a model in the system settings panel."
+                )
+
+            model_name = str(chat_setting.value)
+            if not model_name or model_name.strip() == "":
+                raise ValueError(
+                    "LLM model is empty. Please select a valid model in the system settings panel."
+                )
+
+            logger.info(f"Using configured conversation model: {model_name}")
+            # Note: model_name will be passed to call_llm() via the model parameter
 
         target_lang = target_language or locale
         enhanced_system_prompt = system_prompt
@@ -133,21 +140,24 @@ async def run(
         )
 
         # Get conversation model from system settings
-        # Note: model_name was already retrieved earlier (line 61) but not used
-        # We need to get it again here to use in call_llm
-        conversation_model = None
-        try:
-            from ....services.system_settings_store import SystemSettingsStore
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                conversation_model = str(chat_setting.value)
-                logger.info(f"Using conversation model from settings: {conversation_model}")
-        except Exception as e:
-            logger.warning(f"Failed to get conversation model from settings: {e}, using default")
+        # Must be configured by user in settings panel, no fallback allowed
+        from ....services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore()
+        chat_setting = settings_store.get_setting("chat_model")
 
-        # Use configured model or fallback to default
-        model_to_use = conversation_model or "gpt-4o-mini"
+        if not chat_setting or not chat_setting.value:
+            raise ValueError(
+                "LLM model not configured. Please select a model in the system settings panel."
+            )
+
+        conversation_model = str(chat_setting.value)
+        if not conversation_model or conversation_model.strip() == "":
+            raise ValueError(
+                "LLM model is empty. Please select a valid model in the system settings panel."
+            )
+
+        logger.info(f"Using conversation model from settings: {conversation_model}")
+        model_to_use = conversation_model
 
         # Call LLM
         result = await call_llm(

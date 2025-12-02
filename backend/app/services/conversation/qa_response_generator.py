@@ -100,15 +100,22 @@ class QAResponseGenerator:
 
             i18n = get_i18n_service(default_locale=self.default_locale)
 
-            model_name = None
-            try:
-                settings_store = SystemSettingsStore()
-                chat_setting = settings_store.get_setting("chat_model")
-                if chat_setting and chat_setting.value:
-                    model_name = str(chat_setting.value)
-                    logger.info(f"Using model '{model_name}' for context preset")
-            except Exception as e:
-                logger.debug(f"Could not get model name from settings: {e}, using default preset")
+            # Get model name from system settings - must be configured by user
+            settings_store = SystemSettingsStore()
+            chat_setting = settings_store.get_setting("chat_model")
+
+            if not chat_setting or not chat_setting.value:
+                raise ValueError(
+                    "LLM model not configured. Please select a model in the system settings panel."
+                )
+
+            model_name = str(chat_setting.value)
+            if not model_name or model_name.strip() == "":
+                raise ValueError(
+                    "LLM model is empty. Please select a valid model in the system settings panel."
+                )
+
+            logger.info(f"Using model '{model_name}' for context preset")
 
             context_builder = ContextBuilder(
                 store=self.store,

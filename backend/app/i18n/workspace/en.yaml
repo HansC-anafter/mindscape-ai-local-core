@@ -1,0 +1,50 @@
+# Workspace API i18n - English (en)
+
+welcome:
+  new_workspace: |
+    Welcome to "{workspace_title}" workspace!
+
+    This is your collaboration space where I can help you:
+
+    **I can help you:**
+    • Execute Playbook workflows (e.g., daily planning, project breakdown)
+    • Manage tasks and track progress
+    • Answer questions and provide suggestions
+    • Analyze your work patterns
+
+    **Quick start:**
+    • Tell me directly what you want to accomplish
+    • Or click the suggestions below to get started
+
+    **Suggestion:**
+    If this is your first time, I recommend completing the "Mindscape" cold-start tasks so I can better understand your needs and work habits.
+
+    Let me know what you need help with!
+
+  returning_workspace: |
+    Welcome back to "{workspace_title}" workspace!
+
+    I can help you:
+    • Execute Playbook workflows
+    • Manage projects and tasks
+    • Answer questions and provide suggestions
+    • Analyze your work patterns
+
+    Tell me directly what you want to do, or click the suggestions below to get started!
+
+  fallback: |
+    Welcome to "{workspace_title}" workspace! I can help you execute Playbooks, manage tasks, answer questions, and more. Just tell me what you want to do!
+
+suggestions:
+  organize_tasks: "Help me organize today's tasks"
+  daily_planning: "Execute Daily Planning Playbook"
+  view_progress: "View my project progress"
+  execute_playbook: "Execute {playbook_name}"
+
+file:
+  uploaded: "File uploaded: {file_name}"
+  intent_extracted: "Intent extracted from file \"{file_name}\""
+
+file_info:
+  type: "File type: {file_type}"
+  pages: ", {pages} pages"
