@@ -96,8 +96,38 @@ class BackendManager:
 
         return backend
 
-    def get_available_backends(self) -> Dict[str, Dict[str, Any]]:
+    def get_available_backends(self, profile_id: str = "default-user") -> Dict[str, Dict[str, Any]]:
         """Get information about all available backends"""
+        # Get current config to check actual availability
+        try:
+            config = self.config_store.get_config(profile_id)
+            if config:
+                # Recreate backends with current config to get accurate availability
+                openai_key = config.agent_backend.openai_api_key
+                anthropic_key = config.agent_backend.anthropic_api_key
+                remote_crs_url = config.agent_backend.remote_crs_url
+                remote_crs_token = config.agent_backend.remote_crs_token
+
+                # Create temporary backends with current config
+                temp_backends = {
+                    "local": LocalLLMBackend(
+                        openai_key=openai_key,
+                        anthropic_key=anthropic_key
+                    ),
+                    "http_remote": GenericHTTPBackend(
+                        base_url=remote_crs_url,
+                        api_token=remote_crs_token
+                    ) if remote_crs_url and remote_crs_token else GenericHTTPBackend(),
+                }
+
+                return {
+                    name: backend.get_backend_info()
+                    for name, backend in temp_backends.items()
+                }
+        except Exception as e:
+            logger.warning(f"Failed to get config for available backends check: {e}")
+
+        # Fallback to default backends
         return {
             name: backend.get_backend_info()
             for name, backend in self.backends.items()
@@ -117,17 +147,36 @@ class BackendManager:
 
         Returns True if successful, False otherwise
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(f"set_backend_mode called: profile_id={profile_id}, mode={mode}, has_openai_key={bool(openai_api_key)}, has_anthropic_key={bool(anthropic_api_key)}")
+
         if mode not in self.backends:
+            logger.error(f"Invalid mode: {mode}, available: {list(self.backends.keys())}")
             return False
 
         # If setting local mode, update with API keys
         if mode == "local":
-            # Recreate backend with API keys (from config or env)
-            # If keys provided, use them; otherwise backend will use env vars
+            # Get existing config to preserve API keys if not provided
+            from backend.app.models.config import UserConfig, AgentBackendConfig
+            existing_config = self.config_store.get_config(profile_id)
+            existing_openai_key = existing_config.agent_backend.openai_api_key if existing_config else None
+            existing_anthropic_key = existing_config.agent_backend.anthropic_api_key if existing_config else None
+
+            # Use provided keys, or fall back to existing keys, or None (will use env vars)
+            final_openai_key = openai_api_key if openai_api_key else existing_openai_key
+            final_anthropic_key = anthropic_api_key if anthropic_api_key else existing_anthropic_key
+
+            logger.info(f"Creating LocalLLMBackend: openai_key={'***' if final_openai_key else None}, anthropic_key={'***' if final_anthropic_key else None}")
             self.backends["local"] = LocalLLMBackend(
-                openai_key=openai_api_key,
-                anthropic_key=anthropic_api_key
+                openai_key=final_openai_key,
+                anthropic_key=final_anthropic_key
             )
+            backend = self.backends["local"]
+            available = backend.is_available()
+            logger.info(f"LocalLLMBackend.is_available() = {available}")
+            # Don't check availability - allow setting mode even without keys
         # If setting remote mode, update the backend with new credentials
         # 向後兼容：remote_crs → http_remote
         elif mode in ("http_remote", "remote_crs") and remote_crs_url and remote_crs_token:
@@ -137,38 +186,35 @@ class BackendManager:
                 api_token=remote_crs_token
             )
             mode = "http_remote"  # 標準化為 http_remote
-
-        backend = self.backends[mode]
-        # For local mode, check availability after setting keys
-        # For remote mode, check if credentials are provided
-        if mode == "local":
-            # Local mode is available if backend has at least one provider
-            # (either from provided keys or env vars)
+            backend = self.backends[mode]
             if not backend.is_available():
+                logger.error(f"Remote backend is not available")
                 return False
-        elif mode == "http_remote":
-            # Remote mode requires both URL and token
-            if not remote_crs_url or not remote_crs_token:
-                return False
-            if not backend.is_available():
-                return False
+        else:
+            backend = self.backends[mode]
 
         # Save to database
         try:
             from backend.app.models.config import UserConfig, AgentBackendConfig
             config = self.config_store.get_or_create_config(profile_id)
+            logger.info(f"Got config for {profile_id}, current mode: {config.agent_backend.mode}")
             config.agent_backend.mode = mode
             if remote_crs_url:
                 config.agent_backend.remote_crs_url = remote_crs_url
             if remote_crs_token:
                 config.agent_backend.remote_crs_token = remote_crs_token
-            if openai_api_key:
+            # Only update API keys if provided (preserve existing if not)
+            if openai_api_key is not None:
                 config.agent_backend.openai_api_key = openai_api_key
-            if anthropic_api_key:
+                logger.info(f"Updating openai_api_key (length: {len(openai_api_key) if openai_api_key else 0})")
+            if anthropic_api_key is not None:
                 config.agent_backend.anthropic_api_key = anthropic_api_key
+                logger.info(f"Updating anthropic_api_key (length: {len(anthropic_api_key) if anthropic_api_key else 0})")
+            logger.info(f"Saving config for {profile_id}")
             self.config_store.save_config(config)
+            logger.info(f"Successfully saved config for {profile_id}")
         except Exception as e:
-            logger.error(f"Failed to save backend config: {e}")
+            logger.error(f"Failed to save backend config for {profile_id}: {e}", exc_info=True)
             return False
 
         return True

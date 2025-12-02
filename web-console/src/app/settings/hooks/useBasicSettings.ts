@@ -113,13 +113,32 @@ export function useBasicSettings(): UseBasicSettingsReturn {
     setSuccess(null);
 
     try {
-      await settingsApi.put(`/api/v1/config/backend?profile_id=${PROFILE_ID}`, {
+      // Validate mode before sending
+      if (!mode || (mode !== 'local' && mode !== 'remote_crs')) {
+        throw new Error('Invalid mode. Must be "local" or "remote_crs"');
+      }
+
+      const requestData: any = {
         mode,
-        remote_crs_url: mode === 'remote_crs' ? remoteUrl : undefined,
-        remote_crs_token: mode === 'remote_crs' && remoteToken.trim() !== '' ? remoteToken : undefined,
-        openai_api_key: mode === 'local' && openaiKey.trim() !== '' ? openaiKey : undefined,
-        anthropic_api_key: mode === 'local' && anthropicKey.trim() !== '' ? anthropicKey : undefined,
-      });
+      };
+
+      // Only include fields that are not undefined
+      if (mode === 'remote_crs') {
+        if (remoteUrl) requestData.remote_crs_url = remoteUrl;
+        if (remoteToken && remoteToken.trim() !== '') {
+          requestData.remote_crs_token = remoteToken;
+        }
+      } else if (mode === 'local') {
+        if (openaiKey && openaiKey.trim() !== '') {
+          requestData.openai_api_key = openaiKey;
+        }
+        if (anthropicKey && anthropicKey.trim() !== '') {
+          requestData.anthropic_api_key = anthropicKey;
+        }
+      }
+
+      console.log('Sending backend config update:', requestData);
+      await settingsApi.put(`/api/v1/config/backend?profile_id=${PROFILE_ID}`, requestData);
 
       if (profile) {
         const updatedPreferences: ProfilePreferences = {

@@ -26,17 +26,38 @@ const parseError = async (response: Response): Promise<string> => {
 
 export const settingsApi = {
   baseURL: getApiUrl(),
-  get: async <T>(endpoint: string): Promise<T> => {
+  get: async <T>(endpoint: string, options?: { silent?: boolean }): Promise<T> => {
     const apiUrl = getApiUrl();
     const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
-    const response = await fetch(url);
 
-    if (!response.ok) {
-      const errorMessage = await parseError(response);
-      throw new Error(errorMessage);
+    try {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        // For expected errors (501, 404) with silent flag, return empty/default data instead of throwing
+        if (options?.silent && (response.status === 501 || response.status === 404)) {
+          // Suppress error for expected cases - return empty object/array based on endpoint
+          if (endpoint.includes('/connections')) {
+            return [] as T;
+          }
+          return {} as T;
+        }
+
+        const errorMessage = await parseError(response);
+        throw new Error(errorMessage);
+      }
+
+      return response.json();
+    } catch (error) {
+      // If silent flag is set and it's a network error, return default value
+      if (options?.silent) {
+        if (endpoint.includes('/connections')) {
+          return [] as T;
+        }
+        return {} as T;
+      }
+      throw error;
     }
-
-    return response.json();
   },
 
   put: async <T>(endpoint: string, data: unknown): Promise<T> => {

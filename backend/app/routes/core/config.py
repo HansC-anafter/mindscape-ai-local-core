@@ -6,7 +6,7 @@ Note: remote_crs mode is implemented via adapter pattern.
 If no remote_crs adapter is enabled, remote_crs mode will return 501.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Dict, Any, Optional
 
 from ...models.config import UpdateBackendConfigRequest, UserConfig
@@ -39,8 +39,8 @@ async def get_backend_config(profile_id: str = Query(..., description="Profile I
     try:
         config = config_store.get_or_create_config(profile_id)
 
-        # Get available backends info
-        available_backends = backend_manager.get_available_backends()
+        # Get available backends info (with current profile config)
+        available_backends = backend_manager.get_available_backends(profile_id)
 
         # Filter out remote_crs if adapter is not available
         if not _check_remote_crs_adapter():
@@ -66,13 +66,14 @@ async def get_backend_config(profile_id: str = Query(..., description="Profile I
 @router.put("/backend", response_model=Dict[str, Any])
 async def update_backend_config(
     profile_id: str = Query(..., description="Profile ID"),
-    request: UpdateBackendConfigRequest = None
+    request: UpdateBackendConfigRequest = Body(...)
 ):
     """Update backend configuration"""
-    if not request:
-        raise HTTPException(status_code=400, detail="Update request required")
+    import logging
+    logger = logging.getLogger(__name__)
 
     try:
+        logger.info(f"Updating backend config for {profile_id}: mode={request.mode}")
         # Validate mode - only allow local if adapter not available
         if request.mode == "remote_crs" and not _check_remote_crs_adapter():
             raise HTTPException(
@@ -145,6 +146,7 @@ async def update_backend_config(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Failed to update backend config for {profile_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update config: {str(e)}")
 
 
