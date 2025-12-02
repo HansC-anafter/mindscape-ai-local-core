@@ -16,11 +16,68 @@ class MindscapeOnboardingService:
         self.store = store
 
     def get_onboarding_status(self, profile_id: str) -> Dict[str, Any]:
-        """Get onboarding status for a profile"""
+        """
+        Get onboarding status for a profile
+
+        Onboarding is only when NO state exists. Once user has workspace, intent, or profile data,
+        they are no longer in onboarding mode but in continuous state update mode.
+        """
         profile = self.store.get_profile(profile_id)
 
+        # Check if user has any state (workspace, intent, or self_description)
+        import logging
+        logger = logging.getLogger(__name__)
+
+        workspaces = []
+        intents = []
+
+        try:
+            workspaces = self.store.list_workspaces(owner_user_id=profile_id, limit=1)
+        except Exception as e:
+            logger.warning(f"Failed to check workspaces for {profile_id}: {e}", exc_info=True)
+            workspaces = []
+
+        try:
+            from backend.app.models.mindscape import IntentStatus
+            all_intents = self.store.list_intents(profile_id=profile_id, status=IntentStatus.ACTIVE)
+            intents = all_intents[:1] if all_intents else []
+        except Exception as e:
+            logger.warning(f"Failed to check intents for {profile_id}: {e}", exc_info=True)
+            intents = []
+
+        logger.info(f"State check for {profile_id}: {len(workspaces)} workspaces, {len(intents)} active intents")
+
+        has_state = (
+            len(workspaces) > 0 or
+            len(intents) > 0 or
+            (profile and profile.self_description)
+        )
+
+        logger.info(f"Profile {profile_id} has_state: {has_state} (workspaces: {len(workspaces)}, intents: {len(intents)}, self_description: {bool(profile and profile.self_description)})")
+
+        if has_state:
+            # User has state, not onboarding - return current state with auto-completion
+            if profile and profile.onboarding_state:
+                # Create new dict to ensure is_onboarding and has_state are set correctly
+                result = dict(profile.onboarding_state)
+                result["is_onboarding"] = False
+                result["has_state"] = True
+                return result
+            else:
+                # Has state but no onboarding_state record - auto-complete task1
+                return {
+                    "is_onboarding": False,
+                    "has_state": True,
+                    "task1_completed": True,  # Auto-complete if has workspace
+                    "task2_completed": False,
+                    "task3_completed": False,
+                    "task1_completed_at": None,
+                    "task2_completed_at": None,
+                    "task3_completed_at": None
+                }
+
+        # True onboarding: no state at all
         if not profile or not profile.onboarding_state:
-            # Return default state for new users
             return {
                 "task1_completed": False,
                 "task2_completed": False,
@@ -28,9 +85,16 @@ class MindscapeOnboardingService:
                 "task1_completed_at": None,
                 "task2_completed_at": None,
                 "task3_completed_at": None,
+                "is_onboarding": True,
+                "has_state": False
             }
 
-        return profile.onboarding_state
+        # Profile exists with onboarding_state but no actual state (workspace/intent)
+        # Create new dict to ensure is_onboarding and has_state are set correctly
+        result = dict(profile.onboarding_state)
+        result["is_onboarding"] = True
+        result["has_state"] = False
+        return result
 
     def complete_task1_self_intro(
         self,

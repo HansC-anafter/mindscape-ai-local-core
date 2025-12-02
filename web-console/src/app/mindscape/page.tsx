@@ -18,6 +18,8 @@ interface OnboardingState {
   task1_completed_at?: string;
   task2_completed_at?: string;
   task3_completed_at?: string;
+  is_onboarding?: boolean;
+  has_state?: boolean;
 }
 
 interface MindscapeSuggestion {
@@ -69,9 +71,11 @@ export default function MindscapePage() {
 
   const loadOnboardingStatus = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/mindscape/onboarding/status?profile_id=${profileId}`);
+      const response = await fetch(`${apiUrl}/api/v1/mindscape/onboarding/status?user_id=${profileId}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('Onboarding status data:', data); // Debug log
+        console.log('onboarding_state keys:', Object.keys(data.onboarding_state || {})); // Debug: check keys
         setOnboardingState(data.onboarding_state);
 
         // Check if just completed all tasks
@@ -224,9 +228,12 @@ export default function MindscapePage() {
     ].filter(Boolean).length;
   };
 
-  const isOnboarding = onboardingState && (
-    !onboardingState.task1_completed
-  );
+  // Determine mode: onboarding is only when NO state exists
+  // Debug: log state for troubleshooting
+  console.log('Onboarding state:', onboardingState);
+  const isOnboarding = onboardingState?.is_onboarding === true && !onboardingState?.has_state;
+  const hasState = onboardingState?.has_state === true;
+  console.log('isOnboarding:', isOnboarding, 'hasState:', hasState);
 
   if (loading) {
     return (
@@ -248,13 +255,13 @@ export default function MindscapePage() {
         {/* Page Title */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('navMindscape')}</h1>
-          <p className="text-gray-600">
+          <div className="text-gray-600">
             {t('mindscapePageDescription')}
-          </p>
+          </div>
         </div>
 
-        {/* Onboarding Banner (show if any task is incomplete) */}
-        {(isOnboarding || (onboardingState && (!onboardingState.task2_completed || !onboardingState.task3_completed))) && (
+        {/* Onboarding Banner (only show in true onboarding mode) */}
+        {isOnboarding && (
           <OnboardingBanner
             completedCount={getCompletionCount()}
             totalCount={3}
@@ -273,8 +280,178 @@ export default function MindscapePage() {
           onSubmit={handleCompleteSelfIntro}
         />
 
-        {/* Onboarding Task Cards (show if task 1 not complete OR if task1 complete but user wants to see task 2/3) */}
-        {(isOnboarding || (onboardingState && (!onboardingState.task2_completed || !onboardingState.task3_completed))) && (
+        {/* Episode Selection Screen (when user has state) */}
+        {hasState && !isOnboarding && (
+          <div className="mb-8">
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-8 mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">歡迎回到你的 Mindscape AI 工作站</h2>
+              <div className="text-gray-600 mb-6">先選一個今天要啟動的模式，AI 團隊就會照這個方向配合你工作。</div>
+
+              {/* Three Entry Buttons */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                {/* Daily Planning Entry */}
+                <button
+                  onClick={async () => {
+                    try {
+                      // Get first workspace
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      if (workspacesRes.ok) {
+                        const workspaces = await workspacesRes.json();
+                        if (workspaces.length > 0) {
+                          const workspaceId = workspaces[0].id;
+                          // Create intent for daily planning
+                          const intentRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}/intents`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              title: '今日工作規劃',
+                              description: '今天的行程與優先順序',
+                              tags: ['work', 'planning'],
+                              status: 'active',
+                              priority: 'medium'
+                            })
+                          });
+                          if (intentRes.ok) {
+                            // Navigate to workspace with daily_planning playbook
+                            router.push(`/workspaces/${workspaceId}?playbook=daily_planning`);
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.error('Failed to start daily planning:', err);
+                    }
+                  }}
+                  className="p-6 bg-white rounded-lg border-2 border-blue-200 hover:border-blue-400 hover:shadow-lg transition-all text-left"
+                >
+                  <div className="text-3xl mb-3">🗓</div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">今天先把事情排好</h3>
+                  <p className="text-sm text-gray-600">收集任務 → 排優先順序 → 形成今日 checklist</p>
+                </button>
+
+                {/* Content Drafting Entry */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      if (workspacesRes.ok) {
+                        const workspaces = await workspacesRes.json();
+                        if (workspaces.length > 0) {
+                          const workspaceId = workspaces[0].id;
+                          const contentType = prompt('這次要寫什麼？（例如：募資頁、IG 貼文、課程介紹）');
+                          if (contentType) {
+                            const intentRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}/intents`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                title: `撰寫：${contentType}`,
+                                description: `創作 ${contentType} 的內容`,
+                                tags: ['content', 'writing'],
+                                status: 'active',
+                                priority: 'medium'
+                              })
+                            });
+                            if (intentRes.ok) {
+                              router.push(`/workspaces/${workspaceId}?playbook=content_drafting`);
+                            }
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.error('Failed to start content drafting:', err);
+                    }
+                  }}
+                  className="p-6 bg-white rounded-lg border-2 border-green-200 hover:border-green-400 hover:shadow-lg transition-all text-left"
+                >
+                  <div className="text-3xl mb-3">✍️</div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">我想寫一份內容</h3>
+                  <p className="text-sm text-gray-600">理解需求 → 設計結構 → 出草稿</p>
+                </button>
+
+                {/* System Check Entry */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      if (workspacesRes.ok) {
+                        const workspaces = await workspacesRes.json();
+                        if (workspaces.length > 0) {
+                          const workspaceId = workspaces[0].id;
+                          // Navigate to workspace with system check
+                          router.push(`/workspaces/${workspaceId}?mode=system_check`);
+                        }
+                      }
+                    } catch (err) {
+                      console.error('Failed to start system check:', err);
+                    }
+                  }}
+                  className="p-6 bg-white rounded-lg border-2 border-yellow-200 hover:border-yellow-400 hover:shadow-lg transition-all text-left"
+                >
+                  <div className="text-3xl mb-3">🔧</div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">先讓默默 AI 幫我檢查系統</h3>
+                  <p className="text-sm text-gray-600">檢查設定、工具連接、系統健康狀態</p>
+                </button>
+              </div>
+
+              {/* Continue Last Intent Option */}
+              {intents.length > 0 && (
+                <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">繼續上次主線</h3>
+                  <div className="space-y-2">
+                    {intents.slice(0, 2).map((intent) => (
+                      <button
+                        key={intent.id}
+                        onClick={async () => {
+                          try {
+                            const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                            if (workspacesRes.ok) {
+                              const workspaces = await workspacesRes.json();
+                              if (workspaces.length > 0) {
+                                router.push(`/workspaces/${workspaces[0].id}?intent=${intent.id}`);
+                              }
+                            }
+                          } catch (err) {
+                            console.error('Failed to continue intent:', err);
+                          }
+                        }}
+                        className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200 transition-colors"
+                      >
+                        <div className="font-medium text-gray-900">{intent.title}</div>
+                        <div className="text-xs text-gray-500 mt-1">上次更新：{new Date(intent.updated_at).toLocaleDateString('zh-TW')}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Direct Entry Link */}
+              <div className="text-right">
+                <button
+                  onClick={async () => {
+                    try {
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      if (workspacesRes.ok) {
+                        const workspaces = await workspacesRes.json();
+                        if (workspaces.length > 0) {
+                          router.push(`/workspaces/${workspaces[0].id}`);
+                        } else {
+                          router.push('/workspaces');
+                        }
+                      }
+                    } catch (err) {
+                      router.push('/workspaces');
+                    }
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-800 underline"
+                >
+                  直接進工作站 →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Onboarding Task Cards (only show in true onboarding mode) */}
+        {isOnboarding && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Task 1: Self Intro */}
             <TaskCard
@@ -398,8 +575,8 @@ export default function MindscapePage() {
           </div>
         )}
 
-        {/* Current Mode Overview (only show after onboarding complete) */}
-        {!isOnboarding && currentMode && (
+        {/* Current Mode Overview (only show after onboarding complete, but hide when showing episode selection) */}
+        {!isOnboarding && !hasState && currentMode && (
           <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-6 mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('mindscapeCurrentState')}</h2>
             <div className="space-y-2">
@@ -508,8 +685,8 @@ export default function MindscapePage() {
           </div>
         )}
 
-        {/* Established Mindscape Cards (only show after onboarding) */}
-        {!isOnboarding && (
+        {/* Established Mindscape Cards (only show after onboarding, but hide when showing episode selection) */}
+        {!isOnboarding && !hasState && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Self Settings Card */}
             <div className="bg-white shadow rounded-lg p-6">

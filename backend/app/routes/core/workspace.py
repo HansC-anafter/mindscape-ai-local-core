@@ -35,6 +35,7 @@ from ...models.mindscape import MindEvent, EventType, EventActor, IntentTagStatu
 from ...services.mindscape_store import MindscapeStore
 from ...services.i18n_service import get_i18n_service
 from ...services.stores.intent_tags_store import IntentTagsStore
+from ...services.task_status_fix import TaskStatusFixService
 
 # Sub-routers are loaded via pack registry
 # See backend/packs/workspace-pack.yaml and backend/features/workspace/
@@ -50,6 +51,10 @@ store = MindscapeStore()
 # ============================================================================
 # Storage Path Helper Functions
 # ============================================================================
+# Note: Path validation logic is in storage_path_validator service
+# Import here to keep workspace.py focused on CRUD operations
+from ...services.storage_path_validator import StoragePathValidator
+
 
 def _validate_path_in_allowed_directories(
     path: Path,
@@ -472,8 +477,14 @@ async def create_workspace(
 
         # Check if storage_base_path is specified in request
         if hasattr(request, 'storage_base_path') and request.storage_base_path:
-            # If path specified in request, must validate it's within allowed directories
-            requested_path = Path(request.storage_base_path).expanduser().resolve()
+            requested_path_str = request.storage_base_path.strip()
+
+            # Use StoragePathValidator service for validation
+            is_valid, error_message, _ = StoragePathValidator.validate_and_check_host_path(requested_path_str)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=error_message)
+
+            requested_path = Path(requested_path_str).expanduser().resolve()
 
             if allowed_dirs:
                 # When allowed directories configured, must validate
@@ -565,6 +576,35 @@ async def create_workspace(
         )
 
         created = store.create_workspace(workspace)
+
+        # Auto-register background routine for state sync
+        try:
+            from ...models.workspace import BackgroundRoutine
+            from ...services.stores.background_routines_store import BackgroundRoutinesStore
+
+            routines_store = BackgroundRoutinesStore(db_path=store.db_path)
+
+            # Check if state sync routine already exists for this workspace
+            existing = routines_store.get_background_routine_by_playbook(
+                workspace_id=created.id,
+                playbook_code="system_mindscape_state_sync"
+            )
+
+            if not existing:
+                # Create background routine for state sync (runs daily at 2 AM)
+                routine = BackgroundRoutine(
+                    id=str(uuid.uuid4()),
+                    workspace_id=created.id,
+                    playbook_code="system_mindscape_state_sync",
+                    schedule="0 2 * * *",  # Daily at 2 AM
+                    enabled=True,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                routines_store.create_background_routine(routine)
+                logger.info(f"Auto-registered state sync background routine for workspace {created.id}")
+        except Exception as e:
+            logger.warning(f"Failed to register state sync background routine: {e}")
 
         event = MindEvent(
             id=str(uuid.uuid4()),
@@ -694,8 +734,13 @@ async def update_workspace(
         if hasattr(request, 'storage_base_path') and request.storage_base_path is not None:
             if request.storage_base_path != old_storage_base_path:
                 storage_path_changed = True
-                # Validate new path
+                # Validate new path using StoragePathValidator service
+                is_valid, error_message, _ = StoragePathValidator.validate_and_check_host_path(request.storage_base_path)
+                if not is_valid:
+                    raise HTTPException(status_code=400, detail=error_message)
+
                 new_path = Path(request.storage_base_path).expanduser().resolve()
+
                 if not new_path.exists():
                     try:
                         new_path.mkdir(parents=True, exist_ok=True)
@@ -755,8 +800,16 @@ async def update_workspace(
                     )
                 base_path = config.get('base_path')
                 if base_path:
-                    # Validate path
+                    # Validate path using StoragePathValidator service
+                    is_valid, error_message, _ = StoragePathValidator.validate_and_check_host_path(base_path)
+                    if not is_valid:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Playbook storage path {base_path} for {playbook_code}: {error_message}"
+                        )
+
                     new_path = Path(base_path).expanduser().resolve()
+
                     if not new_path.exists():
                         try:
                             new_path.mkdir(parents=True, exist_ok=True)
@@ -1239,6 +1292,34 @@ async def get_workspace_health(
         return health
     except Exception as e:
         logger.error(f"Failed to get workspace health: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{workspace_id}/fix-task-status")
+async def fix_task_status(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    create_timeline_items: bool = Query(True, description="Create timeline items for fixed tasks"),
+    limit: Optional[int] = Query(None, description="Maximum number of tasks to fix")
+):
+    """
+    Fix tasks with inconsistent status
+
+    Finds and fixes tasks where:
+    - task.status = "running"
+    - execution_context.status = "completed" or "failed"
+
+    This happens when PlaybookRunExecutor didn't properly update task status.
+    """
+    try:
+        fix_service = TaskStatusFixService()
+        result = fix_service.fix_all_inconsistent_tasks(
+            workspace_id=workspace_id,
+            create_timeline_items=create_timeline_items,
+            limit=limit
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Failed to fix task status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

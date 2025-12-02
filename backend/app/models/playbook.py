@@ -237,6 +237,37 @@ class Playbook(BaseModel):
         }
 
 
+class PlaybookRun(BaseModel):
+    """
+    playbook.run = playbook.md + playbook.json
+
+    Complete playbook definition with both human-readable description
+    and machine-readable execution spec.
+    """
+    playbook: Playbook = Field(..., description="Playbook.md definition (human-readable)")
+    playbook_json: Optional["PlaybookJson"] = Field(None, description="Playbook.json definition (machine-readable)")
+
+    def has_json(self) -> bool:
+        """Check if playbook.json exists"""
+        return self.playbook_json is not None
+
+    def get_execution_mode(self) -> str:
+        """
+        Determine execution mode based on available components
+
+        Returns:
+            'workflow' if playbook.json exists, 'conversation' otherwise
+        """
+        if self.has_json():
+            return 'workflow'
+        return 'conversation'
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
 class CreatePlaybookRequest(BaseModel):
     """Request to create a new playbook"""
     playbook_code: str
