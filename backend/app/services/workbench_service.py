@@ -52,36 +52,51 @@ class WorkbenchService:
                 profile_id=profile_id
             )
 
-            from backend.app.services.suggestion_generator import SuggestionGenerator
-            # Pass workspace locale to suggestion generator
-            locale = workspace.default_locale or "zh-TW"
-            suggestion_generator = SuggestionGenerator(default_locale=locale)
-            suggested_next_steps = await suggestion_generator.generate_suggestions(
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                context=current_context,
-                locale=locale
-            )
+            suggested_next_steps = []
+            use_cached = False
+            
+            context_fingerprint = self._build_context_fingerprint(current_context)
+            
+            if workspace.suggestion_history and len(workspace.suggestion_history) > 0:
+                last_round = workspace.suggestion_history[-1]
+                cached_fingerprint = last_round.get("context_fingerprint")
+                
+                if cached_fingerprint == context_fingerprint:
+                    suggested_next_steps = last_round.get("suggestions", [])
+                    use_cached = True
+                    logger.info(f"Using cached suggestions (context unchanged)")
+                else:
+                    logger.info(f"Context changed, regenerating suggestions (old: {cached_fingerprint}, new: {context_fingerprint})")
+                    use_cached = False
 
-            # Save suggestion history (keep last 3 rounds)
-            if workspace.suggestion_history is None:
-                workspace.suggestion_history = []
+            if not use_cached:
+                from backend.app.services.suggestion_generator import SuggestionGenerator
+                locale = workspace.default_locale or "zh-TW"
+                suggestion_generator = SuggestionGenerator(default_locale=locale)
+                suggested_next_steps = await suggestion_generator.generate_suggestions(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    context=current_context,
+                    locale=locale
+                )
 
-            # Add current round to history
-            import uuid
-            current_round = {
-                "round_id": str(uuid.uuid4()),
-                "timestamp": datetime.utcnow().isoformat(),
-                "suggestions": suggested_next_steps
-            }
-            workspace.suggestion_history.append(current_round)
+            if not use_cached:
+                if workspace.suggestion_history is None:
+                    workspace.suggestion_history = []
 
-            # Keep only last 3 rounds
-            if len(workspace.suggestion_history) > 3:
-                workspace.suggestion_history = workspace.suggestion_history[-3:]
+                import uuid
+                current_round = {
+                    "round_id": str(uuid.uuid4()),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "suggestions": suggested_next_steps,
+                    "context_fingerprint": context_fingerprint
+                }
+                workspace.suggestion_history.append(current_round)
 
-            # Update workspace with new history
-            self.store.workspaces.update_workspace(workspace)
+                if len(workspace.suggestion_history) > 3:
+                    workspace.suggestion_history = workspace.suggestion_history[-3:]
+
+                self.store.workspaces.update_workspace(workspace)
 
             system_status = await self._get_lightweight_system_status(
                 profile_id=profile_id
@@ -335,9 +350,16 @@ class WorkbenchService:
                                         name_without_ext = name_without_ext[:47] + "..."
                                     return name_without_ext
 
+                        # Skip welcome messages (they contain i18n keys, not actual content)
+                        if payload.get("is_welcome"):
+                            continue
+
                         # Check for user message about specific task
                         message = payload.get("message", "")
                         if message and len(message) > 5 and len(message) < 100:
+                            # Skip i18n keys (they contain dots and are not actual messages)
+                            if "." in message and message.startswith(("welcome.", "suggestions.")):
+                                continue
                             # Simple heuristic: if message looks like a task description
                             if any(keyword in message for keyword in ["草稿", "企劃", "報告", "專案", "任務", "draft", "proposal", "report", "project"]):
                                 return message[:80]  # Limit length
@@ -354,8 +376,14 @@ class WorkbenchService:
                                 payload = json.loads(payload)
                             except:
                                 payload = {}
+                        # Skip welcome messages
+                        if payload.get("is_welcome"):
+                            continue
                         message = payload.get("message", "")
                         if message and len(message) > 10:
+                            # Skip i18n keys
+                            if "." in message and message.startswith(("welcome.", "suggestions.")):
+                                continue
                             return message[:100] + "..." if len(message) > 100 else message
             return None
         except Exception as e:
@@ -527,6 +555,45 @@ class WorkbenchService:
         except Exception as e:
             logger.warning(f"Failed to get suggested next steps: {e}")
             return []
+
+    def _build_context_fingerprint(
+        self,
+        context: Dict[str, Any]
+    ) -> str:
+        """
+        Build a fingerprint of the current context to detect changes.
+        This fingerprint is used to determine if suggestions should be regenerated.
+
+        The fingerprint includes:
+        - Workspace focus (what user is working on)
+        - Recent file (if any)
+        - Recent timeline items (count and IDs of most recent)
+        - Detected intents (count)
+        - Recent assistant messages (count)
+
+        This ensures suggestions are only regenerated when context actually changes,
+        not on every API call.
+        """
+        try:
+            import hashlib
+            import json
+
+            fingerprint_data = {
+                "workspace_focus": context.get("workspace_focus") or "",
+                "recent_file": context.get("recent_file", {}).get("name") if context.get("recent_file") else None,
+                "timeline_items_count": len(context.get("recent_timeline_items", [])),
+                "timeline_item_ids": [item.get("id") for item in context.get("recent_timeline_items", [])[:5]],
+                "intents_count": len(context.get("detected_intents", [])),
+                "assistant_messages_count": len(context.get("recent_assistant_messages", []))
+            }
+
+            fingerprint_str = json.dumps(fingerprint_data, sort_keys=True)
+            fingerprint_hash = hashlib.md5(fingerprint_str.encode()).hexdigest()
+
+            return fingerprint_hash
+        except Exception as e:
+            logger.warning(f"Failed to build context fingerprint: {e}")
+            return ""
 
     async def _get_lightweight_system_status(
         self,
