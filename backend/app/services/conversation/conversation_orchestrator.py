@@ -37,6 +37,7 @@ from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.intent_analyzer import IntentPipeline
 from backend.app.services.playbook_runner import PlaybookRunner
+from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
@@ -77,6 +78,7 @@ class ConversationOrchestrator:
         self.store = store
         self.intent_pipeline = intent_pipeline
         self.playbook_runner = playbook_runner
+        self.playbook_run_executor = PlaybookRunExecutor()
         self.i18n = get_i18n_service(default_locale=default_locale)
         self.default_locale = default_locale
 
@@ -287,8 +289,13 @@ class ConversationOrchestrator:
 
                     if handoff_plan:
                         logger.info(f"Executing HandoffPlan with {len(handoff_plan.steps)} steps")
-                        orchestrator = WorkflowOrchestrator()
-                        workflow_result = await orchestrator.execute_workflow(handoff_plan)
+                        orchestrator = WorkflowOrchestrator(store=self.store)
+                        workflow_result = await orchestrator.execute_workflow(
+                            handoff_plan,
+                            execution_id=None,
+                            workspace_id=ctx.workspace_id,
+                            profile_id=ctx.actor_id
+                        )
 
                         result_summary = await self.execution_coordinator.message_generator.generate_workflow_summary(
                             workflow_result=workflow_result,
@@ -363,38 +370,38 @@ class ConversationOrchestrator:
             print(f"ConversationOrchestrator: Execution plan completed - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}, skipped: {len(execution_results.get('skipped_tasks', []))}", file=sys.stderr)
 
             if intent_result and intent_result.selected_playbook_code:
-                playbook_result = await self.execution_coordinator.execute_playbook(
+                if not intent_result.handoff_plan:
+                    raise ValueError(
+                        f"Playbook {intent_result.selected_playbook_code} does not have playbook.json. "
+                        f"HandoffPlan is required for execution. Please create playbook.json for structured workflow execution."
+                    )
+
+                execution_result = await self.playbook_run_executor.execute_playbook_run(
                     playbook_code=intent_result.selected_playbook_code,
-                    playbook_context=intent_result.playbook_context,
-                    workspace_id=workspace_id,
                     profile_id=profile_id,
-                    message_id=user_event.id,
-                    project_id=project_id
+                    inputs=intent_result.playbook_context,
+                    workspace_id=workspace_id,
+                    locale=intent_result.playbook_context.get("locale")
                 )
 
-                if playbook_result.get("status") == "started":
+                if execution_result.get("execution_mode") == "workflow":
                     triggered_playbook = {
                         "playbook_code": intent_result.selected_playbook_code,
-                        "execution_id": playbook_result.get("execution_id"),
+                        "execution_id": execution_result.get("result", {}).get("execution_id"),
                         "context": intent_result.playbook_context,
                         "status": "started",
-                        "message": playbook_result.get("message", "")
+                        "message": f"Executing {intent_result.selected_playbook_code} using structured workflow"
                     }
-                    assistant_response = playbook_result.get("message")
-                elif playbook_result.get("status") == "suggestion":
-                    triggered_playbook = None
-                    assistant_response = playbook_result.get("message")
-                elif playbook_result.get("status") == "skipped":
-                    triggered_playbook = None
-                    assistant_response = playbook_result.get("message")
-                elif playbook_result.get("status") == "failed":
+                    assistant_response = triggered_playbook.get("message")
+                else:
                     triggered_playbook = {
                         "playbook_code": intent_result.selected_playbook_code,
+                        "execution_id": execution_result.get("result", {}).get("execution_id"),
                         "context": intent_result.playbook_context,
-                        "status": "failed",
-                        "error": playbook_result.get("error")
+                        "status": "started",
+                        "message": execution_result.get("result", {}).get("message", "")
                     }
-                    assistant_response = playbook_result.get("message")
+                    assistant_response = triggered_playbook.get("message")
             else:
                 logger.info("Using QA mode (no playbook selected)")
                 qa_result = await self.qa_response_generator.generate_response(

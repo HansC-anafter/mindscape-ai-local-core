@@ -349,6 +349,37 @@ class ExecutionCoordinator:
                 else:
                     logger.warning(f"ExecutionCoordinator: Playbook {playbook_code} started but no execution_id returned. Result: {execution_result}")
 
+                # Notify about task creation if callback provided
+                # Note: The task is created by playbook_runner, but we need to notify about it
+                # Try to get the task from tasks_store to send notification
+                if hasattr(self, 'task_event_callback') and self.task_event_callback:
+                    try:
+                        # Find the task by execution_id
+                        task = self.tasks_store.get_task_by_execution_id(execution_id) if execution_id else None
+                        if task:
+                            self.task_event_callback('created', {
+                                'id': task.id,
+                                'pack_id': pack_id,
+                                'playbook_code': playbook_code,
+                                'status': task.status.value if hasattr(task.status, 'value') else str(task.status),
+                                'task_type': task.task_type,
+                                'workspace_id': ctx.workspace_id,
+                                'execution_id': execution_id
+                            })
+                        elif execution_id:
+                            # If task not found but we have execution_id, send notification anyway
+                            self.task_event_callback('created', {
+                                'id': execution_id,
+                                'pack_id': pack_id,
+                                'playbook_code': playbook_code,
+                                'status': 'running',
+                                'task_type': 'playbook_execution',
+                                'workspace_id': ctx.workspace_id,
+                                'execution_id': execution_id
+                            })
+                    except Exception as e:
+                        logger.warning(f"Failed to call task_event_callback for pack {pack_id}: {e}")
+
                 return {
                     "pack_id": pack_id,
                     "playbook_code": playbook_code,

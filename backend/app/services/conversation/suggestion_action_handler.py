@@ -129,7 +129,7 @@ class SuggestionActionHandler:
                 )
 
             elif action == 'create_intent':
-                return self._handle_create_intent(ctx.workspace_id)
+                return await self._handle_create_intent(ctx, action_params, project_id, message_id)
 
             elif action == 'start_chat':
                 return self._handle_start_chat(ctx.workspace_id)
@@ -310,15 +310,124 @@ class SuggestionActionHandler:
             "pending_tasks": [task_result] if task_result else []
         }
 
-    def _handle_create_intent(self, workspace_id: str) -> Dict[str, Any]:
+    def _handle_create_intent(
+        self,
+        ctx: ExecutionContext,
+        action_params: Dict[str, Any],
+        project_id: Optional[str],
+        message_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Handle create_intent action"""
-        return {
-            "workspace_id": workspace_id,
-            "display_events": [],
-            "triggered_playbook": None,
-            "pending_tasks": [],
-            "redirect": "/mindscape?action=create_intent"
-        }
+        from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
+        from datetime import datetime
+        import uuid
+
+        title = action_params.get("title") or action_params.get("intent_title")
+        description = action_params.get("description") or action_params.get("intent_description")
+
+        if not title:
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+            title = i18n.t("conversation_orchestrator", "create_intent_card_title", default="New Intent")
+
+        if not description:
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+            description = i18n.t("conversation_orchestrator", "create_intent_card_description", default="Start tracking your long-term goals and tasks")
+
+        new_intent = IntentCard(
+            id=str(uuid.uuid4()),
+            profile_id=ctx.actor_id,
+            title=title,
+            description=description,
+            priority=PriorityLevel.MEDIUM,
+            status=IntentStatus.ACTIVE,
+            tags=action_params.get("tags", []),
+            category=action_params.get("category"),
+            progress_percentage=0.0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            started_at=None,
+            completed_at=None,
+            due_date=None,
+            parent_intent_id=None,
+            child_intent_ids=[],
+            metadata={}
+        )
+
+        try:
+            created_intent = self.store.create_intent(new_intent)
+            logger.info(f"_handle_create_intent: Created intent card {created_intent.id} for user {ctx.actor_id}")
+
+            from ...models.mindscape import MindEvent, EventType, EventActor
+            is_high_priority = created_intent.priority in [PriorityLevel.HIGH, PriorityLevel.CRITICAL]
+            intent_event = MindEvent(
+                id=str(uuid.uuid4()),
+                timestamp=datetime.utcnow(),
+                actor=EventActor.USER,
+                channel="local_workspace",
+                profile_id=ctx.actor_id,
+                project_id=project_id,
+                workspace_id=ctx.workspace_id,
+                event_type=EventType.INTENT_CREATED,
+                payload={
+                    "intent_id": created_intent.id,
+                    "title": created_intent.title,
+                    "description": created_intent.description,
+                    "status": created_intent.status.value,
+                    "priority": created_intent.priority.value
+                },
+                entity_ids=[created_intent.id],
+                metadata={
+                    "should_embed": is_high_priority,
+                    "is_artifact": is_high_priority
+                }
+            )
+            self.store.create_event(intent_event, generate_embedding=is_high_priority)
+
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+            success_message = i18n.t(
+                "conversation_orchestrator",
+                "intent.created",
+                intent_title=created_intent.title,
+                default=f"Intent card '{created_intent.title}' created successfully"
+            )
+
+            return {
+                "workspace_id": ctx.workspace_id,
+                "display_events": [{
+                    "type": "message",
+                    "content": success_message,
+                    "timestamp": datetime.utcnow().isoformat()
+                }],
+                "triggered_playbook": None,
+                "pending_tasks": [],
+                "created_intent": {
+                    "id": created_intent.id,
+                    "title": created_intent.title
+                }
+            }
+        except Exception as e:
+            logger.error(f"_handle_create_intent: Failed to create intent: {e}", exc_info=True)
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+            error_message = i18n.t(
+                "conversation_orchestrator",
+                "intent.create_failed",
+                error=str(e),
+                default=f"Failed to create intent card: {str(e)}"
+            )
+            return {
+                "workspace_id": ctx.workspace_id,
+                "display_events": [{
+                    "type": "error",
+                    "content": error_message,
+                    "timestamp": datetime.utcnow().isoformat()
+                }],
+                "triggered_playbook": None,
+                "pending_tasks": []
+            }
 
     def _handle_start_chat(self, workspace_id: str) -> Dict[str, Any]:
         """Handle start_chat action"""
