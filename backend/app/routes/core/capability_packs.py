@@ -68,12 +68,25 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
     packs = []
 
     # Get packs directory
+    # In Docker: /app/backend/app/routes/core/capability_packs.py -> /app/backend/packs
+    # In local: backend/app/routes/core/capability_packs.py -> backend/packs
     base_dir = Path(__file__).parent.parent.parent.parent
-    packs_dir = base_dir / "backend" / "packs"
-
+    packs_dir = base_dir / "packs"
+    
+    # If packs directory doesn't exist at calculated path, try alternative locations
     if not packs_dir.exists():
-        logger.warning(f"Packs directory not found: {packs_dir}")
-        return packs
+        # Try /app/backend/packs (Docker)
+        alt_path = Path("/app/backend/packs")
+        if alt_path.exists():
+            packs_dir = alt_path
+        else:
+            # Try backend/packs (local dev)
+            alt_path = base_dir / "backend" / "packs"
+            if alt_path.exists():
+                packs_dir = alt_path
+            else:
+                logger.warning(f"Packs directory not found. Tried: {base_dir / 'packs'}, {Path('/app/backend/packs')}, {base_dir / 'backend' / 'packs'}")
+                return packs
 
     # Scan for .yaml files
     for pack_file in packs_dir.glob("*.yaml"):
