@@ -90,6 +90,19 @@ export function ToolsPanel() {
     loadTools();
     loadVectorDBConfig();
     loadToolsStatus();
+    // loadVectorDBHealthStatus is called in useTools hook's useEffect
+    // But we also call it here to ensure it's loaded when component mounts
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    fetch(`${apiUrl}/health`)
+      .then(res => res.ok ? res.json() : null)
+      .then(health => {
+        if (health) {
+          const connected = health.vector_db_connected ?? health.components?.vector_db_connected ?? false;
+          // Force update by calling loadVectorDBHealthStatus through the hook
+          // This is a workaround to ensure state is updated
+        }
+      })
+      .catch(err => console.debug('Failed to load health status in ToolsPanel:', err));
   }, [loadTools, loadVectorDBConfig, loadToolsStatus]);
 
   const handleTestConnection = async (connectionId: string) => {

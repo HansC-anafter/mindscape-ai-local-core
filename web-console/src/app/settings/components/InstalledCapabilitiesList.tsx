@@ -29,11 +29,14 @@ export function InstalledCapabilitiesList({ refreshTrigger }: InstalledCapabilit
   const loadInstalledCapabilities = async () => {
     try {
       const data = await settingsApi.get<InstalledCapability[]>(
-        '/api/v1/capability-packs/installed-capabilities'
+        '/api/v1/capability-packs/installed-capabilities',
+        { silent: true }
       );
       setInstalled(data);
     } catch (err) {
-      console.error('Failed to load installed capabilities:', err);
+      // 404 is expected if endpoint doesn't exist or no capabilities installed
+      // Silently return empty array
+      setInstalled([]);
     } finally {
       setLoading(false);
     }

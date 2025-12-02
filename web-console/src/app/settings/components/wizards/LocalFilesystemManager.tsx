@@ -563,6 +563,10 @@ export function LocalFilesystemManager({
       if (workspaceMode && workspaceId && apiUrl) {
         let storageBasePath = directories[0].trim();
         storageBasePath = storageBasePath.replace(/\/+$/, '');
+
+        // Don't convert paths automatically - let backend validate and provide clear error messages
+        // Backend will check if path exists and provide instructions for mounting if needed
+
         const artifactsDirValue = artifactsDir.trim() || 'artifacts';
         const requestBody: any = {
           storage_base_path: storageBasePath,
