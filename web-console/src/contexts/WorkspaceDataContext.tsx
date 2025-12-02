@@ -157,6 +157,7 @@ export function WorkspaceDataProvider({
 
     loadingWorkspaceRef.current = true;
     setIsLoadingWorkspace(true);
+    setError(null); // Clear previous errors
 
     try {
       const response = await fetch(
@@ -165,18 +166,37 @@ export function WorkspaceDataProvider({
       );
 
       if (!response.ok) {
-        throw new Error(`Failed to load workspace: ${response.status}`);
+        const errorText = response.status === 404 
+          ? 'Workspace not found' 
+          : `Failed to load workspace: ${response.status}`;
+        throw new Error(errorText);
       }
 
       const data = await response.json();
       if (mountedRef.current) {
-        setWorkspace(data);
-        setError(null);
+        if (!data || !data.id) {
+          // API returned success but no valid workspace data
+          setError('Workspace not found or invalid');
+          setWorkspace(null);
+        } else {
+          setWorkspace(data);
+          setError(null);
+        }
       }
     } catch (err: any) {
-      if (err.name !== 'AbortError' && mountedRef.current) {
-        console.error('[WorkspaceDataContext] Failed to load workspace:', err);
-        setError(err.message || 'Failed to load workspace');
+      if (err.name === 'AbortError') {
+        // AbortError is expected in React Strict Mode - don't set error, keep loading state
+        console.log('[WorkspaceDataContext] Workspace load aborted (likely React Strict Mode), will retry');
+        // Reset ref to allow retry, but keep loading state true
+        loadingWorkspaceRef.current = false;
+        // Don't set loading to false - let it retry on next render
+        return; // Exit early, don't execute finally block
+      } else {
+        // Other errors - set error state
+        if (mountedRef.current) {
+          console.error('[WorkspaceDataContext] Failed to load workspace:', err);
+          setError(err.message || 'Failed to load workspace');
+        }
       }
     } finally {
       loadingWorkspaceRef.current = false;
