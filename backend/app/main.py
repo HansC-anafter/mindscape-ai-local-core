@@ -137,21 +137,27 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Failed to load capability packages: {e}", exc_info=True)
 
-    # Start habit proposal worker (periodic task)
+    # Register workspace tools
     try:
-        from .capabilities.habit_learning.services.habit_proposal_worker import HabitProposalWorker
+        from backend.app.services.tools.registry import register_workspace_tools
+        workspace_tools = register_workspace_tools()
+        logger.info(f"Registered {len(workspace_tools)} workspace tools")
+    except Exception as e:
+        logger.warning(f"Failed to register workspace tools: {e}", exc_info=True)
+
+    try:
+        from backend.app.capabilities.habit_learning.services.habit_proposal_worker import HabitProposalWorker
         import asyncio
 
-        # Get interval (hours), default 1 hour
         interval_hours = int(os.getenv("HABIT_PROPOSAL_INTERVAL_HOURS", "1"))
 
         worker = HabitProposalWorker()
-        # Run periodic task in background
         asyncio.create_task(worker.run_periodic_task(interval_hours=interval_hours))
         logger.info(f"Habit proposal worker started (interval: {interval_hours} hours)")
+    except ImportError:
+        logger.debug("Habit learning capability not available, skipping habit proposal worker")
     except Exception as e:
         logger.warning(f"Failed to start habit proposal worker: {e}")
-        # Don't affect app startup, continue running
 
 
 @app.get("/")

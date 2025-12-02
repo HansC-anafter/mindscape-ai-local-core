@@ -6,12 +6,13 @@ Aligns with "skill-style" playbook design: file = executable spec
 
 import os
 import yaml
+import json
 import re
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 import logging
 
-from backend.app.models.playbook import Playbook, PlaybookMetadata
+from backend.app.models.playbook import Playbook, PlaybookMetadata, PlaybookJson, PlaybookRun
 
 logger = logging.getLogger(__name__)
 
@@ -489,4 +490,66 @@ class PlaybookLoader:
                 })
 
         return results
+
+    def load_playbook_json(self, playbook_code: str) -> Optional[PlaybookJson]:
+        """
+        Load playbook.json file for a given playbook code
+
+        Args:
+            playbook_code: Playbook code
+
+        Returns:
+            PlaybookJson model or None if not found
+        """
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+        # Try multiple possible locations
+        possible_paths = [
+            Path(base_dir) / "backend" / "playbooks" / "specs" / f"{playbook_code}.json",  # Current location
+            Path(base_dir) / "backend" / "playbooks" / f"{playbook_code}.json",  # Legacy location
+        ]
+
+        # Also try in i18n directories (same location as .md files)
+        for locale in ['zh-TW', 'en', 'ja']:
+            possible_paths.append(
+                Path(base_dir) / "backend" / "i18n" / "playbooks" / locale / f"{playbook_code}.json"
+            )
+
+        for playbook_json_path in possible_paths:
+            if playbook_json_path.exists():
+                try:
+                    with open(playbook_json_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    return PlaybookJson(**data)
+                except Exception as e:
+                    logger.error(f"Failed to load playbook.json from {playbook_json_path}: {e}")
+                    continue
+
+        logger.debug(f"playbook.json not found for {playbook_code} in any of the expected locations")
+        return None
+
+    def load_playbook_run(self, playbook_code: str, locale: Optional[str] = None) -> Optional[PlaybookRun]:
+        """
+        Load playbook.run = playbook.md + playbook.json
+
+        Args:
+            playbook_code: Base playbook code (without locale suffix)
+            locale: Preferred locale for playbook.md selection
+
+        Returns:
+            PlaybookRun with both .md and .json components, or None if playbook.md not found
+        """
+        # Load playbook.md
+        playbook = self.get_playbook_by_code(playbook_code, locale=locale)
+        if not playbook:
+            logger.warning(f"playbook.md not found for {playbook_code}")
+            return None
+
+        # Load playbook.json (optional - may not exist for all playbooks)
+        playbook_json = self.load_playbook_json(playbook_code)
+
+        return PlaybookRun(
+            playbook=playbook,
+            playbook_json=playbook_json
+        )
 

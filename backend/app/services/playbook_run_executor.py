@@ -24,7 +24,9 @@ class PlaybookRunExecutor:
     def __init__(self):
         self.playbook_loader = PlaybookLoader()
         self.playbook_runner = PlaybookRunner()
-        self.workflow_orchestrator = WorkflowOrchestrator()
+        from backend.app.services.mindscape_store import MindscapeStore
+        store = MindscapeStore()
+        self.workflow_orchestrator = WorkflowOrchestrator(store=store)
 
     async def execute_playbook_run(
         self,
@@ -118,25 +120,34 @@ class PlaybookRunExecutor:
             )
 
             try:
-                result = await self.workflow_orchestrator.execute_workflow(handoff_plan)
+                result = await self.workflow_orchestrator.execute_workflow(
+                    handoff_plan,
+                    execution_id=execution_id,
+                    workspace_id=workspace_id or "default",
+                    profile_id=profile_id
+                )
 
                 execution_context["status"] = "completed"
                 execution_context["current_step"] = total_steps
-                task_dict = task.model_dump(mode='json')
-                task_dict["status"] = TaskStatus.SUCCEEDED.value
-                task_dict["completed_at"] = datetime.utcnow().isoformat()
-                task_dict["execution_context"] = execution_context
-                tasks_store.update_task(task.id, task_dict)
+                completed_at = datetime.utcnow()
+                tasks_store.update_task(
+                    task.id,
+                    execution_context=execution_context,
+                    status=TaskStatus.SUCCEEDED,
+                    completed_at=completed_at
+                )
                 logger.info(f"PlaybookRunExecutor: Execution {execution_id} completed successfully")
             except Exception as e:
                 execution_context["status"] = "failed"
                 execution_context["error"] = str(e)
-                task_dict = task.model_dump(mode='json')
-                task_dict["status"] = TaskStatus.FAILED.value
-                task_dict["completed_at"] = datetime.utcnow().isoformat()
-                task_dict["error"] = str(e)
-                task_dict["execution_context"] = execution_context
-                tasks_store.update_task(task.id, task_dict)
+                completed_at = datetime.utcnow()
+                tasks_store.update_task(
+                    task.id,
+                    execution_context=execution_context,
+                    status=TaskStatus.FAILED,
+                    completed_at=completed_at,
+                    error=str(e)
+                )
                 logger.error(f"PlaybookRunExecutor: Execution {execution_id} failed: {e}")
                 raise
 

@@ -8,6 +8,8 @@ Manages step dependencies, template resolution, and tool execution.
 import json
 import logging
 import asyncio
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 from collections import defaultdict
@@ -30,9 +32,10 @@ logger = logging.getLogger(__name__)
 class WorkflowOrchestrator:
     """Orchestrates multi-step workflow execution"""
 
-    def __init__(self):
+    def __init__(self, store=None):
         self.tool_executor = ToolExecutor()
         self.template_engine = TemplateEngine()
+        self.store = store
 
     def load_playbook_json(self, playbook_code: str) -> Optional[PlaybookJson]:
         """
@@ -45,23 +48,34 @@ class WorkflowOrchestrator:
             PlaybookJson model or None if not found
         """
         base_dir = Path(__file__).parent.parent.parent
-        playbook_json_path = base_dir / "playbooks" / f"{playbook_code}.json"
 
-        if not playbook_json_path.exists():
-            logger.warning(f"playbook.json not found: {playbook_json_path}")
-            return None
+        # Try multiple possible locations
+        possible_paths = [
+            base_dir / "playbooks" / "specs" / f"{playbook_code}.json",  # Current location
+            base_dir / "playbooks" / f"{playbook_code}.json",  # Legacy location
+            base_dir / "i18n" / "playbooks" / "zh-TW" / f"{playbook_code}.json",  # Same dir as .md
+            base_dir / "i18n" / "playbooks" / "en" / f"{playbook_code}.json",  # Same dir as .md
+        ]
 
-        try:
-            with open(playbook_json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return PlaybookJson(**data)
-        except Exception as e:
-            logger.error(f"Failed to load playbook.json: {e}")
-            return None
+        for playbook_json_path in possible_paths:
+            if playbook_json_path.exists():
+                try:
+                    with open(playbook_json_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    return PlaybookJson(**data)
+                except Exception as e:
+                    logger.error(f"Failed to load playbook.json from {playbook_json_path}: {e}")
+                    continue
+
+        logger.warning(f"playbook.json not found for {playbook_code} in any of the expected locations")
+        return None
 
     async def execute_workflow(
         self,
-        handoff_plan: HandoffPlan
+        handoff_plan: HandoffPlan,
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute workflow from HandoffPlan with parallel execution support
@@ -103,7 +117,11 @@ class WorkflowOrchestrator:
                 self._execute_step_with_retry(
                     step,
                     workflow_context,
-                    previous_results
+                    previous_results,
+                    execution_id=execution_id,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    step_index=len(completed_steps)
                 )
                 for step in ready_steps
             ]
@@ -316,7 +334,11 @@ class WorkflowOrchestrator:
         self,
         step: WorkflowStep,
         workflow_context: Dict[str, Any],
-        previous_results: Dict[str, Dict[str, Any]]
+        previous_results: Dict[str, Dict[str, Any]],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        step_index: int = 0
     ) -> Dict[str, Any]:
         """
         Execute a single workflow step
@@ -341,17 +363,17 @@ class WorkflowOrchestrator:
 
         if step.kind == PlaybookKind.SYSTEM_TOOL:
             if InteractionMode.SILENT in step.interaction_mode:
-                return await self._execute_silently(playbook_json, resolved_inputs)
+                return await self._execute_silently(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
             else:
-                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs)
+                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
 
         elif step.kind == PlaybookKind.USER_WORKFLOW:
             if InteractionMode.NEEDS_REVIEW in step.interaction_mode:
                 logger.info(f"Step {step.playbook_code} requires review")
             if InteractionMode.CONVERSATIONAL in step.interaction_mode:
-                return await self._execute_with_progress(playbook_json, resolved_inputs)
+                return await self._execute_with_progress(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
             else:
-                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs)
+                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
 
         else:
             raise ValueError(f"Unknown playbook kind: {step.kind}")
@@ -359,31 +381,43 @@ class WorkflowOrchestrator:
     async def _execute_silently(
         self,
         playbook_json: PlaybookJson,
-        inputs: Dict[str, Any]
+        inputs: Dict[str, Any],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute playbook silently (system tool)"""
-        return await self._execute_playbook_steps(playbook_json, inputs)
+        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id)
 
     async def _execute_with_minimal_ui(
         self,
         playbook_json: PlaybookJson,
-        inputs: Dict[str, Any]
+        inputs: Dict[str, Any],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute playbook with minimal UI feedback"""
-        return await self._execute_playbook_steps(playbook_json, inputs)
+        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id)
 
     async def _execute_with_progress(
         self,
         playbook_json: PlaybookJson,
-        inputs: Dict[str, Any]
+        inputs: Dict[str, Any],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute playbook with progress feedback"""
-        return await self._execute_playbook_steps(playbook_json, inputs)
+        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id)
 
     async def _execute_playbook_steps(
         self,
         playbook_json: PlaybookJson,
-        playbook_inputs: Dict[str, Any]
+        playbook_inputs: Dict[str, Any],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute all steps in playbook.json
@@ -409,17 +443,33 @@ class WorkflowOrchestrator:
 
             for step in ready_steps:
                 try:
+                    step_index = len(completed_steps)
                     step_result = await self._execute_single_step(
                         step,
                         playbook_inputs,
                         step_outputs,
-                        playbook_json.inputs
+                        playbook_json.inputs,
+                        execution_id=execution_id,
+                        workspace_id=workspace_id,
+                        profile_id=profile_id,
+                        step_index=step_index
                     )
                     step_outputs[step.id] = step_result
                     completed_steps.add(step.id)
                     logger.debug(f"Step {step.id} completed successfully")
                 except Exception as e:
                     logger.error(f"Step {step.id} failed: {e}", exc_info=True)
+                    if execution_id and workspace_id and self.store:
+                        self._create_step_event(
+                            execution_id=execution_id,
+                            workspace_id=workspace_id,
+                            profile_id=profile_id,
+                            step_id=step.id,
+                            step_name=step.id,
+                            step_index=len(completed_steps),
+                            status="failed",
+                            error=str(e)
+                        )
                     raise
 
         final_outputs = self._collect_final_outputs(
@@ -452,7 +502,11 @@ class WorkflowOrchestrator:
         step: Any,
         playbook_inputs: Dict[str, Any],
         step_outputs: Dict[str, Dict[str, Any]],
-        playbook_input_defs: Dict[str, Any]
+        playbook_input_defs: Dict[str, Any],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        step_index: int = 0
     ) -> Dict[str, Any]:
         """
         Execute a single playbook step
@@ -466,25 +520,71 @@ class WorkflowOrchestrator:
         Returns:
             Step output dict
         """
-        resolved_inputs = self.template_engine.prepare_playbook_inputs(
-            step,
-            playbook_inputs,
-            step_outputs
-        )
+        step_started_at = datetime.utcnow()
 
-        tool_result = await self.tool_executor.execute_tool(
-            step.tool,
-            **resolved_inputs
-        )
+        if execution_id and workspace_id and self.store:
+            self._create_step_event(
+                execution_id=execution_id,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                step_id=step.id,
+                step_name=step.id,
+                step_index=step_index,
+                status="running",
+                started_at=step_started_at
+            )
 
-        step_output = {}
-        for output_name, tool_field in step.outputs.items():
-            if isinstance(tool_result, dict):
-                step_output[output_name] = tool_result.get(tool_field)
-            else:
-                step_output[output_name] = tool_result
+        try:
+            resolved_inputs = self.template_engine.prepare_playbook_inputs(
+                step,
+                playbook_inputs,
+                step_outputs
+            )
 
-        return step_output
+            tool_result = await self.tool_executor.execute_tool(
+                step.tool,
+                **resolved_inputs
+            )
+
+            step_output = {}
+            for output_name, tool_field in step.outputs.items():
+                if isinstance(tool_result, dict):
+                    step_output[output_name] = tool_result.get(tool_field)
+                else:
+                    step_output[output_name] = tool_result
+
+            step_completed_at = datetime.utcnow()
+
+            if execution_id and workspace_id and self.store:
+                self._create_step_event(
+                    execution_id=execution_id,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    step_id=step.id,
+                    step_name=step.id,
+                    step_index=step_index,
+                    status="completed",
+                    started_at=step_started_at,
+                    completed_at=step_completed_at
+                )
+
+            return step_output
+        except Exception as e:
+            step_completed_at = datetime.utcnow()
+            if execution_id and workspace_id and self.store:
+                self._create_step_event(
+                    execution_id=execution_id,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    step_id=step.id,
+                    step_name=step.id,
+                    step_index=step_index,
+                    status="failed",
+                    started_at=step_started_at,
+                    completed_at=step_completed_at,
+                    error=str(e)
+                )
+            raise
 
     def _collect_final_outputs(
         self,
@@ -512,11 +612,63 @@ class WorkflowOrchestrator:
                     final_outputs[output_name] = step_outputs[step_id].get(output_key)
         return final_outputs
 
+    def _create_step_event(
+        self,
+        execution_id: str,
+        workspace_id: str,
+        profile_id: Optional[str],
+        step_id: str,
+        step_name: str,
+        step_index: int,
+        status: str,
+        started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+        error: Optional[str] = None
+    ):
+        """Create PLAYBOOK_STEP event for step timeline"""
+        if not self.store:
+            return
+
+        try:
+            from backend.app.models.mindscape import MindEvent, EventType, EventActor
+
+            event = MindEvent(
+                id=str(uuid.uuid4()),
+                timestamp=datetime.utcnow(),
+                actor=EventActor.SYSTEM,
+                channel="workflow_orchestrator",
+                profile_id=profile_id or "default-user",
+                project_id=None,
+                workspace_id=workspace_id,
+                event_type=EventType.PLAYBOOK_STEP,
+                payload={
+                    "execution_id": execution_id,
+                    "step_id": step_id,
+                    "step_name": step_name,
+                    "step_index": step_index,
+                    "status": status,
+                    "started_at": started_at.isoformat() if started_at else None,
+                    "completed_at": completed_at.isoformat() if completed_at else None,
+                    "error": error
+                },
+                entity_ids=[execution_id, step_id],
+                metadata={}
+            )
+
+            self.store.create_event(event, generate_embedding=False)
+            logger.debug(f"Created PLAYBOOK_STEP event for step {step_id} (index {step_index})")
+        except Exception as e:
+            logger.warning(f"Failed to create PLAYBOOK_STEP event: {e}")
+
     async def _execute_step_with_retry(
         self,
         step: WorkflowStep,
         workflow_context: Dict[str, Any],
-        previous_results: Dict[str, Dict[str, Any]]
+        previous_results: Dict[str, Dict[str, Any]],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        step_index: int = 0
     ) -> Dict[str, Any]:
         """
         Execute workflow step with retry logic
@@ -545,7 +697,11 @@ class WorkflowOrchestrator:
                 result = await self.execute_workflow_step(
                     step,
                     workflow_context,
-                    previous_results
+                    previous_results,
+                    execution_id=execution_id,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    step_index=step_index
                 )
 
                 if result.get('status') == 'completed':

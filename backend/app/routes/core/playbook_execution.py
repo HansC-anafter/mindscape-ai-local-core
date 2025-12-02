@@ -1,17 +1,20 @@
 """
 Playbook Execution API routes
-Handles real-time Playbook execution with LLM conversations
+Handles real-time Playbook execution with LLM conversations and structured workflows
 """
 
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
 
+from ...services.playbook_run_executor import PlaybookRunExecutor
 from ...services.playbook_runner import PlaybookRunner
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
-# Initialize playbook runner
+# Initialize unified executor (automatically selects PlaybookRunner or WorkflowOrchestrator)
+playbook_executor = PlaybookRunExecutor()
+# Keep PlaybookRunner for continue operations (conversation mode)
 playbook_runner = PlaybookRunner()
 
 
@@ -44,14 +47,27 @@ async def start_playbook_execution(
         inputs = request.inputs if request else None
         final_target_language = target_language or (request.target_language if request else None)
         final_variant_id = variant_id or (request.variant_id if request else None)
-        result = await playbook_runner.start_playbook_execution(
+
+        # Use unified executor (automatically selects execution mode)
+        result = await playbook_executor.execute_playbook_run(
             playbook_code=playbook_code,
             profile_id=profile_id,
             inputs=inputs,
             target_language=final_target_language,
             variant_id=final_variant_id
         )
-        return result
+
+        # Handle different return formats
+        if result.get("execution_mode") == "conversation":
+            # For conversation mode, result.result contains PlaybookRunner response
+            return result.get("result", result)
+        else:
+            # For workflow mode, return workflow result
+            return {
+                "execution_mode": result.get("execution_mode"),
+                "playbook_code": result.get("playbook_code"),
+                **result.get("result", {})
+            }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
