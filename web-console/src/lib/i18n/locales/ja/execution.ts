@@ -38,6 +38,7 @@ export const executionJa = {
 
   // Actions
   stop: '停止',
+  stopping: '停止中...',
 
   // Execution Header
   runNumber: '実行 #{number}',

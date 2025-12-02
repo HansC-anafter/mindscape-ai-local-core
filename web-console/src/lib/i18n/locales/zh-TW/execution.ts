@@ -38,6 +38,7 @@ export const executionZhTW = {
 
   // Actions
   stop: '停止',
+  stopping: '正在停止...',
 
   // Execution Header
   runNumber: '執行 #{number}',

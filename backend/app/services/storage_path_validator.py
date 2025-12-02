@@ -87,9 +87,10 @@ class StoragePathValidator:
                 f"Then use /host/custom as the storage path."
             )
         elif re.match(r'^[A-Za-z]:\\', path_str):
+            path_str_normalized = path_str.replace('\\', '/')
             suggestion = (
                 f"This is a Windows host path. To use it, mount it in docker-compose.yml:\n"
-                f"  - {path_str.replace('\\\\', '/')}:/host/custom:rw\n"
+                f"  - {path_str_normalized}:/host/custom:rw\n"
                 f"Then use /host/custom as the storage path."
             )
         else:
@@ -133,9 +134,10 @@ class StoragePathValidator:
                 )
             elif re.match(r'^[A-Za-z]:\\', path_str_resolved):
                 is_host_path = True
+                path_str_resolved_normalized = path_str_resolved.replace('\\', '/')
                 host_path_hint = (
                     f"\n\nThis appears to be a Windows host path. To use this path, you need to mount it in docker-compose.yml:\n"
-                    f"  - {path_str_resolved.replace('\\\\', '/')}:/host/custom:rw\n\n"
+                    f"  - {path_str_resolved_normalized}:/host/custom:rw\n\n"
                     f"Then use /host/custom as the storage path in the container."
                 )
 

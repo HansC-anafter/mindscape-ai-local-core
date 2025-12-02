@@ -47,7 +47,7 @@ export default function WorkspacesPage() {
 
     try {
       console.log('[loadWorkspaces] Starting, ownerUserId:', ownerUserId, 'API_URL:', API_URL);
-      
+
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -59,7 +59,7 @@ export default function WorkspacesPage() {
           signal: abortControllerRef.current.signal
         }
       );
-      
+
       if (!isMountedRef.current) {
         console.log('[loadWorkspaces] Component unmounted during fetch, aborting');
         return;
@@ -71,7 +71,7 @@ export default function WorkspacesPage() {
         try {
           const data = await response.json();
           console.log('[loadWorkspaces] Data received, count:', Array.isArray(data) ? data.length : 'not array');
-          
+
           if (isMountedRef.current) {
             setWorkspaces(Array.isArray(data) ? data : []);
             setError(null);

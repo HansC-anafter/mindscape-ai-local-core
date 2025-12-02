@@ -987,6 +987,7 @@ export const keys = {
   triggerSourceManual: true,
   triggerSourceUnknown: true,
   stop: true,
+  stopping: true,
   runNumber: true,
   stepProgress: true,
   startedAt: true,

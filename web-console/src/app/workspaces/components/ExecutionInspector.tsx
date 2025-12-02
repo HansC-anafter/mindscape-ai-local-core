@@ -141,6 +141,7 @@ export default function ExecutionInspector({
     workflow_result?: any;
     handoff_plan?: any;
   } | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
 
   // Load execution details
   useEffect(() => {
@@ -277,13 +278,13 @@ export default function ExecutionInspector({
         if (stepsResponse.ok) {
           const stepsData = await stepsResponse.json();
           const stepsArray = stepsData.steps || [];
-          // Remove duplicates by step.id, keeping the last occurrence
           const uniqueSteps = Array.from(
             new Map(stepsArray.map((step: ExecutionStep) => [step.id, step])).values()
           );
-          // Sort by step_index to maintain order
           uniqueSteps.sort((a, b) => a.step_index - b.step_index);
           setSteps(uniqueSteps);
+        } else {
+          console.error('[ExecutionInspector] Failed to load steps:', stepsResponse.status, stepsResponse.statusText);
         }
 
         // Load tool calls (optional - endpoint may not exist yet)
@@ -606,18 +607,49 @@ export default function ExecutionInspector({
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
-      {/* 1️⃣ Top: Run Header (這次執行的一行總結) */}
+      {/* Execution Header */}
       {execution && (
         <ExecutionHeader
           execution={execution}
           playbookTitle={playbookMetadata?.title || playbookMetadata?.playbook_code}
           onRetry={execution.status === 'failed' ? () => {
-            // TODO: Implement retry
-            console.log('Retry execution');
+            // TODO: Implement retry functionality
           } : undefined}
-          onStop={execution.status === 'running' ? () => {
-            // TODO: Implement stop
-            console.log('Stop execution');
+          isStopping={isStopping}
+          onStop={execution.status === 'running' ? async () => {
+            if (isStopping) return;
+            setIsStopping(true);
+            try {
+              const response = await fetch(
+                `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/cancel`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                }
+              );
+              if (response.ok) {
+                const result = await response.json();
+                // Reload execution to get updated status
+                const execResponse = await fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+                );
+                if (execResponse.ok) {
+                  const execData = await execResponse.json();
+                  setExecution(execData);
+                }
+              } else {
+                const errorData = await response.json().catch(() => ({ detail: 'Failed to cancel execution' }));
+                console.error('Failed to cancel execution:', errorData);
+                alert(errorData.detail || 'Failed to cancel execution');
+              }
+            } catch (error) {
+              console.error('Error cancelling execution:', error);
+              alert('Failed to cancel execution. Please try again.');
+            } finally {
+              setIsStopping(false);
+            }
           } : undefined}
         />
       )}
@@ -625,7 +657,7 @@ export default function ExecutionInspector({
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* 2️⃣ Top: Run Insight & Draft Changes (split left/right) */}
+          {/* Run Insight & Draft Changes */}
           <div className="flex-shrink-0 border-b bg-white">
             <div className="grid grid-cols-2 gap-0 h-56">
               <div className="border-r p-3 overflow-y-auto">
@@ -643,16 +675,13 @@ export default function ExecutionInspector({
                     ? t('thisExecutionFailed', { reason: execution.failure_reason })
                     : undefined}
                   onApplyPatch={(patchId) => {
-                    // TODO: Implement apply patch
-                    console.log('Apply patch:', patchId);
+                    // TODO: Implement apply patch functionality
                   }}
                   onDiscardPatch={(patchId) => {
-                    // TODO: Implement discard patch
-                    console.log('Discard patch:', patchId);
+                    // TODO: Implement discard patch functionality
                   }}
                   onEditPlaybook={() => {
                     // TODO: Navigate to playbook editor
-                    console.log('Edit playbook');
                   }}
                 />
               </div>
@@ -663,7 +692,7 @@ export default function ExecutionInspector({
             </div>
           </div>
 
-          {/* 3️⃣ Bottom: Steps Timeline + Current Step Details OR Workflow Visualization */}
+          {/* Steps Timeline & Current Step Details or Workflow Visualization */}
           <div className="flex-1 overflow-hidden bg-gray-50 p-3">
             {workflowData && workflowData.workflow_result && workflowData.handoff_plan ? (
               <div className="h-full overflow-y-auto">

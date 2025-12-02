@@ -58,6 +58,8 @@ class ExecutionCoordinator:
         self.default_locale = default_locale
         from ...services.config_store import ConfigStore
         self.config_store = ConfigStore(db_path=store.db_path)
+        from ...services.playbook_run_executor import PlaybookRunExecutor
+        self.playbook_run_executor = PlaybookRunExecutor()
 
     async def execute_plan(
         self,
@@ -1070,20 +1072,27 @@ class ExecutionCoordinator:
             playbook_inputs = playbook_context.copy()
             playbook_inputs["workspace_id"] = ctx.workspace_id
 
-            execution_result = await self.playbook_runner.start_playbook_execution(
+            execution_result = await self.playbook_run_executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=ctx.actor_id,
                 inputs=playbook_inputs,
-                workspace_id=ctx.workspace_id
+                workspace_id=ctx.workspace_id,
+                locale=self.default_locale
             )
 
             from ...services.i18n_service import get_i18n_service
             i18n = get_i18n_service(default_locale=self.default_locale)
 
-            assistant_response = execution_result.get(
-                "message",
-                i18n.t("conversation_orchestrator", "workflow.started", playbook_code=playbook_code)
-            )
+            execution_mode = execution_result.get("execution_mode", "conversation")
+            execution_id = execution_result.get("execution_id")
+
+            if execution_mode == "workflow":
+                assistant_response = i18n.t("conversation_orchestrator", "workflow.started", playbook_code=playbook_code, default=f"Started workflow execution for {playbook_code}")
+            else:
+                assistant_response = execution_result.get("result", {}).get(
+                    "message",
+                    i18n.t("conversation_orchestrator", "workflow.started", playbook_code=playbook_code, default=f"Started execution for {playbook_code}")
+                )
 
             assistant_event = MindEvent(
                 id=str(uuid.uuid4()),
@@ -1103,8 +1112,6 @@ class ExecutionCoordinator:
                 metadata={}
             )
             self.store.create_event(assistant_event)
-
-            execution_id = execution_result.get("execution_id")
 
             # Determine trigger source
             trigger_source = "manual"
@@ -1129,55 +1136,78 @@ class ExecutionCoordinator:
             # Calculate total_steps from playbook if not provided
             total_steps = playbook_context.get("total_steps", 0)
             if total_steps == 0:
-                # Try to get steps count from playbook YAML
-                try:
-                    from ...services.playbook_loader import PlaybookLoader
-                    import yaml
-                    from pathlib import Path
-                    playbook_loader = PlaybookLoader()
-                    playbook = playbook_loader.get_playbook_by_code(playbook_code)
-                    if playbook:
-                        # Try to load the YAML file directly to get steps count
-                        # Find the playbook file
-                        app_dir = Path(__file__).parent.parent.parent
-                        # Try capability packs first
-                        cap_dirs = [
-                            app_dir / "capabilities" / playbook_code.split('_')[0] / "playbooks",
-                            app_dir / "capabilities" / playbook_code / "playbooks"
-                        ]
-                        yaml_file = None
-                        for cap_dir in cap_dirs:
-                            if cap_dir.exists():
-                                for yf in cap_dir.glob('*.yaml'):
-                                    # Check if this file contains the playbook_code
-                                    try:
-                                        with open(yf, 'r', encoding='utf-8') as f:
-                                            yaml_data = yaml.safe_load(f)
-                                            if yaml_data and (yaml_data.get('code') == playbook_code or yaml_data.get('playbook_code') == playbook_code):
-                                                yaml_file = yf
-                                                break
-                                    except Exception:
-                                        continue
-                                if yaml_file:
-                                    break
+                # Try to get steps count from playbook.json (for workflow mode)
+                if execution_mode == "workflow" and execution_result.get("result"):
+                    workflow_result = execution_result.get("result", {})
+                    if isinstance(workflow_result, dict) and "steps" in workflow_result:
+                        total_steps = len(workflow_result["steps"])
+                    elif execution_id:
+                        # Try to get from task execution_context
+                        task = self.tasks_store.get_task_by_execution_id(execution_id)
+                        if task and task.execution_context:
+                            total_steps = task.execution_context.get("total_steps", 0)
 
-                        if yaml_file:
-                            with open(yaml_file, 'r', encoding='utf-8') as f:
-                                yaml_data = yaml.safe_load(f)
-                                if yaml_data and 'steps' in yaml_data:
-                                    steps = yaml_data['steps']
-                                    if isinstance(steps, list):
-                                        total_steps = len(steps)
+                # Fallback: Try to get steps count from playbook.json
+                if total_steps == 0:
+                    try:
+                        from ...services.playbook_loader import PlaybookLoader
+                        playbook_loader = PlaybookLoader()
+                        playbook_run = playbook_loader.load_playbook_run(playbook_code=playbook_code, locale=self.default_locale)
+                        if playbook_run and playbook_run.playbook_json and playbook_run.playbook_json.steps:
+                            total_steps = len(playbook_run.playbook_json.steps)
+                    except Exception:
+                        pass
+
+                # Final fallback: Try to get steps count from playbook YAML
+                if total_steps == 0:
+                    try:
+                        from ...services.playbook_loader import PlaybookLoader
+                        import yaml
+                        from pathlib import Path
+                        playbook_loader = PlaybookLoader()
+                        playbook = playbook_loader.get_playbook_by_code(playbook_code)
+                        if playbook:
+                            # Try to load the YAML file directly to get steps count
+                            # Find the playbook file
+                            app_dir = Path(__file__).parent.parent.parent
+                            # Try capability packs first
+                            cap_dirs = [
+                                app_dir / "capabilities" / playbook_code.split('_')[0] / "playbooks",
+                                app_dir / "capabilities" / playbook_code / "playbooks"
+                            ]
+                            yaml_file = None
+                            for cap_dir in cap_dirs:
+                                if cap_dir.exists():
+                                    for yf in cap_dir.glob('*.yaml'):
+                                        # Check if this file contains the playbook_code
+                                        try:
+                                            with open(yf, 'r', encoding='utf-8') as f:
+                                                yaml_data = yaml.safe_load(f)
+                                                if yaml_data and (yaml_data.get('code') == playbook_code or yaml_data.get('playbook_code') == playbook_code):
+                                                    yaml_file = yf
+                                                    break
+                                        except Exception:
+                                            continue
+                                    if yaml_file:
+                                        break
+
+                            if yaml_file:
+                                with open(yaml_file, 'r', encoding='utf-8') as f:
+                                    yaml_data = yaml.safe_load(f)
+                                    if yaml_data and 'steps' in yaml_data:
+                                        steps = yaml_data['steps']
+                                        if isinstance(steps, list):
+                                            total_steps = len(steps)
+                                        else:
+                                            total_steps = 1
                                     else:
                                         total_steps = 1
-                                else:
-                                    total_steps = 1
-                        else:
-                            # Fallback: default to 1 for markdown playbooks or if we can't find YAML
-                            total_steps = 1
-                except Exception as e:
-                    logger.warning(f"Failed to get step count from playbook: {e}")
-                    total_steps = 1  # Default to 1 if we can't determine
+                            else:
+                                # Fallback: default to 1 for markdown playbooks or if we can't find YAML
+                                total_steps = 1
+                    except Exception as e:
+                        logger.warning(f"Failed to get step count from playbook: {e}")
+                        total_steps = 1  # Default to 1 if we can't determine
 
             # Build execution_context
             execution_context = {

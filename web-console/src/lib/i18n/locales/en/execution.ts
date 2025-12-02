@@ -38,6 +38,7 @@ export const executionEn = {
 
   // Actions
   stop: 'Stop',
+  stopping: 'Stopping...',
 
   // Execution Header
   runNumber: 'Run #{number}',

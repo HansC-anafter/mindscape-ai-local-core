@@ -19,8 +19,9 @@ interface ExecutionHeaderProps {
   execution: ExecutionSession;
   playbookTitle?: string;
   onRetry?: () => void;
-  onStop?: () => void;
+  onStop?: () => void | Promise<void>;
   onEditPlaybook?: () => void;
+  isStopping?: boolean;
 }
 
 export default function ExecutionHeader({
@@ -28,7 +29,8 @@ export default function ExecutionHeader({
   playbookTitle,
   onRetry,
   onStop,
-  onEditPlaybook
+  onEditPlaybook,
+  isStopping = false
 }: ExecutionHeaderProps) {
   const t = useT();
   const getStatusBadge = (status: string) => {
@@ -125,9 +127,17 @@ export default function ExecutionHeader({
           {execution.status === 'running' && onStop && (
             <button
               onClick={onStop}
-              className="px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
+              disabled={isStopping}
+              className="px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              {t('stop')}
+              {isStopping ? (
+                <>
+                  <span className="inline-block w-3 h-3 border-2 border-red-700 border-t-transparent rounded-full animate-spin"></span>
+                  <span>{t('stopping')}</span>
+                </>
+              ) : (
+                <span>{t('stop')}</span>
+              )}
             </button>
           )}
         </div>
