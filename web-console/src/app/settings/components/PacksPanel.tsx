@@ -9,6 +9,7 @@ import { InstalledCapabilitiesList } from './InstalledCapabilitiesList';
 import { Card } from './Card';
 import { InlineAlert } from './InlineAlert';
 import { usePacks } from '../hooks/usePacks';
+import { useSuites } from '../hooks/useSuites';
 import type { ToolStatus } from '../types';
 
 interface PacksPanelProps {
@@ -19,6 +20,7 @@ type PackTab = 'suites' | 'packages';
 
 export function PacksPanel({ getToolStatus }: PacksPanelProps) {
   const { packs, installingPack, loadPacks, installPack } = usePacks();
+  const { suites, installingSuite, loadSuites, installSuite } = useSuites();
   const [activeTab, setActiveTab] = useState<PackTab>('suites');
   const [installSuccess, setInstallSuccess] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -26,14 +28,31 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
 
   React.useEffect(() => {
     loadPacks();
-  }, [loadPacks]);
+    loadSuites();
+  }, [loadPacks, loadSuites]);
 
-  const handleInstall = async (packId: string) => {
+  const handleInstallPack = async (packId: string) => {
     setInstallError(null);
     setInstallSuccess(null);
     try {
       await installPack(packId);
       setInstallSuccess(t('packInstalledSuccessfully'));
+      loadPacks();
+      loadSuites();
+    } catch (err) {
+      setInstallError(
+        `${t('installationFailed')}: ${err instanceof Error ? err.message : 'Unknown error'}`
+      );
+    }
+  };
+
+  const handleInstallSuite = async (suiteId: string) => {
+    setInstallError(null);
+    setInstallSuccess(null);
+    try {
+      await installSuite(suiteId);
+      setInstallSuccess(t('packInstalledSuccessfully'));
+      loadSuites();
       loadPacks();
     } catch (err) {
       setInstallError(
@@ -94,12 +113,22 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
           description={t('capabilitySuitesDescription')}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {packs.map((pack) => (
+            {suites.map((suite) => (
               <PackCard
-                key={pack.id}
-                pack={pack}
-                onInstall={() => handleInstall(pack.id)}
-                installing={installingPack === pack.id}
+                key={suite.id}
+                pack={{
+                  id: suite.id,
+                  name: suite.name,
+                  description: suite.description,
+                  icon: suite.icon,
+                  ai_members: suite.ai_members,
+                  capabilities: suite.capabilities,
+                  playbooks: suite.playbooks,
+                  required_tools: suite.required_tools,
+                  installed: suite.installed,
+                }}
+                onInstall={() => handleInstallSuite(suite.id)}
+                installing={installingSuite === suite.id}
                 getToolStatus={getToolStatus}
               />
             ))}
@@ -117,7 +146,7 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
               <PackCard
                 key={pack.id}
                 pack={pack}
-                onInstall={() => handleInstall(pack.id)}
+                onInstall={() => handleInstallPack(pack.id)}
                 installing={installingPack === pack.id}
                 getToolStatus={getToolStatus}
               />

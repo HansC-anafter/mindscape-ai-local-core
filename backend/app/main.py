@@ -94,6 +94,7 @@ def register_core_primitives(app: FastAPI) -> None:
     app.include_router(vector_db.router, tags=["vector-db"])
     app.include_router(vector_search.router, tags=["vector-search"])
     app.include_router(capability_packs.router, tags=["capability-packs"])
+    app.include_router(capability_suites.router, tags=["capability-suites"])
 
 # Phase 1: Register Layer 0 kernel routes
 register_core_routes(app)
