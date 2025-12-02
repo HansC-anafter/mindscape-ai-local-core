@@ -47,7 +47,8 @@ The easiest way to get started is using Docker:
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
-# Create .env file with your API keys
+# (Optional) Create .env file with your API keys
+# You can also configure API keys through the web interface after starting services
 cp .env.example .env
 # Edit .env and add your OPENAI_API_KEY or ANTHROPIC_API_KEY
 

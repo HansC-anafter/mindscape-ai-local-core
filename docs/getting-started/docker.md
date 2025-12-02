@@ -18,9 +18,11 @@ git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 ```
 
-### 2. Configure Environment Variables
+### 2. Configure Environment Variables (Optional)
 
-Create a `.env` file in the project root:
+> **Note**: You can configure API keys through the web interface after starting services. Creating a `.env` file is optional but recommended for production use.
+
+To configure via `.env` file, create it in the project root:
 
 ```bash
 # LLM Providers (at least one required)
@@ -69,6 +71,8 @@ docker compose ps
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 - **OCR Service**: http://localhost:8001
+
+> **💡 Tip**: If you haven't configured API keys in `.env`, you can configure them through the web interface after accessing the frontend.
 
 ## Services
 
