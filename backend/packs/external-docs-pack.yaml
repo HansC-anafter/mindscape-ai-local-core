@@ -1,0 +1,12 @@
+id: external_docs
+name: "External Docs Sync"
+enabled_by_default: false
+description: "External documents synchronization (WordPress, Notion, etc.)"
+
+routes:
+  - "backend.features.external_docs.routes:router"
+
+playbooks: []
+
+tools: []
+

@@ -1,0 +1,12 @@
+id: core_export
+name: "Core Export"
+enabled_by_default: true
+description: "Backup and portable export functionality"
+
+routes:
+  - "backend.features.core_export.routes:router"
+
+playbooks: []
+
+tools: []
+

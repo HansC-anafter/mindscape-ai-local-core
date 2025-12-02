@@ -1,0 +1,12 @@
+id: ai_roles
+name: "AI Roles"
+enabled_by_default: true
+description: "AI role configuration and management"
+
+routes:
+  - "backend.features.ai_roles.routes:router"
+
+playbooks: []
+
+tools: []
+

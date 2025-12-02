@@ -1,0 +1,12 @@
+id: agent
+name: "Agent Execution"
+enabled_by_default: true
+description: "AI agent execution functionality for running different agent types (planner, writer, coach, coder, visual_design_partner)"
+
+routes:
+  - "backend.features.agent.routes:router"
+
+playbooks: []
+
+tools: []
+

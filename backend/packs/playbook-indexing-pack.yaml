@@ -1,0 +1,12 @@
+id: playbook_indexing
+name: "Playbook Indexing"
+enabled_by_default: false
+description: "Playbook indexing and search optimization"
+
+routes:
+  - "backend.features.playbook_indexing.routes:router"
+
+playbooks: []
+
+tools: []
+

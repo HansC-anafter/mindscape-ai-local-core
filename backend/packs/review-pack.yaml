@@ -1,0 +1,12 @@
+id: review
+name: "Review Suggestions"
+enabled_by_default: true
+description: "Review and suggestion functionality"
+
+routes:
+  - "backend.features.review.routes:router"
+
+playbooks: []
+
+tools: []
+

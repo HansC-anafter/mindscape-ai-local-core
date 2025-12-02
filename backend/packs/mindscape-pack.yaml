@@ -1,0 +1,15 @@
+id: mindscape
+name: "Mindscape Core"
+enabled_by_default: true
+description: "Default capability pack shipped with Mindscape AI local core. Provides core Mindscape management functionality."
+
+routes:
+  - "backend.features.mindscape.routes:router"
+
+playbooks:
+  - "mindscape_setup"
+  - "mindscape_sync"
+
+tools:
+  - "mindscape_storage"
+

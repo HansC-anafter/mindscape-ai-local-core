@@ -1,0 +1,14 @@
+id: course_production
+name: "Course Production"
+enabled_by_default: false
+description: "Course production functionality (voice profiles, training jobs, video segments)"
+
+routes:
+  - "backend.features.course_production.voice_profiles:router"
+  - "backend.features.course_production.voice_training_jobs:router"
+  - "backend.features.course_production.video_segments:router"
+
+playbooks: []
+
+tools: []
+

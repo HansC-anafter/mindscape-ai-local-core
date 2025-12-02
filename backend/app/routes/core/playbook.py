@@ -1,0 +1,885 @@
+"""
+Playbook API routes
+Handles Playbook library management
+"""
+
+import logging
+from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, HTTPException, Path, Query, UploadFile, File
+
+from ...models.playbook import (
+    Playbook, CreatePlaybookRequest, UpdatePlaybookRequest
+)
+from ...services.playbook_store import PlaybookStore
+from ...services.playbook_loader import PlaybookLoader
+from ...services.tool_status_checker import ToolStatusChecker
+from ...services.tool_connection_store import ToolConnectionStore
+from ...services.playbook_tool_checker import PlaybookToolChecker
+import os
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/playbooks", tags=["playbooks"])
+
+# Initialize stores
+store = PlaybookStore()
+loader = PlaybookLoader()
+
+
+@router.get("", response_model=List[Dict[str, Any]])
+async def list_playbooks(
+    tags: Optional[str] = Query(None, description="Comma-separated tags"),
+    locale: str = Query('zh-TW', description="[DEPRECATED] Language locale. Use target_language instead."),
+    target_language: Optional[str] = Query(None, description="Target language for filtering (e.g., 'zh-TW', 'en'). Playbooks are language-neutral by default."),
+    scope: str = Query('system', description="system|user|all"),
+    onboarding_task: Optional[str] = Query(None, description="Filter by onboarding task"),
+    uses_tool: Optional[str] = Query(None, description="Filter playbooks that require this tool (e.g., 'wordpress', 'canva')"),
+    profile_id: str = Query('default-user', description="User profile for personalization")
+):
+    """
+    List playbooks with filtering and personalization
+
+    Returns playbooks with user meta (favorite, use_count, etc.)
+    Playbooks are language-neutral by default. The target_language parameter is informational only.
+    """
+    try:
+        # Parse tags
+        tag_list = tags.split(',') if tags else None
+
+        # Get playbooks from file system (primary source)
+        file_playbooks = loader.load_all_playbooks()
+
+        # Fallback to database if file system is empty
+        if not file_playbooks:
+            file_playbooks = store.list_playbooks(tags=tag_list)
+
+        # Determine preferred locale from target_language or locale parameter
+        preferred_locale = None
+        if target_language:
+            # Map target_language to locale for filtering
+            if target_language.startswith('en'):
+                preferred_locale = 'en'
+            elif target_language.startswith('zh'):
+                preferred_locale = 'zh-TW'
+        elif locale:
+            preferred_locale = locale
+
+        # Group playbooks by playbook_code and select preferred locale version
+        playbook_dict = {}
+        for playbook in file_playbooks:
+            code = playbook.metadata.playbook_code
+            playbook_locale = playbook.metadata.locale
+
+            # If no preference, keep first found
+            if code not in playbook_dict:
+                playbook_dict[code] = playbook
+            # If preference specified, prefer matching locale
+            elif preferred_locale:
+                if playbook_locale == preferred_locale and playbook_dict[code].metadata.locale != preferred_locale:
+                    playbook_dict[code] = playbook
+                # If current is preferred and new is not, keep current
+                elif playbook_dict[code].metadata.locale == preferred_locale and playbook_locale != preferred_locale:
+                    continue
+                # If neither matches preference, prefer zh-TW over en
+                elif playbook_dict[code].metadata.locale != preferred_locale and playbook_locale != preferred_locale:
+                    if playbook_dict[code].metadata.locale == 'en' and playbook_locale == 'zh-TW':
+                        playbook_dict[code] = playbook
+
+        playbooks = list(playbook_dict.values())
+
+        # Filter by tags
+        if tag_list:
+            playbooks = [p for p in playbooks
+                        if any(tag in p.metadata.tags for tag in tag_list)]
+
+        # Filter by onboarding_task
+        if onboarding_task:
+            playbooks = [p for p in playbooks
+                        if p.metadata.onboarding_task == onboarding_task]
+
+        # Filter by uses_tool (playbooks that require this tool)
+        if uses_tool:
+            playbooks = [p for p in playbooks
+                        if uses_tool in (p.metadata.required_tools or [])]
+
+        # Enrich with user meta and check for personal variants
+        results = []
+        for playbook in playbooks:
+            user_meta = store.get_user_meta(profile_id, playbook.metadata.playbook_code)
+
+            # Check if user has a personal variant (default variant)
+            has_personal_variant = False
+            default_variant = None
+            try:
+                default_variant = store.get_default_variant(
+                    profile_id,
+                    playbook.metadata.playbook_code
+                )
+                has_personal_variant = default_variant is not None
+            except Exception as e:
+                logger.debug(f"Failed to check variant for {playbook.metadata.playbook_code}: {e}")
+
+            results.append({
+                "playbook_code": playbook.metadata.playbook_code,
+                "version": playbook.metadata.version,
+                "locale": playbook.metadata.locale,
+                "name": playbook.metadata.name,
+                "description": playbook.metadata.description,
+                "tags": playbook.metadata.tags,
+                "entry_agent_type": playbook.metadata.entry_agent_type,
+                "onboarding_task": playbook.metadata.onboarding_task,
+                "icon": playbook.metadata.icon,
+                "required_tools": playbook.metadata.required_tools,
+                "user_meta": user_meta or {
+                    "favorite": False,
+                    "use_count": 0
+                },
+                "has_personal_variant": has_personal_variant,
+                "default_variant_name": default_variant.get("variant_name") if default_variant else None
+            })
+
+        # Sort by favorite + use_count
+        results.sort(key=lambda x: (
+            -int(x['user_meta'].get('favorite', False)),
+            -x['user_meta'].get('use_count', 0)
+        ))
+
+        return results
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{playbook_code}", response_model=Dict[str, Any])
+async def get_playbook(
+    playbook_code: str,
+    version: Optional[str] = Query(None),
+    locale: str = Query('zh-TW', description="[DEPRECATED] Language locale. Use target_language instead."),
+    target_language: Optional[str] = Query(None, description="Target language for content (e.g., 'zh-TW', 'en'). Playbooks are language-neutral."),
+    profile_id: str = Query('default-user')
+):
+    """
+    Get playbook detail with user meta and associated intents
+
+    Playbooks are language-neutral. The target_language parameter is used for execution,
+    but the SOP content is returned as-is from the Playbook file.
+    """
+    try:
+        # Remove .en suffix if present in playbook_code
+        base_code = playbook_code.replace('.en', '')
+
+        # Determine preferred locale from target_language or locale parameter
+        preferred_locale = None
+        if target_language:
+            # Map target_language to locale for file selection
+            if target_language.startswith('en'):
+                preferred_locale = 'en'
+            elif target_language.startswith('zh'):
+                preferred_locale = 'zh-TW'
+        elif locale:
+            preferred_locale = locale
+
+        # Load playbook with preferred locale (if specified)
+        # This allows selecting the correct language version of the file
+        playbook = loader.get_playbook_by_code(base_code, locale=preferred_locale)
+
+        # Fallback to database
+        if not playbook:
+            playbook = store.get_playbook(playbook_code, version)
+
+        if not playbook:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+
+        # Get user meta
+        user_meta = store.get_user_meta(profile_id, playbook_code)
+
+        # Get associated intents
+        intent_ids = store.get_playbook_intents(playbook_code)
+        associated_intents = []
+        if intent_ids:
+            # Import mindscape store to get intent details
+            from ...services.mindscape_store import MindscapeStore
+            mindscape_store = MindscapeStore()
+
+            for intent_id in intent_ids:
+                try:
+                    intent = mindscape_store.get_intent(intent_id)
+                    if intent:
+                        associated_intents.append({
+                            "intent_id": intent.id,
+                            "title": intent.title,
+                            "status": intent.status.value if intent.status else "active",
+                            "priority": intent.priority.value if intent.priority else "medium"
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to fetch intent {intent_id}: {e}")
+                    associated_intents.append({
+                        "intent_id": intent_id,
+                        "title": f"Intent {intent_id}"
+                    })
+
+        # Get default personal variant (if exists)
+        default_variant = None
+        has_personal_variant = False
+        try:
+            default_variant = store.get_default_variant(profile_id, playbook_code)
+            has_personal_variant = default_variant is not None
+        except Exception as e:
+            logger.debug(f"Failed to get default variant: {e}")
+
+        # Get execution status
+        active_executions = []
+        recent_executions = []
+        try:
+            from datetime import datetime
+            # Import playbook_runner from execution routes (avoid circular import by importing at runtime)
+            import sys
+            from types import ModuleType
+
+            # Get playbook_runner instance safely
+            try:
+                execution_module = sys.modules.get('app.routes.core.playbook_execution')
+                if execution_module is None:
+                    from ...routes.core import playbook_execution as execution_module
+                playbook_runner = execution_module.playbook_runner
+            except (ImportError, AttributeError):
+                # Fallback: create new instance if import fails
+                from ...services.playbook_runner import PlaybookRunner
+                playbook_runner = PlaybookRunner()
+
+            # Find active executions for this playbook
+            active_execution_ids = playbook_runner.list_active_executions()
+            for exec_id in active_execution_ids:
+                try:
+                    conv_manager = playbook_runner.active_conversations.get(exec_id)
+                    if conv_manager and conv_manager.playbook.metadata.playbook_code == playbook_code:
+                        # Get execution start time from conversation history
+                        started_at = None
+                        if conv_manager.conversation_history:
+                            # Approximate start time from first message
+                            started_at = datetime.utcnow().isoformat()
+                        active_executions.append({
+                            "execution_id": exec_id,
+                            "status": "running",
+                            "started_at": started_at
+                        })
+                except Exception as e:
+                    logger.debug(f"Failed to get execution info for {exec_id}: {e}")
+
+            # Get recent execution history from events
+            from ...services.mindscape_store import MindscapeStore
+            mindscape_store = MindscapeStore()
+            # Query events for playbook executions
+            events = mindscape_store.list_events(
+                profile_id=profile_id,
+                limit=50
+            )
+            # Filter for playbook-related events
+            for event in events:
+                payload = event.payload if isinstance(event.payload, dict) else {}
+                # Check if this event is related to this playbook
+                if (event.channel == "playbook" and
+                    (payload.get("playbook_code") == playbook_code or
+                     event.metadata and event.metadata.get("playbook_code") == playbook_code)):
+                    recent_executions.append({
+                        "execution_id": payload.get("execution_id", event.id),
+                        "status": payload.get("status", "completed"),
+                        "started_at": event.timestamp.isoformat() if hasattr(event.timestamp, 'isoformat') else str(event.timestamp),
+                        "completed_at": payload.get("completed_at")
+                    })
+            # Sort by started_at descending and limit
+            recent_executions.sort(key=lambda x: x.get("started_at", ""), reverse=True)
+            recent_executions = recent_executions[:5]
+        except Exception as e:
+            logger.warning(f"Failed to fetch execution status: {e}")
+
+        return {
+            "metadata": {
+                "playbook_code": playbook.metadata.playbook_code,
+                "version": playbook.metadata.version,
+                "locale": playbook.metadata.locale,
+                "name": playbook.metadata.name,
+                "description": playbook.metadata.description,
+                "tags": playbook.metadata.tags,
+                "entry_agent_type": playbook.metadata.entry_agent_type,
+                "onboarding_task": playbook.metadata.onboarding_task,
+                "icon": playbook.metadata.icon,
+                "required_tools": playbook.metadata.required_tools,
+                "scope": playbook.metadata.scope,
+                "owner": playbook.metadata.owner,
+            },
+            "sop_content": playbook.sop_content,
+            "user_notes": playbook.user_notes,
+            "user_meta": user_meta or {},
+            "associated_intents": associated_intents,
+            "execution_status": {
+                "active_executions": active_executions,
+                "recent_executions": recent_executions[:5]  # Limit to 5 most recent
+            },
+            "version_info": {
+                "has_personal_variant": has_personal_variant,
+                "default_variant": default_variant,
+                "system_version": playbook.metadata.version
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{playbook_code}/meta", response_model=Dict[str, Any])
+async def update_playbook_meta(
+    playbook_code: str,
+    profile_id: str = Query('default-user'),
+    favorite: Optional[bool] = None,
+    hidden: Optional[bool] = None,
+    custom_tags: Optional[List[str]] = None,
+    user_notes: Optional[str] = None
+):
+    """Update user's personal meta for a playbook"""
+    try:
+        # Check playbook exists
+        playbook = loader.get_playbook_by_code(playbook_code)
+        if not playbook:
+            playbook = store.get_playbook(playbook_code)
+        if not playbook:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+
+        updates = {}
+        if favorite is not None:
+            updates['favorite'] = favorite
+        if hidden is not None:
+            updates['hidden'] = hidden
+        if custom_tags is not None:
+            updates['custom_tags'] = custom_tags
+
+        # Update user_meta
+        user_meta = store.update_user_meta(profile_id, playbook_code, updates)
+
+        # Update user_notes (in playbooks table)
+        if user_notes is not None:
+            store.update_playbook(playbook_code, {'user_notes': user_notes})
+
+        return {
+            "success": True,
+            "user_meta": user_meta
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reindex", response_model=Dict[str, Any])
+async def reindex_playbooks():
+    """Re-scan and index all playbooks from file system"""
+    try:
+        results = loader.reindex_playbooks(store)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("", response_model=Playbook, status_code=201)
+async def create_playbook(request: CreatePlaybookRequest):
+    """Create a new playbook"""
+    try:
+        from ...models.playbook import PlaybookMetadata
+        from datetime import datetime
+
+        playbook = Playbook(
+            metadata=PlaybookMetadata(
+                playbook_code=request.playbook_code,
+                name=request.name,
+                description=request.description,
+                tags=request.tags,
+                owner=request.owner,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            ),
+            sop_content=request.sop_content
+        )
+
+        created = store.create_playbook(playbook)
+        return created
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create playbook: {str(e)}")
+
+
+@router.put("/{playbook_code}", response_model=Playbook)
+async def update_playbook(
+    playbook_code: str = Path(..., description="Playbook code"),
+    request: UpdatePlaybookRequest = None
+):
+    """Update a playbook"""
+    if not request:
+        raise HTTPException(status_code=400, detail="Update request required")
+
+    updates = {}
+    if request.name is not None:
+        updates['name'] = request.name
+    if request.description is not None:
+        updates['description'] = request.description
+    if request.tags is not None:
+        updates['tags'] = request.tags
+    if request.sop_content is not None:
+        updates['sop_content'] = request.sop_content
+    if request.user_notes is not None:
+        updates['user_notes'] = request.user_notes
+
+    updated = store.update_playbook(playbook_code, updates)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+
+    return updated
+
+
+@router.post("/{playbook_code}/associate/{intent_id}", status_code=201)
+async def associate_intent_playbook(
+    playbook_code: str = Path(..., description="Playbook code"),
+    intent_id: str = Path(..., description="Intent ID")
+):
+    """Associate an intent with a playbook"""
+    try:
+        association = store.associate_intent_playbook(intent_id, playbook_code)
+        return {
+            "intent_id": association.intent_id,
+            "playbook_code": association.playbook_code,
+            "message": "Association created"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create association: {str(e)}")
+
+
+@router.delete("/{playbook_code}/associate/{intent_id}", status_code=204)
+async def remove_intent_playbook_association(
+    playbook_code: str = Path(..., description="Playbook code"),
+    intent_id: str = Path(..., description="Intent ID")
+):
+    """Remove association between intent and playbook"""
+    success = store.remove_intent_playbook_association(intent_id, playbook_code)
+    if not success:
+        raise HTTPException(status_code=404, detail="Association not found")
+    return None
+
+
+@router.get("/intent/{intent_id}", response_model=List[str])
+async def get_intent_playbooks(intent_id: str = Path(..., description="Intent ID")):
+    """Get playbook codes associated with an intent"""
+    playbook_codes = store.get_intent_playbooks(intent_id)
+    return playbook_codes
+
+
+@router.get("/{playbook_code}/tools/check", response_model=Dict[str, Any])
+async def check_playbook_tools(
+    playbook_code: str = Path(..., description="Playbook code"),
+    profile_id: str = Query('default-user', description="User profile ID")
+):
+    """
+    檢查 Playbook 所需工具的可用性
+
+    Returns:
+        {
+            "playbook_code": "...",
+            "tools": {
+                "available": [...],
+                "missing": [...],
+                "can_auto_install": [...]
+            }
+        }
+    """
+    try:
+        # Get playbook
+        playbook = loader.get_playbook_by_code(playbook_code)
+        if not playbook:
+            playbook = store.get_playbook(playbook_code)
+        if not playbook:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+
+        # Check tool dependencies
+        from ...services.playbook_tool_resolver import ToolDependencyResolver
+
+        resolver = ToolDependencyResolver()
+        result = await resolver.resolve_dependencies(
+            playbook.metadata.tool_dependencies
+        )
+
+        return {
+            "playbook_code": playbook_code,
+            "tools": {
+                "available": result["available"],
+                "missing": result["missing"],
+                "can_auto_install": result["can_auto_install"],
+                "errors": result["errors"]
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking playbook tools: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{playbook_code}/tools/install", response_model=Dict[str, Any])
+async def install_playbook_tools(
+    playbook_code: str = Path(..., description="Playbook code"),
+    profile_id: str = Query('default-user', description="User profile ID")
+):
+    """
+    Auto-install tools required by Playbook
+
+    Returns:
+        {
+            "success": bool,
+            "installed": [...],
+            "failed": [...],
+            "message": "..."
+        }
+    """
+    try:
+        # Get playbook
+        playbook = loader.get_playbook_by_code(playbook_code)
+        if not playbook:
+            playbook = store.get_playbook(playbook_code)
+        if not playbook:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+
+        # Parse dependencies
+        from ...services.playbook_tool_resolver import ToolDependencyResolver
+
+        resolver = ToolDependencyResolver()
+        check_result = await resolver.resolve_dependencies(
+            playbook.metadata.tool_dependencies
+        )
+
+        # If no missing tools, return directly
+        if not check_result["missing"]:
+            return {
+                "success": True,
+                "installed": [],
+                "failed": [],
+                "available": check_result["available"],
+                "message": "All tools are already available"
+            }
+
+        # Try to auto-install installable tools
+        installed = []
+        failed = []
+
+        for tool_dep in playbook.metadata.tool_dependencies:
+            # Check if in can_auto_install list
+            can_install = any(
+                t["name"] == tool_dep.name
+                for t in check_result["can_auto_install"]
+            )
+
+            if can_install:
+                try:
+                    install_result = await resolver.auto_install_tool(tool_dep)
+                    if install_result["success"]:
+                        installed.append({
+                            "name": tool_dep.name,
+                            "type": tool_dep.type
+                        })
+                        logger.info(f"Successfully installed tool: {tool_dep.name}")
+                    else:
+                        failed.append({
+                            "name": tool_dep.name,
+                            "type": tool_dep.type,
+                            "error": install_result["error"]
+                        })
+                        logger.error(f"Failed to install tool {tool_dep.name}: {install_result['error']}")
+                except Exception as e:
+                    failed.append({
+                        "name": tool_dep.name,
+                        "type": tool_dep.type,
+                        "error": str(e)
+                    })
+                    logger.error(f"Exception installing tool {tool_dep.name}: {e}")
+
+        # Check if there are still required tools missing
+        still_missing = [
+            t for t in check_result["missing"]
+            if t["required"] and t["name"] not in [i["name"] for i in installed]
+        ]
+
+        if still_missing:
+            return {
+                "success": False,
+                "installed": installed,
+                "failed": failed,
+                "still_missing": still_missing,
+                "message": "部分必要工具無法安裝"
+            }
+
+        return {
+            "success": True,
+            "installed": installed,
+            "failed": failed,
+            "available": check_result["available"],
+            "message": f"成功安裝 {len(installed)} 個工具"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error installing playbook tools: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{playbook_code}/tools-check", response_model=Dict[str, Any])
+async def check_playbook_tools(
+    playbook_code: str = Path(..., description="Playbook code"),
+    profile_id: str = Query('default-user', description="Profile ID")
+):
+    """
+    Check playbook tool dependencies and readiness
+
+    Returns readiness status based on tool connection status:
+    - ready: All required tools are connected
+    - needs_setup: One or more required tools are registered_but_not_connected
+    - unsupported: One or more required tools are unavailable
+
+    Example:
+        GET /api/v1/playbooks/content_drafting/tools-check?profile_id=user123
+    """
+    try:
+        # Get playbook
+        playbook = loader.get_playbook_by_code(playbook_code)
+        if not playbook:
+            playbook = store.get_playbook(playbook_code)
+        if not playbook:
+            raise HTTPException(status_code=404, detail=f"Playbook not found: {playbook_code}")
+
+        # Initialize services
+        data_dir = os.getenv("DATA_DIR", "./data")
+        tool_connection_store = ToolConnectionStore(db_path=f"{data_dir}/my_agent_console.db")
+        tool_status_checker = ToolStatusChecker(tool_connection_store)
+        playbook_tool_checker = PlaybookToolChecker(tool_status_checker)
+
+        # Check tool dependencies
+        readiness, tool_statuses, missing_required = playbook_tool_checker.check_playbook_tools(
+            playbook=playbook,
+            profile_id=profile_id
+        )
+
+        # Extract required tools for response
+        required_tools = playbook_tool_checker._extract_required_tools(playbook.metadata)
+
+        return {
+            "playbook_code": playbook_code,
+            "readiness_status": readiness.value,
+            "tool_statuses": {
+                tool_type: status.value
+                for tool_type, status in tool_statuses.items()
+            },
+            "missing_required_tools": missing_required,
+            "required_tools": required_tools,
+            "optional_tools": playbook.metadata.optional_tools
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking playbook tools: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/smoke-test/supported", response_model=List[str])
+async def get_supported_smoke_test_playbooks():
+    """
+    Get list of playbooks that support smoke testing
+
+    Returns a list of playbook codes that have smoke tests available.
+    """
+    return [
+        "pdf_ocr_processing",
+        "ig_post_generation",
+        "yt_script_generation",
+        "yearly_book_content_save",
+    ]
+
+
+@router.post("/{playbook_code}/smoke-test/upload-files", response_model=Dict[str, Any])
+async def upload_test_files(
+    playbook_code: str,
+    files: List[UploadFile] = File(...),
+    profile_id: str = Query('test-user', description="Profile ID for testing")
+):
+    """
+    Upload test files for playbook smoke test
+
+    This endpoint allows uploading test files (e.g., PDFs) that will be saved
+    to the test data directory and used for smoke testing.
+    """
+    from pathlib import Path
+    import shutil
+
+    try:
+        # Determine test data directory
+        backend_dir = Path(__file__).parent.parent
+        test_data_dir = backend_dir.parent / "test_data"
+
+        # Create playbook-specific directory
+        playbook_test_dir = test_data_dir / playbook_code
+        playbook_test_dir.mkdir(parents=True, exist_ok=True)
+
+        uploaded_files = []
+
+        for file in files:
+            # Generate safe filename
+            filename = file.filename or "uploaded_file"
+            # Add timestamp to avoid conflicts
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_filename = f"{timestamp}_{filename}"
+            file_path = playbook_test_dir / safe_filename
+
+            # Save file
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            uploaded_files.append({
+                "original_filename": filename,
+                "saved_path": str(file_path),
+                "size": file_path.stat().st_size
+            })
+
+            logger.info(f"Uploaded test file: {filename} -> {file_path}")
+
+        return {
+            "playbook_code": playbook_code,
+            "uploaded_files": uploaded_files,
+            "test_data_dir": str(playbook_test_dir),
+            "message": f"Successfully uploaded {len(uploaded_files)} file(s)"
+        }
+
+    except Exception as e:
+        logger.error(f"Error uploading test files: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload files: {str(e)}")
+
+
+@router.post("/{playbook_code}/smoke-test", response_model=Dict[str, Any])
+async def run_playbook_smoke_test(
+    playbook_code: str,
+    profile_id: str = Query('test-user', description="Profile ID for testing"),
+    use_uploaded_files: bool = Query(False, description="Use files uploaded via upload-files endpoint")
+):
+    """
+    Run smoke test for a specific playbook
+
+    This endpoint runs a quick smoke test to verify the playbook works correctly.
+    Returns test results including status, outputs, and any errors.
+    """
+    # Map playbook codes to test classes - check early before any imports
+    test_class_map = {
+        "pdf_ocr_processing": "TestPdfOcrProcessing",
+        "ig_post_generation": "TestIgPostGeneration",
+        "yt_script_generation": "TestYtScriptGeneration",
+        "yearly_book_content_save": "TestYearlyBookContentSave",
+    }
+
+    # Check if playbook has smoke test - return 404 immediately if not
+    if playbook_code not in test_class_map:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Smoke test not available for playbook: {playbook_code}. Available playbooks: {', '.join(test_class_map.keys())}"
+        )
+
+    try:
+        # Import test runner dynamically to avoid circular imports
+        import sys
+        from pathlib import Path
+
+        # Add tests directory to path
+        backend_dir = Path(__file__).parent.parent
+        tests_dir = backend_dir.parent / "tests"
+        if str(tests_dir) not in sys.path:
+            sys.path.insert(0, str(tests_dir))
+
+        # Import and run test
+        try:
+            if playbook_code == "pdf_ocr_processing":
+                from tests.test_playbook_pdf_ocr_processing import TestPdfOcrProcessing
+                test_class = TestPdfOcrProcessing
+            elif playbook_code == "ig_post_generation":
+                from tests.test_playbook_ig_post_generation import TestIgPostGeneration
+                test_class = TestIgPostGeneration
+            elif playbook_code == "yt_script_generation":
+                from tests.test_playbook_yt_script_generation import TestYtScriptGeneration
+                test_class = TestYtScriptGeneration
+            elif playbook_code == "yearly_book_content_save":
+                from tests.test_playbook_yearly_book_content_save import TestYearlyBookContentSave
+                test_class = TestYearlyBookContentSave
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Test class not found for playbook: {playbook_code}"
+                )
+
+            # Create test instance
+            test = test_class(profile_id=profile_id)
+
+            # If using uploaded files, update test inputs
+            if use_uploaded_files and playbook_code == "pdf_ocr_processing":
+                # Find uploaded PDF files
+                backend_dir = Path(__file__).parent.parent
+                test_data_dir = backend_dir.parent / "test_data"
+                playbook_test_dir = test_data_dir / playbook_code
+
+                if playbook_test_dir.exists():
+                    pdf_files = list(playbook_test_dir.glob("*.pdf"))
+                    if pdf_files:
+                        # Override test inputs with uploaded files
+                        # Note: Use absolute paths inside Docker container
+                        def get_test_inputs_with_uploaded():
+                            # Convert to Docker container paths if needed
+                            docker_paths = []
+                            for f in pdf_files[:2]:
+                                # If file is in test_data, use /app/backend/test_data path
+                                if str(f).startswith(str(test_data_dir)):
+                                    rel_path = f.relative_to(test_data_dir)
+                                    docker_path = f"/app/backend/test_data/{playbook_code}/{rel_path.name}"
+                                else:
+                                    docker_path = str(f)
+                                docker_paths.append(docker_path)
+                            return {
+                                "pdf_files": docker_paths,
+                                "dpi": 300,
+                                "output_format": "text"
+                            }
+                        test.get_test_inputs = get_test_inputs_with_uploaded
+
+            result = await test.run_test()
+
+            return {
+                "playbook_code": playbook_code,
+                "test_status": result.get("status", "unknown"),
+                "test_results": result,
+                "summary": test.get_test_summary()
+            }
+
+        except ImportError as e:
+            logger.error(f"Failed to import test class: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to import test class: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Test execution failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Test execution failed: {str(e)}"
+            )
+
+    except HTTPException as he:
+        # Re-raise HTTPException as-is (includes 404 for unsupported playbooks)
+        raise he
+    except Exception as e:
+        logger.error(f"Error running smoke test: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")

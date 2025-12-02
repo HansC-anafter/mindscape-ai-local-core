@@ -1,0 +1,12 @@
+id: playbook_personalization
+name: "Playbook Personalization"
+enabled_by_default: true
+description: "Playbook personalization and variant management"
+
+routes:
+  - "backend.features.playbook_personalization.routes:router"
+
+playbooks: []
+
+tools: []
+

@@ -90,7 +90,7 @@ services:
     container_name: mindscape-ai-local-core-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"  # Changed to 5433 to avoid conflict with local postgres
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-mindscape_vectors}
       - POSTGRES_USER=${POSTGRES_USER:-mindscape}
@@ -104,7 +104,7 @@ services:
     networks:
       - mindscape-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mindscape}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mindscape} -d ${POSTGRES_DB:-mindscape_vectors}"]
       interval: 10s
       timeout: 5s
       retries: 5

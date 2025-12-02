@@ -1,0 +1,15 @@
+id: habits
+name: "Habits & Daily Routines"
+enabled_by_default: true
+description: "Let Workspace suggest and track small daily learning / writing habits"
+
+routes:
+  - "backend.features.habits.routes:router"
+
+playbooks:
+  - "daily_planning"
+  - "habit_reflection"
+
+tools:
+  - "habit_storage"
+

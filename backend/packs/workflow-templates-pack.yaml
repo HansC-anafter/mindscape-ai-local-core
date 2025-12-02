@@ -1,0 +1,12 @@
+id: workflow_templates
+name: "Workflow Templates"
+enabled_by_default: true
+description: "Workflow templates and user-defined workflows"
+
+routes:
+  - "backend.features.workflow_templates.routes:router"
+
+playbooks: []
+
+tools: []
+
