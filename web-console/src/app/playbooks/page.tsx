@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import { t, useLocale } from '../../lib/i18n';
 import { getPlaybookMetadata } from '../../lib/i18n/locales/playbooks';
+import PlaybookDiscoveryChat from '../../components/playbook/PlaybookDiscoveryChat';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -19,6 +21,7 @@ interface Playbook {
   entry_agent_type?: string;
   onboarding_task?: string;
   required_tools: string[];
+  kind?: string;
   user_meta: {
     favorite: boolean;
     use_count: number;
@@ -29,12 +32,14 @@ interface Playbook {
 
 export default function PlaybooksPage() {
   const [locale] = useLocale();
+  const router = useRouter();
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [supportedTestPlaybooks, setSupportedTestPlaybooks] = useState<Set<string>>(new Set());
+  const [creatingWorkspace, setCreatingWorkspace] = useState<string | null>(null);
 
   // Load supported test playbooks
   useEffect(() => {
@@ -115,6 +120,58 @@ export default function PlaybooksPage() {
     }
   };
 
+  const handleExecuteNow = async (e: React.MouseEvent, playbook: Playbook) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (creatingWorkspace) return;
+
+    try {
+      setCreatingWorkspace(playbook.playbook_code);
+      const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+      const ownerUserId = 'default-user';
+
+      // Generate workspace name: playbook_code_YYYYMMDD_HHMMSS
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const workspaceTitle = `${playbook.playbook_code}_${year}${month}${day}_${hours}${minutes}${seconds}`;
+
+      // Create workspace
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: workspaceTitle,
+            description: `Workspace for ${playbook.name}`
+          })
+        }
+      );
+
+      if (response.ok) {
+        const newWorkspace = await response.json();
+        // Navigate to workspace page
+        router.push(`/workspaces/${newWorkspace.id}`);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        alert(t('workspaceCreateFailed') + ': ' + (errorData.detail || response.statusText));
+      }
+    } catch (err) {
+      console.error('Failed to create workspace:', err);
+      alert(t('workspaceCreateFailed') + ': ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setCreatingWorkspace(null);
+    }
+  };
+
   const filteredPlaybooks = useMemo(() => {
     if (!searchTerm) return playbooks;
     const lowerSearch = searchTerm.toLowerCase();
@@ -134,62 +191,64 @@ export default function PlaybooksPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-3">
-            {t('playbooksTitle')}
-          </h1>
 
-          {/* Workflow visualization with icons */}
-          <div className="flex items-center gap-3 text-sm text-gray-600 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-100">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">🧠</span>
-              <span className="font-medium">{t('playbookStepMindscape')}</span>
+      {/* Page Header - Single Row */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
+          <div className="flex items-center justify-between gap-6">
+            {/* Left: Title and Workflow */}
+            <div className="flex items-center gap-6 flex-shrink-0">
+              <h1 className="text-xl font-bold text-gray-900 whitespace-nowrap">
+                {t('playbooksTitle')}
+              </h1>
+              {/* Workflow visualization */}
+              <div className="hidden md:flex items-center gap-2 text-xs text-gray-600 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg px-3 py-2 border border-blue-100">
+                <span className="text-base">🧠</span>
+                <span>{t('playbookStepMindscape')}</span>
+                <span className="text-gray-400">→</span>
+                <span className="text-base">🔧</span>
+                <span>{t('playbookStepTools')}</span>
+                <span className="text-gray-400">→</span>
+                <span className="text-base">🤖</span>
+                <span>{t('playbookStepMembers')}</span>
+              </div>
             </div>
-            <span className="text-gray-400">→</span>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">🔧</span>
-              <span className="font-medium">{t('playbookStepTools')}</span>
-            </div>
-            <span className="text-gray-400">→</span>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">🤖</span>
-              <span className="font-medium">{t('playbookStepMembers')}</span>
+
+            {/* Right: Search and Reload */}
+            <div className="flex items-center gap-3 flex-1 max-w-xl">
+              <input
+                type="text"
+                placeholder={t('searchPlaybooks')}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="flex-1 px-3 py-1.5 text-sm border rounded-md"
+              />
+              <button
+                onClick={() => {
+                  setSelectedTags(prev => [...prev]);
+                }}
+                className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 whitespace-nowrap"
+              >
+                {t('reload')}
+              </button>
             </div>
           </div>
+
+          {error && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
         </div>
+      </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
-
-        {/* Search and Reindex */}
-        <div className="flex gap-4 mb-6">
-          <input
-            type="text"
-            placeholder={t('searchPlaybooks')}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 px-4 py-2 border rounded-md"
-          />
-          <button
-            onClick={() => {
-              // Force reload by creating new array reference
-              setSelectedTags(prev => [...prev]);
-            }}
-            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
-          >
-            {t('reload')}
-          </button>
-        </div>
-
-        <div className="flex gap-6">
-          {/* Sidebar Filters */}
-          <div className="w-64 flex-shrink-0">
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold mb-4">{t('filterTags')}</h3>
+      {/* Three Column Layout */}
+      <main className="w-full">
+        <div className="grid grid-cols-12 gap-0">
+          {/* Left Column: Filter Tags */}
+          <div className="col-span-12 lg:col-span-2">
+            <div className="bg-white shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">{t('filterTags')}</h3>
 
               {/* Tags Filter */}
               {allTags.length > 0 && (
@@ -217,95 +276,116 @@ export default function PlaybooksPage() {
             </div>
           </div>
 
-          {/* Playbook Cards */}
-          <div className="flex-1">
-            {loading ? (
-              <p className="text-gray-600">{t('loading')}</p>
-            ) : filteredPlaybooks.length === 0 ? (
-              <div className="bg-white shadow rounded-lg p-12 text-center">
-                <p className="text-gray-600">{t('noPlaybooksFound')}</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredPlaybooks.map(playbook => (
-                  <div
-                    key={playbook.playbook_code}
-                    className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow relative"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <span className="text-3xl">{playbook.icon || '📋'}</span>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleFavorite(playbook.playbook_code, playbook.user_meta?.favorite || false);
-                        }}
-                        className="text-2xl hover:scale-110 transition-transform"
-                      >
-                        {playbook.user_meta?.favorite ? '⭐' : '☆'}
-                      </button>
-                    </div>
-
-                    <h3 className="font-semibold text-lg mb-2">
-                      {getPlaybookMetadata(playbook.playbook_code, 'name', locale as 'zh-TW' | 'en') || playbook.name}
-                    </h3>
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">
-                      {getPlaybookMetadata(playbook.playbook_code, 'description', locale as 'zh-TW' | 'en') || playbook.description}
-                    </p>
-
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
-                        系統 Playbook
-                      </span>
-                      {playbook.has_personal_variant && (
-                        <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                          已有個人版本
-                        </span>
-                      )}
-                      {supportedTestPlaybooks.has(playbook.playbook_code) && (
-                        <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded flex items-center gap-1">
-                          🧪 有測試
-                        </span>
-                      )}
-                      {(playbook.tags || []).slice(0, 2).map(tag => (
-                        <span
-                          key={tag}
-                          className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
+          {/* Middle Column: Playbook Cards */}
+          <div className="col-span-12 lg:col-span-7">
+            <div className="h-[calc(100vh-8rem)] overflow-y-auto p-4">
+              {loading ? (
+                <p className="text-gray-600">{t('loading')}</p>
+              ) : filteredPlaybooks.length === 0 ? (
+                <div className="bg-white shadow rounded-lg p-12 text-center">
+                  <p className="text-gray-600">{t('noPlaybooksFound')}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filteredPlaybooks.map(playbook => (
+                    <div
+                      key={playbook.playbook_code}
+                      className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer"
+                      onClick={() => router.push(`/playbooks/${playbook.playbook_code}`)}
+                    >
+                      {/* Top row: Icon, System Playbook, Test badge, Favorite */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-3xl">{playbook.icon || '📋'}</span>
+                          {playbook.kind === 'system_tool' && (
+                            <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                              {t('systemPlaybook')}
+                            </span>
+                          )}
+                          {supportedTestPlaybooks.has(playbook.playbook_code) && (
+                            <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded flex items-center gap-1">
+                              🧪 {t('hasTest')}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleFavorite(playbook.playbook_code, playbook.user_meta?.favorite || false);
+                          }}
+                          className="text-2xl hover:scale-110 transition-transform flex-shrink-0"
                         >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-
-                    {playbook.onboarding_task && (
-                      <div className="text-xs text-blue-600 font-medium mb-2">
-                        {t('coldStartTask')} {playbook.onboarding_task.replace('task', '')}
+                          {playbook.user_meta?.favorite ? '⭐' : '☆'}
+                        </button>
                       </div>
-                    )}
 
-                    <div className="flex items-center justify-between mt-4">
-                      <span className="text-xs text-gray-500">
-                        👁️ {playbook.user_meta?.use_count || 0} {t('times')}
-                      </span>
-                      <div className="flex gap-2">
-                        <Link
-                          href={`/playbooks/${playbook.playbook_code}`}
-                          className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                      {/* Title */}
+                      <h3 className="font-semibold text-lg mb-2 min-h-[3rem]">
+                        {getPlaybookMetadata(playbook.playbook_code, 'name', locale as 'zh-TW' | 'en') || playbook.name}
+                      </h3>
+
+                      {/* Description */}
+                      <p className="text-sm text-gray-600 mb-4 line-clamp-2 flex-grow">
+                        {getPlaybookMetadata(playbook.playbook_code, 'description', locale as 'zh-TW' | 'en') || playbook.description}
+                      </p>
+
+                      {/* Tags row */}
+                      <div className="flex flex-wrap gap-2 mb-3 min-h-[1.5rem]">
+                        {playbook.has_personal_variant && (
+                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                            {t('hasPersonalVariant')}
+                          </span>
+                        )}
+                        {(playbook.tags || []).slice(0, 2).map(tag => (
+                          <span
+                            key={tag}
+                            className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Onboarding task */}
+                      {playbook.onboarding_task && (
+                        <div className="text-xs text-blue-600 font-medium mb-2">
+                          {t('coldStartTask')} {playbook.onboarding_task.replace('task', '')}
+                        </div>
+                      )}
+
+                      {/* Bottom row: Usage count and action buttons */}
+                      <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-100">
+                        <span className="text-xs text-gray-500">
+                          👁️ {playbook.user_meta?.use_count || 0} {t('times')}
+                        </span>
+                        <button
+                          onClick={(e) => handleExecuteNow(e, playbook)}
+                          disabled={creatingWorkspace === playbook.playbook_code}
+                          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                         >
-                          查看詳情
-                        </Link>
-                        <Link
-                          href={`/playbooks/${playbook.playbook_code}?execute=true`}
-                          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                          立即執行
-                        </Link>
+                          {creatingWorkspace === playbook.playbook_code ? t('creating') : t('executeNow')}
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Playbook Discovery Chat */}
+          <div className="col-span-12 lg:col-span-3">
+            <div className="bg-white shadow h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-0">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">{t('findPlaybook')}</h3>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <PlaybookDiscoveryChat
+                  onPlaybookSelect={(playbookCode) => {
+                    router.push(`/playbooks/${playbookCode}`);
+                  }}
+                />
               </div>
-            )}
+            </div>
           </div>
         </div>
       </main>

@@ -39,6 +39,12 @@ export const playbooksZhTW = {
   tags: '標籤',
   reload: '重新載入',
   searchPlaybooks: '搜尋 Playbook...',
+  systemPlaybook: '系統 Playbook',
+  hasTest: '有測試',
+  viewDetails: '查看詳情',
+  executeNow: '立即執行',
+  creating: '建立中...',
+  hasPersonalVariant: '已有個人版本',
   coldStartTask: '冷啟動任務',
   noPlaybooksFound: '找不到符合條件的 Playbook',
   noPlaybooks: '還沒有 Playbook。你可以透過 API 建立，或等待後續版本支援 UI 建立。',
@@ -89,6 +95,7 @@ export const playbooksZhTW = {
   playbookStatusLabel: '狀態: ',
   playbookMyVariant: '我的版本：{name}',
   playbookMyVariantDefault: '我的版本',
+  findPlaybook: '找 Playbook',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 // Playbook Metadata (Phase 1: i18n localization)
@@ -181,9 +188,9 @@ export const playbookMetadataZhTW = {
       tags: ['學習', '教育', '規劃', '教練'],
     },
     code_review: {
-      name: '代碼審查與品質分析',
-      description: '審查代碼品質和最佳實踐，透過分析代碼結構、檢查代碼品質、識別潛在問題、檢查最佳實踐，並生成審查報告',
-      tags: ['代碼', '審查', '品質', '開發'],
+      name: '程式碼審查與品質分析',
+      description: '審查程式碼品質和最佳實踐，透過分析程式碼結構、檢查程式碼品質、識別潛在問題、檢查最佳實踐，並生成審查報告',
+      tags: ['程式碼', '審查', '品質', '開發'],
     },
     insight_synthesis: {
       name: '洞察綜合與商業情報',
@@ -207,8 +214,8 @@ export const playbookMetadataZhTW = {
     },
     technical_documentation: {
       name: '技術文檔生成',
-      description: '為代碼生成技術文檔，透過分析代碼結構和功能、提取 API 和函數描述、生成文檔結構、編寫使用範例，並生成完整文檔',
-      tags: ['文檔', '代碼', '技術', '開發'],
+      description: '為程式碼生成技術文檔，透過分析程式碼結構和功能、提取 API 和函數描述、生成文檔結構、編寫使用範例，並生成完整文檔',
+      tags: ['文檔', '程式碼', '技術', '開發'],
     },
     note_organization: {
       name: '筆記組織與知識結構化',
@@ -385,6 +392,12 @@ export const playbooksEn = {
   tags: 'Tags',
   reload: 'Reload',
   searchPlaybooks: 'Search Playbooks...',
+  systemPlaybook: 'System Playbook',
+  hasTest: 'Tested',
+  viewDetails: 'View Details',
+  executeNow: 'Execute Now',
+  creating: 'Creating...',
+  hasPersonalVariant: 'Has Personal Variant',
   coldStartTask: 'Cold Start Task',
   noPlaybooksFound: 'No matching Playbooks found',
   noPlaybooks: 'No Playbooks yet. You can create via API, or wait for future versions to support UI creation.',
@@ -435,6 +448,7 @@ export const playbooksEn = {
   playbookStatusLabel: 'Status: ',
   playbookMyVariant: 'My Variant: {name}',
   playbookMyVariantDefault: 'My Variant',
+  findPlaybook: 'Find Playbook',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 // Helper function to get playbook metadata

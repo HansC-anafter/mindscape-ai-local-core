@@ -39,6 +39,12 @@ export const playbooksJa = {
   tags: 'タグ',
   reload: '再読み込み',
   searchPlaybooks: 'プレイブックを検索...',
+  systemPlaybook: 'システムプレイブック',
+  hasTest: 'テスト済み',
+  viewDetails: '詳細を表示',
+  executeNow: '今すぐ実行',
+  creating: '作成中...',
+  hasPersonalVariant: '個人バリアントあり',
   coldStartTask: 'コールドスタートタスク',
   noPlaybooksFound: '一致するプレイブックが見つかりません',
   noPlaybooks: 'まだプレイブックがありません。API 経由で作成するか、今後のバージョンで UI 作成がサポートされるのを待つことができます。',
@@ -89,5 +95,6 @@ export const playbooksJa = {
   playbookStatusLabel: 'ステータス: ',
   playbookMyVariant: '私のバリアント：{name}',
   playbookMyVariantDefault: '私のバリアント',
+  findPlaybook: 'プレイブックを探す',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

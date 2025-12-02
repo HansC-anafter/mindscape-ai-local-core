@@ -525,6 +525,11 @@ export const keys = {
   playbooks: true,
   playbooksDescription: true,
   playbooksTitle: true,
+  systemPlaybook: true,
+  hasTest: true,
+  executeNow: true,
+  creating: true,
+  hasPersonalVariant: true,
   pleaseCompleteFirstQuestion: true,
   pleaseDescribeTask: true,
   pleaseEnterFolderName: true,
@@ -1015,6 +1020,7 @@ export const keys = {
   itKnowsStepsEventsErrors: true,
   recommended: true,
   autoStart: true,
+  findPlaybook: true,
 } as const;
 
 export type MessageKey = keyof typeof keys;

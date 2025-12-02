@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Header from '../../../components/Header';
 import PlaybookChat from '../../../components/PlaybookChat';
@@ -12,6 +12,7 @@ import VersionSelector from '../../../components/playbook/VersionSelector';
 import PlaybookTabs from '../../../components/playbook/PlaybookTabs';
 import CopyVariantModal from '../../../components/playbook/CopyVariantModal';
 import LLMDrawer from '../../../components/playbook/LLMDrawer';
+import PlaybookDiscoveryChat from '../../../components/playbook/PlaybookDiscoveryChat';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -62,14 +63,23 @@ interface Playbook {
   };
 }
 
+interface PlaybookListItem {
+  playbook_code: string;
+  name: string;
+  description: string;
+  icon?: string;
+}
+
 export default function PlaybookDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const playbookCode = Array.isArray(params?.code) ? params.code[0] : (params?.code as string);
   const onboardingTask = searchParams?.get('onboarding');
   const [locale] = useLocale();
 
   const [playbook, setPlaybook] = useState<Playbook | null>(null);
+  const [playbookList, setPlaybookList] = useState<PlaybookListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -85,13 +95,36 @@ export default function PlaybookDetailPage() {
   const [optimizationSuggestions, setOptimizationSuggestions] = useState<any[]>([]);
   const [optimizationLoading, setOptimizationLoading] = useState(false);
   const [variants, setVariants] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'info' | 'sop' | 'suggestions' | 'history'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'sop' | 'suggestions' | 'history'>('sop');
   const [selectedVersion, setSelectedVersion] = useState<'system' | 'personal'>('system');
+
+  // Prevent auto-scroll to top on route change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.history.scrollRestoration = 'manual';
+
+      // Prevent scroll on route change
+      const handleRouteChange = () => {
+        window.scrollTo(0, window.scrollY);
+      };
+
+      // Store current scroll position before route change
+      const scrollY = window.scrollY;
+
+      // Restore scroll position after a short delay
+      setTimeout(() => {
+        if (window.scrollY !== scrollY) {
+          window.scrollTo(0, scrollY);
+        }
+      }, 0);
+    }
+  }, [playbookCode]);
 
   useEffect(() => {
     if (playbookCode) {
       loadPlaybook();
       loadVariants();
+      loadPlaybookList();
     }
   }, [playbookCode, locale]);
 
@@ -100,12 +133,33 @@ export default function PlaybookDetailPage() {
     if (!playbookCode) return;
 
     const interval = setInterval(() => {
-      // Silently reload execution status without showing loading state
       loadPlaybookStatus();
     }, 5000);
 
     return () => clearInterval(interval);
   }, [playbookCode]);
+
+  const loadPlaybookList = async () => {
+    try {
+      const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+      const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
+      const response = await fetch(
+        `${apiUrl}/api/v1/playbooks?target_language=${targetLanguage}&profile_id=default-user`,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setPlaybookList(data.map((p: any) => ({
+          playbook_code: p.playbook_code,
+          name: getPlaybookMetadata(p.playbook_code, 'name', targetLanguage as 'zh-TW' | 'en') || p.name,
+          description: getPlaybookMetadata(p.playbook_code, 'description', targetLanguage as 'zh-TW' | 'en') || p.description,
+          icon: p.icon
+        })));
+      }
+    } catch (err) {
+      console.debug('Failed to load playbook list:', err);
+    }
+  };
 
   const loadPlaybook = async (showLoading = true) => {
     try {
@@ -113,9 +167,6 @@ export default function PlaybookDetailPage() {
         setLoading(true);
       }
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-
-      // Use locale from useLocale hook to determine target_language
-      // This ensures we get the actual user-selected language
       const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
 
       const response = await fetch(
@@ -136,7 +187,6 @@ export default function PlaybookDetailPage() {
       setUserNotes(data.user_notes || '');
       setIsFavorite(data.user_meta?.favorite || false);
 
-      // Set default version selection based on version_info
       if (data.version_info?.has_personal_variant && data.version_info?.default_variant) {
         setSelectedVersion('personal');
       } else {
@@ -154,7 +204,6 @@ export default function PlaybookDetailPage() {
   };
 
   const loadPlaybookStatus = async () => {
-    // Silent update for polling - only update execution status
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
@@ -170,7 +219,6 @@ export default function PlaybookDetailPage() {
 
       if (response.ok) {
         const data = await response.json();
-        // Only update execution status and version info, preserve other state
         setPlaybook(prev => prev ? {
           ...prev,
           execution_status: data.execution_status,
@@ -178,7 +226,6 @@ export default function PlaybookDetailPage() {
         } : data);
       }
     } catch (err) {
-      // Silently fail for polling updates
       console.debug('Failed to update execution status:', err);
     }
   };
@@ -204,7 +251,7 @@ export default function PlaybookDetailPage() {
         headers: { 'Content-Type': 'application/json' },
       });
       if (response.ok) {
-        // Success - alert will be shown by caller if needed
+        // Success
       } else {
         throw new Error('Failed to save');
       }
@@ -213,10 +260,6 @@ export default function PlaybookDetailPage() {
       alert('儲存失敗');
       throw err;
     }
-  };
-
-  const loadAssociatedIntents = async () => {
-    // Placeholder - will be implemented later
   };
 
   const loadVariants = async () => {
@@ -229,9 +272,15 @@ export default function PlaybookDetailPage() {
       if (response.ok) {
         const data = await response.json();
         setVariants(data);
+      } else if (response.status === 404) {
+        setVariants([]);
+      } else {
+        setVariants([]);
+        console.debug(`Variants endpoint returned ${response.status} for ${playbookCode}`);
       }
     } catch (err) {
-      console.error('Failed to load variants:', err);
+      console.debug('Variants endpoint not available:', err);
+      setVariants([]);
     }
   };
 
@@ -245,7 +294,7 @@ export default function PlaybookDetailPage() {
       if (response.ok) {
         const variant = await response.json();
         setShowCopyModal(false);
-        await loadPlaybook(); // Reload to get updated version_info
+        await loadPlaybook();
         await loadVariants();
         setSelectedVersion('personal');
         alert(`已建立個人版本「${variant.variant_name}」，後續執行將使用此版本`);
@@ -296,7 +345,6 @@ export default function PlaybookDetailPage() {
     const apiUrl = API_URL.startsWith('http') ? API_URL : '';
     const profileId = 'default-user';
 
-    // Get variant_id if using personal version
     let variantId = null;
     if (selectedVersion === 'personal' && playbook.version_info?.default_variant?.id) {
       variantId = playbook.version_info.default_variant.id;
@@ -305,11 +353,9 @@ export default function PlaybookDetailPage() {
     setIsExecuting(true);
 
     try {
-      // Create or find workspace for this playbook
       const playbookName = playbook.metadata.name;
       const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
 
-      // Create new workspace with playbook configuration
       const createResponse = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}`,
         {
@@ -331,14 +377,12 @@ export default function PlaybookDetailPage() {
       const workspace = await createResponse.json();
       const workspaceId = workspace.id;
 
-      // Build redirect URL with auto-execute parameter
       const redirectUrl = new URL(`/workspaces/${workspaceId}`, window.location.origin);
       redirectUrl.searchParams.set('auto_execute_playbook', 'true');
       if (variantId) {
         redirectUrl.searchParams.set('variant_id', variantId);
       }
 
-      // Redirect to workspace page
       window.location.href = redirectUrl.toString();
     } catch (err: any) {
       console.error('Failed to create workspace and execute playbook:', err);
@@ -387,7 +431,7 @@ export default function PlaybookDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Header />
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
             <p className="text-gray-600">{t('loading')}</p>
           </div>
@@ -400,7 +444,7 @@ export default function PlaybookDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Header />
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
             <p className="text-sm text-red-800">{error || 'Playbook not found'}</p>
           </div>
@@ -409,57 +453,155 @@ export default function PlaybookDetailPage() {
     );
   }
 
+  const playbookName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en') || playbook.metadata.name;
+  const playbookDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en') || playbook.metadata.description;
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" style={{ scrollBehavior: 'auto' }}>
       <Header />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link
-          href="/playbooks"
-          className="text-blue-600 hover:text-blue-800 mb-4 inline-block"
-        >
-          ← {t('backToList')}
-        </Link>
 
-        {/* Top Section: Playbook Info + Version Selector */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <PlaybookInfo
-            playbook={playbook}
-            isFavorite={isFavorite}
-            onToggleFavorite={toggleFavorite}
-            profileId="default-user"
-          />
-          <VersionSelector
-            hasPersonalVariant={playbook.version_info?.has_personal_variant || false}
-            defaultVariant={playbook.version_info?.default_variant}
-            systemVersion={playbook.version_info?.system_version || playbook.metadata.version}
-            selectedVersion={selectedVersion}
-            onVersionChange={setSelectedVersion}
-            onCopyClick={() => setShowCopyModal(true)}
-            onLLMClick={() => setShowLLMDrawer(true)}
-            activeExecutionsCount={playbook.execution_status?.active_executions?.length || 0}
-          />
+      {/* Version Selector and Execute Button in Header */}
+      <div className="bg-orange-50 border-b border-orange-200 sticky top-12 z-40">
+        <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
+          <div className="flex items-center gap-4">
+            {/* Left: Breadcrumb */}
+            <div className="flex-shrink-0 w-48">
+              <Link
+                href="/playbooks"
+                className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                <span>{t('backToList')}</span>
+              </Link>
+            </div>
+
+            {/* Center: Version Selector */}
+            <div className="flex-1 flex justify-center">
+              <VersionSelector
+                hasPersonalVariant={playbook.version_info?.has_personal_variant || false}
+                defaultVariant={playbook.version_info?.default_variant}
+                systemVersion={playbook.version_info?.system_version || playbook.metadata.version}
+                selectedVersion={selectedVersion}
+                onVersionChange={setSelectedVersion}
+                onCopyClick={() => setShowCopyModal(true)}
+                onLLMClick={() => setShowLLMDrawer(true)}
+                activeExecutionsCount={playbook.execution_status?.active_executions?.length || 0}
+              />
+            </div>
+
+            {/* Right: Execute Button */}
+            <div className="flex-shrink-0 w-48 flex justify-end">
+              <button
+                onClick={handleExecutePlaybook}
+                disabled={isExecuting}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
+              >
+                {isExecuting ? '執行中...' : selectedVersion === 'personal' && playbook.version_info?.default_variant
+                  ? `執行「${playbook.version_info.default_variant.variant_name}」`
+                  : '在 Workspace 中執行'}
+              </button>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <PlaybookTabs
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          selectedVersion={selectedVersion}
-          playbook={playbook}
-          onCopyClick={() => setShowCopyModal(true)}
-          onLLMClick={() => setShowLLMDrawer(true)}
-        />
+      <main className="w-full">
+        {/* Three Column Layout */}
+        <div className="grid grid-cols-12 gap-0">
+          {/* Left Column: Playbook List */}
+          <div className="col-span-12 lg:col-span-2">
+            <div className="bg-white shadow h-[calc(100vh-7rem)] overflow-y-auto p-4 sticky top-[7rem]">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Playbook 列表</h3>
+              <div className="space-y-2">
+                {playbookList.map((pb) => (
+                  <Link
+                    key={pb.playbook_code}
+                    href={`/playbooks/${pb.playbook_code}`}
+                    scroll={false}
+                    className={`block p-3 rounded-lg transition-colors ${
+                      pb.playbook_code === playbookCode
+                        ? 'bg-blue-50 border border-blue-200'
+                        : 'hover:bg-gray-50 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-sm font-medium truncate ${
+                          pb.playbook_code === playbookCode ? 'text-blue-900' : 'text-gray-900'
+                        }`}>
+                          {pb.name}
+                        </div>
+                        <div className="text-xs text-gray-600 line-clamp-2 mt-1">
+                          {pb.description}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
 
-        {/* Execute Button */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <button
-            onClick={handleExecutePlaybook}
-            disabled={isExecuting}
-            className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-lg font-medium"
-          >
-            {isExecuting ? '執行中...' : selectedVersion === 'personal' && playbook.version_info?.default_variant
-              ? `在 Workspace 中執行「${playbook.version_info.default_variant.variant_name}」`
-              : '在 Workspace 中執行（系統標準版）'}
-          </button>
+          {/* Middle Column: Main Content (SOP as default) */}
+          <div className="col-span-12 lg:col-span-7">
+            <div className="h-[calc(100vh-7rem)] overflow-y-auto">
+              {/* Playbook Header */}
+              <div className="bg-white shadow p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h1 className="text-2xl font-bold text-gray-900">{playbookName}</h1>
+                      {playbook.metadata.icon && <span className="text-3xl">{playbook.metadata.icon}</span>}
+                      <button
+                        onClick={toggleFavorite}
+                        className="text-2xl hover:scale-110 transition-transform flex-shrink-0"
+                      >
+                        {isFavorite ? '⭐' : '☆'}
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">{playbookDescription}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {playbook.metadata.tags?.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs with SOP as default */}
+              <PlaybookTabs
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                selectedVersion={selectedVersion}
+                playbook={playbook}
+                onCopyClick={() => setShowCopyModal(true)}
+                onLLMClick={() => setShowLLMDrawer(true)}
+              />
+            </div>
+          </div>
+
+          {/* Right Column: LLM Component for Finding Playbooks */}
+          <div className="col-span-12 lg:col-span-3">
+            <div className="bg-white shadow h-[calc(100vh-7rem)] flex flex-col p-4 sticky top-[7rem]">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">找 Playbook</h3>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <PlaybookDiscoveryChat
+                  onPlaybookSelect={(playbookCode) => {
+                    router.push(`/playbooks/${playbookCode}`, { scroll: false });
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Modals and Drawers */}
@@ -467,11 +609,7 @@ export default function PlaybookDetailPage() {
           isOpen={showCopyModal}
           onClose={() => setShowCopyModal(false)}
           onConfirm={handleCopySystemVersion}
-          playbookName={(() => {
-            const localeStr = Array.isArray(locale) ? locale[0] : (typeof locale === 'string' ? locale : 'en');
-            const name = getPlaybookMetadata(playbookCode, 'name', localeStr as 'zh-TW' | 'en') || playbook.metadata.name;
-            return typeof name === 'string' ? name : String(name || '');
-          })()}
+          playbookName={typeof playbookName === 'string' ? playbookName : String(playbookName || '')}
         />
 
         <LLMDrawer
@@ -530,7 +668,6 @@ export default function PlaybookDetailPage() {
                         </div>
                         <button
                           onClick={async () => {
-                            // Create variant from this suggestion
                             try {
                               const apiUrl = API_URL.startsWith('http') ? API_URL : '';
                               const response = await fetch(

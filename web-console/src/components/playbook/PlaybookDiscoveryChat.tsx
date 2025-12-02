@@ -1,0 +1,204 @@
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  recommendedPlaybooks?: Array<{
+    playbook_code: string;
+    name: string;
+    description: string;
+    icon?: string;
+  }>;
+}
+
+interface PlaybookDiscoveryChatProps {
+  onPlaybookSelect?: (playbookCode: string) => void;
+}
+
+export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDiscoveryChatProps) {
+  const router = useRouter();
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 'initial',
+      role: 'assistant',
+      content: '告訴我你的需求，我幫你找到最適合的 Playbook。例如：「我想分析數據」、「我需要生成 Instagram 貼文」等。',
+      timestamp: new Date()
+    }
+  ]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: input.trim(),
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+      const response = await fetch(`${apiUrl}/api/v1/playbooks/discover`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: userMessage.content,
+          profile_id: 'default-user'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        let content = data.suggestion || '根據你的需求，我建議使用以下 Playbook...';
+
+        // Add recommended playbooks as clickable items
+        if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
+          content += '\n\n推薦的 Playbook：\n';
+          data.recommended_playbooks.forEach((pb: any, index: number) => {
+            content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
+          });
+        }
+
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: content,
+          timestamp: new Date(),
+          recommendedPlaybooks: data.recommended_playbooks || []
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+      } else {
+        throw new Error('Failed to get suggestion');
+      }
+    } catch (err) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '抱歉，暫時無法處理你的請求。請稍後再試。',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+        {messages.map((message) => (
+          <div key={message.id} className="space-y-2">
+            <div
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-lg px-3 py-2 text-xs whitespace-pre-wrap ${
+                  message.role === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-800'
+                }`}
+              >
+                {message.content}
+              </div>
+            </div>
+            {message.role === 'assistant' && message.recommendedPlaybooks && message.recommendedPlaybooks.length > 0 && (
+              <div className="space-y-2">
+                {message.recommendedPlaybooks.map((pb) => (
+                  <button
+                    key={pb.playbook_code}
+                      onClick={() => {
+                        if (onPlaybookSelect) {
+                          onPlaybookSelect(pb.playbook_code);
+                        } else {
+                          const scrollY = window.scrollY;
+                          router.push(`/playbooks/${pb.playbook_code}`);
+                          // Restore scroll position after navigation
+                          setTimeout(() => {
+                            window.scrollTo(0, scrollY);
+                          }, 0);
+                        }
+                      }}
+                    className="w-full text-left p-2 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                  >
+                    <div className="flex items-start gap-2">
+                      {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-gray-900 truncate">
+                          {pb.name}
+                        </div>
+                        <div className="text-xs text-gray-600 line-clamp-2 mt-0.5">
+                          {pb.description}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-600">
+              <span className="inline-block animate-pulse">思考中...</span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="border-t border-gray-200 pt-3">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="描述你的需求..."
+            className="flex-1 px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={isLoading}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || isLoading}
+            className="px-4 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            發送
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
