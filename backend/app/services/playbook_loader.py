@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 import logging
 
-from ..models.playbook import Playbook, PlaybookMetadata
+from backend.app.models.playbook import Playbook, PlaybookMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,7 @@ class PlaybookLoader:
 
         # Load from capability packs
         try:
-            from .capability_installer import CapabilityInstaller
+            from backend.app.services.capability_installer import CapabilityInstaller
             installer = CapabilityInstaller()
             installed = installer.list_installed()
 
@@ -347,7 +347,7 @@ class PlaybookLoader:
 
         # Search in capability packs
         try:
-            from .capability_installer import CapabilityInstaller
+            from backend.app.services.capability_installer import CapabilityInstaller
             installer = CapabilityInstaller()
             installed = installer.list_installed()
 

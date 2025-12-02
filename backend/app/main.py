@@ -12,35 +12,26 @@ from fastapi.exceptions import RequestValidationError
 import logging
 import uvicorn
 
-from .routes.mindscape import router as mindscape_router
-from .routes.agent import router as agent_router
-from .routes.config import router as config_router
-from .routes.playbook import router as playbook_router
-from .routes.playbook_execution import router as playbook_execution_router
-from .routes.playbook_personalization import router as playbook_personalization_router
-from .routes.tools import router as tools_router
-from .routes.capability_packs import router as capability_packs_router
-from .routes.vector_db import router as vector_db_router
-from .routes.core_export import router as core_export_router
-from .routes.ai_roles import router as ai_roles_router
-from .routes.system_settings import router as system_settings_router
-from .routes.tool_connections import router as tool_connections_router
-from .routes.vector_search import router as vector_search_router
-from .routes.playbook_indexing import router as playbook_indexing_router
-from .routes.external_docs import router as external_docs_router
-from .routes.habits import router as habits_router
-from .routes.review import router as review_router
-from .routes.workspace import router as workspace_router
-from .routes.workspace_executions import router as workspace_executions_router
-from .routes.workflow_templates import router as workflow_templates_router
-from .routes.course_production.voice_profiles import router as voice_profiles_router
-from .routes.course_production.voice_training_jobs import router as voice_training_jobs_router
-from .routes.course_production.video_segments import router as video_segments_router
-from .capabilities.major_proposal.routes import router as major_proposal_router
-try:
-    from .capabilities.voice_recording.routes.voice_recording import router as voice_recording_router
-except ImportError:
-    voice_recording_router = None
+# Layer 0: Kernel Routes (must be hardcoded)
+from .routes.core import (
+    workspace,
+    playbook,
+    playbook_execution,
+    config,
+    system_settings,
+    tools,
+    tool_connections,
+)
+
+# Layer 1: Core Primitives (manager hardcoded, content pluggable)
+from .routes.core import (
+    vector_db,
+    vector_search,
+    capability_packs,
+)
+
+# Layer 2: Feature routes loaded via pack registry
+from .core.pack_registry import load_and_register_packs
 from .core.security import security_monitor, auth_manager
 from .init_db import init_mindscape_tables
 from .capabilities.registry import load_capabilities
@@ -86,38 +77,37 @@ app.add_middleware(
     allowed_hosts=["localhost", "127.0.0.1", "host.docker.internal", "*"]  # Allow all for development
 )
 
-# Include routers
-app.include_router(mindscape_router)
-app.include_router(agent_router)
-# Include backward compatibility router for /api/v1/agents
-from .routes.agent import agents_router
-app.include_router(agents_router)
-app.include_router(config_router)
-app.include_router(playbook_router)
-app.include_router(playbook_execution_router)
-app.include_router(playbook_personalization_router)
-app.include_router(tools_router)
-app.include_router(capability_packs_router)
-app.include_router(vector_db_router)
-app.include_router(core_export_router)  # Core: Backup & Portable export
-app.include_router(ai_roles_router)
-app.include_router(system_settings_router)
-app.include_router(tool_connections_router)
-# pgvector routers
-app.include_router(vector_search_router)
-app.include_router(playbook_indexing_router)
-app.include_router(external_docs_router)
-app.include_router(habits_router)  # Habit learning API
-app.include_router(review_router)  # Review suggestion API
-app.include_router(workspace_router)  # Workspace unified interface API
-app.include_router(workspace_executions_router)  # Workspace executions API (SSE streaming, control)
-app.include_router(workflow_templates_router)  # Workflow templates and user-defined workflows API
-app.include_router(voice_profiles_router)  # Course production: Voice profiles API
-app.include_router(voice_training_jobs_router)  # Course production: Voice training jobs API
-app.include_router(video_segments_router)  # Course production: Video segments API
-app.include_router(major_proposal_router)  # Major proposal capability API
-if voice_recording_router:
-    app.include_router(voice_recording_router)  # Voice recording capability API
+# Phase 1: Register Layer 0 kernel routes
+def register_core_routes(app: FastAPI) -> None:
+    """Register Layer 0 kernel routes"""
+    app.include_router(workspace.router, tags=["workspace"])
+    app.include_router(playbook.router, tags=["playbook"])
+    app.include_router(playbook_execution.router, tags=["playbook"])
+    app.include_router(config.router, tags=["config"])
+    app.include_router(system_settings.router, tags=["system"])
+    app.include_router(tools.router, tags=["tools"])
+    app.include_router(tool_connections.router, tags=["tools"])
+
+# Phase 2: Register Layer 1 core primitives
+def register_core_primitives(app: FastAPI) -> None:
+    """Register Layer 1 core primitives (manager hardcoded, content pluggable)"""
+    app.include_router(vector_db.router, tags=["vector-db"])
+    app.include_router(vector_search.router, tags=["vector-search"])
+    app.include_router(capability_packs.router, tags=["capability-packs"])
+
+# Phase 1: Register Layer 0 kernel routes
+register_core_routes(app)
+
+# Phase 2: Register Layer 1 core primitives
+register_core_primitives(app)
+
+# Phase 3: Register Layer 2 feature routes via pack registry
+# Note: Pack loading failures are logged but do not prevent app startup (loose coupling)
+try:
+    load_and_register_packs(app)
+except Exception as e:
+    logger.warning(f"Failed to load some feature packs during startup: {e}. App will continue to start.")
+    # Continue startup - core functionality should still work
 
 
 @app.on_event("startup")

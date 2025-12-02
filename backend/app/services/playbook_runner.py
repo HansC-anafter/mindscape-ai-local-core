@@ -12,17 +12,17 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
-from ..models.mindscape import MindscapeProfile, MindEvent, EventType, EventActor
-from ..models.playbook import Playbook
-from .mindscape_store import MindscapeStore
-from .playbook_loader import PlaybookLoader
-from .agent_runner import LLMProviderManager
-from .stores.tool_calls_store import ToolCallsStore, ToolCall
-from .stores.stage_results_store import StageResultsStore, StageResult
-from .conversation.workflow_tracker import WorkflowTracker
-from ..shared.tool_executor import execute_tool
-from ..shared.i18n_loader import get_locale_from_context
-from ..capabilities.registry import get_registry
+from backend.app.models.mindscape import MindscapeProfile, MindEvent, EventType, EventActor
+from backend.app.models.playbook import Playbook
+from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.playbook_loader import PlaybookLoader
+from backend.app.services.agent_runner import LLMProviderManager
+from backend.app.services.stores.tool_calls_store import ToolCallsStore, ToolCall
+from backend.app.services.stores.stage_results_store import StageResultsStore, StageResult
+from backend.app.services.conversation.workflow_tracker import WorkflowTracker
+from backend.app.shared.tool_executor import execute_tool
+from backend.app.shared.i18n_loader import get_locale_from_context
+from backend.app.capabilities.registry import get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class PlaybookConversationManager:
             workspace = None
             if workspace_id:
                 try:
-                    from ..services.mindscape_store import MindscapeStore
+                    from backend.app.services.mindscape_store import MindscapeStore
                     store = MindscapeStore()
                     workspace = store.get_workspace(workspace_id)
                 except Exception:
@@ -174,7 +174,7 @@ class PlaybookRunner:
         self.playbook_loader = PlaybookLoader()
         # Import here to avoid circular dependency
         if config_store is None:
-            from .config_store import ConfigStore
+            from backend.app.services.config_store import ConfigStore
             config_store = ConfigStore()
         self.config_store = config_store
         self.llm_manager = None  # Will be initialized per-profile
@@ -389,7 +389,7 @@ class PlaybookRunner:
             # Check for personalized variant
             variant = None
             if variant_id:
-                from .playbook_store import PlaybookStore
+                from backend.app.services.playbook_store import PlaybookStore
                 store = PlaybookStore()
                 variant = store.get_personalized_variant(variant_id)
                 if variant and variant["profile_id"] == profile_id and variant["base_playbook_code"] == playbook_code:
@@ -400,7 +400,7 @@ class PlaybookRunner:
                     # Note: skip_steps and custom_checklist will be handled during execution
             else:
                 # Check for default variant
-                from .playbook_store import PlaybookStore
+                from backend.app.services.playbook_store import PlaybookStore
                 store = PlaybookStore()
                 default_variant = store.get_default_variant(profile_id, playbook_code)
                 if default_variant:
@@ -454,7 +454,7 @@ class PlaybookRunner:
                 raise ValueError("No LLM provider available. Please configure OpenAI or Anthropic API key in Settings.")
 
             # Add a user message to start the conversation
-            from ..shared.i18n_loader import load_i18n_string
+            from backend.app.shared.i18n_loader import load_i18n_string
             start_message = load_i18n_string(
                 "playbook.start_execution",
                 locale=conv_manager.locale,

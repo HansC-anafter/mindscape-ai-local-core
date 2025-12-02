@@ -5,7 +5,7 @@ Handles mind events (timeline) CRUD operations
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from .base import StoreBase
+from backend.app.services.stores.base import StoreBase
 from ...models.mindscape import MindEvent, EventType, EventActor
 import logging
 
@@ -51,7 +51,7 @@ class EventsStore(StoreBase):
         # Generate embedding asynchronously (don't block event creation)
         if generate_embedding:
             try:
-                from ..event_embedding_generator import EventEmbeddingGenerator
+                from backend.app.event_embedding_generator import EventEmbeddingGenerator
                 import asyncio
 
                 generator = EventEmbeddingGenerator()

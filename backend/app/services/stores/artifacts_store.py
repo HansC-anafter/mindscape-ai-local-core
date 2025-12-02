@@ -8,7 +8,7 @@ All artifact writes go through the /chat flow, ensuring single source of truth.
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from .base import StoreBase, StoreNotFoundError
+from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
 
 logger = logging.getLogger(__name__)

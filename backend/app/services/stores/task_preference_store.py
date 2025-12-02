@@ -8,7 +8,7 @@ automatically adjust suggestion strategies based on feedback.
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
-from .base import StoreBase, StoreNotFoundError
+from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import (
     TaskPreference, TaskPreferenceAction, TaskFeedbackAction
 )

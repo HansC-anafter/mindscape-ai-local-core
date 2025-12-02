@@ -962,7 +962,7 @@ class CTAHandler:
         Returns:
             Dict with confirmation message and buttons
         """
-        from .message_generator import MessageGenerator
+        from backend.app.services.message_generator import MessageGenerator
         from ...services.agent_runner import LLMProviderManager
         import os
 

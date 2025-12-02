@@ -4,7 +4,7 @@ Handles agent execution record CRUD operations
 """
 
 from typing import List, Optional
-from .base import StoreBase
+from backend.app.services.stores.base import StoreBase
 from ...models.mindscape import AgentExecution
 import logging
 

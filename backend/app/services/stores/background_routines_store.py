@@ -8,11 +8,11 @@ like cron jobs or daemons. Once enabled, they run automatically.
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from .base import StoreBase, StoreNotFoundError
+from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import BackgroundRoutine
 from ...models.playbook import Playbook
-from ..playbook_tool_checker import PlaybookToolChecker, PlaybookReadinessStatus
-from ..tool_status_checker import ToolStatusChecker
+from backend.app.playbook_tool_checker import PlaybookToolChecker, PlaybookReadinessStatus
+from backend.app.tool_status_checker import ToolStatusChecker
 from ...models.tool_connection import ToolConnectionStatus
 
 logger = logging.getLogger(__name__)

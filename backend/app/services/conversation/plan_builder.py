@@ -10,8 +10,8 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
 from ...capabilities.registry import get_registry
-from .pack_info_collector import PackInfoCollector
-from .external_backend import load_external_backend, validate_mindscape_boundary, filter_mindscape_results
+from backend.app.services.pack_info_collector import PackInfoCollector
+from backend.app.services.external_backend import load_external_backend, validate_mindscape_boundary, filter_mindscape_results
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +271,7 @@ class PlanBuilder:
                 return []
 
             # Build workspace context using ContextBuilder
-            from .context_builder import ContextBuilder
+            from backend.app.services.conversation.context_builder import ContextBuilder
             from ...services.stores.timeline_items_store import TimelineItemsStore
 
             timeline_items_store = TimelineItemsStore(self.store.db_path)
@@ -380,7 +380,7 @@ class PlanBuilder:
                 if p.get('pack_id') in available_packs
             ]
 
-            from .pack_suggester import PackSuggester
+            from backend.app.services.pack_suggester import PackSuggester
             pack_suggester = PackSuggester()
             detected_packs = pack_suggester.suggest_packs(message, available_packs)
             detected_pack_ids = {s['pack_id'] for s in detected_packs} if detected_packs else set()

@@ -9,7 +9,7 @@ Also generates HandoffPlan for multi-step workflows.
 import logging
 import json
 from typing import Dict, Any, Optional, List
-from ...capabilities.core_llm.services.generate import run as llm_generate
+from backend.app.capabilities.core_llm.services.generate import run as llm_generate
 from ...models.playbook import HandoffPlan, WorkflowStep, PlaybookKind, InteractionMode
 from ...services.intent_analyzer import IntentAnalysisResult
 from ...services.handoff_plan_builder import HandoffPlanBuilder

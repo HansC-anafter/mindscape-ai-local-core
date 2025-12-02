@@ -1,0 +1,28 @@
+code: review
+display_name: "Review"
+version: "1.0.0"
+description: "Review reminder and suggestion services"
+side_effect_level: "soft_write"
+
+tools:
+  - name: maybe_suggest_review
+    description: "Check if user should be reminded to review"
+    backend: "app.capabilities.review.services.review_suggestion:ReviewSuggestionService.maybe_suggest_review"
+    input_schema:
+      type: object
+      properties:
+        profile_id:
+          type: string
+
+  - name: record_review_completed
+    description: "Record that review has been completed"
+    backend: "app.capabilities.review.services.review_suggestion:ReviewSuggestionService.record_review_completed"
+    input_schema:
+      type: object
+      properties:
+        profile_id:
+          type: string
+        review_time:
+          type: string
+          format: date-time
+          required: false

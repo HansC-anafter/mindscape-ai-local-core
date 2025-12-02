@@ -16,7 +16,7 @@ from ...services.stores.tasks_store import TasksStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...services.stores.artifacts_store import ArtifactsStore
 from ...services.i18n_service import get_i18n_service
-from .artifact_extractor import ArtifactExtractor
+from backend.app.services.artifact_extractor import ArtifactExtractor
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ Handles workspace CRUD operations
 
 from datetime import datetime
 from typing import List, Optional
-from .base import StoreBase
+from backend.app.services.stores.base import StoreBase
 from ...models.workspace import Workspace
 import logging
 

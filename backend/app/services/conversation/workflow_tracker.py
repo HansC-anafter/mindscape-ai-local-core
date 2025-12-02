@@ -16,10 +16,10 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from ..mindscape_store import MindscapeStore
-from ...models.mindscape import MindEvent, EventType, EventActor
-from ..stores.tool_calls_store import ToolCallsStore, ToolCall
-from ..stores.stage_results_store import StageResultsStore, StageResult
+from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.models.mindscape import MindEvent, EventType, EventActor
+from backend.app.services.stores.tool_calls_store import ToolCallsStore, ToolCall
+from backend.app.services.stores.stage_results_store import StageResultsStore, StageResult
 
 logger = logging.getLogger(__name__)
 

@@ -20,9 +20,9 @@ from ...services.stores.intent_tags_store import IntentTagsStore
 from ...services.i18n_service import get_i18n_service
 from ...core.execution_context import ExecutionContext
 from ...core.ports.intent_registry_port import IntentRegistryPort
-from .context_builder import ContextBuilder
-from .pack_suggester import PackSuggester
-from .pack_info_collector import PackInfoCollector
+from backend.app.services.conversation.context_builder import ContextBuilder
+from backend.app.services.conversation.pack_suggester import PackSuggester
+from backend.app.services.pack_info_collector import PackInfoCollector
 
 logger = logging.getLogger(__name__)
 

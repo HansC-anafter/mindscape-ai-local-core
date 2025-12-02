@@ -8,7 +8,7 @@ task recommendation strategies and personalize preferences.
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from .base import StoreBase, StoreNotFoundError
+from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import TaskFeedback, TaskFeedbackAction, TaskFeedbackReasonCode
 
 logger = logging.getLogger(__name__)

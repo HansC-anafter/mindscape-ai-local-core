@@ -595,7 +595,7 @@ class SuggestionActionHandler:
                     raise ValueError(f"Pack {pack_id} marked as playbook but no playbooks found")
 
                 # Try to find playbook by common naming patterns
-                from ..playbook_loader import PlaybookLoader
+                from backend.app.playbook_loader import PlaybookLoader
                 playbook_loader = PlaybookLoader()
 
                 playbook_found = None

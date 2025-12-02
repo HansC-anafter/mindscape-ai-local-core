@@ -4,7 +4,7 @@ Handles profile CRUD operations
 """
 
 from typing import Optional, Dict, Any
-from .base import StoreBase
+from backend.app.services.stores.base import StoreBase
 from ...models.mindscape import MindscapeProfile
 import logging
 
@@ -57,7 +57,7 @@ class ProfilesStore(StoreBase):
             # Apply confirmed habits if requested
             if apply_habits:
                 try:
-                    from ..habit_store import HabitStore
+                    from backend.app.habit_store import HabitStore
                     habit_store = HabitStore(self.db_path)
                     profile = habit_store.apply_confirmed_habits(profile)
                 except Exception as e:

@@ -18,8 +18,8 @@ try:
 except ImportError:
     TIKTOKEN_AVAILABLE = False
 
-from .model_context_presets import get_context_preset, get_model_name_from_env
-from .pack_info_collector import PackInfoCollector
+from backend.app.services.model_context_presets import get_context_preset, get_model_name_from_env
+from backend.app.services.pack_info_collector import PackInfoCollector
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class ContextBuilder:
         # Current tasks - what's in progress (with Intent links)
         if self.store:
             try:
-                from ..stores.tasks_store import TasksStore
+                from backend.app.stores.tasks_store import TasksStore
                 from ...models.workspace import TaskStatus
                 tasks_store = TasksStore(self.store.db_path)
 
@@ -482,7 +482,7 @@ class ContextBuilder:
         model_max_tokens = 16385  # Default to gpt-3.5-turbo limit (based on actual errors)
         if hasattr(self, 'model_name') and self.model_name:
             # Try to get actual model limit from preset
-            from .model_context_presets import get_context_preset
+            from backend.app.services.model_context_presets import get_context_preset
             try:
                 model_preset = get_context_preset(self.model_name)
                 model_max_tokens = model_preset.get('MAX_CONTEXT_TOKENS', model_max_tokens)
@@ -621,7 +621,7 @@ class ContextBuilder:
             profile_id: Profile ID (optional)
         """
         try:
-            from ..agent_runner import LLMProviderManager
+            from backend.app.agent_runner import LLMProviderManager
             from ...models.mindscape import MindEvent, EventType, EventActor
             from datetime import datetime
             import uuid
@@ -631,7 +631,7 @@ class ContextBuilder:
 
             # Generate summary using LLM
             # Use the same API key source as main LLM calls (ConfigStore, not just env var)
-            from ..config_store import ConfigStore
+            from backend.app.config_store import ConfigStore
             import os
 
             config_store = ConfigStore()
@@ -737,7 +737,7 @@ Please generate the summary in English, keep it within 300 words."""
             Formatted hierarchical memory context string or None
         """
         try:
-            from ..vector_search import VectorSearchService
+            from backend.app.vector_search import VectorSearchService
 
             # Check if vector DB is available
             search_service = VectorSearchService()
@@ -953,7 +953,7 @@ Please generate the summary in English, keep it within 300 words."""
         if target_tokens is None:
             model_max_tokens = 16385
             if hasattr(self, 'model_name') and self.model_name:
-                from .model_context_presets import get_context_preset
+                from backend.app.services.model_context_presets import get_context_preset
                 try:
                     model_preset = get_context_preset(self.model_name)
                     model_max_tokens = model_preset.get('MAX_CONTEXT_TOKENS', model_max_tokens)
@@ -1036,7 +1036,7 @@ Please generate the summary in English, keep it within 300 words."""
         active_packs_info = []
         if self.store:
             try:
-                from ..stores.tasks_store import TasksStore
+                from backend.app.stores.tasks_store import TasksStore
                 from ...models.workspace import TaskStatus
                 tasks_store = TasksStore(self.store.db_path)
 

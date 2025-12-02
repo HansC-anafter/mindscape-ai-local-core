@@ -93,7 +93,7 @@ class QAResponseGenerator:
             Dict with assistant response and event
         """
         try:
-            from .context_builder import ContextBuilder
+            from backend.app.services.conversation.context_builder import ContextBuilder
             from ...capabilities.core_llm.services.generate import run as generate_text
             from ...services.i18n_service import get_i18n_service
             from ...services.system_settings_store import SystemSettingsStore

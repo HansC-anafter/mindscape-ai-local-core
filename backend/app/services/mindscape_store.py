@@ -14,22 +14,22 @@ from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import logging
 
-from ..models.mindscape import (
+from backend.app.models.mindscape import (
     MindscapeProfile, IntentCard, AgentExecution,
     IntentStatus, PriorityLevel, MindEvent, EventType, EventActor, IntentLog,
     Entity, EntityType, Tag, TagCategory, EntityTag
 )
-from ..models.workspace import Workspace
+from backend.app.models.workspace import Workspace
 
 # Import domain stores
-from .stores.profiles_store import ProfilesStore
-from .stores.intents_store import IntentsStore
-from .stores.agent_executions_store import AgentExecutionsStore
-from .stores.events_store import EventsStore
-from .stores.intent_logs_store import IntentLogsStore
-from .stores.entities_store import EntitiesStore
-from .stores.workspaces_store import WorkspacesStore
-from .stores.artifacts_store import ArtifactsStore
+from backend.app.services.stores.profiles_store import ProfilesStore
+from backend.app.services.stores.intents_store import IntentsStore
+from backend.app.services.stores.agent_executions_store import AgentExecutionsStore
+from backend.app.services.stores.events_store import EventsStore
+from backend.app.services.stores.intent_logs_store import IntentLogsStore
+from backend.app.services.stores.entities_store import EntitiesStore
+from backend.app.services.stores.workspaces_store import WorkspacesStore
+from backend.app.services.stores.artifacts_store import ArtifactsStore
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class MindscapeStore:
 
     def _init_db(self):
         """Initialize database tables"""
-        from .stores.schema import init_schema
+        from backend.app.services.stores.schema import init_schema
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -92,7 +92,7 @@ class MindscapeStore:
 
         Uses the migration framework to apply incremental schema changes.
         """
-        from .stores.migrations import run_migrations
+        from backend.app.services.stores.migrations import run_migrations
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -103,7 +103,7 @@ class MindscapeStore:
         """Ensure default-user profile exists for local development"""
         profile = self.get_profile('default-user')
         if not profile:
-            from ..models.mindscape import UserPreferences
+            from backend.app.models.mindscape import UserPreferences
             logger.info("Creating default-user profile...")
             default_profile = MindscapeProfile(
                 id='default-user',

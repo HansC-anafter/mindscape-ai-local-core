@@ -5,7 +5,7 @@ Handles intent log CRUD operations for offline optimization
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from .base import StoreBase
+from backend.app.services.stores.base import StoreBase
 from ...models.mindscape import IntentLog
 import logging
 

@@ -8,7 +8,7 @@ Used when other clusters (Semantic-Hub, Site-Hub, CRS-Hub) are not yet implement
 import asyncio
 import logging
 from typing import Dict, Any, Optional
-from .external_backend import ExternalBackend
+from backend.app.services.external_backend import ExternalBackend
 
 logger = logging.getLogger(__name__)
 

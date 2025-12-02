@@ -1,0 +1,73 @@
+code: core_llm
+display_name: "Core LLM Tools"
+version: "1.0.0"
+description: "Generic LLM generation, structured extraction and other core LLM operations"
+side_effect_level: "readonly"
+
+tools:
+  - name: generate
+    description: "Basic one-time text generation/rewriting"
+    backend: "app.capabilities.core_llm.services.generate:run"
+    input_schema:
+      type: object
+      properties:
+        prompt:
+          type: string
+        system_prompt:
+          type: string
+        temperature:
+          type: number
+          default: 0.7
+        max_tokens:
+          type: integer
+        llm_provider:
+          type: object
+          description: "LLM provider object (optional, will be retrieved from profile)"
+        locale:
+          type: string
+          description: "Locale code (e.g., 'zh-TW', 'en'). Deprecated: use target_language instead. Kept for backward compatibility."
+        target_language:
+          type: string
+          description: "Target language for output (e.g., 'zh-TW', 'en', 'ja-JP'). Primary parameter. Priority: target_language > locale"
+    output_schema:
+      type: object
+      properties:
+        text:
+          type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+
+  - name: structured_extract
+    description: "Extract structured JSON from long text based on schema/description"
+    backend: "app.capabilities.core_llm.services.structured:extract"
+    input_schema:
+      type: object
+      properties:
+        text:
+          type: string
+        schema_description:
+          type: string
+          description: "Expected JSON schema description"
+        example_output:
+          type: object
+          description: "Example output (optional)"
+        llm_provider:
+          type: object
+        locale:
+          type: string
+          description: "Locale code (e.g., 'zh-TW', 'en'). Deprecated: use target_language instead. Kept for backward compatibility."
+        target_language:
+          type: string
+          description: "Target language for extraction (e.g., 'zh-TW', 'en', 'ja-JP'). Primary parameter. Priority: target_language > locale"
+    output_schema:
+      type: object
+      properties:
+        extracted_data:
+          type: object
+        confidence:
+          type: number

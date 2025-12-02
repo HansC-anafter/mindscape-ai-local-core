@@ -12,7 +12,7 @@ import re
 from typing import Dict, Any, List, Optional
 
 try:
-    from ..capabilities.core_llm.services.generate import run as llm_generate
+    from backend.app.capabilities.core_llm.services.generate import run as llm_generate
 except Exception:
     llm_generate = None
 
