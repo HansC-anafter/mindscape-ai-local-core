@@ -22,7 +22,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/capability-packs", tags=["Capability Packs"])
+router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
 # Database helper
 def get_db_path():
