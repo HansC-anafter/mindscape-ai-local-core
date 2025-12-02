@@ -244,6 +244,27 @@ def get_all_mindscape_tools() -> Dict[str, MindscapeTool]:
     return _mindscape_tools.copy()
 
 
+def register_workspace_tools():
+    """
+    Register all workspace tools (builtin, no connection required)
+
+    Returns:
+        List of registered tools
+    """
+    from backend.app.services.tools.workspace_tools import create_workspace_tools
+
+    tools = create_workspace_tools()
+
+    for tool in tools:
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+        # Also register with dot notation for backward compatibility (workspace_get_execution -> workspace.get_execution)
+        dot_notation_id = tool_id.replace("workspace_", "workspace.")
+        register_mindscape_tool(dot_notation_id, tool)
+
+    return tools
+
+
 def get_tool_metadata(tool_id: str) -> Optional[Dict]:
     """
     獲取工具的 metadata

@@ -54,13 +54,13 @@ class WorkbenchService:
 
             suggested_next_steps = []
             use_cached = False
-            
+
             context_fingerprint = self._build_context_fingerprint(current_context)
-            
+
             if workspace.suggestion_history and len(workspace.suggestion_history) > 0:
                 last_round = workspace.suggestion_history[-1]
                 cached_fingerprint = last_round.get("context_fingerprint")
-                
+
                 if cached_fingerprint == context_fingerprint:
                     suggested_next_steps = last_round.get("suggestions", [])
                     use_cached = True

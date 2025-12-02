@@ -54,15 +54,13 @@ class ProfilesStore(StoreBase):
 
             profile = self._row_to_profile(row)
 
-            # Apply confirmed habits if requested
             if apply_habits:
                 try:
-                    from backend.app.habit_store import HabitStore
+                    from backend.app.services.habit_store import HabitStore
                     habit_store = HabitStore(self.db_path)
                     profile = habit_store.apply_confirmed_habits(profile)
                 except Exception as e:
                     logger.warning(f"Failed to apply confirmed habits to profile {profile_id}: {e}")
-                    # Continue without habits if there's an error
 
             return profile
 

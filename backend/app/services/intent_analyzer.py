@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from backend.app.models.mindscape import MindscapeProfile, IntentCard, IntentLog
+from backend.app.models.playbook import HandoffPlan, WorkflowStep, PlaybookKind, InteractionMode
 from backend.app.shared.llm_utils import call_llm, build_prompt
 from backend.app.services.playbook_loader import PlaybookLoader
 from backend.app.services.playbook_store import PlaybookStore
@@ -56,6 +57,7 @@ class IntentAnalysisResult:
         self.selected_playbook_code: Optional[str] = None
         self.playbook_confidence: float = 0.0
         self.playbook_context: Dict[str, Any] = {}
+        self.handoff_plan: Optional[Any] = None  # HandoffPlan from playbook.run (new architecture)
 
         # Multi-step workflow support
         self.is_multi_step: bool = False
@@ -388,36 +390,87 @@ class PlaybookSelector:
         self,
         task_domain: TaskDomain,
         user_input: str,
-        profile: Optional[MindscapeProfile] = None
-    ) -> tuple[Optional[str], float]:
+        profile: Optional[MindscapeProfile] = None,
+        locale: Optional[str] = None
+    ) -> tuple[Optional[str], float, Optional[HandoffPlan]]:
         """
-        Select appropriate playbook based on task domain
+        Select appropriate playbook based on task domain and generate HandoffPlan if playbook.json exists
 
         Returns:
-            (playbook_code, confidence)
+            (playbook_code, confidence, handoff_plan)
+            - playbook_code: Selected playbook code
+            - confidence: Selection confidence (0.0-1.0)
+            - handoff_plan: HandoffPlan if playbook.json exists, None otherwise
         """
-        # Domain to playbook mapping - expanded to include more playbooks
         domain_playbook_map = {
             TaskDomain.PROPOSAL_WRITING: "major_proposal_writing",
             TaskDomain.YEARLY_REVIEW: "yearly_personal_book",
-            TaskDomain.HABIT_LEARNING: None,  # Habit learning doesn't have a playbook
-            TaskDomain.PROJECT_PLANNING: "project_breakdown",  # Use project_breakdown playbook
-            TaskDomain.CONTENT_WRITING: "content_drafting",  # Use content_drafting playbook
+            TaskDomain.HABIT_LEARNING: None,
+            TaskDomain.PROJECT_PLANNING: "project_breakdown",
+            TaskDomain.CONTENT_WRITING: "content_drafting",
             TaskDomain.UNKNOWN: None
         }
 
         playbook_code = domain_playbook_map.get(task_domain)
 
         if playbook_code:
-            # Verify playbook exists
-            playbook = self.playbook_loader.get_playbook_by_code(playbook_code)
-            if playbook:
-                return playbook_code, 0.8
-            else:
-                logger.warning(f"Playbook {playbook_code} not found")
-                return None, 0.0
+            playbook_run = self.playbook_loader.load_playbook_run(
+                playbook_code=playbook_code,
+                locale=locale
+            )
 
-        return None, 0.0
+            if not playbook_run:
+                raise ValueError(f"Playbook {playbook_code} not found")
+
+            if playbook_run.has_json():
+                handoff_plan = self._generate_handoff_plan(
+                    playbook_run=playbook_run,
+                    user_input=user_input,
+                    profile=profile
+                )
+                return playbook_code, 0.8, handoff_plan
+            else:
+                raise ValueError(f"Playbook {playbook_code} does not have playbook.json. Only playbook.md found. Please create playbook.json for structured workflow execution.")
+
+        return None, 0.0, None
+
+    def _generate_handoff_plan(
+        self,
+        playbook_run: Any,
+        user_input: str,
+        profile: Optional[MindscapeProfile] = None
+    ) -> HandoffPlan:
+        """
+        Generate HandoffPlan from playbook.run
+
+        Args:
+            playbook_run: PlaybookRun object (contains both .md and .json)
+            user_input: User input text
+            profile: User profile (optional)
+
+        Returns:
+            HandoffPlan with workflow steps based on playbook.json
+        """
+        from backend.app.models.playbook import PlaybookRun
+
+        if not playbook_run or not playbook_run.playbook_json:
+            raise ValueError("playbook_run must have playbook_json to generate HandoffPlan")
+
+        interaction_modes = playbook_run.playbook.metadata.interaction_mode or [InteractionMode.CONVERSATIONAL]
+
+        workflow_step = WorkflowStep(
+            playbook_code=playbook_run.playbook.metadata.playbook_code,
+            kind=PlaybookKind(playbook_run.playbook_json.kind),
+            inputs={},
+            interaction_mode=[InteractionMode(mode) for mode in interaction_modes]
+        )
+
+        handoff_plan = HandoffPlan(
+            steps=[workflow_step],
+            context={}
+        )
+
+        return handoff_plan
 
     def prepare_playbook_context(
         self,
@@ -588,6 +641,22 @@ class IntentPipeline:
         result.project_id = project_id
         result.workspace_id = workspace_id
 
+        # Pre-check: Execution status query detection (before Layer 1)
+        if workspace_id:
+            execution_status_result = await self._check_execution_status_query(
+                user_input, workspace_id, profile
+            )
+            if execution_status_result:
+                result.interaction_type = InteractionType.START_PLAYBOOK
+                result.interaction_confidence = execution_status_result.get("confidence", 0.9)
+                result.selected_playbook_code = "execution_status_query"
+                result.playbook_confidence = execution_status_result.get("confidence", 0.9)
+                result.handoff_plan = execution_status_result.get("handoff_plan")
+                result.pipeline_steps["execution_status_query"] = True
+                result.pipeline_steps["execution_status_response"] = execution_status_result.get("response_suggestion")
+                logger.info(f"[IntentPipeline] Detected execution status query, selected playbook: execution_status_query")
+                return result
+
         # Layer 1: Interaction Type
         logger.info(f"[IntentPipeline] Layer 1: Determining interaction type for: {user_input[:50]}...")
 
@@ -615,26 +684,44 @@ class IntentPipeline:
 
             logger.info(f"[IntentPipeline] Layer 2 result: {result.task_domain.value} (confidence: {confidence:.2f})")
 
-            # Layer 3: Playbook Selection
             if result.task_domain != TaskDomain.UNKNOWN:
                 logger.info(f"[IntentPipeline] Layer 3: Selecting playbook...")
 
-                playbook_code, confidence = self.playbook_selector.select_playbook(
-                    result.task_domain, user_input, profile
+                locale = None
+                if profile and profile.preferences:
+                    locale = profile.preferences.preferred_content_language
+                elif context and "locale" in context:
+                    locale = context.get("locale")
+
+                playbook_code, confidence, handoff_plan = self.playbook_selector.select_playbook(
+                    task_domain=result.task_domain,
+                    user_input=user_input,
+                    profile=profile,
+                    locale=locale
                 )
                 result.selected_playbook_code = playbook_code
                 result.playbook_confidence = confidence
+                result.handoff_plan = handoff_plan
 
                 if playbook_code:
-                    result.playbook_context = self.playbook_selector.prepare_playbook_context(
+                    playbook_context = self.playbook_selector.prepare_playbook_context(
                         playbook_code, user_input, profile, active_intents
                     )
-                    # Preserve workspace_id and project_id from input
+                    result.playbook_context = playbook_context
+
+                    if handoff_plan and handoff_plan.steps:
+                        for step in handoff_plan.steps:
+                            step.inputs.update(playbook_context)
+                        handoff_plan.context.update(playbook_context)
+
                     if not result.project_id:
-                        result.project_id = result.playbook_context.get("project_id")
-                    # Merge context if provided
+                        result.project_id = playbook_context.get("project_id")
                     if context:
                         result.playbook_context.update(context)
+                        if handoff_plan:
+                            handoff_plan.context.update(context)
+
+                logger.info(f"[IntentPipeline] Layer 3 result: {playbook_code} (confidence: {confidence:.2f}, has_handoff_plan: {handoff_plan is not None})")
 
                 logger.info(f"[IntentPipeline] Layer 3 result: {playbook_code} (confidence: {confidence:.2f})")
 
@@ -744,6 +831,151 @@ Return only valid JSON or null.
         except Exception as e:
             logger.warning(f"Multi-step detection failed: {e}")
             return None
+
+    async def _check_execution_status_query(
+        self,
+        user_input: str,
+        workspace_id: str,
+        profile: Optional[MindscapeProfile] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check if user is asking about execution status/progress
+
+        Returns:
+            Dict with handoff_plan and response_suggestion if detected, None otherwise
+        """
+        from backend.app.services.stores.tasks_store import TasksStore
+
+        tasks_store = TasksStore(self.store.db_path)
+
+        pending_tasks = tasks_store.list_pending_tasks(workspace_id)
+        running_tasks = tasks_store.list_running_tasks(workspace_id)
+        has_active_tasks = len(pending_tasks) > 0 or len(running_tasks) > 0
+
+        progress_keywords = [
+            "進度", "狀態", "執行到哪裡", "完成了嗎", "卡住了嗎",
+            "progress", "status", "how far", "completed", "stuck",
+            "剛剛那個", "出檔那個", "SEO 那幾個"
+        ]
+
+        message_lower = user_input.lower()
+        has_progress_keyword = any(kw in message_lower for kw in progress_keywords)
+
+        if not has_progress_keyword:
+            return None
+
+        if not has_active_tasks:
+            if not self.llm_matcher.llm_provider:
+                return None
+
+            current_tasks_snapshot = "目前沒有執行中的任務"
+            llm_prompt = f"""
+判斷用戶是否在詢問任務進度或執行狀態。
+
+用戶訊息：{user_input}
+當前任務快照：{current_tasks_snapshot}
+
+請判斷：用戶是否在詢問某個任務的進度？
+如果用戶在問「產品狀態」「發展狀態」等非執行任務的狀態，應該返回 false。
+"""
+
+            try:
+                from backend.app.shared.llm_utils import call_llm
+                import json
+
+                response = await call_llm(
+                    self.llm_matcher.llm_provider,
+                    llm_prompt + "\n\nReturn JSON: {\"is_progress_query\": true/false}",
+                    model="gpt-4o-mini"
+                )
+
+                result = json.loads(response.strip())
+                if result.get("is_progress_query"):
+                    available_playbooks = "筆記組織、IG 貼文生成、PDF OCR 處理等"
+                    return {
+                        "confidence": 0.9,
+                        "response_suggestion": (
+                            f"目前這個工作區沒有正在執行的任務。\n"
+                            f"你可以先讓我幫你啟動某個 Playbook，例如：{available_playbooks}"
+                        ),
+                        "handoff_plan": None
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to check execution status query (no active tasks): {e}")
+
+        if has_active_tasks:
+            current_tasks_snapshot = self._build_current_tasks_snapshot(pending_tasks, running_tasks)
+
+            if not self.llm_matcher.llm_provider:
+                return None
+
+            llm_prompt = f"""
+判斷用戶是否在詢問任務進度或執行狀態。
+
+用戶訊息：{user_input}
+當前任務快照：
+{current_tasks_snapshot}
+
+請判斷：
+1. 用戶是否在詢問某個任務的進度？
+2. 是否有明確的任務可以對應？
+
+如果用戶在問「產品狀態」「發展狀態」等非執行任務的狀態，應該返回 false。
+"""
+
+            try:
+                from backend.app.shared.llm_utils import call_llm
+                import json
+                from backend.app.models.playbook import HandoffPlan, WorkflowStep
+
+                response = await call_llm(
+                    self.llm_matcher.llm_provider,
+                    llm_prompt + "\n\nReturn JSON: {\"is_progress_query\": true/false, \"confidence\": 0.0-1.0}",
+                    model="gpt-4o-mini"
+                )
+
+                result = json.loads(response.strip())
+                if result.get("is_progress_query"):
+                    confidence = float(result.get("confidence", 0.8))
+
+                    workflow_step = WorkflowStep(
+                        playbook_code="execution_status_query",
+                        kind=PlaybookKind.QUERY,
+                        inputs={
+                            "user_message": user_input,
+                            "workspace_id": workspace_id,
+                            "conversation_context": ""
+                        },
+                        interaction_mode=InteractionMode.AUTOMATED
+                    )
+
+                    handoff_plan = HandoffPlan(
+                        steps=[workflow_step],
+                        context={
+                            "user_message": user_input,
+                            "workspace_id": workspace_id
+                        }
+                    )
+
+                    return {
+                        "confidence": confidence,
+                        "handoff_plan": handoff_plan,
+                        "response_suggestion": None
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to check execution status query: {e}")
+
+        return None
+
+    def _build_current_tasks_snapshot(self, pending_tasks, running_tasks) -> str:
+        """Build current tasks snapshot for LLM judgment"""
+        snapshot = []
+        for task in (running_tasks + pending_tasks)[:10]:
+            snapshot.append(
+                f"- {task.pack_id} ({task.status.value}): "
+                f"created at {task.created_at}"
+            )
+        return "\n".join(snapshot) if snapshot else "目前沒有執行中的任務"
 
     def _log_intent_decision(self, result: IntentAnalysisResult):
         """
