@@ -285,17 +285,26 @@ export default function WorkspacePage() {
     }
   }, [workspaceId, fetchWithRetry]);
 
-  // Load system status function
+  // Load system status function - now uses dedicated health endpoint to avoid duplicate workbench calls
+  // MindscapeAIWorkbench component already calls /workbench API, so we use /health for system status only
   const loadSystemStatus = useCallback(async () => {
     if (!isMountedRef.current) return;
     try {
-      const response = await fetchWithRetry(`${API_URL}/api/v1/workspaces/${workspaceId}/workbench`);
+      const response = await fetchWithRetry(`${API_URL}/api/v1/workspaces/${workspaceId}/health`);
       if (!response || !isMountedRef.current) return;
 
       if (response.ok) {
         const data = await response.json();
         if (isMountedRef.current) {
-          setSystemStatus(data.system_status);
+          // Transform health data to match system_status format
+          setSystemStatus({
+            llm_configured: data.llm_configured,
+            llm_provider: data.llm_provider,
+            vector_db_connected: data.vector_db_connected,
+            tools: data.tools || {},
+            critical_issues_count: data.issues?.filter((i: any) => i.severity === 'error')?.length || 0,
+            has_issues: (data.issues?.length || 0) > 0
+          });
         }
       }
     } catch (err: any) {

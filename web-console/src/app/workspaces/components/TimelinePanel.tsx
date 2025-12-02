@@ -236,22 +236,39 @@ export default function TimelinePanel({
       const executionsList: ExecutionSession[] = data.executions || [];
       setExecutions(executionsList);
 
-      // Load steps for each execution to check requires_confirmation
-      const stepsMap = new Map<string, ExecutionStep[]>();
-      for (const execution of executionsList) {
-        try {
-          const stepsResponse = await fetch(
-            `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${execution.execution_id}/steps`
-          );
-          if (stepsResponse.ok) {
-            const stepsData = await stepsResponse.json();
-            stepsMap.set(execution.execution_id, stepsData.steps || []);
+      // Performance optimization: Only load steps for running/paused executions
+      // Archived executions don't need steps for display
+      // This reduces N+1 queries significantly
+      const activeExecutions = executionsList.filter(
+        exec => exec.status === 'running' || exec.paused_at
+      );
+
+      if (activeExecutions.length > 0) {
+        const stepsMap = new Map<string, ExecutionStep[]>();
+        // Load steps in parallel for better performance
+        const stepsPromises = activeExecutions.map(async (execution) => {
+          try {
+            const stepsResponse = await fetch(
+              `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${execution.execution_id}/steps`
+            );
+            if (stepsResponse.ok) {
+              const stepsData = await stepsResponse.json();
+              return { executionId: execution.execution_id, steps: stepsData.steps || [] };
+            }
+          } catch (err) {
+            console.error(`Failed to load steps for execution ${execution.execution_id}:`, err);
           }
-        } catch (err) {
-          console.error(`Failed to load steps for execution ${execution.execution_id}:`, err);
-        }
+          return null;
+        });
+
+        const results = await Promise.all(stepsPromises);
+        results.forEach(result => {
+          if (result) {
+            stepsMap.set(result.executionId, result.steps);
+          }
+        });
+        setExecutionSteps(stepsMap);
       }
-      setExecutionSteps(stepsMap);
     } catch (err: any) {
       console.error('Failed to load executions:', err);
       // Don't set error state - executions are optional
