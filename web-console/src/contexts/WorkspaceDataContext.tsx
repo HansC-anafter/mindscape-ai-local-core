@@ -10,7 +10,12 @@ import React, {
   ReactNode
 } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Get API URL - for 'use client' components, always use browser-accessible URL
+// In browser, NEXT_PUBLIC_API_URL points to host's localhost
+// This is evaluated at runtime, not module load time
+const getApiUrl = () => {
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+};
 
 // Workspace data types
 interface Workspace {
@@ -161,13 +166,13 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}`,
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}`,
         { signal: abortControllerRef.current?.signal }
       );
 
       if (!response.ok) {
-        const errorText = response.status === 404 
-          ? 'Workspace not found' 
+        const errorText = response.status === 404
+          ? 'Workspace not found'
           : `Failed to load workspace: ${response.status}`;
         throw new Error(errorText);
       }
@@ -178,31 +183,42 @@ export function WorkspaceDataProvider({
           // API returned success but no valid workspace data
           setError('Workspace not found or invalid');
           setWorkspace(null);
+          setIsLoadingWorkspace(false);
         } else {
           setWorkspace(data);
           setError(null);
+          setIsLoadingWorkspace(false);
         }
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        // AbortError is expected in React Strict Mode - don't set error, keep loading state
+        // AbortError is expected in React Strict Mode - retry after a short delay
         console.log('[WorkspaceDataContext] Workspace load aborted (likely React Strict Mode), will retry');
-        // Reset ref to allow retry, but keep loading state true
+        // Reset ref to allow retry
         loadingWorkspaceRef.current = false;
-        // Don't set loading to false - let it retry on next render
+        // Retry after a short delay if still mounted
+        // Use a ref to store the retry function to avoid dependency issues
+        if (mountedRef.current) {
+          setTimeout(() => {
+            if (mountedRef.current && !loadingWorkspaceRef.current) {
+              // Create a new AbortController for retry
+              abortControllerRef.current = new AbortController();
+              loadWorkspace();
+            }
+          }, 100);
+        }
         return; // Exit early, don't execute finally block
       } else {
         // Other errors - set error state
         if (mountedRef.current) {
           console.error('[WorkspaceDataContext] Failed to load workspace:', err);
           setError(err.message || 'Failed to load workspace');
+          setWorkspace(null);
+          setIsLoadingWorkspace(false);
         }
       }
     } finally {
       loadingWorkspaceRef.current = false;
-      if (mountedRef.current) {
-        setIsLoadingWorkspace(false);
-      }
     }
   }, [workspaceId]);
 
@@ -215,7 +231,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`,
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`,
         { signal: abortControllerRef.current?.signal }
       );
 
@@ -252,7 +268,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`,
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`,
         { signal: abortControllerRef.current?.signal }
       );
 
@@ -282,7 +298,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}/health`,
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/health`,
         { signal: abortControllerRef.current?.signal }
       );
 
@@ -328,7 +344,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}`,
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },

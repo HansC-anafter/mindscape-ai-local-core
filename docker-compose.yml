@@ -68,6 +68,7 @@ services:
       - NEXT_TELEMETRY_DISABLED=1
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+      - BACKEND_URL=http://backend:8000
       - TZ=${TZ:-UTC}
     volumes:
       - ./web-console/src:/app/src:ro
