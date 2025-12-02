@@ -34,6 +34,12 @@ services:
       - ./backend:/app/backend:rw
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
+      # Mount user's custom directory for workspace storage (optional)
+      # Uncomment and set the path below to mount your Documents or other directory
+      # Example for Mac: /Users/yourname/Documents:/host/documents:rw
+      # Example for Windows: C:\Users\yourname\Documents:/host/documents:rw
+      # The frontend will automatically convert host paths to /host/documents/... when saving
+      # - ${HOME}/Documents:/host/documents:rw
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     networks:
