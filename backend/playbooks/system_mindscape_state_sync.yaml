@@ -1,0 +1,168 @@
+---
+playbook_code: system_mindscape_state_sync
+version: 1.0.0
+name: Mindscape State Sync
+description: System playbook that continuously syncs user state (workspaces, intents, profile) and updates mindscape status
+tags:
+  - system
+  - state-sync
+  - background
+  - mindscape
+
+language_strategy: model_native
+
+locale: en
+supported_locales:
+  - en
+  - zh-TW
+default_locale: en
+auto_localize: true
+
+entry_agent_type: planner
+icon: 🔄
+
+tool_dependencies: []
+
+inputs:
+  - name: profile_id
+    type: string
+    required: true
+    description: User profile ID to sync state for
+  - name: workspace_id
+    type: string
+    required: false
+    description: Specific workspace ID (optional, if not provided syncs all workspaces)
+
+outputs:
+  - name: current_state
+    type: object
+    description: Current state summary including active intents, recent workspaces, and profile status
+  - name: active_intents
+    type: list[object]
+    description: List of active intents with metadata
+  - name: recent_workspaces
+    type: list[object]
+    description: List of recently used workspaces
+  - name: suggestions
+    type: list[string]
+    description: System suggestions based on current state
+
+scope:
+  visibility: system
+  editable: false
+
+owner:
+  type: system
+
+---
+
+# Mindscape State Sync Playbook
+
+## Purpose
+
+This system playbook continuously syncs user state and updates mindscape status. It runs automatically as a background routine to keep the mindscape dashboard up-to-date.
+
+## Functionality
+
+This playbook:
+
+1. **Collects Current State**:
+   - Active intents and their status
+   - Recent workspaces and usage
+   - Profile information and preferences
+
+2. **Updates State Summary**:
+   - Generates current mode summary
+   - Updates profile metadata
+   - Creates state snapshot
+
+3. **Generates Suggestions**:
+   - Based on active intents
+   - Based on workspace activity
+   - Based on profile preferences
+
+## Execution Flow
+
+### Step 1: Collect State
+
+Gather information about:
+- User profile and preferences
+- Active intents (status, priority, progress)
+- Recent workspaces (last accessed, activity)
+- Recent timeline events
+
+### Step 2: Generate Summary
+
+Create a state summary including:
+- Current main mode (inferred from active intents)
+- Weekly focus areas
+- Active AI assistants/capabilities
+
+### Step 3: Update Profile
+
+Update profile metadata with:
+- Last state sync timestamp
+- Current state summary
+- Active intent IDs
+
+### Step 4: Generate Suggestions
+
+Based on collected state, suggest:
+- Next steps for active intents
+- Workspace optimization opportunities
+- Capability unlocks
+
+## Usage
+
+This playbook is automatically registered as a background routine when a workspace is created. It runs:
+- Daily at 2 AM (default schedule)
+- On-demand when triggered manually
+- After significant state changes
+
+## Output Format
+
+### current_state
+
+```json
+{
+  "main_mode": "2025 創業者模式",
+  "weekly_focus": ["產品設計", "內容創作", "系統優化"],
+  "ai_assistants": ["產品設計師", "內容編輯", "情緒陪練"],
+  "last_sync": "2025-12-02T10:00:00Z"
+}
+```
+
+### active_intents
+
+```json
+[
+  {
+    "id": "intent-123",
+    "title": "完成三集課程影片剪輯",
+    "status": "active",
+    "priority": "high",
+    "progress": 0.6
+  }
+]
+```
+
+### recent_workspaces
+
+```json
+[
+  {
+    "id": "workspace-456",
+    "title": "內容創作工作區",
+    "last_accessed": "2025-12-02T09:30:00Z",
+    "activity_count": 15
+  }
+]
+```
+
+## Notes
+
+- This is a system playbook and should not be manually executed by users
+- Runs in background, no user interaction required
+- Updates are incremental and non-destructive
+- State sync failures are logged but do not block workspace operations
+

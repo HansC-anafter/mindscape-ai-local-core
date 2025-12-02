@@ -24,19 +24,29 @@ export function usePacks(): UsePacksReturn {
     setLoading(true);
     try {
       const data = await settingsApi.get<CapabilityPack[]>('/api/v1/capability-packs/');
-      setPacks(
-        data.map((pack) => ({
-          id: pack.id,
-          name: pack.name,
-          description: pack.description,
-          icon: pack.icon,
-          ai_members: pack.ai_members || [],
-          capabilities: pack.capabilities || [],
-          playbooks: pack.playbooks || [],
-          required_tools: pack.required_tools || [],
-          installed: pack.installed || false,
-        }))
-      );
+      const mappedPacks = data.map((pack: any) => ({
+        id: pack.id,
+        name: pack.name,
+        description: pack.description,
+        icon: pack.icon,
+        ai_members: pack.ai_members || [],
+        capabilities: pack.capabilities || [],
+        playbooks: pack.playbooks || [],
+        required_tools: pack.required_tools || [],
+        installed: pack.installed ?? false,
+        enabled: pack.enabled ?? false,
+        enabled_by_default: pack.enabled_by_default ?? false,
+        version: pack.version,
+        installed_at: pack.installed_at,
+        routes: pack.routes || [],
+        tools: pack.tools || [],
+      }));
+      // Debug log for the three specific packs
+      const targetPacks = mappedPacks.filter(p => ['agent', 'review', 'workflow_templates'].includes(p.id));
+      if (targetPacks.length > 0) {
+        console.debug('Target packs installed status:', targetPacks.map(p => ({ id: p.id, installed: p.installed })));
+      }
+      setPacks(mappedPacks);
     } catch (err) {
       console.error('Failed to load packs:', err);
       setPacks([]);

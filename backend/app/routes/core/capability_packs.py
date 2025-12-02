@@ -129,6 +129,8 @@ class PackResponse(BaseModel):
     routes: List[str] = []
     playbooks: List[str] = []
     tools: List[str] = []
+    version: Optional[str] = None
+    installed_at: Optional[str] = None
 
 
 @router.get("/", response_model=List[PackResponse])
@@ -146,6 +148,18 @@ async def list_packs():
         installed_ids = _get_installed_pack_ids()
         enabled_ids = _get_enabled_pack_ids()
 
+        installed_metadata = {}
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT pack_id, installed_at, metadata FROM installed_packs')
+            for row in cursor.fetchall():
+                import json
+                metadata = json.loads(row['metadata']) if row['metadata'] else {}
+                installed_metadata[row['pack_id']] = {
+                    'installed_at': row['installed_at'],
+                    'version': metadata.get('version', '1.0.0')
+                }
+
         packs = []
         for pack_meta in pack_metas:
             pack_id = pack_meta.get('id')
@@ -153,6 +167,7 @@ async def list_packs():
                 logger.warning(f"Pack metadata missing 'id' field: {pack_meta.get('_file_path', 'unknown')}")
                 continue
 
+            installed_info = installed_metadata.get(pack_id, {})
             packs.append(PackResponse(
                 id=pack_id,
                 name=pack_meta.get('name', pack_id),
@@ -162,7 +177,9 @@ async def list_packs():
                 installed=pack_id in installed_ids,
                 routes=pack_meta.get('routes', []),
                 playbooks=pack_meta.get('playbooks', []),
-                tools=pack_meta.get('tools', [])
+                tools=pack_meta.get('tools', []),
+                version=installed_info.get('version') or pack_meta.get('version', '1.0.0'),
+                installed_at=installed_info.get('installed_at')
             ))
 
         return packs
@@ -274,6 +291,41 @@ async def list_installed_packs():
 async def list_enabled_packs():
     """List all enabled pack IDs"""
     return list(_get_enabled_pack_ids())
+
+
+@router.get("/installed-capabilities", response_model=List[Dict[str, Any]])
+async def list_installed_capabilities():
+    """
+    List all installed capability packs with detailed information
+
+    Returns list of installed packs with their metadata.
+    This endpoint is used by the frontend to display installed capabilities.
+    """
+    try:
+        # Get all packs
+        pack_metas = _scan_pack_yaml_files()
+
+        # Get installed pack IDs
+        installed_ids = _get_installed_pack_ids()
+
+        # Filter to only installed packs and format response
+        installed_capabilities = []
+        for pack_meta in pack_metas:
+            pack_id = pack_meta.get('id')
+            if pack_id and pack_id in installed_ids:
+                installed_capabilities.append({
+                    'id': pack_id,
+                    'code': pack_id,  # Use pack_id as code
+                    'display_name': pack_meta.get('name', pack_id),
+                    'version': pack_meta.get('version', '1.0.0'),
+                    'description': pack_meta.get('description', ''),
+                    'scope': pack_meta.get('scope', 'global')
+                })
+
+        return installed_capabilities
+    except Exception as e:
+        logger.error(f"Failed to list installed capabilities: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list installed capabilities: {str(e)}")
 
 
 # ============================================

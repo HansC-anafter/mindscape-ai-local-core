@@ -50,13 +50,19 @@ export interface CapabilityPack {
   id: string;
   name: string;
   description: string;
-  icon: string;
+  icon?: string;
   ai_members: string[];
   capabilities: string[];
   playbooks: string[];
   required_tools: string[];
   required_tools_info?: Record<string, ToolInfo>;
   installed: boolean;
+  enabled?: boolean;
+  enabled_by_default?: boolean;
+  version?: string;
+  installed_at?: string;
+  routes?: string[];
+  tools?: string[];
 }
 
 export interface Profile {

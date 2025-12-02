@@ -1,6 +1,6 @@
 id: external_docs
 name: "External Docs Sync"
-enabled_by_default: false
+enabled_by_default: true
 description: "External documents synchronization (WordPress, Notion, etc.)"
 
 routes:

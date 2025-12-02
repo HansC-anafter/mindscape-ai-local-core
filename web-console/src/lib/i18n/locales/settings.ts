@@ -52,6 +52,11 @@ export const settingsZhTW = {
   allowOverwrite: '允許覆蓋已安裝的版本',
   packInstallsMembers: '會新增的 AI 成員',
   packInstallsPlaybooks: '會新增的 Playbooks',
+  packProvidesTools: '提供的工具',
+  packProvidesRoutes: '提供的 API 路由',
+  apiRoutes: '個 API 路由',
+  installedAt: '安裝時間',
+  default: '預設',
   toolUsedByPlaybooks: '哪些 Playbooks 會用到這個工具？',
 
   // Tool Actions
@@ -217,6 +222,11 @@ export const settingsEn = {
   allowOverwrite: 'Allow overwrite if already installed',
   packInstallsMembers: 'Will create AI members',
   packInstallsPlaybooks: 'Will install Playbooks',
+  packProvidesTools: 'Provides Tools',
+  packProvidesRoutes: 'Provides API Routes',
+  apiRoutes: 'API routes',
+  installedAt: 'Installed At',
+  default: 'Default',
   toolUsedByPlaybooks: 'Which Playbooks use this tool?',
 
   // Tool Actions

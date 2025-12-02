@@ -1,6 +1,6 @@
 id: course_production
 name: "Course Production"
-enabled_by_default: false
+enabled_by_default: true
 description: "Course production functionality (voice profiles, training jobs, video segments)"
 
 routes:

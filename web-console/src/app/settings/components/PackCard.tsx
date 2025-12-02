@@ -55,39 +55,67 @@ function getPackCapabilities(packId: string): string[] {
 
 export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCardProps) {
   const packName = getPackName(pack.id);
-  const packDescription = getPackDescription(pack.id);
+  const packDescription = getPackDescription(pack.id) || pack.description;
   const packCapabilities = getPackCapabilities(pack.id);
+  const displayPlaybooks = pack.playbooks || [];
+  const displayTools = pack.tools || pack.required_tools || [];
 
   return (
     <Card hover>
       <div className="flex items-start space-x-4 mb-4">
-        <span className="text-3xl">{pack.icon}</span>
+        {pack.icon && <span className="text-3xl">{pack.icon}</span>}
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{packName}</h3>
-          <p className="text-sm text-gray-600">{packDescription}</p>
+          <div className="flex items-start justify-between mb-2">
+            <h3 className="text-lg font-semibold text-gray-900">{pack.name || packName}</h3>
+            {pack.installed && (
+              <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
+                {t('installed')}
+              </span>
+            )}
+            {pack.enabled_by_default && !pack.installed && (
+              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded font-medium">
+                {t('default')}
+              </span>
+            )}
+          </div>
+          {packDescription && (
+            <p className="text-sm text-gray-600 mb-2">{packDescription}</p>
+          )}
+          {(pack.version || pack.installed_at) && (
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              {pack.version && <span>v{pack.version}</span>}
+              {pack.installed_at && (
+                <span>
+                  {t('installedAt')}: {new Date(pack.installed_at).toLocaleDateString('zh-TW')}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="space-y-3 mb-4">
-        <div>
-          <p className="text-xs font-medium text-gray-500 mb-1">{t('packInstallsMembers')}:</p>
-          <div className="flex flex-wrap gap-2">
-            {pack.ai_members.map((member) => (
-              <span
-                key={member}
-                className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
-              >
-                {member}
-              </span>
-            ))}
+        {pack.ai_members && pack.ai_members.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1">{t('packInstallsMembers')}:</p>
+            <div className="flex flex-wrap gap-2">
+              {pack.ai_members.map((member) => (
+                <span
+                  key={member}
+                  className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
+                >
+                  {member}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {pack.playbooks && pack.playbooks.length > 0 && (
+        {displayPlaybooks.length > 0 && (
           <div>
             <p className="text-xs font-medium text-gray-500 mb-1">{t('packInstallsPlaybooks')}:</p>
             <div className="flex flex-wrap gap-2">
-              {pack.playbooks.map((playbook, idx) => (
+              {displayPlaybooks.map((playbook, idx) => (
                 <span
                   key={idx}
                   className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded"
@@ -95,6 +123,31 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                   {playbook}
                 </span>
               ))}
+            </div>
+          </div>
+        )}
+
+        {displayTools.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1">{t('packProvidesTools')}:</p>
+            <div className="flex flex-wrap gap-2">
+              {displayTools.map((tool, idx) => (
+                <span
+                  key={idx}
+                  className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded"
+                >
+                  {tool}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {pack.routes && pack.routes.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1">{t('packProvidesRoutes')}:</p>
+            <div className="text-xs text-gray-600">
+              {pack.routes.length} {t('apiRoutes')}
             </div>
           </div>
         )}
@@ -115,10 +168,11 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
           </div>
         )}
 
-        <div>
-          <p className="text-xs font-medium text-gray-500 mb-1">{t('requiredToolsLabel')}</p>
-          <div className="space-y-2">
-            {pack.required_tools.map((toolType) => {
+        {pack.required_tools && pack.required_tools.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1">{t('requiredToolsLabel')}</p>
+            <div className="space-y-2">
+              {pack.required_tools.map((toolType) => {
               const status = getToolStatus(toolType);
               const toolInfo = pack.required_tools_info?.[toolType];
               const toolName = toolInfo?.name || (
@@ -198,8 +252,9 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                 </div>
               );
             })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <button
