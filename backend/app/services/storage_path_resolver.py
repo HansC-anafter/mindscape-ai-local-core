@@ -161,3 +161,56 @@ class StoragePathResolver:
 
         return storage_path
 
+    @staticmethod
+    async def get_default_storage_path(store) -> Optional[str]:
+        """
+        Get default storage path for workspace creation
+
+        Priority order:
+        1. Environment variable WORKSPACE_STORAGE_BASE_PATH (for unified deployment)
+        2. First allowed directory from Local File System configuration
+        3. Project data directory (./data/workspaces) as fallback
+
+        Security requirement: must validate path is within allowed directories (if configured)
+
+        Args:
+            store: MindscapeStore instance
+
+        Returns:
+            Path string of default storage directory, or None if not available
+        """
+        from ...services.storage_path_validator import StoragePathValidator
+
+        env_base_path = os.getenv("WORKSPACE_STORAGE_BASE_PATH")
+        if env_base_path:
+            env_path = Path(env_base_path).expanduser().resolve()
+            if env_path.exists() and env_path.is_dir() and os.access(env_path, os.W_OK):
+                logger.info(f"Using WORKSPACE_STORAGE_BASE_PATH from environment: {env_path}")
+                return str(env_path)
+            else:
+                logger.warning(f"WORKSPACE_STORAGE_BASE_PATH is set but invalid or not writable: {env_path}")
+
+        allowed_dirs = StoragePathValidator.get_allowed_directories()
+        if allowed_dirs:
+            first_dir = Path(allowed_dirs[0]).expanduser().resolve()
+            if first_dir.exists() and first_dir.is_dir():
+                if StoragePathValidator.validate_path_in_allowed_directories(first_dir, allowed_dirs):
+                    logger.info(f"Using first allowed directory: {first_dir}")
+                    return str(first_dir)
+                else:
+                    logger.warning(f"Directory {first_dir} failed validation")
+            else:
+                logger.warning(f"Invalid allowed directory: {first_dir}")
+
+        project_data_dir = Path(__file__).parent.parent.parent.parent / "data" / "workspaces"
+        try:
+            project_data_dir.mkdir(parents=True, exist_ok=True)
+            if os.access(project_data_dir, os.W_OK):
+                logger.info(f"Using project data directory as fallback: {project_data_dir}")
+                return str(project_data_dir.resolve())
+        except Exception as e:
+            logger.warning(f"Failed to use project data directory {project_data_dir}: {e}")
+
+        logger.info("No default storage path available, user must specify manually")
+        return None
+
