@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 from pydantic import BaseModel, Field
 
-from ...models.tool_registry import ToolConnectionModel
-from ...services.tool_registry import ToolRegistryService
-from ...services.tools.discovery_provider import ToolConfig
+from backend.app.models.tool_registry import ToolConnectionModel
+from backend.app.services.tool_registry import ToolRegistryService
+from backend.app.services.tools.discovery_provider import ToolConfig
 from ..base import get_tool_registry, raise_api_error
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])

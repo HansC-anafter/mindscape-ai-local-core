@@ -6,8 +6,8 @@ Handles CRUD operations for tool connections.
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 
-from ...models.tool_registry import ToolConnectionModel
-from ...services.tool_registry import ToolRegistryService
+from backend.app.models.tool_registry import ToolConnectionModel
+from backend.app.services.tool_registry import ToolRegistryService
 from .base import get_tool_registry, raise_api_error
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
@@ -43,4 +43,3 @@ async def delete_connection(
     if not success:
         raise_api_error(404, "Connection not found")
     return {"success": True}
-

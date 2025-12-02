@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
-from ...services.tool_registry import ToolRegistryService
-from ...services.tools.discovery_provider import ToolConfig
+from backend.app.services.tool_registry import ToolRegistryService
+from backend.app.services.tools.discovery_provider import ToolConfig
 from ..base import get_tool_registry, raise_api_error
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
@@ -99,4 +99,3 @@ async def get_configured_directories(
         }
     except Exception as e:
         raise_api_error(500, str(e))
-

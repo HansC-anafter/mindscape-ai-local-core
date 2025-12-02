@@ -7,8 +7,8 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 import logging
 
-from ...models.tool_registry import ToolConnectionModel
-from ...services.tool_registry import ToolRegistryService
+from backend.app.models.tool_registry import ToolConnectionModel
+from backend.app.services.tool_registry import ToolRegistryService
 from ..base import get_tool_registry, raise_api_error
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ async def create_canva_connection(
         if request.client_id and request.client_secret and not request.redirect_uri:
             raise_api_error(400, "redirect_uri is required when using client_id and client_secret")
 
-        from ...services.tools.base import ToolConnection
-        from ...services.tools.registry import register_canva_tools
+        from backend.app.services.tools.base import ToolConnection
+        from backend.app.services.tools.registry import register_canva_tools
 
         connection = ToolConnection(
             id=request.connection_id,
@@ -107,7 +107,7 @@ async def canva_oauth_authorize(
     Redirects user to Canva authorization page.
     """
     try:
-        from ...services.tools.canva.oauth_manager import get_canva_oauth_manager
+        from backend.app.services.tools.canva.oauth_manager import get_canva_oauth_manager
 
         connection_model = None
         if connection_id:
@@ -157,7 +157,7 @@ async def canva_oauth_callback(
     Exchanges authorization code for access token and updates connection.
     """
     try:
-        from ...services.tools.canva.oauth_manager import get_canva_oauth_manager
+        from backend.app.services.tools.canva.oauth_manager import get_canva_oauth_manager
 
         oauth_manager = get_canva_oauth_manager()
 
@@ -225,8 +225,8 @@ async def validate_canva_connection(
     Tests if the Canva API connection is working by calling list_templates.
     """
     try:
-        from ...services.tools.base import ToolConnection
-        from ...services.tools.registry import get_mindscape_tool
+        from backend.app.services.tools.base import ToolConnection
+        from backend.app.services.tools.registry import get_mindscape_tool
 
         connection_model = registry.get_connection(connection_id)
         if not connection_model:

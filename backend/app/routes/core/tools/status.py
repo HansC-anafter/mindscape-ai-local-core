@@ -8,9 +8,9 @@ from typing import Dict, Any
 import os
 import logging
 
-from ...services.tool_status_checker import ToolStatusChecker
-from ...services.tool_connection_store import ToolConnectionStore
-from ...services.tool_info import get_tool_info
+from backend.app.services.tool_status_checker import ToolStatusChecker
+from backend.app.services.tool_connection_store import ToolConnectionStore
+from backend.app.services.tool_info import get_tool_info
 
 logger = logging.getLogger(__name__)
 
@@ -84,4 +84,3 @@ async def get_tool_status(
     except Exception as e:
         logger.error(f"Failed to get tool status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

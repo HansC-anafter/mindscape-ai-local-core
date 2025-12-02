@@ -10,9 +10,9 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
-from ...models.tool_registry import RegisteredTool
-from ...services.tool_registry import ToolRegistryService
-from ...services.tools.discovery_provider import ToolConfig
+from backend.app.models.tool_registry import RegisteredTool
+from backend.app.services.tool_registry import ToolRegistryService
+from backend.app.services.tools.discovery_provider import ToolConfig
 import os
 import logging
 
@@ -30,14 +30,14 @@ def get_tool_registry() -> ToolRegistryService:
 
     # Register console-kit extensions (WordPress provider)
     try:
-        from ...extensions.console_kit import register_console_kit_tools
+        from backend.app.extensions.console_kit import register_console_kit_tools
         register_console_kit_tools(registry)
     except ImportError:
         pass  # Console-kit extension not installed, skip
 
     # Register community extensions (optional)
     try:
-        from ...extensions.community import register_community_extensions
+        from backend.app.extensions.community import register_community_extensions
         register_community_extensions(registry)
     except ImportError:
         pass  # Community extensions not installed, skip
@@ -208,4 +208,3 @@ async def get_tools_for_agent(
     """Get tools available for a specific agent role"""
     tools = registry.get_tools_for_agent_role(agent_role)
     return tools
-

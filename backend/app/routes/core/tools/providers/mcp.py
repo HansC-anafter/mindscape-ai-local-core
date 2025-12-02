@@ -40,7 +40,7 @@ async def list_mcp_servers():
     Used by Config Assistant to view connected servers
     """
     try:
-        from ...services.tools.adapters.mcp_manager import MCPServerManager
+        from backend.app.services.tools.adapters.mcp_manager import MCPServerManager
 
         manager = MCPServerManager()
         servers_info = []
@@ -66,8 +66,8 @@ async def connect_mcp_server(request: MCPConnectRequest):
     Used by Config Assistant for automatic MCP server configuration
     """
     try:
-        from ...services.tools.adapters.mcp_manager import MCPServerManager
-        from ...services.tools.adapters.mcp_client import MCPServerConfig, MCPTransportType
+        from backend.app.services.tools.adapters.mcp_manager import MCPServerManager
+        from backend.app.services.tools.adapters.mcp_client import MCPServerConfig, MCPTransportType
 
         manager = MCPServerManager()
 
@@ -110,7 +110,7 @@ async def import_claude_mcp_config(request: MCPImportClaudeConfigRequest):
     """
     try:
         from pathlib import Path
-        from ...services.tools.adapters.mcp_manager import MCPServerManager
+        from backend.app.services.tools.adapters.mcp_manager import MCPServerManager
 
         config_path = Path(request.config_path).expanduser()
 

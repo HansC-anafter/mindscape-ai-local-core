@@ -27,14 +27,14 @@ from .providers import mcp
 # Create main router
 router = APIRouter()
 
+# Include status router FIRST (before base router) to ensure /status matches before /{tool_type}/status
+router.include_router(status_router)
+
 # Include base router (core endpoints: /providers, /discover, /, /{tool_id}, etc.)
 router.include_router(base_router)
 
 # Include connections router
 router.include_router(connections_router)
-
-# Include status router
-router.include_router(status_router)
 
 # Include provider routers
 router.include_router(local_filesystem.router)

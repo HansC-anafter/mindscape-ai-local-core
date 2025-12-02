@@ -72,7 +72,7 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
     # In local: backend/app/routes/core/capability_packs.py -> backend/packs
     base_dir = Path(__file__).parent.parent.parent.parent
     packs_dir = base_dir / "packs"
-    
+
     # If packs directory doesn't exist at calculated path, try alternative locations
     if not packs_dir.exists():
         # Try /app/backend/packs (Docker)

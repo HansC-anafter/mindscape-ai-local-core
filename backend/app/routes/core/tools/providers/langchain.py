@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-from ...services.tool_registry import ToolRegistryService
+from backend.app.services.tool_registry import ToolRegistryService
 from ..base import get_tool_registry, raise_api_error
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
@@ -32,7 +32,7 @@ async def get_available_langchain_tools():
     Used by Config Assistant to query tools that can be recommended to users
     """
     try:
-        from ...services.tools.providers.langchain_known_tools import KNOWN_LANGCHAIN_TOOLS
+        from backend.app.services.tools.providers.langchain_known_tools import KNOWN_LANGCHAIN_TOOLS
 
         return {
             "success": True,
@@ -67,8 +67,8 @@ async def register_langchain_tool(
     Used by Config Assistant for automatic tool configuration
     """
     try:
-        from ...services.tools.adapters.langchain_adapter import from_langchain
-        from ...services.tools.providers.langchain_known_tools import get_langchain_tool_class
+        from backend.app.services.tools.adapters.langchain_adapter import from_langchain
+        from backend.app.services.tools.providers.langchain_known_tools import get_langchain_tool_class
 
         tool_class_info = get_langchain_tool_class(request.tool_name)
         if not tool_class_info:
@@ -111,8 +111,8 @@ async def discover_langchain_tools(
     Used by Config Assistant to configure multiple tools at once
     """
     try:
-        from ...services.tools.adapters.langchain_adapter import from_langchain
-        from ...services.tools.providers.langchain_known_tools import get_langchain_tool_class
+        from backend.app.services.tools.adapters.langchain_adapter import from_langchain
+        from backend.app.services.tools.providers.langchain_known_tools import get_langchain_tool_class
 
         results = {
             "success": True,

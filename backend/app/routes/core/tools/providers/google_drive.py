@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 import os
 import logging
 
-from ...models.tool_registry import ToolConnectionModel
-from ...services.tool_registry import ToolRegistryService
-from ...services.tools.discovery_provider import ToolConfig
+from backend.app.models.tool_registry import ToolConnectionModel
+from backend.app.services.tool_registry import ToolRegistryService
+from backend.app.services.tools.discovery_provider import ToolConfig
 from ..base import get_tool_registry, raise_api_error
 from ..utils import render_oauth_page
 
@@ -34,7 +34,7 @@ def get_oauth_manager():
     Creates a new instance each time to ensure it loads the latest configuration
     from system settings (in case settings were updated).
     """
-    from ...services.tools.google_drive.oauth_manager import GoogleDriveOAuthManager
+    from backend.app.services.tools.google_drive.oauth_manager import GoogleDriveOAuthManager
     data_dir = os.getenv("DATA_DIR", "./data")
     manager = GoogleDriveOAuthManager(data_dir=data_dir)
     manager.reload_configuration()
