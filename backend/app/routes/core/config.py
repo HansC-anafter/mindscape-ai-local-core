@@ -13,7 +13,7 @@ from ...models.config import UpdateBackendConfigRequest, UserConfig
 from ...services.config_store import ConfigStore
 from ...services.backend_manager import BackendManager
 
-router = APIRouter(prefix="/api/config", tags=["config"])
+router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
 # Initialize stores
 config_store = ConfigStore()

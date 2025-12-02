@@ -47,7 +47,7 @@ from ...services.stores.intent_tags_store import IntentTagsStore
 # from ...routes.workspace_artifacts import router as artifacts_router
 # from ...routes.workspace_background_routines import router as background_routines_router
 
-router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
+router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
 logger = logging.getLogger(__name__)
 

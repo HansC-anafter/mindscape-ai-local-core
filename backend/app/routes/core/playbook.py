@@ -19,7 +19,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/playbooks", tags=["playbooks"])
+router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 # Initialize stores
 store = PlaybookStore()

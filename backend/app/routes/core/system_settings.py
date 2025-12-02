@@ -23,7 +23,7 @@ from ...models.system_settings import (
 )
 from ...services.system_settings_store import SystemSettingsStore
 
-router = APIRouter(prefix="/api/system-settings", tags=["system-settings"])
+router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
 
 # Initialize store
 settings_store = SystemSettingsStore()

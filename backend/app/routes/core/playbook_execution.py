@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ...services.playbook_runner import PlaybookRunner
 
-router = APIRouter(prefix="/api/playbooks", tags=["playbook-execution"])
+router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
 # Initialize playbook runner
 playbook_runner = PlaybookRunner()
