@@ -35,18 +35,38 @@ export default function WorkspacesPage() {
 
   const loadWorkspaces = async () => {
     try {
+      console.log('[loadWorkspaces] Starting, ownerUserId:', ownerUserId, 'API_URL:', API_URL);
       const response = await fetch(
         `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`
       );
+      console.log('[loadWorkspaces] Response status:', response.status, 'ok:', response.ok);
+      
       if (response.ok) {
-        const data = await response.json();
-        setWorkspaces(data);
+        try {
+          const data = await response.json();
+          console.log('[loadWorkspaces] Data received, count:', Array.isArray(data) ? data.length : 'not array');
+          setWorkspaces(Array.isArray(data) ? data : []);
+          setError(null);
+        } catch (jsonErr) {
+          console.error('[loadWorkspaces] JSON parse error:', jsonErr);
+          setError('Failed to parse workspace data');
+        }
       } else {
-        setError('Failed to load workspaces');
+        let errorMessage = 'Failed to load workspaces';
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) {
+            errorMessage = `Failed to load workspaces: ${typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail)}`;
+          }
+        } catch (parseErr) {
+          errorMessage = `Failed to load workspaces: ${response.status} ${response.statusText}`;
+        }
+        console.error('[loadWorkspaces] Error response:', errorMessage);
+        setError(errorMessage);
       }
     } catch (err) {
-      setError('Failed to load workspaces');
-      console.error(err);
+      console.error('[loadWorkspaces] Exception:', err);
+      setError(`Failed to load workspaces: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
