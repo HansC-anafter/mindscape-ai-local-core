@@ -203,7 +203,7 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
         for route_import in routes:
             try:
                 router = load_router_from_string(route_import)
-                prefix = f"/api/features/{pack_id}"
+                prefix = f"/api/v1/{pack_id}"
                 app.include_router(router, prefix=prefix, tags=[pack_id])
                 registered_count += 1
                 logger.info(f"Registered route from pack '{pack_id}': {route_import} (prefix: {prefix})")
