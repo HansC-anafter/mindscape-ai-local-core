@@ -149,12 +149,14 @@ export default function WorkspacePage() {
             await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
           }
         } catch (err: any) {
-          console.error(`[fetchWithRetry] Error on attempt ${i + 1}/${retries}:`, err);
           if (err.name === 'AbortError') {
-            console.log('[fetchWithRetry] Request aborted');
+            // AbortError is expected in React Strict Mode (development only)
+            // Don't log as error, just return null
+            console.log('[fetchWithRetry] Request aborted (likely React Strict Mode)');
             pendingRequestsRef.current.delete(requestKey);
             return null;
           }
+          console.error(`[fetchWithRetry] Error on attempt ${i + 1}/${retries}:`, err);
           if (i === retries - 1) {
             console.error('[fetchWithRetry] All retries exhausted, throwing error');
             pendingRequestsRef.current.delete(requestKey);
@@ -200,7 +202,7 @@ export default function WorkspacePage() {
             signal: abortControllerRef.current?.signal
           });
           console.log('[loadWorkspace] Direct fetch response:', response ? `Status: ${response.status}, OK: ${response.ok}, StatusText: ${response.statusText}` : 'null');
-          
+
           if (!response) {
             console.error('[loadWorkspace] Direct fetch returned null response');
             throw new Error('Direct fetch returned null');
@@ -401,8 +403,9 @@ export default function WorkspacePage() {
     setLoading(true);
     setError(null);
 
-    // Cancel any pending requests from previous effect run
-    if (abortControllerRef.current) {
+    // Cancel any pending requests from previous effect run (only if workspaceId changed)
+    if (abortControllerRef.current && loadedWorkspaceIdRef.current !== currentWorkspaceId) {
+      console.log('[useEffect] WorkspaceId changed, aborting previous requests');
       abortControllerRef.current.abort();
     }
     // Create abort controller for this effect run

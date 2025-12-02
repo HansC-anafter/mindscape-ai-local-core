@@ -771,31 +771,39 @@ export default function TimelinePanel({
                             handleExecutionClick(execution.execution_id);
                           }}
                           onUpdate={(updatedExecution, updatedStep) => {
-                            // Update local state when SSE events arrive
-                            setExecutions(prev =>
-                              prev.map(e =>
-                                e.execution_id === updatedExecution.execution_id
-                                  ? updatedExecution
-                                  : e
-                              )
-                            );
-                            if (updatedStep) {
-                              setExecutionSteps(prev => {
-                                const newMap = new Map(prev);
-                                const existingSteps = newMap.get(execution.execution_id) || [];
-                                const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
-                                if (stepIndex >= 0) {
-                                  existingSteps[stepIndex] = updatedStep;
-                                } else {
-                                  existingSteps.push(updatedStep);
-                                }
-                                newMap.set(execution.execution_id, existingSteps);
-                                return newMap;
-                              });
-                            }
-                            // Refresh executions if status changed
-                            if (updatedExecution.status !== execution.status) {
-                              loadExecutions();
+                            // Update state when SSE events arrive
+                            if (contextData) {
+                              // If using context, refresh executions to get latest data
+                              if (updatedExecution.status !== execution.status) {
+                                contextData.refreshExecutions();
+                              }
+                            } else {
+                              // If not using context, update local state
+                              setLocalExecutions(prev =>
+                                prev.map(e =>
+                                  e.execution_id === updatedExecution.execution_id
+                                    ? updatedExecution
+                                    : e
+                                )
+                              );
+                              if (updatedStep) {
+                                setExecutionSteps(prev => {
+                                  const newMap = new Map(prev);
+                                  const existingSteps = newMap.get(execution.execution_id) || [];
+                                  const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                                  if (stepIndex >= 0) {
+                                    existingSteps[stepIndex] = updatedStep;
+                                  } else {
+                                    existingSteps.push(updatedStep);
+                                  }
+                                  newMap.set(execution.execution_id, existingSteps);
+                                  return newMap;
+                                });
+                              }
+                              // Refresh executions if status changed
+                              if (updatedExecution.status !== execution.status) {
+                                loadExecutions();
+                              }
                             }
                           }}
                         />
