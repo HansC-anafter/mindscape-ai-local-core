@@ -198,9 +198,8 @@ export default function WorkspacePage() {
           pendingRequestsRef.current.delete(directRequestKey);
 
           console.log('[loadWorkspace] Attempting direct fetch...');
-          response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, {
-            signal: abortControllerRef.current?.signal
-          });
+          // Don't use abort signal for direct fetch to avoid React Strict Mode abort issues
+          response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
           console.log('[loadWorkspace] Direct fetch response:', response ? `Status: ${response.status}, OK: ${response.ok}, StatusText: ${response.statusText}` : 'null');
 
           if (!response) {
