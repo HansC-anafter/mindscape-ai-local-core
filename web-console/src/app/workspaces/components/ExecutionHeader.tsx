@@ -88,7 +88,7 @@ export default function ExecutionHeader({
               {playbookTitle || execution.playbook_code || t('unknownPlaybook')}
             </h1>
             <span className="text-xs text-gray-500 whitespace-nowrap">
-              {t('runNumber', { number: runNumber })}
+              {t('runNumber', { number: String(runNumber) })}
             </span>
           </div>
 
@@ -97,7 +97,7 @@ export default function ExecutionHeader({
           </span>
 
           <div className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap">
-            <span>{t('stepProgress', { current: (execution.current_step_index ?? 0) + 1, total: execution.total_steps || 1 })}</span>
+            <span>{t('stepProgress', { current: String((execution.current_step_index ?? 0) + 1), total: String(execution.total_steps || 1) })}</span>
           </div>
 
           <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
