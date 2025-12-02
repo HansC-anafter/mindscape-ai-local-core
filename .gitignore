@@ -68,3 +68,23 @@ test_*.yaml
 *.pdf
 !docs/**/*.pdf
 
+# Internal documentation (not for open source)
+docs-internal/
+**/*_COMPLETE_REPORT.md
+**/*_PROGRESS_REPORT.md
+**/*_TODOS.md
+**/*_TESTING*.md
+**/*_TEST_LOG*.md
+**/PHASE*.md
+**/REFACTORING_*.md
+**/ARCHITECTURE_NEUTRALITY_*.md
+**/*DEBUG*.md
+**/*_EXPERIENCE_SUMMARY.md
+**/*_IMPLEMENTATION_*.md
+**/ROUTES_CLASSIFICATION.md
+**/*_CLASSIFICATION.md
+**/*_ANALYSIS.md
+
+# Internal scripts (not for open source)
+scripts-internal/
+
