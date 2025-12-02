@@ -63,7 +63,7 @@ interface Workspace {
 function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const contextData = useWorkspaceData();
   const router = useRouter();
-  
+
   // Use Context data instead of local state
   const workspace = contextData.workspace;
   const loading = contextData.isLoadingWorkspace;
@@ -277,7 +277,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
         {workspace && (
           <WorkspaceHeader
             workspaceName={workspace.title}
-            mode={workspace.mode || null}
+            mode={(workspace.mode as WorkspaceMode) || null}
             associatedIntent={workspace.associated_intent}
             workspaceId={workspaceId}
             onModeChange={handleModeChange}
@@ -299,7 +299,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   <TimelinePanel
                     workspaceId={workspaceId}
                     apiUrl={API_URL}
-                    isInSettingsPage={rightSidebarTab === 'settings'}
+                    isInSettingsPage={false}
                     focusExecutionId={focusExecutionId}
                     onClearFocus={() => {
                       setFocusExecutionId(null);
