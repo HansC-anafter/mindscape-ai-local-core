@@ -44,23 +44,44 @@ export default function SuggestedNextStepsCard({
   const translateText = (text: string): string => {
     if (!text) return text;
 
-    // Check if it's a pure i18n key
-    if (text.startsWith('suggestion.') || text.startsWith('suggestions.')) {
-      const translated = t(text as any);
-      return translated !== text ? translated : text;
-    }
-
     // Check if it starts with an i18n key followed by space and more text
     // e.g., "suggestion.run_playbook_cta 專案拆解 & 里程碑"
-    const keyMatch = text.match(/^(suggestion\.|suggestions\.)(\S+)\s+(.+)$/);
+    // Match pattern: suggestion.xxx or suggestions.xxx followed by space and text
+    const keyMatch = text.match(/^(suggestion\.|suggestions\.)([^\s]+)\s+(.+)$/);
     if (keyMatch) {
       const fullKey = keyMatch[1] + keyMatch[2];
       const restText = keyMatch[3];
-      const translated = t(fullKey as any);
-      // If translation exists and is different from key, use it; otherwise keep original
-      if (translated !== fullKey) {
+      let translated: string;
+      try {
+        translated = t(fullKey as any);
+      } catch (e) {
+        // If translation fails, just return the rest text without the key
+        return restText;
+      }
+      // If translation found and different from key, use it
+      if (translated && translated !== fullKey) {
         return `${translated} ${restText}`;
       }
+      // If translation not found (returned same as key), remove the key and just show rest text
+      // This handles cases where backend sends untranslated key + text
+      return restText;
+    }
+
+    // Check if it's a pure i18n key (no additional text after)
+    if (text.startsWith('suggestion.') || text.startsWith('suggestions.')) {
+      let translated: string;
+      try {
+        translated = t(text as any);
+      } catch (e) {
+        // If translation fails, return empty to avoid showing raw key
+        return '';
+      }
+      // If translation found, return it; otherwise return empty to avoid showing raw key
+      if (translated !== text) {
+        return translated;
+      }
+      // If key not found, return empty string to avoid showing raw i18n key
+      return '';
     }
 
     return text;

@@ -107,7 +107,7 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
       >
         <div
           ref={messageContainerRef}
-          className={`relative max-w-[80%] min-w-0 rounded-lg px-6 py-3 ${
+          className={`relative max-w-[80%] min-w-[200px] rounded-lg px-6 py-3 ${
             message.role === 'user'
               ? 'bg-blue-600 text-white'
               : message.is_welcome
@@ -117,10 +117,17 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
           style={{
             wordBreak: 'break-word',
             overflowWrap: 'break-word',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            width: 'fit-content',
+            maxWidth: '80%'
           }}
         >
-          <div className="prose prose-sm max-w-none break-words text-sm" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+          <div className="prose prose-sm max-w-none break-words text-sm" style={{
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            minWidth: 0,
+            width: '100%'
+          }}>
             {isVisible || message.role === 'user' ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -156,12 +163,12 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
             </div>
           )}
 
-          <div className={`flex items-center justify-between mt-1 ${
+          <div className={`flex items-center justify-between mt-1 gap-2 ${
             message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
-          }`}>
-            <div className="flex flex-col items-start flex-shrink-0">
-              <span className="text-xs leading-tight">{formattedDate}</span>
-              <span className="text-xs leading-tight">{formattedTime}</span>
+          }`} style={{ minWidth: 0, width: '100%' }}>
+            <div className="flex items-center gap-1 flex-shrink-0 text-xs whitespace-nowrap">
+              <span>{formattedDate}</span>
+              <span>{formattedTime}</span>
             </div>
             {showCopyButton && (
               <button
@@ -171,6 +178,7 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
                     ? 'bg-blue-700 hover:bg-blue-800 text-white'
                     : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
                 }`}
+                style={{ flexShrink: 0 }}
                 title={copied ? t('copied') : t('copyMessage')}
               >
                 {copied ? (
