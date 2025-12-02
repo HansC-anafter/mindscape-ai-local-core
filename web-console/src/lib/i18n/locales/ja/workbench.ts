@@ -165,5 +165,18 @@ export const workbenchJa = {
   workspaceDelete: 'ワークスペースを削除',
   workspaceDeleteFailed: 'ワークスペースの削除に失敗しました',
   workspaceDeleteConfirm: 'ワークスペース「{workspaceName}」を削除してもよろしいですか？この操作は元に戻せず、関連するすべてのデータが永久に削除されます。',
+
+  // Welcome messages (from backend i18n)
+  'welcome.new_workspace': '「{workspace_title}」ワークスペースへようこそ！\n\nこれはあなたのコラボレーションスペースです。ここでお手伝いできます：\n\n**お手伝いできること：**\n• Playbook ワークフローを実行（例：日常計画、プロジェクト分解など）\n• タスクを管理し、進捗を追跡\n• 質問に答え、提案を提供\n• 作業パターンを分析\n\n**クイックスタート：**\n• 完了したいタスクを直接教えてください\n• または、以下の提案をクリックして開始\n\n**提案：**\n初めての場合は、「Mindscape」のコールドスタートタスクを完了することをお勧めします。これにより、あなたのニーズと作業習慣をよりよく理解できます。\n\nいつでも必要な支援を教えてください！',
+  'welcome.returning_workspace': '「{workspace_title}」ワークスペースへおかえりなさい！\n\nお手伝いできること：\n• Playbook ワークフローを実行\n• プロジェクトとタスクを管理\n• 質問に答え、提案を提供\n• 作業パターンを分析\n\n完了したいタスクを直接教えてください。または、以下の提案をクリックして開始！',
+  'welcome.fallback': '「{workspace_title}」ワークスペースへようこそ！Playbook の実行、タスクの管理、質問への回答など、お手伝いできます。完了したいタスクを直接教えてください！',
+  'suggestions.organize_tasks': '今日のタスクを整理する',
+  'suggestions.daily_planning': '日常計画プレイブックを実行',
+  'suggestions.view_progress': 'プロジェクトの進捗を表示',
+  'suggestions.execute_playbook': '{playbook_name} を実行',
+  'suggestion.run_playbook_cta': 'プレイブックを実行',
+  'suggestion.create_intent_card_title': '意図カードを作成',
+  'suggestion.create_intent_card_titl': '意図カードを作成', // typo fallback
+  'suggestion.create_intent_card_description': '長期目標やタスクの追跡を開始',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

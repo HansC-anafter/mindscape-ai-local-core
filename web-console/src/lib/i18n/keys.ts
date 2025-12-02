@@ -1031,6 +1031,10 @@ export const keys = {
   'suggestions.daily_planning': true,
   'suggestions.view_progress': true,
   'suggestions.execute_playbook': true,
+  'suggestion.run_playbook_cta': true,
+  'suggestion.create_intent_card_title': true,
+  'suggestion.create_intent_card_titl': true, // typo fallback
+  'suggestion.create_intent_card_description': true,
   skip: true,
 } as const;
 

@@ -1,0 +1,21 @@
+keywords:
+  semantic_seeds: "understand,analyze,extract,theme,intent,concept,paper,article,document,comprehend"
+  daily_planning: "plan,schedule,arrange,priority,task,timeline,organize"
+  content_drafting: "write,draft,create,generate,produce,outline"
+
+capability_names:
+  semantic_seeds: "Semantic Seeds Extraction"
+  daily_planning: "Daily Planning"
+  content_drafting: "Content Drafting"
+
+separator:
+  and: ", "
+
+collaboration_suggestion: "{capabilities} can collaborate on this task"
+
+system_suggestion:
+  collaboration: "[System Suggestion] This task may benefit from multi-AI collaboration: {suggestion}. You can suggest the user to use these capabilities in your response."
+
+error:
+  generation_failed: "Sorry, an error occurred while generating response: {error}"
+

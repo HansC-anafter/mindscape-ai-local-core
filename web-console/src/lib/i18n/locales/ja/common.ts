@@ -30,6 +30,8 @@ export const commonJa = {
   update: '更新',
   search: '検索',
   add: '追加',
+  accept: '受け入れる',
+  skip: 'スキップ',
 
   // Common
   loading: '読み込み中...',

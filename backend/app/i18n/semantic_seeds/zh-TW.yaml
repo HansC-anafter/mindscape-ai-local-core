@@ -1,0 +1,25 @@
+extract_seeds_prompt: |
+  從以下內容中提取語義種子（semantic seeds）：
+
+  內容：
+  {content}
+
+  請提取以下類型的種子：
+  1. 長期目標/專案（如果提到，如「XXX 專案」「打造 XXX」）
+  2. 工作模式偏好（任務處理方式，如「先拆問題」「先列時程」「喜歡 outline」）
+  3. 情緒/壓力源模式（如果有，如「時間不夠」「壓力大」「切換成本」）
+  4. 關鍵人物/品牌/概念（常提到的人名、品牌、關鍵概念）
+
+  請以 JSON 格式返回，每個種子包含：
+  - type: 'project', 'principle', 'preference', 'intent', 'entity'
+  - text: 種子文本
+  - confidence: 信心度 (0-1)
+
+  返回格式：
+  {{
+    "seeds": [
+      {{"type": "project", "text": "...", "confidence": 0.8}},
+      ...
+    ]
+  }}
+

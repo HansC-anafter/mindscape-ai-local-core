@@ -192,6 +192,10 @@ export const workbenchZhTW = {
   'suggestions.daily_planning': '執行每日規劃 Playbook',
   'suggestions.view_progress': '查看我的專案進度',
   'suggestions.execute_playbook': '執行 {playbook_name}',
+  'suggestion.run_playbook_cta': '執行',
+  'suggestion.create_intent_card_title': '建立意圖卡',
+  'suggestion.create_intent_card_titl': '建立意圖卡', // typo fallback
+  'suggestion.create_intent_card_description': '開始追蹤你的長期目標和任務',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const workbenchEn = {
@@ -382,4 +386,8 @@ export const workbenchEn = {
   'suggestions.daily_planning': 'Execute Daily Planning Playbook',
   'suggestions.view_progress': 'View my project progress',
   'suggestions.execute_playbook': 'Execute {playbook_name}',
+  'suggestion.run_playbook_cta': 'Run Playbook',
+  'suggestion.create_intent_card_title': 'Create Intent Card',
+  'suggestion.create_intent_card_titl': 'Create Intent Card', // typo fallback
+  'suggestion.create_intent_card_description': 'Start tracking your long-term goals and tasks',
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -41,6 +41,31 @@ export default function SuggestedNextStepsCard({
   const [executingSteps, setExecutingSteps] = React.useState<Set<number>>(new Set());
   const [executedSteps, setExecutedSteps] = React.useState<Set<number>>(new Set());
 
+  const translateText = (text: string): string => {
+    if (!text) return text;
+
+    // Check if it's a pure i18n key
+    if (text.startsWith('suggestion.') || text.startsWith('suggestions.')) {
+      const translated = t(text as any);
+      return translated !== text ? translated : text;
+    }
+
+    // Check if it starts with an i18n key followed by space and more text
+    // e.g., "suggestion.run_playbook_cta 專案拆解 & 里程碑"
+    const keyMatch = text.match(/^(suggestion\.|suggestions\.)(\S+)\s+(.+)$/);
+    if (keyMatch) {
+      const fullKey = keyMatch[1] + keyMatch[2];
+      const restText = keyMatch[3];
+      const translated = t(fullKey as any);
+      // If translation exists and is different from key, use it; otherwise keep original
+      if (translated !== fullKey) {
+        return `${translated} ${restText}`;
+      }
+    }
+
+    return text;
+  };
+
   const handleAction = async (action: string, step: NextStep, stepIndex: number) => {
     // Handle special actions that don't need API call
     if (action === 'create_intent') {
@@ -157,7 +182,7 @@ export default function SuggestedNextStepsCard({
             onClick={() => setShowHistory(!showHistory)}
             className="text-[10px] text-gray-500 hover:text-gray-700 underline"
           >
-            {showHistory ? '隱藏' : `歷史 (${suggestionHistory.length})`}
+            {showHistory ? t('hideDetails') : `${t('timelineHistory')} (${suggestionHistory.length})`}
           </button>
         )}
       </div>
@@ -189,10 +214,10 @@ export default function SuggestedNextStepsCard({
                       className="p-1.5 rounded border border-gray-200 bg-white"
                     >
                       <div className="font-medium text-gray-700 text-[10px] mb-0.5">
-                        {step.title}
+                        {translateText(step.title)}
                       </div>
                       <div className="text-[9px] text-gray-500">
-                        {step.description}
+                        {translateText(step.description)}
                       </div>
                     </div>
                   ))}
@@ -241,7 +266,7 @@ export default function SuggestedNextStepsCard({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                       <div className="font-medium text-gray-900 text-xs">
-                        {step.title}
+                        {translateText(step.title)}
                       </div>
                       {/* Confidence score badge if available */}
                       {step.llm_analysis?.confidence !== undefined && (
@@ -249,16 +274,16 @@ export default function SuggestedNextStepsCard({
                           className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 flex-shrink-0 whitespace-nowrap"
                           title={t('llmConfidenceScore', { confidence: step.llm_analysis.confidence.toFixed(2) })}
                         >
-                          信心：{step.llm_analysis.confidence.toFixed(2)}
+                          {t('confidence')}{step.llm_analysis.confidence.toFixed(2)}
                         </span>
                       )}
                     </div>
                     <div className="text-[10px] text-gray-600">
-                      {step.description}
+                      {translateText(step.description)}
                     </div>
                     {isExecuting && (
                       <div className="text-[9px] text-blue-600 mt-1">
-                        執行中...
+                        {t('executing')}
                       </div>
                     )}
                   </div>

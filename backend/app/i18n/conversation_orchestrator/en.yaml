@@ -1,0 +1,39 @@
+# Conversation Orchestrator i18n - English (en)
+
+workflow:
+  started: "Started workflow: {playbook_code}"
+  failed: "Failed to start workflow {playbook_code}: {error}"
+
+error:
+  processing: "Error processing request: {error}"
+  generate_response: "Unable to generate response."
+  execute_action_failed: "Failed to execute action: {error}"
+  execute_pack: "Execute pack: {pack_id}"
+  could_not_find_playbook: "Could not find executable playbook for pack {pack_id}. Tried: {tried}"
+  unknown_action: "Unknown action: {action}"
+
+feedback:
+  readonly: "I analyzed the content and found: {summary}"
+
+suggestion:
+  add_to_mindscape: "This looks like a goal you'll mention repeatedly. Add to mindscape?"
+  cta_add: "Add"
+  create_intent_card_title: "Create Intent Card"
+  create_intent_card_description: "Start tracking your long-term goals and tasks"
+  create_intent_card_cta: "Create Intent"
+  organize_tasks_title: "Organize Tasks"
+  organize_tasks_description: "Create task checklist from your intents"
+  organize_tasks_cta: "Organize Tasks"
+  run_playbook_cta: "Run Playbook"
+  start_conversation_title: "Start Conversation"
+  start_conversation_description: "Tell me what you want to accomplish"
+  start_conversation_cta: "Start Chat"
+  upload_file_title: "Upload File"
+  upload_file_description: "Upload a file to analyze or process"
+  upload_file_cta: "Upload File"
+
+confirmation:
+  external_write: "Execute {action_type}? This will take effect immediately."
+  button_confirm: "Confirm"
+  button_cancel: "Cancel"
+

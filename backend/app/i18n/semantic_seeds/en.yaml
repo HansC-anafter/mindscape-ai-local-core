@@ -1,0 +1,25 @@
+extract_seeds_prompt: |
+  Extract semantic seeds from the following content:
+
+  Content:
+  {content}
+
+  Please extract the following types of seeds:
+  1. Long-term goals/projects (if mentioned, such as "XXX project", "build XXX")
+  2. Work mode preferences (task handling methods, such as "break down problems first", "list schedule first", "prefer outline")
+  3. Emotion/stress patterns (if any, such as "not enough time", "high stress", "switching costs")
+  4. Key people/brands/concepts (frequently mentioned names, brands, key concepts)
+
+  Return in JSON format, each seed contains:
+  - type: 'project', 'principle', 'preference', 'intent', 'entity'
+  - text: seed text
+  - confidence: confidence level (0-1)
+
+  Return format:
+  {{
+    "seeds": [
+      {{"type": "project", "text": "...", "confidence": 0.8}},
+      ...
+    ]
+  }}
+

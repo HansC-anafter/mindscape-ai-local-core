@@ -1,0 +1,7 @@
+intent_keywords:
+  mapping: "research:Research and Analysis,analysis:Analysis and Evaluation,plan:Planning,strategy:Strategy Development,development:Product Development,management:Project Management,writing:Content Writing,proposal:Proposal Development,report:Report Writing,marketing:Marketing Strategy,product:Product Development,project:Project Management"
+
+error:
+  no_content_preview: "Cannot extract text content from file, cannot perform semantic seed analysis"
+  file_type_not_suitable: "File type not suitable for semantic seed extraction"
+

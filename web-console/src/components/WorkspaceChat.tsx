@@ -889,7 +889,7 @@ export default function WorkspaceChat({
                 }}
                 className="px-3 py-1.5 text-xs bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 hover:border-blue-400 transition-colors"
               >
-                {suggestion}
+                {suggestion.startsWith('suggestion.') || suggestion.startsWith('suggestions.') ? t(suggestion as any) || suggestion : suggestion}
               </button>
             ))}
           </div>

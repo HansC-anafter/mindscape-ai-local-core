@@ -1,0 +1,21 @@
+keywords:
+  semantic_seeds: "理解,分析,提取,主題,意圖,概念,論文,文章,文件,看懂"
+  daily_planning: "規劃,計劃,安排,優先,任務,時程,整理"
+  content_drafting: "寫,撰寫,創作,生成,產出,草稿,大綱"
+
+capability_names:
+  semantic_seeds: "語義種子提取"
+  daily_planning: "日常規劃"
+  content_drafting: "內容撰寫"
+
+separator:
+  and: "、"
+
+collaboration_suggestion: "{capabilities} 等能力可以協作處理這個問題"
+
+system_suggestion:
+  collaboration: "[系統建議] 這個問題可能適合使用多個 AI 能力協作：{suggestion}。你可以在回復中建議用戶使用這些能力。"
+
+error:
+  generation_failed: "抱歉，生成回復時出現錯誤：{error}"
+

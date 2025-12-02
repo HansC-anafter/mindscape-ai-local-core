@@ -95,6 +95,8 @@ export const mindscapeZhTW = {
   mindscapeAcceptSuggestionFailed: '接受建議失敗：{error}',
   mindscapeSkipSuggestionFailed: '略過建議失敗：{error}',
   placeholderNotice: '此頁面為佔位頁面。完整的心智空間管理功能將在後續版本中實現。',
+  longTermProject: '長期專案',
+  designPrinciple: '設計原則',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const mindscapeEn = {
@@ -188,4 +190,6 @@ export const mindscapeEn = {
   mindscapeAcceptSuggestionFailed: 'Failed to accept suggestion: {error}',
   mindscapeSkipSuggestionFailed: 'Failed to skip suggestion: {error}',
   placeholderNotice: 'This is a placeholder page. Full mindscape management features will be implemented in future versions.',
+  longTermProject: 'Long-term Project',
+  designPrinciple: 'Design Principle',
 } as const satisfies Partial<Record<MessageKey, string>>;

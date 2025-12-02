@@ -1,0 +1,39 @@
+# Conversation Orchestrator i18n - Traditional Chinese (zh-TW)
+
+workflow:
+  started: "已啟動工作流程：{playbook_code}"
+  failed: "啟動工作流程 {playbook_code} 時發生錯誤：{error}"
+
+error:
+  processing: "抱歉，處理您的請求時發生錯誤：{error}"
+  generate_response: "抱歉，無法生成回應。"
+  execute_action_failed: "執行操作失敗：{error}"
+  execute_pack: "執行 Pack：{pack_id}"
+  could_not_find_playbook: "找不到可執行的 Playbook：{pack_id}。已嘗試：{tried}"
+  unknown_action: "未知的操作：{action}"
+
+feedback:
+  readonly: "我剛剛幫你分析了內容，發現了 {summary}"
+
+suggestion:
+  add_to_mindscape: "這看起來像是你未來會重複提到的目標，要不要加進 mindscape？"
+  cta_add: "加入"
+  create_intent_card_title: "建立意圖卡"
+  create_intent_card_description: "開始追蹤你的長期目標和任務"
+  create_intent_card_cta: "建立意圖"
+  organize_tasks_title: "整理任務"
+  organize_tasks_description: "從你的意圖建立任務清單"
+  organize_tasks_cta: "整理任務"
+  run_playbook_cta: "執行 Playbook"
+  start_conversation_title: "開始對話"
+  start_conversation_description: "告訴我你想要完成什麼任務"
+  start_conversation_cta: "開始對話"
+  upload_file_title: "上傳檔案"
+  upload_file_description: "上傳檔案進行分析或處理"
+  upload_file_cta: "上傳檔案"
+
+confirmation:
+  external_write: "要執行 {action_type} 嗎？這一步會直接生效。"
+  button_confirm: "確認"
+  button_cancel: "取消"
+

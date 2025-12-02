@@ -95,5 +95,7 @@ export const mindscapeJa = {
   mindscapeAcceptSuggestionFailed: '提案の受け入れに失敗しました：{error}',
   mindscapeSkipSuggestionFailed: '提案のスキップに失敗しました：{error}',
   placeholderNotice: 'このページはプレースホルダーページです。完全なマインドスケープ管理機能は今後のバージョンで実装されます。',
+  longTermProject: '長期プロジェクト',
+  designPrinciple: 'デザイン原則',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

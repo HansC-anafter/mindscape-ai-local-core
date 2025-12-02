@@ -31,6 +31,8 @@ export const commonZhTW = {
   update: '更新',
   search: '搜尋',
   add: '添加',
+  accept: '接受',
+  skip: '略過',
 
   // Common
   loading: '載入中...',
@@ -140,6 +142,8 @@ export const commonEn = {
   update: 'Update',
   search: 'Search',
   add: 'Add',
+  accept: 'Accept',
+  skip: 'Skip',
 
   // Common
   loading: 'Loading...',

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import OnboardingBanner from '../../components/OnboardingBanner';
 import SelfIntroDialog from '../../components/SelfIntroDialog';
@@ -35,6 +36,7 @@ interface CurrentMode {
 }
 
 export default function MindscapePage() {
+  const router = useRouter();
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
   const [showSelfIntroDialog, setShowSelfIntroDialog] = useState(false);
   const [showCongrats, setShowCongrats] = useState(false);
@@ -301,7 +303,13 @@ export default function MindscapePage() {
                 </ul>
               }
               buttonText={onboardingState?.task1_completed ? t('editButton') : t('quickSetup')}
-              onButtonClick={() => setShowSelfIntroDialog(true)}
+              onButtonClick={() => {
+                if (onboardingState?.task1_completed) {
+                  setShowSelfIntroDialog(true);
+                } else {
+                  router.push('/intro');
+                }
+              }}
             />
 
             {/* Task 2: First Project */}
@@ -428,44 +436,69 @@ export default function MindscapePage() {
 
         {/* AI Suggestions */}
         {suggestions.length > 0 && (
-          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-6 mb-6">
-            <div className="flex items-center mb-4">
-              <span className="text-2xl mr-2">🔍</span>
-              <h2 className="text-lg font-semibold text-gray-900">
-                根據最近 10 次使用記錄，我幫你整理出 {suggestions.length} 個可能值得寫入心智空間的改動：
+          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-6 mb-6 min-w-0">
+            <div className="flex items-center mb-4 min-w-0">
+              <span className="text-2xl mr-2 flex-shrink-0">🔍</span>
+              <h2 className="text-lg font-semibold text-gray-900 min-w-0 break-words">
+                {t('mindscapeSuggestions', { count: suggestions.length.toString() })}
               </h2>
             </div>
             <div className="space-y-3">
               {suggestions.map((suggestion) => (
-                <div key={suggestion.id} className="bg-white rounded-lg p-4 border border-yellow-300">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center mb-2">
-                        <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded mr-2">
-                          {suggestion.type === 'project' ? '長期專案' :
-                           suggestion.type === 'principle' ? '設計原則' :
-                           suggestion.type === 'preference' ? '偏好設定' : '意圖卡'}
+                <div key={suggestion.id} className="bg-white rounded-lg p-4 border border-yellow-300 min-w-0">
+                  <div className="flex items-start justify-between gap-4 min-w-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center mb-2 flex-wrap gap-2">
+                        <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded flex-shrink-0">
+                          {suggestion.type === 'project' ? t('longTermProject') :
+                           suggestion.type === 'principle' ? t('designPrinciple') :
+                           suggestion.type === 'preference' ? t('preferences') : t('intents')}
                         </span>
-                        <span className="text-xs text-gray-500">{suggestion.source}</span>
-                        <span className="ml-2 text-xs text-gray-400">
-                          信心度：{Math.round(suggestion.confidence * 100)}%
+                        <span className="text-xs text-gray-500 flex-shrink-0">{suggestion.source}</span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {t('confidence')}{Math.round(suggestion.confidence * 100)}%
                         </span>
                       </div>
-                      <h3 className="font-medium text-gray-900 mb-1">{suggestion.title}</h3>
-                      <p className="text-sm text-gray-600">{suggestion.description}</p>
+                      <h3 className="font-medium text-gray-900 mb-1 break-words">
+                        {(() => {
+                          const title = suggestion.title;
+                          if (!title) return title;
+                          if (title.startsWith('suggestion.') || title.startsWith('suggestions.')) {
+                            const keyMatch = title.match(/^(suggestion\.|suggestions\.)(\S+)\s+(.+)$/);
+                            if (keyMatch) {
+                              const fullKey = keyMatch[1] + keyMatch[2];
+                              const restText = keyMatch[3];
+                              const translated = t(fullKey as any);
+                              return translated !== fullKey ? `${translated} ${restText}` : title;
+                            }
+                            return t(title as any) || title;
+                          }
+                          return title;
+                        })()}
+                      </h3>
+                      <p className="text-sm text-gray-600 break-words">
+                        {(() => {
+                          const desc = suggestion.description;
+                          if (!desc) return desc;
+                          if (desc.startsWith('suggestion.') || desc.startsWith('suggestions.')) {
+                            return t(desc as any) || desc;
+                          }
+                          return desc;
+                        })()}
+                      </p>
                     </div>
-                    <div className="ml-4 flex space-x-2">
+                    <div className="ml-4 flex space-x-2 flex-shrink-0">
                       <button
                         onClick={() => handleAcceptSuggestion(suggestion)}
-                        className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                        className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 whitespace-nowrap"
                       >
-                        接受
+                        {t('accept')}
                       </button>
                       <button
                         onClick={() => handleDismissSuggestion(suggestion)}
-                        className="px-3 py-1 bg-gray-300 text-gray-700 rounded text-sm hover:bg-gray-400"
+                        className="px-3 py-1 bg-gray-300 text-gray-700 rounded text-sm hover:bg-gray-400 whitespace-nowrap"
                       >
-                        略過
+                        {t('skip')}
                       </button>
                     </div>
                   </div>
