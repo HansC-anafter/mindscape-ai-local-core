@@ -42,8 +42,8 @@ export function useTools(): UseToolsReturn {
     setLoading(true);
     try {
       const [connData, toolsData] = await Promise.all([
-        settingsApi.get<ToolConnection[]>('/api/tools/connections').catch(() => []),
-        settingsApi.get<RegisteredTool[]>('/api/tools?enabled_only=false').catch(() => []),
+        settingsApi.get<ToolConnection[]>('/api/v1/tools/connections').catch(() => []),
+        settingsApi.get<RegisteredTool[]>('/api/v1/tools?enabled_only=false').catch(() => []),
       ]);
       setConnections(connData);
       setTools(toolsData);
@@ -69,7 +69,7 @@ export function useTools(): UseToolsReturn {
 
   const loadToolsStatus = useCallback(async () => {
     try {
-      const response = await settingsApi.get<{ tools: Record<string, ToolStatusInfo> }>('/api/tools/status');
+      const response = await settingsApi.get<{ tools: Record<string, ToolStatusInfo> }>('/api/v1/tools/status');
       setToolsStatus(response.tools || {});
     } catch (err) {
       console.error('Failed to load tools status:', err);
@@ -105,7 +105,7 @@ export function useTools(): UseToolsReturn {
         if (!conn) return;
 
         if (conn.tool_type === 'wordpress' && conn.wp_url) {
-          await settingsApi.post('/api/tools/wordpress/discover', {
+          await settingsApi.post('/api/v1/tools/wordpress/discover', {
             connection_id: connectionId,
             name: conn.name,
             wp_url: conn.wp_url,

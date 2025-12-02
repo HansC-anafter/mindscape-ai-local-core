@@ -26,7 +26,7 @@ export function NotionConnectionWizard({ onClose, onSuccess }: NotionConnectionW
     setSuccess(null);
     try {
       const result = await settingsApi.post<{ tools_count?: number }>(
-        '/api/tools/notion/discover',
+        '/api/v1/tools/notion/discover',
         {
           connection_id: form.connection_id,
           name: form.name,

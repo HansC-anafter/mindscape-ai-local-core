@@ -288,7 +288,7 @@ export function LocalFilesystemManager({
     try {
       setLoading(true);
       const data = await settingsApi.get<{ connections?: ConfiguredDirectory[] }>(
-        '/api/tools/local-filesystem/directories'
+        '/api/v1/tools/local-filesystem/directories'
       );
       setConfiguredDirs(data.connections || []);
     } catch (err) {
@@ -624,7 +624,7 @@ export function LocalFilesystemManager({
           onSuccess();
         }, 1500);
       } else {
-        await settingsApi.post('/api/tools/local-filesystem/configure', {
+        await settingsApi.post('/api/v1/tools/local-filesystem/configure', {
           connection_id: 'local-fs-default',
           name: 'Local File System',
           allowed_directories: directories,

@@ -125,7 +125,7 @@ export function GoogleOAuthSettings() {
 
   // Auto-generate redirect URI if backend_url is set
   const suggestedRedirectUri = form.backend_url
-    ? `${form.backend_url}/api/tools/google-drive/oauth/callback`
+    ? `${form.backend_url}/api/v1/tools/google-drive/oauth/callback`
     : '';
 
   return (
@@ -217,7 +217,7 @@ export function GoogleOAuthSettings() {
             type="url"
             value={form.redirect_uri}
             onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
-            placeholder={suggestedRedirectUri || 'http://localhost:8000/api/tools/google-drive/oauth/callback'}
+            placeholder={suggestedRedirectUri || 'http://localhost:8000/api/v1/tools/google-drive/oauth/callback'}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
           <p className="mt-1 text-xs text-gray-500">

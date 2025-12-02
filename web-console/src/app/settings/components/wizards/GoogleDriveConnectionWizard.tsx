@@ -63,7 +63,7 @@ export function GoogleDriveConnectionWizard({
     setSuccess(null);
 
     // Build OAuth authorization URL
-    const authorizeUrl = new URL('/api/tools/google-drive/oauth/authorize', settingsApi.baseURL);
+    const authorizeUrl = new URL('/api/v1/tools/google-drive/oauth/authorize', settingsApi.baseURL);
     authorizeUrl.searchParams.set('connection_id', form.connection_id);
     authorizeUrl.searchParams.set('connection_name', form.name);
 
@@ -100,7 +100,7 @@ export function GoogleDriveConnectionWizard({
     setSuccess(null);
     try {
       const result = await settingsApi.post<{ tools_count?: number }>(
-        '/api/tools/google-drive/discover',
+        '/api/v1/tools/google-drive/discover',
         {
           connection_id: form.connection_id,
           name: form.name,

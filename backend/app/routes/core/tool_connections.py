@@ -17,7 +17,7 @@ from ...models.tool_connection import (
 )
 from ...services.tool_connection_store import ToolConnectionStore
 
-router = APIRouter(prefix="/api/tool-connections", tags=["tool-connections"])
+router = APIRouter(prefix="/api/v1/tool-connections", tags=["tool-connections"])
 
 # Initialize tool connection store
 tool_connection_store = ToolConnectionStore()

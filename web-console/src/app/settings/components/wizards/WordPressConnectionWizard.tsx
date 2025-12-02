@@ -33,7 +33,7 @@ export function WordPressConnectionWizard({
       const result = await settingsApi.post<{
         capabilities?: unknown[];
         registered_tools?: unknown[];
-      }>('/api/tools/wordpress/discover', {
+      }>('/api/v1/tools/wordpress/discover', {
         connection_id: form.connection_id,
         name: form.name,
         wp_url: form.wp_url,
