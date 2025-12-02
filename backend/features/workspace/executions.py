@@ -609,6 +609,96 @@ async def list_executions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{workspace_id}/executions-with-steps")
+async def list_executions_with_steps(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    limit: int = Query(50, description="Maximum number of executions to return"),
+    include_steps_for: str = Query("active", description="Include steps for: 'active' (running/paused), 'all', or 'none'"),
+):
+    """
+    List all Playbook executions for a workspace with their steps in a single request
+
+    This endpoint avoids N+1 queries by returning executions with their steps in one response.
+    Use include_steps_for parameter to control which executions get steps loaded:
+    - 'active': Only load steps for running/paused executions (recommended for performance)
+    - 'all': Load steps for all executions
+    - 'none': Don't load any steps (same as /executions endpoint)
+    """
+    try:
+        store = MindscapeStore()
+        tasks_store = TasksStore(db_path=store.db_path)
+
+        # Get all execution tasks
+        execution_tasks = tasks_store.list_executions_by_workspace(workspace_id=workspace_id, limit=limit)
+
+        # Get all PLAYBOOK_STEP events for this workspace (batch query)
+        all_step_events = []
+        if include_steps_for != "none":
+            events = store.get_events_by_workspace(workspace_id=workspace_id, limit=2000)
+            all_step_events = [
+                e for e in events
+                if e.event_type == EventType.PLAYBOOK_STEP
+            ]
+
+        # Group step events by execution_id
+        steps_by_execution: Dict[str, list] = {}
+        for event in all_step_events:
+            exec_id = event.payload.get("execution_id") if event.payload else None
+            if exec_id:
+                if exec_id not in steps_by_execution:
+                    steps_by_execution[exec_id] = []
+                steps_by_execution[exec_id].append(event)
+
+        # Sort steps by step_index for each execution
+        for exec_id in steps_by_execution:
+            steps_by_execution[exec_id].sort(key=lambda e: e.payload.get("step_index", 0))
+
+        executions = []
+        for task in execution_tasks:
+            try:
+                execution = ExecutionSession.from_task(task)
+                execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+                if isinstance(execution_dict, dict):
+                    execution_dict["status"] = task.status.value
+                    execution_dict["created_at"] = task.created_at.isoformat() if task.created_at else None
+                    execution_dict["started_at"] = task.started_at.isoformat() if task.started_at else None
+                    execution_dict["completed_at"] = task.completed_at.isoformat() if task.completed_at else None
+
+                    # Include steps based on include_steps_for parameter
+                    exec_id = execution_dict.get("execution_id")
+                    should_include_steps = False
+
+                    if include_steps_for == "all":
+                        should_include_steps = True
+                    elif include_steps_for == "active":
+                        # Only include steps for running or paused executions
+                        is_running = task.status.value == "running"
+                        is_paused = execution_dict.get("paused_at") is not None
+                        should_include_steps = is_running or is_paused
+
+                    if should_include_steps and exec_id in steps_by_execution:
+                        steps = []
+                        for event in steps_by_execution[exec_id]:
+                            try:
+                                step = ExecutionStep.from_mind_event(event)
+                                steps.append(step.model_dump() if hasattr(step, 'model_dump') else step)
+                            except Exception as e:
+                                logger.warning(f"Failed to create ExecutionStep: {e}")
+                        execution_dict["steps"] = steps
+                    else:
+                        execution_dict["steps"] = []
+
+                executions.append(execution_dict)
+            except Exception as e:
+                logger.warning(f"Failed to create ExecutionSession from task {task.id}: {e}")
+
+        return {"executions": executions, "count": len(executions)}
+
+    except Exception as e:
+        logger.error(f"Failed to list executions with steps: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{workspace_id}/executions/{execution_id}/workflow")
 async def get_execution_workflow(
     workspace_id: str = Path(..., description="Workspace ID"),

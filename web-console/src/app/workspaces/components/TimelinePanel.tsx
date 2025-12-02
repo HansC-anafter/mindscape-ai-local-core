@@ -92,6 +92,7 @@ interface ExecutionSession {
   created_at?: string;
   started_at?: string;
   completed_at?: string;
+  steps?: ExecutionStep[];
   [key: string]: any;
 }
 
@@ -227,7 +228,11 @@ export default function TimelinePanel({
 
   const loadExecutions = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/executions?limit=100`);
+      // Use batch API to get executions with steps in a single request
+      // This avoids N+1 queries - steps are included for active executions only
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`
+      );
       if (!response.ok) {
         throw new Error(`Failed to load executions: ${response.status}`);
       }
@@ -236,39 +241,14 @@ export default function TimelinePanel({
       const executionsList: ExecutionSession[] = data.executions || [];
       setExecutions(executionsList);
 
-      // Performance optimization: Only load steps for running/paused executions
-      // Archived executions don't need steps for display
-      // This reduces N+1 queries significantly
-      const activeExecutions = executionsList.filter(
-        exec => exec.status === 'running' || exec.paused_at
-      );
-
-      if (activeExecutions.length > 0) {
-        const stepsMap = new Map<string, ExecutionStep[]>();
-        // Load steps in parallel for better performance
-        const stepsPromises = activeExecutions.map(async (execution) => {
-          try {
-            const stepsResponse = await fetch(
-              `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${execution.execution_id}/steps`
-            );
-            if (stepsResponse.ok) {
-              const stepsData = await stepsResponse.json();
-              return { executionId: execution.execution_id, steps: stepsData.steps || [] };
-            }
-          } catch (err) {
-            console.error(`Failed to load steps for execution ${execution.execution_id}:`, err);
-          }
-          return null;
-        });
-
-        const results = await Promise.all(stepsPromises);
-        results.forEach(result => {
-          if (result) {
-            stepsMap.set(result.executionId, result.steps);
-          }
-        });
-        setExecutionSteps(stepsMap);
+      // Extract steps from the batch response (steps are already included in each execution)
+      const stepsMap = new Map<string, ExecutionStep[]>();
+      for (const execution of executionsList) {
+        if (execution.steps && execution.steps.length > 0) {
+          stepsMap.set(execution.execution_id, execution.steps);
+        }
       }
+      setExecutionSteps(stepsMap);
     } catch (err: any) {
       console.error('Failed to load executions:', err);
       // Don't set error state - executions are optional
