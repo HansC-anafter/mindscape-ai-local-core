@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { t } from '@/lib/i18n';
 import OCRQualityIndicator from '@/components/ocr/OCRQualityIndicator';
 import StoragePathConfigModal from '@/components/StoragePathConfigModal';
@@ -8,6 +8,7 @@ import RunningTimelineItem from './RunningTimelineItem';
 import PendingTimelineItem from './PendingTimelineItem';
 import ArchivedTimelineItem from './ArchivedTimelineItem';
 import ExecutionInspector from './ExecutionInspector';
+import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 
 // Fade-in blink animation styles
 const fadeInBlinkStyle = `
@@ -122,21 +123,43 @@ export default function TimelinePanel({
   focusExecutionId = null,
   onClearFocus
 }: TimelinePanelProps) {
+  // Use context data if available (when inside WorkspaceDataProvider)
+  const contextData = useWorkspaceDataOptional();
+
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
-  const [executions, setExecutions] = useState<ExecutionSession[]>([]);
+  const [localExecutions, setLocalExecutions] = useState<ExecutionSession[]>([]);
   const [executionSteps, setExecutionSteps] = useState<Map<string, ExecutionStep[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const [showStorageConfigModal, setShowStorageConfigModal] = useState(false);
-  const [workspace, setWorkspace] = useState<any>(null);
+  const [localWorkspace, setLocalWorkspace] = useState<any>(null);
   const [retryTimelineItemId, setRetryTimelineItemId] = useState<string | null>(null);
   // Track which items have been shown (for fade-in animation)
   const [visibleItemIds, setVisibleItemIds] = useState<Set<string>>(new Set());
   const previousItemsRef = useRef<TimelineItem[]>([]);
   // Track collapsed/expanded state for execution sections
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  // Use context data if available, otherwise use local state
+  const executions = contextData?.executions || localExecutions;
+  const workspace = contextData?.workspace || localWorkspace;
+
+  // Build executionSteps map from context data if available
+  const contextExecutionSteps = useMemo(() => {
+    if (!contextData?.executions) return null;
+    const stepsMap = new Map<string, ExecutionStep[]>();
+    for (const exec of contextData.executions) {
+      if (exec.steps && exec.steps.length > 0) {
+        stepsMap.set(exec.execution_id, exec.steps);
+      }
+    }
+    return stepsMap;
+  }, [contextData?.executions]);
+
+  // Use context steps if available
+  const effectiveExecutionSteps = contextExecutionSteps || executionSteps;
 
   // Handle execution click - emit event to parent to show ExecutionInspector in main area
   const handleExecutionClick = (executionId: string) => {
@@ -146,21 +169,28 @@ export default function TimelinePanel({
   };
 
   useEffect(() => {
-    // Load timeline items and executions on mount
+    // Load timeline items on mount (timeline items are not in context yet)
     loadTimelineItems();
-    loadExecutions();
-    loadWorkspace();
 
-    // Debounce timer for batching multiple events
+    // Only load executions and workspace if not using context
+    if (!contextData) {
+      loadExecutions();
+      loadWorkspace();
+    }
+
+    // Event handling is done by context when available
+    if (contextData) {
+      return; // Context handles event-based refresh
+    }
+
+    // Fallback: local event handling when not using context
     let debounceTimer: NodeJS.Timeout | null = null;
     let isPending = false;
 
-    // Listen for workspace chat updates to refresh timeline
     const handleChatUpdate = () => {
       if (process.env.NODE_ENV === 'development') {
         console.log('TimelinePanel: Received workspace-chat-updated event, scheduling refresh');
       }
-      // Debounce: only trigger load after 1 second of no events
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
@@ -181,7 +211,7 @@ export default function TimelinePanel({
       }
       window.removeEventListener('workspace-chat-updated', handleChatUpdate);
     };
-  }, [workspaceId]);
+  }, [workspaceId, contextData]);
 
   // Expose loadTimelineItems for manual refresh
   useEffect(() => {
@@ -215,11 +245,14 @@ export default function TimelinePanel({
   }, [timelineItems, loading]);
 
   const loadWorkspace = async () => {
+    // Skip if using context data
+    if (contextData) return;
+
     try {
       const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`);
       if (response.ok) {
         const workspaceData = await response.json();
-        setWorkspace(workspaceData);
+        setLocalWorkspace(workspaceData);
       }
     } catch (err) {
       console.error('Failed to load workspace:', err);
@@ -227,6 +260,9 @@ export default function TimelinePanel({
   };
 
   const loadExecutions = async () => {
+    // Skip if using context data
+    if (contextData) return;
+
     try {
       // Use batch API to get executions with steps in a single request
       // This avoids N+1 queries - steps are included for active executions only
@@ -239,7 +275,7 @@ export default function TimelinePanel({
 
       const data = await response.json();
       const executionsList: ExecutionSession[] = data.executions || [];
-      setExecutions(executionsList);
+      setLocalExecutions(executionsList);
 
       // Extract steps from the batch response (steps are already included in each execution)
       const stepsMap = new Map<string, ExecutionStep[]>();
@@ -457,7 +493,7 @@ export default function TimelinePanel({
 
           // Get current step for each execution to check requires_confirmation
           const getCurrentStep = (execution: ExecutionSession): ExecutionStep | null => {
-            const steps = executionSteps.get(execution.execution_id) || [];
+            const steps = effectiveExecutionSteps.get(execution.execution_id) || [];
             return steps.find(s => s.step_index === execution.current_step_index) || null;
           };
 

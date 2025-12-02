@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useT } from '@/lib/i18n';
 import HelpIcon from '@/components/HelpIcon';
+import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 
 // Component for displaying and editing AI-inferred intent label
 function PlaybookIntentSubtitle({
@@ -211,10 +212,14 @@ export default function PendingTasksPanel({
   workspaceId,
   apiUrl = 'http://localhost:8000',
   onViewArtifact,
-  workspace,
+  workspace: workspaceProp,
 }: PendingTasksPanelProps) {
   const t = useT();
-  const [tasks, setTasks] = useState<Task[]>([]);
+
+  // Use context data if available (when inside WorkspaceDataProvider)
+  const contextData = useWorkspaceDataOptional();
+
+  const [localTasks, setLocalTasks] = useState<Task[]>([]);
   const [backgroundTasks, setBackgroundTasks] = useState<Task[]>([]);
   const [backgroundRoutines, setBackgroundRoutines] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -227,19 +232,27 @@ export default function PendingTasksPanel({
   const [rejectComment, setRejectComment] = useState<string>('');
   const loadingRef = React.useRef(false);
 
-  useEffect(() => {
-    // Initial load
-    loadTasks();
+  // Use context data if available, otherwise use local state or props
+  const tasks = contextData?.tasks || localTasks;
+  const workspace = contextData?.workspace || workspaceProp;
 
-    // Debounce timer for batching multiple events
+  useEffect(() => {
+    // Only load tasks if not using context
+    if (!contextData) {
+      loadTasks();
+    }
+
+    // Event handling is done by context when available
+    if (contextData) {
+      return; // Context handles event-based refresh
+    }
+
+    // Fallback: local event handling when not using context
     let debounceTimer: NodeJS.Timeout | null = null;
     let isPending = false;
 
-    // Listen for workspace chat updates to refresh tasks
-    // Tasks are created/updated when execution plan runs, which happens after chat message
     const handleChatUpdate = () => {
       console.log('[PendingTasksPanel] workspace-chat-updated event received');
-      // Debounce: only trigger load after 2 seconds of no events (increased from 1s to reduce frequency)
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
@@ -256,10 +269,8 @@ export default function PendingTasksPanel({
       }, 2000);
     };
 
-    // Listen for direct task update events from SSE
     const handleTaskUpdate = () => {
       console.log('[PendingTasksPanel] workspace-task-updated event received');
-      // Debounce: only trigger load after 2 seconds of no events (increased from 1s to reduce frequency)
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
@@ -286,9 +297,12 @@ export default function PendingTasksPanel({
       window.removeEventListener('workspace-chat-updated', handleChatUpdate);
       window.removeEventListener('workspace-task-updated', handleTaskUpdate);
     };
-  }, [workspaceId]);
+  }, [workspaceId, contextData]);
 
   const loadTasks = async () => {
+    // Skip if using context data
+    if (contextData) return;
+
     // Skip if already loading to prevent overlapping requests
     if (loadingRef.current) {
       console.log('[PendingTasksPanel] loadTasks: Already loading, skipping...');
@@ -342,7 +356,7 @@ export default function PendingTasksPanel({
           return completedTime > fiveMinutesAgo;
         });
 
-        setTasks([...activeTasks, ...recentCompletedTasks]);
+        setLocalTasks([...activeTasks, ...recentCompletedTasks]);
 
         // Store background tasks separately for rendering (only PENDING ones for suggestion)
         const pendingBackgroundTasks = backgroundTasks.filter(

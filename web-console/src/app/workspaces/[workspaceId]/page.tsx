@@ -59,14 +59,6 @@ interface Workspace {
   playbook_storage_config?: Record<string, { base_path?: string; artifacts_dir?: string }>;
 }
 
-interface PendingTask {
-  execution_id: string;
-  playbook_code: string;
-  status: string;
-  timestamp: string;
-  message?: string;
-}
-
 export default function WorkspacePage() {
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
@@ -84,7 +76,6 @@ export default function WorkspacePage() {
 
   const router = useRouter();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [pendingTasks, setPendingTasks] = useState<PendingTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rightSidebarTab, setRightSidebarTab] = useState<'timeline' | 'workbench'>('timeline');
@@ -265,27 +256,6 @@ export default function WorkspacePage() {
     }
   }, [workspaceId, fetchWithRetry]);
 
-  // Load tasks function
-  const loadTasks = useCallback(async () => {
-    if (!isMountedRef.current) return;
-    try {
-      const response = await fetchWithRetry(
-        `${API_URL}/api/v1/workspaces/${workspaceId}/tasks?limit=10`
-      );
-      if (!response || !isMountedRef.current) return;
-
-      if (response.ok) {
-        const data = await response.json();
-        if (isMountedRef.current) {
-          setPendingTasks(data.tasks || []);
-        }
-      }
-    } catch (err: any) {
-      if (!isMountedRef.current || err.name === 'AbortError') return;
-      console.error('Failed to load tasks:', err);
-    }
-  }, [workspaceId, fetchWithRetry]);
-
   // Load system status function - now uses dedicated health endpoint to avoid duplicate workbench calls
   // MindscapeAIWorkbench component already calls /workbench API, so we use /health for system status only
   const loadSystemStatus = useCallback(async () => {
@@ -415,7 +385,7 @@ export default function WorkspacePage() {
     // Create abort controller for this effect run
     abortControllerRef.current = new AbortController();
 
-    // Load data sequentially to avoid rate limiting
+    // Load essential data only - tasks/executions are loaded by context
     const loadData = async () => {
       try {
         if (!isMountedRef.current) {
@@ -431,21 +401,7 @@ export default function WorkspacePage() {
           setLoading(false);
           return;
         }
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        if (loadedWorkspaceIdRef.current !== currentWorkspaceId) {
-          loadingRef.current = false;
-          setLoading(false);
-          return;
-        }
-        await loadTasks();
-
-        if (!isMountedRef.current) {
-          loadingRef.current = false;
-          setLoading(false);
-          return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         if (loadedWorkspaceIdRef.current !== currentWorkspaceId) {
           loadingRef.current = false;
@@ -480,7 +436,7 @@ export default function WorkspacePage() {
         abortControllerRef.current.abort();
       }
     };
-  }, [workspaceId, loadWorkspace, loadTasks, loadSystemStatus]);
+  }, [workspaceId, loadWorkspace, loadSystemStatus]);
 
 
   const handleModeChange = async (mode: WorkspaceMode) => {
