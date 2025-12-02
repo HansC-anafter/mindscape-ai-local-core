@@ -24,6 +24,7 @@ import ConfirmDialog from '../../../components/ConfirmDialog';
 import HelpIcon from '../../../components/HelpIcon';
 import ExecutionInspector from '../components/ExecutionInspector';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
+import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -604,6 +605,7 @@ export default function WorkspacePage() {
   }
 
   return (
+    <WorkspaceDataProvider workspaceId={workspaceId}>
     <div className="min-h-screen bg-gray-50">
       <Header />
 
@@ -850,6 +852,7 @@ export default function WorkspacePage() {
         confirmButtonClassName="bg-red-600 hover:bg-red-700"
       />
     </div>
+    </WorkspaceDataProvider>
   );
 }
 
