@@ -565,7 +565,7 @@ async def generate_suggestions(
 
 @router.get("/suggestions")
 async def list_suggestions(
-    user_id: str = Query(..., description="Profile ID"),
+    profile_id: str = Query(..., description="Profile ID"),
     status: Optional[str] = Query("pending", description="Filter by status")
 ):
     """List suggestions for a profile"""
@@ -593,7 +593,7 @@ async def list_suggestions(
                 WHERE user_id = %s AND status = %s
                 ORDER BY generated_at DESC
                 LIMIT 10
-            ''', (user_id, status))
+            ''', (profile_id, status))
 
             suggestions = [dict(row) for row in cursor.fetchall()]
             return {"suggestions": suggestions}

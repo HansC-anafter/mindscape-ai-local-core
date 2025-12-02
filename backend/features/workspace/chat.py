@@ -8,6 +8,7 @@ import logging
 import traceback
 import sys
 import json
+from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Body, Depends, Request
 from fastapi.responses import StreamingResponse
 
@@ -142,6 +143,16 @@ async def workspace_chat(
                         print(f"WorkspaceChat: Generated execution plan with {len(execution_plan.tasks)} tasks in streaming path", file=sys.stderr)
 
                         if execution_plan.tasks:
+                            # Collect task updates for SSE notification
+                            task_updates = []
+
+                            def task_event_callback(event_type: str, task_data: Dict[str, Any]):
+                                """Callback to collect task updates for SSE notification"""
+                                task_updates.append({
+                                    'event_type': event_type,
+                                    'task_data': task_data
+                                })
+
                             # Execute plan asynchronously (don't block streaming)
                             execution_results = await orchestrator.execution_coordinator.execute_plan(
                                 execution_plan=execution_plan,
@@ -150,10 +161,28 @@ async def workspace_chat(
                                 message_id=user_event.id,
                                 files=request.files,
                                 message=request.message,
-                                project_id=workspace.primary_project_id
+                                project_id=workspace.primary_project_id,
+                                task_event_callback=task_event_callback
                             )
                             logger.info(f"WorkspaceChat: Execution plan completed in streaming path - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}")
                             print(f"WorkspaceChat: Execution plan completed in streaming path - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}", file=sys.stderr)
+
+                            # Send task updates via SSE immediately when tasks are created
+                            for update in task_updates:
+                                logger.info(f"WorkspaceChat: Sending task_update event via SSE: {update['event_type']}, task_id={update['task_data'].get('id')}")
+                                print(f"WorkspaceChat: Sending task_update event via SSE: {update['event_type']}, task_id={update['task_data'].get('id')}", file=sys.stderr)
+                                yield f"data: {json.dumps({'type': 'task_update', 'event_type': update['event_type'], 'task': update['task_data']})}\n\n"
+
+                            # Also send execution results summary
+                            if execution_results.get('executed_tasks') or execution_results.get('suggestion_cards'):
+                                logger.info(f"WorkspaceChat: Sending execution_results summary via SSE: {len(execution_results.get('executed_tasks', []))} executed, {len(execution_results.get('suggestion_cards', []))} suggestions")
+                                print(f"WorkspaceChat: Sending execution_results summary via SSE: {len(execution_results.get('executed_tasks', []))} executed, {len(execution_results.get('suggestion_cards', []))} suggestions", file=sys.stderr)
+                                yield f"data: {json.dumps({'type': 'execution_results', 'executed_tasks': execution_results.get('executed_tasks', []), 'suggestion_cards': execution_results.get('suggestion_cards', [])})}\n\n"
+
+                            # Force a task update event to ensure frontend refreshes
+                            if task_updates or execution_results.get('executed_tasks') or execution_results.get('suggestion_cards'):
+                                logger.info(f"WorkspaceChat: Triggering workspace-task-updated event via execution_results")
+                                print(f"WorkspaceChat: Triggering workspace-task-updated event via execution_results", file=sys.stderr)
                     except Exception as e:
                         logger.warning(f"WorkspaceChat: Execution plan failed in streaming path: {e}", exc_info=True)
                         print(f"WorkspaceChat: Execution plan failed in streaming path: {e}", file=sys.stderr)
