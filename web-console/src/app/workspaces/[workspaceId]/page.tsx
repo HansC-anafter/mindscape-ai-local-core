@@ -24,7 +24,7 @@ import ConfirmDialog from '../../../components/ConfirmDialog';
 import HelpIcon from '../../../components/HelpIcon';
 import ExecutionInspector from '../components/ExecutionInspector';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
-import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
+import { WorkspaceDataProvider, useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -112,10 +112,13 @@ export default function WorkspacePage() {
     try {
       for (let i = 0; i < retries; i++) {
         try {
+          console.log(`[fetchWithRetry] Attempt ${i + 1}/${retries} for ${url}`);
           const response = await fetch(url, {
             ...options,
             signal: abortControllerRef.current?.signal
           });
+
+          console.log(`[fetchWithRetry] Response status: ${response.status}, ok: ${response.ok}`);
 
           if (response.status === 429) {
             pendingRequestsRef.current.delete(requestKey);
@@ -134,30 +137,42 @@ export default function WorkspacePage() {
             return null;
           }
 
+          // Return response for any status (including 4xx errors) - let caller handle them
           if (response.ok || response.status < 500) {
             pendingRequestsRef.current.delete(requestKey);
             return response;
           }
 
+          // Server error (5xx), retry
+          console.warn(`[fetchWithRetry] Server error ${response.status} for ${url}, retrying...`);
           if (i < retries - 1) {
             await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
           }
         } catch (err: any) {
+          console.error(`[fetchWithRetry] Error on attempt ${i + 1}/${retries}:`, err);
           if (err.name === 'AbortError') {
+            console.log('[fetchWithRetry] Request aborted');
             pendingRequestsRef.current.delete(requestKey);
             return null;
           }
           if (i === retries - 1) {
+            console.error('[fetchWithRetry] All retries exhausted, throwing error');
             pendingRequestsRef.current.delete(requestKey);
             throw err;
           }
+          console.log(`[fetchWithRetry] Retrying after error, attempt ${i + 2}/${retries}`);
           await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
         }
       }
+    } catch (err: any) {
+      console.error('[fetchWithRetry] Outer catch - unexpected error:', err);
+      pendingRequestsRef.current.delete(requestKey);
+      throw err;
     } finally {
       pendingRequestsRef.current.delete(requestKey);
     }
 
+    console.warn(`[fetchWithRetry] All retries exhausted for ${url}, returning null`);
     return null;
   }, []);
 
@@ -180,18 +195,26 @@ export default function WorkspacePage() {
           const directRequestKey = `${API_URL}/api/v1/workspaces/${workspaceId}-{}`;
           pendingRequestsRef.current.delete(directRequestKey);
 
+          console.log('[loadWorkspace] Attempting direct fetch...');
           response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, {
             signal: abortControllerRef.current?.signal
           });
-          console.log('[loadWorkspace] Direct fetch response:', response ? `Status: ${response.status}, OK: ${response.ok}` : 'null');
+          console.log('[loadWorkspace] Direct fetch response:', response ? `Status: ${response.status}, OK: ${response.ok}, StatusText: ${response.statusText}` : 'null');
+          
+          if (!response) {
+            console.error('[loadWorkspace] Direct fetch returned null response');
+            throw new Error('Direct fetch returned null');
+          }
         } catch (fetchErr: any) {
-          console.error('[loadWorkspace] Direct fetch failed:', fetchErr);
+          console.error('[loadWorkspace] Direct fetch failed:', fetchErr, 'name:', fetchErr?.name, 'message:', fetchErr?.message);
           if (fetchErr.name === 'AbortError') {
             console.log('[loadWorkspace] Request aborted');
             return;
           }
           if (isMountedRef.current) {
-            setError(t('failedToLoadWorkspace'));
+            const errorMsg = fetchErr?.message || t('failedToLoadWorkspace');
+            console.error('[loadWorkspace] Setting error:', errorMsg);
+            setError(errorMsg);
             setLoading(false);
             loadingRef.current = false;
           }
