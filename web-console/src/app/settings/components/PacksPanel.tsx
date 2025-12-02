@@ -93,9 +93,17 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
           title={t('capabilitySuites')}
           description={t('capabilitySuitesDescription')}
         >
-          <Card className="p-8 text-center">
-            <p className="text-gray-600">{t('capabilitySuitesDescription')}</p>
-          </Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {packs.map((pack) => (
+              <PackCard
+                key={pack.id}
+                pack={pack}
+                onInstall={() => handleInstall(pack.id)}
+                installing={installingPack === pack.id}
+                getToolStatus={getToolStatus}
+              />
+            ))}
+          </div>
         </Section>
       )}
 
