@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "playbook_code": "ig_post_generation",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "analyze_content",
+      "tool": "core_llm.analyze",
+      "inputs": {
+        "content": "{{input.source_content}}",
+        "task": "extract_key_topics"
+      },
+      "outputs": {
+        "topics": "topics"
+      }
+    },
+    {
+      "id": "generate_posts",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "Generate {{input.post_count}} IG posts based on these topics: {{step.analyze_content.topics}}",
+        "format": "json",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {"type": "string"},
+              "hashtags": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      },
+      "outputs": {
+        "ig_posts": "ig_posts"
+      },
+      "depends_on": ["analyze_content"]
+    }
+  ],
+  "inputs": {
+    "source_content": {
+      "type": "string",
+      "required": true,
+      "description": "Source content to generate posts from"
+    },
+    "post_count": {
+      "type": "integer",
+      "default": 5,
+      "description": "Number of posts to generate"
+    }
+  },
+  "outputs": {
+    "ig_posts": {
+      "type": "list[object]",
+      "description": "Generated IG posts list",
+      "source": "step.generate_posts.ig_posts"
+    }
+  }
+}
+

@@ -61,6 +61,8 @@ async def list_playbooks(
                 preferred_locale = 'en'
             elif target_language.startswith('zh'):
                 preferred_locale = 'zh-TW'
+            elif target_language.startswith('ja') or target_language == 'ja':
+                preferred_locale = 'ja'
         elif locale:
             preferred_locale = locale
 
@@ -80,12 +82,17 @@ async def list_playbooks(
                 # If current is preferred and new is not, keep current
                 elif playbook_dict[code].metadata.locale == preferred_locale and playbook_locale != preferred_locale:
                     continue
-                # If neither matches preference, prefer zh-TW over en
+                # If neither matches preference, prefer zh-TW > en > ja
                 elif playbook_dict[code].metadata.locale != preferred_locale and playbook_locale != preferred_locale:
-                    if playbook_dict[code].metadata.locale == 'en' and playbook_locale == 'zh-TW':
+                    locale_priority = {'zh-TW': 3, 'en': 2, 'ja': 1}
+                    if locale_priority.get(playbook_locale, 0) > locale_priority.get(playbook_dict[code].metadata.locale, 0):
                         playbook_dict[code] = playbook
 
         playbooks = list(playbook_dict.values())
+
+        # Auto-localization: If preferred locale not found, fallback to English version
+        # LLM will handle translation at runtime when language_strategy='model_native' and auto_localize=True
+        # No need to modify locale here - execution runtime will use target_language parameter
 
         # Filter by tags
         if tag_list:
@@ -130,6 +137,7 @@ async def list_playbooks(
                 "onboarding_task": playbook.metadata.onboarding_task,
                 "icon": playbook.metadata.icon,
                 "required_tools": playbook.metadata.required_tools,
+                "kind": playbook.metadata.kind.value if playbook.metadata.kind else None,
                 "user_meta": user_meta or {
                     "favorite": False,
                     "use_count": 0
@@ -148,6 +156,87 @@ async def list_playbooks(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{playbook_code}/variants", response_model=List[Dict[str, Any]])
+async def get_playbook_variants(
+    playbook_code: str = Path(..., description="Playbook code"),
+    profile_id: str = Query('default-user', description="User profile ID")
+):
+    """
+    Get personalized variants for a playbook
+    Returns empty list if no variants exist
+    """
+    try:
+        variants = store.list_personalized_variants(profile_id, playbook_code, active_only=True)
+        return variants
+    except Exception as e:
+        logger.debug(f"Failed to load variants for {playbook_code}: {e}")
+        return []
+
+
+@router.post("/discover", response_model=Dict[str, Any])
+async def discover_playbook(
+    request: Dict[str, Any]
+):
+    """
+    Discover playbook based on user query using LLM
+    """
+    try:
+        query = request.get('query', '')
+        profile_id = request.get('profile_id', 'default-user')
+
+        if not query:
+            return {
+                'suggestion': '請描述你的需求，例如：「我想分析數據」、「我需要生成 Instagram 貼文」等。',
+                'recommended_playbooks': []
+            }
+
+        # Get all playbooks
+        all_playbooks = loader.load_all_playbooks()
+
+        # Simple keyword matching for now (can be enhanced with LLM later)
+        query_lower = query.lower()
+        matched_playbooks = []
+
+        for playbook in all_playbooks:
+            name = playbook.metadata.name.lower()
+            description = playbook.metadata.description.lower()
+            tags = ' '.join([tag.lower() for tag in playbook.metadata.tags or []])
+
+            # Simple keyword matching
+            if (query_lower in name or
+                query_lower in description or
+                any(query_lower in tag for tag in playbook.metadata.tags or [])):
+                matched_playbooks.append({
+                    'playbook_code': playbook.metadata.playbook_code,
+                    'name': playbook.metadata.name,
+                    'description': playbook.metadata.description,
+                    'icon': playbook.metadata.icon
+                })
+
+        # Limit to top 5 matches
+        matched_playbooks = matched_playbooks[:5]
+
+        if matched_playbooks:
+            playbook_list = '\n\n'.join([
+                f"{i + 1}. {p.get('icon', '📋')} {p.get('name', '')}\n   {p.get('description', '')}"
+                for i, p in enumerate(matched_playbooks)
+            ])
+            suggestion = f'根據你的需求「{query}」，我找到 {len(matched_playbooks)} 個相關的 Playbook：\n\n{playbook_list}'
+        else:
+            suggestion = f'抱歉，我沒有找到與「{query}」相關的 Playbook。請嘗試使用其他關鍵字，或查看完整的 Playbook 列表。'
+
+        return {
+            'suggestion': suggestion,
+            'recommended_playbooks': matched_playbooks
+        }
+    except Exception as e:
+        logger.error(f"Failed to discover playbook: {e}")
+        return {
+            'suggestion': '抱歉，暫時無法處理你的請求。請稍後再試。',
+            'recommended_playbooks': []
+        }
 
 
 @router.get("/{playbook_code}", response_model=Dict[str, Any])

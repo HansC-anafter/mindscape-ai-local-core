@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "playbook_code": "yt_script_generation",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "analyze_content",
+      "tool": "core_llm.analyze",
+      "inputs": {
+        "content": "{{input.source_content}}",
+        "task": "extract_key_topics_for_video"
+      },
+      "outputs": {
+        "topics": "topics",
+        "key_points": "key_points"
+      }
+    },
+    {
+      "id": "generate_script",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "Generate a {{input.duration_minutes}}-minute YouTube video script based on these topics: {{step.analyze_content.topics}}. Script type: {{input.script_type}}, Tone: {{input.tone}}. Include timestamps: {{input.include_timestamps}}",
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "title": {"type": "string"},
+            "duration_minutes": {"type": "integer"},
+            "script_type": {"type": "string"},
+            "tone": {"type": "string"},
+            "intro": {
+              "type": "object",
+              "properties": {
+                "start_time": {"type": "string"},
+                "end_time": {"type": "string"},
+                "content": {"type": "string"},
+                "hook": {"type": "string"}
+              }
+            },
+            "main_content": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "section_number": {"type": "integer"},
+                  "title": {"type": "string"},
+                  "start_time": {"type": "string"},
+                  "end_time": {"type": "string"},
+                  "content": {"type": "string"},
+                  "key_points": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            },
+            "outro": {
+              "type": "object",
+              "properties": {
+                "start_time": {"type": "string"},
+                "end_time": {"type": "string"},
+                "content": {"type": "string"},
+                "cta": {"type": "string"}
+              }
+            }
+          }
+        }
+      },
+      "outputs": {
+        "script": "script"
+      },
+      "depends_on": ["analyze_content"]
+    },
+    {
+      "id": "format_markdown",
+      "tool": "core_llm.format",
+      "inputs": {
+        "content": "{{step.generate_script.script}}",
+        "format": "markdown"
+      },
+      "outputs": {
+        "script_markdown": "script_markdown"
+      },
+      "depends_on": ["generate_script"]
+    }
+  ],
+  "inputs": {
+    "source_content": {
+      "type": "string",
+      "required": true,
+      "description": "Source content to generate script from"
+    },
+    "duration_minutes": {
+      "type": "integer",
+      "default": 5,
+      "description": "Video duration in minutes"
+    },
+    "script_type": {
+      "type": "string",
+      "default": "educational",
+      "enum": ["educational", "tutorial", "review", "storytelling", "interview"],
+      "description": "Script type"
+    },
+    "tone": {
+      "type": "string",
+      "default": "engaging",
+      "enum": ["engaging", "professional", "casual", "energetic", "calm"],
+      "description": "Tone style"
+    },
+    "include_timestamps": {
+      "type": "boolean",
+      "default": true,
+      "description": "Include timestamp annotations"
+    }
+  },
+  "outputs": {
+    "script": {
+      "type": "object",
+      "description": "Complete video script",
+      "source": "step.generate_script.script"
+    },
+    "script_markdown": {
+      "type": "string",
+      "description": "Markdown format script",
+      "source": "step.format_markdown.script_markdown"
+    }
+  }
+}
+

@@ -117,6 +117,17 @@ class PlaybookLoader:
             if 'optional_tools' in data:
                 metadata_dict['optional_tools'] = data['optional_tools']
 
+            # Handle kind field
+            from backend.app.models.playbook import PlaybookKind
+            kind_value = data.get('kind')
+            if kind_value:
+                try:
+                    metadata_dict['kind'] = PlaybookKind(kind_value)
+                except ValueError:
+                    metadata_dict['kind'] = PlaybookKind.USER_WORKFLOW
+            else:
+                metadata_dict['kind'] = PlaybookKind.USER_WORKFLOW
+
             metadata = PlaybookMetadata(**metadata_dict)
 
             # Extract SOP content (markdown after YAML frontmatter separator)
@@ -179,6 +190,17 @@ class PlaybookLoader:
                 logger.warning(f"Unsupported locale {locale} for {playbook_code}, skipping")
                 return None
 
+            from backend.app.models.playbook import PlaybookKind
+
+            kind_value = frontmatter.get('kind')
+            if kind_value:
+                try:
+                    kind = PlaybookKind(kind_value)
+                except ValueError:
+                    kind = PlaybookKind.USER_WORKFLOW
+            else:
+                kind = PlaybookKind.USER_WORKFLOW
+
             metadata = PlaybookMetadata(
                 playbook_code=playbook_code,
                 version=frontmatter.get('version', '1.0.0'),
@@ -186,6 +208,7 @@ class PlaybookLoader:
                 name=frontmatter.get('name', playbook_code),
                 description=frontmatter.get('description', ''),
                 tags=frontmatter.get('tags', []),
+                kind=kind,
                 language_strategy=frontmatter.get('language_strategy', 'model_native'),
                 entry_agent_type=frontmatter.get('entry_agent_type'),
                 onboarding_task=frontmatter.get('onboarding_task'),
@@ -235,11 +258,11 @@ class PlaybookLoader:
         else:
             logger.warning(f"Playbooks directory does not exist: {self.playbooks_dir}")
 
-        # Also load from backend/playbooks/ directory
+        # Also load from backend/playbooks/ directory (legacy format, for backward compatibility)
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         backend_playbooks_dir = Path(base_dir) / "backend" / "playbooks"
         if backend_playbooks_dir.exists():
-            # Load .yaml files from backend/playbooks/
+            # Load .yaml files from backend/playbooks/ (legacy format)
             for file_path in backend_playbooks_dir.glob('*.yaml'):
                 try:
                     playbook = self._load_yaml_playbook(file_path)
@@ -252,6 +275,34 @@ class PlaybookLoader:
                             logger.debug(f"Loaded playbook {playbook.metadata.playbook_code} from {file_path}")
                 except Exception as e:
                     logger.warning(f"Failed to load YAML playbook from {file_path}: {e}")
+
+        # Load from backend/i18n/playbooks/ directory (new architecture: organized by locale)
+        i18n_playbooks_dir = Path(base_dir) / "backend" / "i18n" / "playbooks"
+        if i18n_playbooks_dir.exists():
+            # Supported locales
+            supported_locales = ['zh-TW', 'en', 'ja']
+            for locale in supported_locales:
+                locale_dir = i18n_playbooks_dir / locale
+                if locale_dir.exists():
+                    # Load .md files from locale directory (new architecture: playbook.md + playbook.json)
+                    for file_path in locale_dir.glob('*.md'):
+                        if file_path.name == 'README.md':
+                            continue
+                        try:
+                            playbook = self.load_playbook_from_file(file_path)
+                            if playbook:
+                                # Ensure locale matches directory
+                                if playbook.metadata.locale != locale:
+                                    # Update locale to match directory
+                                    playbook.metadata.locale = locale
+                                # Check if already loaded (avoid duplicates)
+                                if not any(p.metadata.playbook_code == playbook.metadata.playbook_code
+                                         and p.metadata.locale == playbook.metadata.locale
+                                         for p in playbooks):
+                                    playbooks.append(playbook)
+                                    logger.debug(f"Loaded playbook {playbook.metadata.playbook_code} ({locale}) from {file_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to load MD playbook from {file_path}: {e}")
 
         # Load from capability packs
         try:
@@ -310,95 +361,28 @@ class PlaybookLoader:
                     If specified, returns the matching locale version if available.
                     If None, returns the first found (no preference).
         """
-        # Try to find file with matching code
-        found_playbooks = []
+        # First, try loading all playbooks and find by code
+        all_playbooks = self.load_all_playbooks()
 
-        # Search in main playbooks directory (docs/playbooks/)
-        if self.playbooks_dir.exists():
-            # Search .md files
-            for file_path in self.playbooks_dir.glob('*.md'):
-                if file_path.name == 'README.md':
-                    continue
+        # Filter by playbook_code
+        matching = [p for p in all_playbooks if p.metadata.playbook_code == playbook_code]
 
-                playbook = self.load_playbook_from_file(file_path)
-                if playbook and playbook.metadata.playbook_code == playbook_code:
-                    found_playbooks.append(playbook)
-
-            # Also search .yaml files
-            for file_path in self.playbooks_dir.glob('*.yaml'):
-                try:
-                    playbook = self._load_yaml_playbook(file_path)
-                    if playbook and playbook.metadata.playbook_code == playbook_code:
-                        found_playbooks.append(playbook)
-                except Exception as e:
-                    logger.warning(f"Failed to load YAML playbook from {file_path}: {e}")
-
-        # Also search in backend/playbooks/ directory
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        backend_playbooks_dir = Path(base_dir) / "backend" / "playbooks"
-        if backend_playbooks_dir.exists():
-            for file_path in backend_playbooks_dir.glob('*.yaml'):
-                try:
-                    playbook = self._load_yaml_playbook(file_path)
-                    if playbook and playbook.metadata.playbook_code == playbook_code:
-                        found_playbooks.append(playbook)
-                except Exception as e:
-                    logger.warning(f"Failed to load YAML playbook from {file_path}: {e}")
-
-        # Search in capability packs
-        try:
-            from backend.app.services.capability_installer import CapabilityInstaller
-            installer = CapabilityInstaller()
-            installed = installer.list_installed()
-
-            for cap in installed:
-                target_dir_str = cap.get('target_dir')
-                if target_dir_str:
-                    cap_dir = Path(target_dir_str)
-                else:
-                    cap_dir = None
-                if not cap_dir or not cap_dir.exists():
-                    # Try to construct path from capability id if target_dir is missing
-                    cap_id = cap.get('id', '')
-                    if cap_id:
-                        # Extract capability name from id (e.g., "mindscape.storyboard" -> "storyboard")
-                        cap_name = cap_id.split('.')[-1] if '.' in cap_id else cap_id
-                        # Try to find capability directory in app/capabilities
-                        app_dir = Path(__file__).parent.parent
-                        cap_dir = app_dir / "capabilities" / cap_name
-                        if not cap_dir.exists():
-                            continue
-                    else:
-                        continue
-
-                playbooks_dir = cap_dir / "playbooks"
-                if playbooks_dir.exists():
-                    for yaml_file in playbooks_dir.glob('*.yaml'):
-                        playbook = self._load_yaml_playbook(yaml_file)
-                        if playbook and playbook.metadata.playbook_code == playbook_code:
-                            found_playbooks.append(playbook)
-        except Exception as e:
-            logger.warning(f"Failed to search playbooks in capability packs: {e}")
-
-        if not found_playbooks:
+        if not matching:
             return None
 
-        # If locale specified, return matching locale version
+        # If locale specified, prefer matching locale
         if locale:
-            for playbook in found_playbooks:
-                if playbook.metadata.locale == locale:
-                    return playbook
-            # If preferred locale not found, fallback to other versions
-            logger.debug(f"Playbook {playbook_code} with locale {locale} not found, using fallback")
+            locale_match = [p for p in matching if p.metadata.locale == locale]
+            if locale_match:
+                return locale_match[0]
 
-        # Return first found (no preference) if no locale specified or preferred locale not found
-        # Preference: zh-TW > en > others
-        for preferred in ['zh-TW', 'en']:
-            for playbook in found_playbooks:
-                if playbook.metadata.locale == preferred:
-                    return playbook
+        # Return first match (prefer zh-TW if available)
+        zh_tw_match = [p for p in matching if p.metadata.locale == 'zh-TW']
+        if zh_tw_match:
+            return zh_tw_match[0]
 
-        return found_playbooks[0] if found_playbooks else None
+        # Otherwise return first match
+        return matching[0]
 
     def get_playbook_manifest(self, playbook_code: str) -> Optional[Dict[str, Any]]:
         """

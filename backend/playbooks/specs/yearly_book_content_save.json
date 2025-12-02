@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "playbook_code": "yearly_book_content_save",
+  "kind": "system_tool",
+  "steps": [
+    {
+      "id": "save_content",
+      "tool": "yearly_book.save_external_content",
+      "inputs": {
+        "external_content": "{{input.external_content}}",
+        "content_type": "{{input.content_type}}",
+        "year": "{{input.year}}",
+        "month": "{{input.month}}",
+        "title": "{{input.title}}",
+        "source_files": "{{input.source_files}}",
+        "tags": "{{input.tags}}",
+        "metadata": "{{input.metadata}}"
+      },
+      "outputs": {
+        "saved_entry": "saved_entry",
+        "yearly_book_path": "yearly_book_path",
+        "entry_path": "entry_path"
+      }
+    }
+  ],
+  "inputs": {
+    "external_content": {
+      "type": "string",
+      "required": true,
+      "description": "External content (text, markdown, etc.)"
+    },
+    "content_type": {
+      "type": "string",
+      "required": true,
+      "enum": ["ocr", "ig_post", "yt_script", "article", "note", "other"],
+      "description": "Content type"
+    },
+    "year": {
+      "type": "integer",
+      "default": "current_year",
+      "description": "Year to save (default: current year)"
+    },
+    "month": {
+      "type": "integer",
+      "description": "Month to save (1-12, default: current month)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Content title (auto-generated if not provided)"
+    },
+    "source_files": {
+      "type": "list[string]",
+      "description": "Source file paths list (optional)"
+    },
+    "tags": {
+      "type": "list[string]",
+      "description": "Tags list (optional)"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata (optional)"
+    }
+  },
+  "outputs": {
+    "saved_entry": {
+      "type": "object",
+      "description": "Saved entry information",
+      "source": "step.save_content.saved_entry"
+    },
+    "yearly_book_path": {
+      "type": "string",
+      "description": "Yearly book file path",
+      "source": "step.save_content.yearly_book_path"
+    },
+    "entry_path": {
+      "type": "string",
+      "description": "Saved entry file path",
+      "source": "step.save_content.entry_path"
+    }
+  }
+}
+

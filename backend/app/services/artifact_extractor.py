@@ -1098,7 +1098,7 @@ class ArtifactExtractor:
 
         Args:
             workspace_id: Workspace ID
-            playbook_code: Playbook 代碼
+            playbook_code: Playbook 程式碼
             artifact_type: 產物類型
             title: 產物標題（用於生成 slug）
             version: 版本號（如果為 None，則從 DB 查詢最新版本）
@@ -1342,7 +1342,7 @@ class ArtifactExtractor:
         Args:
             target_path: 目標檔案路徑
             workspace_id: Workspace ID（用於查詢版本號）
-            playbook_code: Playbook 代碼（用於查詢版本號）
+            playbook_code: Playbook 程式碼（用於查詢版本號）
             artifact_type: 產物類型（用於查詢版本號）
             force: 是否強制覆蓋（默認 False）
 

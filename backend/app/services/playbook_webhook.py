@@ -318,7 +318,7 @@ class PlaybookWebhookHandler:
 
         Args:
             profile_id: Profile ID
-            playbook_code: Playbook 代碼
+            playbook_code: Playbook 程式碼
             execution_id: 執行 ID
             output_data: 輸出資料
         """

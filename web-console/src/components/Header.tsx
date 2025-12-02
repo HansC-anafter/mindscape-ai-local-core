@@ -41,7 +41,7 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200">
+    <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
       <div className="w-full">
         <div className="relative flex items-center h-12">
           {/* Left: Workspace List + Workspaces + AI Team */}
