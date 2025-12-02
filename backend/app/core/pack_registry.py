@@ -95,6 +95,73 @@ def scan_packs_directory(packs_dir: Path) -> List[Dict[str, Any]]:
     return packs
 
 
+def _auto_install_default_packs(pack_metas: List[Dict[str, Any]], default_enabled_packs: set, enabled_pack_ids: set) -> None:
+    """
+    Automatically install packs with enabled_by_default=True that are not yet installed
+
+    This ensures that default-enabled packs are available in the database
+    even if they haven't been manually installed through the UI.
+    """
+    try:
+        import sqlite3
+        from contextlib import contextmanager
+        from datetime import datetime
+        import json
+
+        def get_db_path():
+            base_dir = Path(__file__).parent.parent.parent
+            data_dir = base_dir / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            return str(data_dir / "mindscape.db")
+
+        @contextmanager
+        def get_connection():
+            conn = sqlite3.connect(get_db_path())
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+            finally:
+                conn.close()
+
+        # Initialize table if needed
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS installed_packs (
+                    pack_id TEXT PRIMARY KEY,
+                    installed_at TEXT NOT NULL,
+                    enabled BOOLEAN DEFAULT 1,
+                    metadata TEXT
+                )
+            ''')
+            conn.commit()
+
+        # Install default-enabled packs that are not yet in database
+        packs_to_install = default_enabled_packs - enabled_pack_ids
+
+        if packs_to_install:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                for pack_id in packs_to_install:
+                    # Find pack metadata
+                    pack_meta = next((p for p in pack_metas if p.get('id') == pack_id), None)
+                    if pack_meta:
+                        metadata_json = json.dumps({
+                            'name': pack_meta.get('name', pack_id),
+                            'description': pack_meta.get('description', ''),
+                            'enabled_by_default': True
+                        })
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO installed_packs (pack_id, installed_at, enabled, metadata)
+                            VALUES (?, ?, ?, ?)
+                        ''', (pack_id, datetime.utcnow().isoformat(), 1, metadata_json))
+                conn.commit()
+                if packs_to_install:
+                    logger.info(f"Auto-installed {len(packs_to_install)} default-enabled packs: {packs_to_install}")
+    except Exception as e:
+        logger.warning(f"Failed to auto-install default packs: {e}")
+
+
 def get_enabled_pack_ids() -> set:
     """
     Get set of enabled pack IDs from database
@@ -176,6 +243,9 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
         if pack.get('enabled_by_default', False)
     }
 
+    # Auto-install default-enabled packs that are not yet installed
+    _auto_install_default_packs(pack_metas, default_enabled_packs, enabled_pack_ids)
+
     # Combine enabled and default-enabled packs
     packs_to_load = enabled_pack_ids | default_enabled_packs
 
@@ -203,10 +273,15 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
         for route_import in routes:
             try:
                 router = load_router_from_string(route_import)
-                prefix = f"/api/v1/{pack_id}"
-                app.include_router(router, prefix=prefix, tags=[pack_id])
+                # For workspace pack, routes already have prefix, don't add another
+                # For other packs, add pack_id as prefix
+                if pack_id == "workspace":
+                    app.include_router(router, tags=[pack_id])
+                else:
+                    prefix = f"/api/v1/{pack_id}"
+                    app.include_router(router, prefix=prefix, tags=[pack_id])
                 registered_count += 1
-                logger.info(f"Registered route from pack '{pack_id}': {route_import} (prefix: {prefix})")
+                logger.info(f"Registered route from pack '{pack_id}': {route_import}")
             except Exception as e:
                 # Log error but continue - loose coupling: missing features should not prevent app startup
                 logger.warning(

@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 import logging
 import uvicorn
 
-# Layer 0: Kernel Routes (must be hardcoded)
+# Kernel routes
 from .routes.core import (
     workspace,
     playbook,
@@ -23,7 +23,7 @@ from .routes.core import (
     tool_connections,
 )
 
-# Layer 1: Core Primitives (manager hardcoded, content pluggable)
+# Core primitives
 from .routes.core import (
     vector_db,
     vector_search,
@@ -31,7 +31,7 @@ from .routes.core import (
     capability_suites,
 )
 
-# Layer 2: Feature routes loaded via pack registry
+# Feature routes loaded via pack registry
 from .core.pack_registry import load_and_register_packs
 from .core.security import security_monitor, auth_manager
 from .init_db import init_mindscape_tables
@@ -78,9 +78,8 @@ app.add_middleware(
     allowed_hosts=["localhost", "127.0.0.1", "host.docker.internal", "*"]  # Allow all for development
 )
 
-# Phase 1: Register Layer 0 kernel routes
 def register_core_routes(app: FastAPI) -> None:
-    """Register Layer 0 kernel routes"""
+    """Register kernel routes"""
     app.include_router(workspace.router, tags=["workspace"])
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])
@@ -89,27 +88,32 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(tools.router, tags=["tools"])
     app.include_router(tool_connections.router, tags=["tools"])
 
-# Phase 2: Register Layer 1 core primitives
 def register_core_primitives(app: FastAPI) -> None:
-    """Register Layer 1 core primitives (manager hardcoded, content pluggable)"""
+    """Register core primitives"""
     app.include_router(vector_db.router, tags=["vector-db"])
     app.include_router(vector_search.router, tags=["vector-search"])
     app.include_router(capability_packs.router, tags=["capability-packs"])
     app.include_router(capability_suites.router, tags=["capability-suites"])
 
-# Phase 1: Register Layer 0 kernel routes
 register_core_routes(app)
-
-# Phase 2: Register Layer 1 core primitives
 register_core_primitives(app)
-
-# Phase 3: Register Layer 2 feature routes via pack registry
-# Note: Pack loading failures are logged but do not prevent app startup (loose coupling)
+# Pack loading failures are logged but do not prevent app startup
 try:
     load_and_register_packs(app)
 except Exception as e:
     logger.warning(f"Failed to load some feature packs during startup: {e}. App will continue to start.")
     # Continue startup - core functionality should still work
+
+# Manually register mindscape routes (if not loaded via pack registry)
+try:
+    from backend.features.mindscape.routes import router as mindscape_router
+    app.include_router(mindscape_router, prefix="/api/v1/mindscape", tags=["mindscape"])
+    logger.info("Registered mindscape routes manually")
+except Exception as e:
+    logger.warning(f"Failed to register mindscape routes: {e}", exc_info=True)
+
+# Workspace feature routes are loaded via pack registry
+# See backend/packs/workspace-pack.yaml and backend/features/workspace/
 
 
 @app.on_event("startup")

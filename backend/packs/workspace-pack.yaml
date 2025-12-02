@@ -1,0 +1,15 @@
+id: workspace
+name: "Workspace Core Features"
+enabled_by_default: true
+description: "Core workspace features including timeline, chat, background routines, and executions. Required for workspace functionality."
+
+routes:
+  - "backend.features.workspace.routes:router"
+
+playbooks:
+  - "workspace_setup"
+  - "workspace_chat"
+
+tools:
+  - "workspace_storage"
+

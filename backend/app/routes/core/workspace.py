@@ -11,8 +11,7 @@ Main router that mounts sub-routers for different domains:
 This file only contains workspace CRUD operations and router mounting.
 All domain-specific logic is in sub-routers.
 
-Note: Sub-routers are temporarily commented out and will be handled in Phase 3
-as they may belong to Layer 2 (Domain/UX Features).
+Sub-routers are loaded via pack registry.
 """
 
 import uuid
@@ -37,15 +36,8 @@ from ...services.mindscape_store import MindscapeStore
 from ...services.i18n_service import get_i18n_service
 from ...services.stores.intent_tags_store import IntentTagsStore
 
-# Import sub-routers
-# TODO: These sub-routers will be handled in Phase 3 (Layer 2 features)
-# from ...routes.workspace_chat import router as chat_router
-# from ...routes.workspace_timeline import router as timeline_router
-# from ...routes.workspace_files import router as files_router
-# from ...routes.workspace_tasks import router as tasks_router
-# from ...routes.workspace_workbench import router as workbench_router
-# from ...routes.workspace_artifacts import router as artifacts_router
-# from ...routes.workspace_background_routines import router as background_routines_router
+# Sub-routers are loaded via pack registry
+# See backend/packs/workspace-pack.yaml and backend/features/workspace/
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
@@ -119,9 +111,8 @@ def _get_allowed_directories() -> List[str]:
     try:
         from ...services.tool_connection_store import ToolConnectionStore
         tool_connection_store = ToolConnectionStore()
-        # Note: get_connections_by_tool_type requires profile_id, but we're reading system-wide config
+        # get_connections_by_tool_type requires profile_id, but we're reading system-wide config
         # For now, try to get connections for default-user profile
-        # TODO: Consider adding a system-wide method or using a different approach
         try:
             connections = tool_connection_store.get_connections_by_tool_type(
                 profile_id="default-user",
@@ -991,14 +982,108 @@ async def update_intent_tag_label(
 
 
 # ============================================================================
+# Tasks, Workbench, and Health Endpoints
+# ============================================================================
+
+@router.get("/{workspace_id}/tasks")
+async def get_workspace_tasks(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of tasks"),
+    include_completed: bool = Query(False, description="Include completed tasks")
+):
+    """Get tasks for a workspace"""
+    try:
+        from ...services.stores.tasks_store import TasksStore
+        tasks_store = TasksStore(db_path=store.db_path)
+
+        if include_completed:
+            all_tasks = tasks_store.list_tasks_by_workspace(workspace_id, limit=limit)
+        else:
+            pending = tasks_store.list_pending_tasks(workspace_id)
+            running = tasks_store.list_running_tasks(workspace_id)
+            all_tasks = (pending + running)[:limit]
+
+        return {
+            "tasks": [task.dict() for task in all_tasks]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get workspace tasks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/workbench")
+async def get_workspace_workbench(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    profile_id: str = Query("default-user", description="Profile ID")
+):
+    """Get workbench data for a workspace"""
+    try:
+        from ...services.workbench_service import WorkbenchService
+        workbench_service = WorkbenchService(store=store)
+        data = await workbench_service.get_workbench_data(workspace_id, profile_id)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to get workbench data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/workbench/context-token-count")
+async def get_workspace_context_token_count(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    profile_id: str = Query("default-user", description="Profile ID")
+):
+    """Get context token count for workspace workbench"""
+    try:
+        from ...services.conversation.context_builder import ContextBuilder
+        from ...services.conversation.model_context_presets import get_model_preset
+
+        store = MindscapeStore()
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        model_name = "gpt-4"
+        context_builder = ContextBuilder(
+            store=store,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            model_name=model_name
+        )
+
+        enhanced_prompt = await context_builder.build_qa_context()
+        token_count = context_builder.estimate_token_count(enhanced_prompt, model_name) or 0
+
+        return {
+            "workspace_id": workspace_id,
+            "token_count": token_count,
+            "model_name": model_name
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get context token count: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/health")
+async def get_workspace_health(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    profile_id: str = Query("default-user", description="Profile ID")
+):
+    """Get health status for a workspace"""
+    try:
+        from ...services.system_health_checker import SystemHealthChecker
+        health_checker = SystemHealthChecker()
+        health = await health_checker.check_workspace_health(profile_id, workspace_id)
+        return health
+    except Exception as e:
+        logger.error(f"Failed to get workspace health: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Mount Sub-Routers
 # ============================================================================
-# TODO: Sub-routers will be handled in Phase 3 (Layer 2 features)
-# router.include_router(chat_router)
-# router.include_router(timeline_router)
-# router.include_router(files_router)
-# router.include_router(tasks_router)
-# router.include_router(workbench_router)
-# router.include_router(artifacts_router)
-# router.include_router(background_routines_router)
+# Sub-routers are loaded via pack registry
+# See backend/packs/workspace-pack.yaml and backend/features/workspace/
 
