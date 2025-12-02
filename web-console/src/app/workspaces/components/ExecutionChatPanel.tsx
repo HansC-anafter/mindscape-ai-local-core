@@ -51,6 +51,8 @@ export default function ExecutionChatPanel({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isWaitingForReply, setIsWaitingForReply] = useState(false);
+  const thinkingMessageIdRef = useRef<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [userScrolled, setUserScrolled] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -63,25 +65,25 @@ export default function ExecutionChatPanel({
   const autoScrollRef = useRef(true);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Scroll to bottom function
-  const scrollToBottom = useCallback((force: boolean = false) => {
+  // Scroll to bottom function - optimized to avoid jumping to top
+  const scrollToBottom = useCallback((force: boolean = false, instant: boolean = false) => {
     if (!messagesScrollRef.current) return;
 
-    if (force) {
-      messagesScrollRef.current.scrollTo({
-        top: messagesScrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+    if (force || instant) {
+      // Direct scroll without smooth behavior to avoid jumping
+      messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
       setAutoScroll(true);
       setUserScrolled(false);
       userScrolledRef.current = false;
       autoScrollRef.current = true;
       setShowScrollToBottom(false);
     } else if (autoScrollRef.current && !userScrolledRef.current && messages.length > 0) {
-      messagesScrollRef.current.scrollTo({
-        top: messagesScrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+      // Only use smooth scroll if already near bottom
+      const { scrollTop, scrollHeight, clientHeight } = messagesScrollRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      if (isNearBottom) {
+        messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
+      }
     }
   }, [messages.length]);
 
@@ -97,10 +99,10 @@ export default function ExecutionChatPanel({
           const data = await response.json();
           const loadedMessages = data.messages || [];
           setMessages(loadedMessages);
-          // Auto scroll to bottom after loading messages
+          // Auto scroll to bottom after loading messages (instant)
           setTimeout(() => {
-            scrollToBottom(true);
-          }, 100);
+            scrollToBottom(true, true);
+          }, 50);
         } else {
           console.error('Failed to load execution chat messages:', response.status);
         }
@@ -132,26 +134,41 @@ export default function ExecutionChatPanel({
             // Check if message already exists
             const exists = prev.some(m => m.id === newMessage.id);
             if (exists) {
-              // Update existing message
-              const updated = prev.map(m => m.id === newMessage.id ? newMessage : m);
+              // Update existing message (replace thinking placeholder)
+              const updated = prev.map(m => {
+                if (m.id === newMessage.id) {
+                  // Remove thinking state when real message arrives
+                  if (m.id === thinkingMessageIdRef.current) {
+                    setIsWaitingForReply(false);
+                    thinkingMessageIdRef.current = null;
+                  }
+                  return newMessage;
+                }
+                return m;
+              });
               // Trigger scroll after update
               setTimeout(() => {
                 if (autoScrollRef.current && !userScrolledRef.current) {
-                  scrollToBottom();
+                  scrollToBottom(false, true);
                 }
-              }, 50);
+              }, 10);
               return updated;
             } else {
               // Add new message
               const updated = [...prev, newMessage].sort((a, b) =>
                 new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
               );
+              // Remove thinking state when real message arrives
+              if (newMessage.role === 'assistant' && thinkingMessageIdRef.current) {
+                setIsWaitingForReply(false);
+                thinkingMessageIdRef.current = null;
+              }
               // Trigger scroll after adding new message
               setTimeout(() => {
                 if (autoScrollRef.current && !userScrolledRef.current) {
-                  scrollToBottom();
+                  scrollToBottom(false, true);
                 }
-              }, 50);
+              }, 10);
               return updated;
             }
           });
@@ -204,10 +221,10 @@ export default function ExecutionChatPanel({
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
-      // Use setTimeout for smoother scrolling
+      // Use instant scroll for better UX
       scrollTimeoutRef.current = setTimeout(() => {
-        scrollToBottom();
-      }, 50) as ReturnType<typeof setTimeout>;
+        scrollToBottom(false, true);
+      }, 10) as ReturnType<typeof setTimeout>;
     }
     return () => {
       if (scrollTimeoutRef.current) {
@@ -261,15 +278,43 @@ export default function ExecutionChatPanel({
         console.error('Failed to send message:', response.status, errorText);
         // Restore input on error
         setInput(content);
+        setIsWaitingForReply(false);
+        if (thinkingMessageIdRef.current) {
+          setMessages(prev => prev.filter(m => m.id !== thinkingMessageIdRef.current));
+          thinkingMessageIdRef.current = null;
+        }
       } else {
-        // Message sent successfully, scroll to bottom
+        // Message sent successfully
+        // Add thinking placeholder message immediately
+        const thinkingId = `thinking-${Date.now()}`;
+        thinkingMessageIdRef.current = thinkingId;
+        const thinkingMessage: ExecutionChatMessage = {
+          id: thinkingId,
+          execution_id: executionId,
+          role: 'assistant',
+          content: t('aiThinking'),
+          message_type: 'question',
+          created_at: new Date().toISOString(),
+        };
+
+        setMessages(prev => {
+          // User message will be added by SSE, we just add thinking placeholder
+          const updated = [...prev, thinkingMessage].sort((a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+          return updated;
+        });
+
+        setIsWaitingForReply(true);
+
+        // Scroll to bottom immediately (instant, no smooth)
         setUserScrolled(false);
         setAutoScroll(true);
         userScrolledRef.current = false;
         autoScrollRef.current = true;
         setTimeout(() => {
-          scrollToBottom(true);
-        }, 100);
+          scrollToBottom(true, true);
+        }, 10);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -309,16 +354,16 @@ export default function ExecutionChatPanel({
     {
       label: t('explainWhyFailed'),
       prompt: executionStatus === 'failed'
-        ? 'Can you explain why this execution failed? What went wrong and how can I fix it?'
-        : 'What is the current status of this execution?'
+        ? t('explainWhyFailedPrompt')
+        : t('explainWhyFailedPromptAlt')
     },
     {
       label: t('suggestNextSteps'),
-      prompt: 'What should I do next to resolve this issue or continue the execution?'
+      prompt: t('suggestNextStepsPrompt')
     },
     {
       label: t('reviewPlaybookSteps'),
-      prompt: 'Can you review the playbook steps and suggest any improvements?'
+      prompt: t('reviewPlaybookStepsPrompt')
     },
   ];
 
@@ -368,13 +413,13 @@ export default function ExecutionChatPanel({
         </div>
       </div>
 
-      {/* Messages List */}
-      <div
-        ref={messagesScrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 pt-4 relative"
-        style={{ minHeight: 0 }}
-      >
+      {/* Messages List Container - with relative positioning for scroll button */}
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
+        <div
+          ref={messagesScrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-4 pt-4"
+        >
         {isLoading ? (
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
@@ -421,23 +466,35 @@ export default function ExecutionChatPanel({
           </div>
         ) : (
           <div className="space-y-2 pb-4">
-            {messages.map((message) => (
-              <MessageItem
-                key={message.id}
-                message={convertToChatMessage(message)}
-              />
-            ))}
+            {messages.map((message) => {
+              const isThinking = message.id === thinkingMessageIdRef.current;
+              const chatMessage = convertToChatMessage(message);
+              return (
+                <div key={message.id} className={isThinking ? 'opacity-70' : ''}>
+                  <MessageItem message={chatMessage} />
+                  {isThinking && (
+                    <div className="flex items-center gap-2 mt-1 ml-4 text-xs text-gray-500">
+                      <div className="w-1 h-1 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1 h-1 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1 h-1 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
         )}
+        </div>
 
-        {/* Scroll to bottom button */}
+        {/* Scroll to bottom button - fixed to visible viewport center bottom */}
         {showScrollToBottom && (
           <button
-            onClick={() => scrollToBottom(true)}
+            onClick={() => scrollToBottom(true, true)}
             className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-blue-500 hover:bg-blue-600 text-white rounded-full p-1.5 shadow-lg transition-all duration-200 hover:scale-110"
             aria-label="Scroll to bottom"
             title="Scroll to bottom"
+            style={{ pointerEvents: 'auto' }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useT } from '@/lib/i18n';
 import HelpIcon from '@/components/HelpIcon';
 
@@ -225,6 +225,7 @@ export default function PendingTasksPanel({
   const [showRejectDialog, setShowRejectDialog] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
   const [rejectComment, setRejectComment] = useState<string>('');
+  const loadingRef = React.useRef(false);
 
   useEffect(() => {
     // Initial load
@@ -237,34 +238,42 @@ export default function PendingTasksPanel({
     // Listen for workspace chat updates to refresh tasks
     // Tasks are created/updated when execution plan runs, which happens after chat message
     const handleChatUpdate = () => {
-      // Debounce: only trigger load after 1 second of no events
+      console.log('[PendingTasksPanel] workspace-chat-updated event received');
+      // Debounce: only trigger load after 2 seconds of no events (increased from 1s to reduce frequency)
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
       debounceTimer = setTimeout(() => {
-        if (!isPending) {
+        if (!isPending && !loadingRef.current) {
+          console.log('[PendingTasksPanel] Debounce triggered, loading tasks...');
           isPending = true;
           loadTasks().finally(() => {
             isPending = false;
           });
+        } else {
+          console.log('[PendingTasksPanel] Skip: isPending=', isPending, 'loading=', loadingRef.current);
         }
-      }, 1000);
+      }, 2000);
     };
 
     // Listen for direct task update events from SSE
     const handleTaskUpdate = () => {
-      // Debounce: only trigger load after 1 second of no events
+      console.log('[PendingTasksPanel] workspace-task-updated event received');
+      // Debounce: only trigger load after 2 seconds of no events (increased from 1s to reduce frequency)
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
       debounceTimer = setTimeout(() => {
-        if (!isPending) {
+        if (!isPending && !loadingRef.current) {
+          console.log('[PendingTasksPanel] Debounce triggered, loading tasks...');
           isPending = true;
           loadTasks().finally(() => {
             isPending = false;
           });
+        } else {
+          console.log('[PendingTasksPanel] Skip: isPending=', isPending, 'loading=', loadingRef.current);
         }
-      }, 1000);
+      }, 2000);
     };
 
     window.addEventListener('workspace-chat-updated', handleChatUpdate);
@@ -280,7 +289,15 @@ export default function PendingTasksPanel({
   }, [workspaceId]);
 
   const loadTasks = async () => {
+    // Skip if already loading to prevent overlapping requests
+    if (loadingRef.current) {
+      console.log('[PendingTasksPanel] loadTasks: Already loading, skipping...');
+      return;
+    }
+
     try {
+      console.log('[PendingTasksPanel] loadTasks: Starting...');
+      loadingRef.current = true;
       setLoading(true);
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`
@@ -346,10 +363,15 @@ export default function PendingTasksPanel({
           console.error('Failed to load background routines:', err);
         }
 
-        // Load artifacts for completed tasks
-        if (recentCompletedTasks.length > 0 && onViewArtifact) {
+        // Load artifacts for completed tasks (only if needed, limit to 3 most recent to reduce API calls)
+        const tasksNeedingArtifacts = recentCompletedTasks
+          .filter(task => !artifactMap[task.id])  // Only load if not already cached
+          .slice(0, 3);  // Limit to 3 most recent to reduce API load
+
+        if (tasksNeedingArtifacts.length > 0 && onViewArtifact) {
+          console.log('[PendingTasksPanel] Loading artifacts for', tasksNeedingArtifacts.length, 'tasks');
           // Load artifacts for completed tasks
-          const artifactPromises = recentCompletedTasks.map(async (task: Task) => {
+          const artifactPromises = tasksNeedingArtifacts.map(async (task: Task) => {
             try {
               const artifactResponse = await fetch(
                 `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/by-task/${task.id}`
@@ -362,13 +384,13 @@ export default function PendingTasksPanel({
                 }
               }
             } catch (err) {
-              console.error(`Failed to load artifact for task ${task.id}:`, err);
+              console.error(`[PendingTasksPanel] Failed to load artifact for task ${task.id}:`, err);
             }
             return null;
           });
 
           const artifactResults = await Promise.all(artifactPromises);
-          const newArtifactMap: Record<string, any> = {};
+          const newArtifactMap: Record<string, any> = { ...artifactMap };  // Preserve existing artifacts
           artifactResults.forEach((result) => {
             if (result) {
               newArtifactMap[result.taskId] = result.artifact;
@@ -381,8 +403,9 @@ export default function PendingTasksPanel({
         console.warn('Rate limited when loading tasks, will retry later');
       }
     } catch (err) {
-      console.error('Failed to load tasks:', err);
+      console.error('[PendingTasksPanel] Failed to load tasks:', err);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   };

@@ -109,8 +109,10 @@ export default function WorkspacePage() {
   const fetchWithRetry = useCallback(async (url: string, options: RequestInit = {}, retries = 2): Promise<Response | null> => {
     const requestKey = `${url}-${JSON.stringify(options)}`;
 
+    // Clear stale requests on Fast Refresh or component remount
     if (pendingRequestsRef.current.has(requestKey)) {
-      return null;
+      console.log('[fetchWithRetry] Request already pending, clearing and retrying:', requestKey);
+      pendingRequestsRef.current.delete(requestKey);
     }
 
     pendingRequestsRef.current.add(requestKey);
@@ -118,7 +120,10 @@ export default function WorkspacePage() {
     try {
       for (let i = 0; i < retries; i++) {
         try {
-          const response = await fetch(url, options);
+          const response = await fetch(url, {
+            ...options,
+            signal: abortControllerRef.current?.signal
+          });
 
           if (response.status === 429) {
             pendingRequestsRef.current.delete(requestKey);
@@ -166,50 +171,96 @@ export default function WorkspacePage() {
 
   // Load workspace function - available for both initial load and manual refresh
   const loadWorkspace = useCallback(async () => {
-    if (!isMountedRef.current) return;
+    console.log('[loadWorkspace] Starting, workspaceId:', workspaceId, 'mounted:', isMountedRef.current);
+    if (!isMountedRef.current) {
+      console.log('[loadWorkspace] Component not mounted, returning');
+      return;
+    }
     try {
+      console.log('[loadWorkspace] Calling fetchWithRetry...');
       let response = await fetchWithRetry(`${API_URL}/api/v1/workspaces/${workspaceId}`);
+      console.log('[loadWorkspace] fetchWithRetry response:', response ? `Status: ${response.status}, OK: ${response.ok}` : 'null');
 
       if (!response) {
-        console.warn('fetchWithRetry returned null, trying direct fetch for workspace', workspaceId);
+        console.warn('[loadWorkspace] fetchWithRetry returned null, trying direct fetch for workspace', workspaceId);
         try {
-          response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
-        } catch (fetchErr) {
-          console.error('Direct fetch also failed:', fetchErr);
+          // Clear pending request before direct fetch
+          const directRequestKey = `${API_URL}/api/v1/workspaces/${workspaceId}-{}`;
+          pendingRequestsRef.current.delete(directRequestKey);
+
+          response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, {
+            signal: abortControllerRef.current?.signal
+          });
+          console.log('[loadWorkspace] Direct fetch response:', response ? `Status: ${response.status}, OK: ${response.ok}` : 'null');
+        } catch (fetchErr: any) {
+          console.error('[loadWorkspace] Direct fetch failed:', fetchErr);
+          if (fetchErr.name === 'AbortError') {
+            console.log('[loadWorkspace] Request aborted');
+            return;
+          }
           if (isMountedRef.current) {
             setError(t('failedToLoadWorkspace'));
+            setLoading(false);
+            loadingRef.current = false;
           }
           return;
         }
       }
 
       if (!response) {
+        console.error('[loadWorkspace] No response after all attempts');
         if (isMountedRef.current) {
           setError(t('failedToLoadWorkspace'));
+          setLoading(false);
+          loadingRef.current = false;
         }
         return;
       }
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        console.log('[loadWorkspace] Component unmounted before processing response');
+        return;
+      }
 
       if (response.ok) {
-        const data = await response.json();
-        console.log('Workspace loaded successfully:', data.id, data.title);
-        if (isMountedRef.current) {
-          setWorkspace(data);
-          setError(null);
-          console.log('Workspace state updated');
+        console.log('[loadWorkspace] Response OK, parsing JSON...');
+        try {
+          const data = await response.json();
+          console.log('[loadWorkspace] Data parsed successfully:', data?.id, data?.title);
+          if (isMountedRef.current) {
+            console.log('[loadWorkspace] Setting workspace state...');
+            setWorkspace(data);
+            setError(null);
+            console.log('[loadWorkspace] Workspace state updated successfully');
+          } else {
+            console.log('[loadWorkspace] Component unmounted, skipping state update');
+          }
+        } catch (jsonErr) {
+          console.error('[loadWorkspace] JSON parse error:', jsonErr);
+          if (isMountedRef.current) {
+            setError(t('failedToLoadWorkspace'));
+            setLoading(false);
+            loadingRef.current = false;
+          }
         }
       } else {
+        console.error('[loadWorkspace] Response not OK:', response.status, response.statusText);
         if (isMountedRef.current) {
           const errorText = response.status === 404 ? t('workspaceNotFound') : t('failedToLoadWorkspace');
           setError(errorText);
+          setLoading(false);
+          loadingRef.current = false;
         }
       }
     } catch (err: any) {
-      if (!isMountedRef.current || err.name === 'AbortError') return;
+      console.error('[loadWorkspace] Exception caught:', err, 'name:', err?.name, 'message:', err?.message);
+      if (!isMountedRef.current || err.name === 'AbortError') {
+        console.log('[loadWorkspace] Component unmounted or aborted, returning');
+        return;
+      }
       setError(t('failedToLoadWorkspace'));
-      console.error('loadWorkspace error:', err);
+      setLoading(false);
+      loadingRef.current = false;
     }
   }, [workspaceId, fetchWithRetry]);
 
@@ -340,7 +391,7 @@ export default function WorkspacePage() {
       return;
     }
 
-    console.log('Loading workspace:', currentWorkspaceId, 'current workspace:', workspace?.id);
+    console.log('[useEffect] Loading workspace:', currentWorkspaceId, 'current workspace:', workspace?.id, 'API_URL:', API_URL);
     loadedWorkspaceIdRef.current = currentWorkspaceId;
     isMountedRef.current = true;
     loadingRef.current = true;
@@ -398,10 +449,13 @@ export default function WorkspacePage() {
           setLoading(false);
         }
       } catch (err) {
-        console.error('Failed to load workspace data:', err);
+        console.error('[loadData] Failed to load workspace data:', err);
         if (isMountedRef.current) {
           loadingRef.current = false;
           setLoading(false);
+          if (!error) {
+            setError(t('failedToLoadWorkspace'));
+          }
         }
       }
     };
