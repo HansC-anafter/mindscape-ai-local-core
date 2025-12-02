@@ -88,12 +88,6 @@ export default function SuggestedNextStepsCard({
   };
 
   const handleAction = async (action: string, step: NextStep, stepIndex: number) => {
-    // Handle special actions that don't need API call
-    if (action === 'create_intent') {
-      window.location.href = '/mindscape?action=create_intent';
-      return;
-    }
-
     if (action === 'start_chat') {
       const chatInput = document.querySelector('textarea[name="workspace-chat-input"]') as HTMLTextAreaElement;
       if (chatInput) {
@@ -128,7 +122,7 @@ export default function SuggestedNextStepsCard({
           },
           body: JSON.stringify({
             action: action,
-            action_params: (step as any).params || {},
+            action_params: (step as any).params || (step as any).action_params || {},
             files: [],
             mode: 'auto'
           })
@@ -156,11 +150,12 @@ export default function SuggestedNextStepsCard({
           return;
         }
 
-        // Trigger page refresh to update workbench and timeline
+        // Trigger unified update event (both components will listen to this)
+        // Use single event to avoid duplicate refreshes
         window.dispatchEvent(new Event('workspace-chat-updated'));
-
-        // Trigger workbench refresh to update suggestions
-        window.dispatchEvent(new Event('workbench-refresh'));
+        // Note: workbench-refresh is redundant if workspace-chat-updated also triggers workbench update
+        // Only dispatch if workbench needs separate refresh timing
+        // window.dispatchEvent(new Event('workbench-refresh'));
 
         // Scroll timeline to top to show latest task (not bottom)
         setTimeout(() => {

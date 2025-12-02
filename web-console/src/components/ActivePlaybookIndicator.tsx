@@ -235,7 +235,11 @@ export default function ActivePlaybookIndicator({
     let healthCheckTimer: NodeJS.Timeout | null = null;
 
     // Event handlers - primary update mechanism
-    const handleTaskUpdate = () => {
+    const handleTaskUpdate = (event?: Event) => {
+      if (process.env.NODE_ENV === 'development') {
+        const customEvent = event as CustomEvent;
+        console.log('[ActivePlaybookIndicator] Received workspace-task-updated event', customEvent?.detail || 'no detail');
+      }
       lastEventTime = Date.now();
       debouncedLoad();
       // Reset health check timer on event

@@ -86,13 +86,32 @@ export default function MindscapeAIWorkbench({
   }, [workspaceId, refreshTrigger]);
 
   useEffect(() => {
+    // Debounce workbench refresh to avoid excessive API calls
+    let debounceTimer: NodeJS.Timeout | null = null;
+    let isRefreshing = false;
+
     const handleWorkbenchRefresh = () => {
-      // Refresh workbench data when workbench-refresh event is triggered
-      loadWorkbenchData();
+      console.log('[MindscapeAIWorkbench] workbench-refresh event received');
+      // Debounce: only refresh after 1.5 seconds of no events
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      debounceTimer = setTimeout(() => {
+        if (!isRefreshing) {
+          console.log('[MindscapeAIWorkbench] Debounce triggered, refreshing...');
+          isRefreshing = true;
+          loadWorkbenchData().finally(() => {
+            isRefreshing = false;
+          });
+        }
+      }, 1500);
     };
 
     window.addEventListener('workbench-refresh', handleWorkbenchRefresh);
     return () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
       window.removeEventListener('workbench-refresh', handleWorkbenchRefresh);
     };
   }, [workspaceId, apiUrl]);
@@ -128,16 +147,19 @@ export default function MindscapeAIWorkbench({
 
   const loadWorkbenchData = async () => {
     try {
+      console.log('[MindscapeAIWorkbench] loadWorkbenchData: Starting...');
       setError(null);
       const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/workbench`);
       if (response.ok) {
         const data = await response.json();
+        console.log('[MindscapeAIWorkbench] Data loaded, suggestions:', data.suggested_next_steps?.length || 0);
         setWorkbenchData(data);
       } else {
+        console.error('[MindscapeAIWorkbench] API error:', response.status, response.statusText);
         setError('Failed to load workbench data');
       }
     } catch (err) {
-      console.error('Failed to load workbench data:', err);
+      console.error('[MindscapeAIWorkbench] Failed to load workbench data:', err);
       setError('Failed to load workbench data');
     }
   };
