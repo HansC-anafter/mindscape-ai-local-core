@@ -93,7 +93,18 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
           title={t('capabilitySuites')}
           description={t('capabilitySuitesDescription')}
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <Card className="p-8 text-center">
+            <p className="text-gray-600">{t('capabilitySuitesDescription')}</p>
+          </Card>
+        </Section>
+      )}
+
+      {activeTab === 'packages' && (
+        <Section
+          title={t('capabilityPackages')}
+          description={t('capabilityPackagesDescription')}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
             {packs.map((pack) => (
               <PackCard
                 key={pack.id}
@@ -104,14 +115,7 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
               />
             ))}
           </div>
-        </Section>
-      )}
 
-      {activeTab === 'packages' && (
-        <Section
-          title={t('capabilityPackages')}
-          description={t('capabilityPackagesDescription')}
-        >
           <div className="mb-8">
             <Card className="p-4 bg-gray-50">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('installFromFile')}</h3>
