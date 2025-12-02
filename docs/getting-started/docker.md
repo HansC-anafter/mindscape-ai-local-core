@@ -65,7 +65,7 @@ docker compose ps
 
 ### 4. Access the Application
 
-- **Frontend**: http://localhost:3000
+- **Frontend**: http://localhost:3001
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 - **OCR Service**: http://localhost:8001
@@ -75,8 +75,8 @@ docker compose ps
 The Docker Compose configuration includes:
 
 1. **backend** - FastAPI backend service (port 8000)
-2. **frontend** - Next.js web console (port 3000)
-3. **postgres** - PostgreSQL with pgvector for vector storage (port 5432)
+2. **frontend** - Next.js web console (port 3001, mapped from container port 3000)
+3. **postgres** - PostgreSQL with pgvector for vector storage (port 5433, mapped from container port 5432)
 4. **ocr-service** - PaddleOCR service for PDF processing (port 8001)
 
 ## Common Commands
