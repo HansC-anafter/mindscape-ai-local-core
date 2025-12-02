@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/vector-db", tags=["Vector Database"])
+router = APIRouter(prefix="/api/v1/vector-db", tags=["Vector Database"])
 
 
 def _check_vector_store_adapter() -> bool:
