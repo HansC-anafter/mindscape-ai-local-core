@@ -5,3 +5,16 @@ Layer 0: Kernel routes that must be hardcoded in the core system.
 These routes provide the fundamental OS-level functionality.
 """
 
+from . import (
+    workspace,
+    playbook,
+    playbook_execution,
+    config,
+    system_settings,
+    tools,
+    tool_connections,
+    vector_db,
+    vector_search,
+    capability_packs,
+    capability_suites,
+)

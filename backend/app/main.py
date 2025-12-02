@@ -28,6 +28,7 @@ from .routes.core import (
     vector_db,
     vector_search,
     capability_packs,
+    capability_suites,
 )
 
 # Layer 2: Feature routes loaded via pack registry
