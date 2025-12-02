@@ -88,8 +88,9 @@ async def list_suites():
         # Scan suite YAML files
         suite_metas = _scan_suite_yaml_files()
 
-        # TODO: Check which suites are fully installed (all packs installed)
-        # For now, all suites show as not installed
+        # Get installed pack IDs to check suite installation status
+        from .capability_packs import _get_installed_pack_ids
+        installed_pack_ids = _get_installed_pack_ids()
 
         suites = []
         for suite_meta in suite_metas:
@@ -98,17 +99,21 @@ async def list_suites():
                 logger.warning(f"Suite metadata missing 'id' field: {suite_meta.get('_file_path', 'unknown')}")
                 continue
 
+            # Check if all packs in the suite are installed
+            suite_packs = suite_meta.get('packs', [])
+            all_packs_installed = len(suite_packs) > 0 and all(pack_id in installed_pack_ids for pack_id in suite_packs)
+
             suites.append(SuiteResponse(
                 id=suite_id,
                 name=suite_meta.get('name', suite_id),
                 description=suite_meta.get('description', ''),
                 icon=suite_meta.get('icon'),
-                packs=suite_meta.get('packs', []),
+                packs=suite_packs,
                 ai_members=suite_meta.get('ai_members', []),
                 capabilities=suite_meta.get('capabilities', []),
                 playbooks=suite_meta.get('playbooks', []),
                 required_tools=suite_meta.get('required_tools', []),
-                installed=False  # TODO: Check if all packs are installed
+                installed=all_packs_installed
             ))
 
         return suites
