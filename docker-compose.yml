@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: mindscape-local-core-backend
+    container_name: mindscape-ai-local-core-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -53,7 +53,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: mindscape-local-core-frontend
+    container_name: mindscape-ai-local-core-frontend
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -87,7 +87,7 @@ services:
   # PostgreSQL with pgvector for vector storage (optional)
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: mindscape-local-core-postgres
+    container_name: mindscape-ai-local-core-postgres
     restart: unless-stopped
     ports:
       - "5432:5432"
@@ -115,7 +115,7 @@ services:
     build:
       context: ./ocr-service
       dockerfile: Dockerfile
-    container_name: mindscape-local-core-ocr
+    container_name: mindscape-ai-local-core-ocr
     restart: unless-stopped
     ports:
       - "8001:8001"
