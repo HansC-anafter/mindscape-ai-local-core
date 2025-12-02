@@ -233,8 +233,57 @@ export default function PendingTasksPanel({
   const loadingRef = React.useRef(false);
 
   // Use context data if available, otherwise use local state or props
-  const tasks = contextData?.tasks || localTasks;
+  const allTasksFromContext = contextData?.tasks || [];
   const workspace = contextData?.workspace || workspaceProp;
+
+  // Process and filter tasks (same logic for both context and local data)
+  const processedTasks = useMemo(() => {
+    const allTasks = contextData ? allTasksFromContext : localTasks;
+
+    if (!allTasks || allTasks.length === 0) {
+      return [];
+    }
+
+    // Separate background tasks from foreground tasks
+    const backgroundPlaybookCodes = ['habit_learning'];
+
+    // Filter background tasks
+    const backgroundTasks = allTasks.filter((task: Task) => {
+      const playbookCode = task.pack_id || task.playbook_id || '';
+      const isBackground = backgroundPlaybookCodes.includes(playbookCode.toLowerCase()) ||
+                          task.result?.llm_analysis?.is_background ||
+                          task.data?.execution_context?.run_mode === 'background';
+      return isBackground;
+    });
+
+    // Filter foreground tasks
+    const foregroundTasks = allTasks.filter((task: Task) => {
+      const playbookCode = task.pack_id || task.playbook_id || '';
+      const isBackground = backgroundPlaybookCodes.includes(playbookCode.toLowerCase()) ||
+                          task.result?.llm_analysis?.is_background ||
+                          task.data?.execution_context?.run_mode === 'background';
+      return !isBackground;
+    });
+
+    // Only show PENDING tasks in pending panel
+    const activeTasks = foregroundTasks.filter(
+      (task: Task) => task.status?.toUpperCase() === 'PENDING'
+    );
+
+    // Also include recently completed foreground tasks (within last 5 minutes)
+    const recentCompletedTasks = foregroundTasks.filter((task: Task) => {
+      if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
+      const completedAt = task.completed_at || task.updated_at || task.created_at;
+      if (!completedAt) return false;
+      const completedTime = new Date(completedAt).getTime();
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      return completedTime > fiveMinutesAgo;
+    });
+
+    return [...activeTasks, ...recentCompletedTasks];
+  }, [contextData ? allTasksFromContext : localTasks]);
+
+  const tasks = processedTasks;
 
   useEffect(() => {
     // Only load tasks if not using context

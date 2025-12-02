@@ -281,6 +281,7 @@ class EventEmbeddingGenerator:
     def _store_embedding(self, event: MindEvent, text: str, embedding: List[float]) -> str:
         """Store embedding in mindscape_personal table (PostgreSQL with hierarchical memory support)"""
         try:
+            from backend.app.services.system_settings_store import SystemSettingsStore
             import os
             import psycopg2
             from psycopg2.extras import Json
@@ -347,13 +348,22 @@ class EventEmbeddingGenerator:
                 elif isinstance(metadata_tags, str):
                     tags = [metadata_tags]
 
+            # Get embedding model info for metadata
+            settings_store = SystemSettingsStore()
+            embedding_setting = settings_store.get_setting("embedding_model")
+            embedding_model_name = str(embedding_setting.value) if embedding_setting else "unknown"
+            embedding_provider = embedding_setting.metadata.get("provider", "openai") if embedding_setting else "unknown"
+
             # Build metadata JSON
             metadata_dict = {
                 "event_type": event.event_type.value,
                 "actor": event.actor.value,
                 "channel": event.channel,
                 "source_type": "mind_event",
-                "source_id": event.id
+                "source_id": event.id,
+                "embedding_model": embedding_model_name,
+                "embedding_provider": embedding_provider,
+                "embedding_dimension": len(embedding)
             }
 
             # Store embedding in PostgreSQL
@@ -433,6 +443,13 @@ class EventEmbeddingGenerator:
         # Determine seed type from event type
         seed_type = self._map_event_type_to_seed_type(event.event_type)
 
+        # Get embedding model info for metadata
+        from backend.app.services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore()
+        embedding_setting = settings_store.get_setting("embedding_model")
+        embedding_model_name = str(embedding_setting.value) if embedding_setting else "unknown"
+        embedding_provider = embedding_setting.metadata.get("provider", "openai") if embedding_setting else "unknown"
+
         # Store embedding
         cursor.execute("""
             INSERT INTO mindscape_personal
@@ -451,7 +468,10 @@ class EventEmbeddingGenerator:
             json.dumps({
                 "event_type": event.event_type.value,
                 "actor": event.actor.value,
-                "channel": event.channel
+                "channel": event.channel,
+                "embedding_model": embedding_model_name,
+                "embedding_provider": embedding_provider,
+                "embedding_dimension": len(embedding)
             }),
             now,
             now

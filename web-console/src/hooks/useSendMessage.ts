@@ -120,9 +120,36 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                   }
                   window.dispatchEvent(new CustomEvent('workspace-task-updated'));
                 } else if (data.type === 'error') {
-                  throw new Error(data.message || 'Streaming error');
+                  // Parse error message to extract detailed information
+                  let errorMessage = data.message || 'Streaming error';
+
+                  // Try to parse error details from message
+                  try {
+                    // Check if message contains error code (e.g., "Error code: 429")
+                    if (errorMessage.includes('Error code: 429')) {
+                      // Extract error details from the message
+                      const errorMatch = errorMessage.match(/'error':\s*\{'message':\s*'([^']+)'/);
+                      if (errorMatch) {
+                        errorMessage = errorMatch[1];
+                      } else {
+                        // Fallback: use a user-friendly message for quota errors
+                        errorMessage = 'API quota exceeded. Please check your plan and billing details.';
+                      }
+                    }
+                  } catch (parseErr) {
+                    // If parsing fails, use original message
+                  }
+
+                  // Throw error with parsed message
+                  const error = new Error(errorMessage);
+                  (error as any).errorData = data;
+                  throw error;
                 }
               } catch (e) {
+                // Re-throw error events so they can be handled by the caller
+                if (e instanceof Error && (e as any).errorData) {
+                  throw e;
+                }
                 console.error('Failed to parse SSE data:', e, line);
               }
             }

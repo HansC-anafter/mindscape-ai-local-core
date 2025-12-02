@@ -392,7 +392,11 @@ export function WorkspaceDataProvider({
 
   // Listen for workspace events (unified event handling)
   useEffect(() => {
-    const handleWorkspaceUpdate = () => {
+    const handleWorkspaceUpdate = (event?: Event) => {
+      if (process.env.NODE_ENV === 'development') {
+        const customEvent = event as CustomEvent;
+        console.log('[WorkspaceDataContext] Received workspace update event:', customEvent?.type, customEvent?.detail || 'no detail');
+      }
       debouncedRefresh();
     };
 

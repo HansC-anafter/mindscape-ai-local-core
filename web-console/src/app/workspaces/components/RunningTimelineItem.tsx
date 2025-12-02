@@ -132,6 +132,23 @@ export default function RunningTimelineItem({
     switch (data.type) {
       case 'execution_update':
         if (data.execution) {
+          const newStatus = data.execution.status;
+          const oldStatus = currentExecution?.status;
+
+          // Check if execution status changed to completed
+          if ((newStatus === 'succeeded' || newStatus === 'failed') && oldStatus && oldStatus !== newStatus) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[RunningTimelineItem] Execution status changed to completed:', newStatus, 'for execution:', data.execution.execution_id);
+            }
+            // Trigger task update event when execution completes
+            window.dispatchEvent(new CustomEvent('workspace-task-updated', {
+              detail: {
+                execution_id: data.execution.execution_id,
+                status: newStatus
+              }
+            }));
+          }
+
           setCurrentExecution(data.execution);
           if (onUpdate) {
             onUpdate(data.execution, latestStep || undefined);
@@ -147,9 +164,22 @@ export default function RunningTimelineItem({
         }
         break;
       case 'execution_completed':
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[RunningTimelineItem] Execution completed:', data.execution_id, data.status);
+        }
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
         }
+        // Trigger task update event to refresh task list
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[RunningTimelineItem] Dispatching workspace-task-updated event');
+        }
+        window.dispatchEvent(new CustomEvent('workspace-task-updated', {
+          detail: {
+            execution_id: data.execution_id,
+            status: data.status
+          }
+        }));
         break;
       default:
         // Ignore other event types

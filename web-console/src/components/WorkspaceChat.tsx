@@ -46,6 +46,7 @@ export default function WorkspaceChat({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedMessageRef = useRef<string | null>(null);
+  const chatModelLoadedRef = useRef<string | null>(null);
 
   const {
     messages,
@@ -124,20 +125,65 @@ export default function WorkspaceChat({
       }
     };
 
-    const loadChatModel = async () => {
+    const loadChatModel = async (retryCount = 0) => {
+      // Prevent duplicate loads for the same API URL
+      if (chatModelLoadedRef.current === apiUrl) {
+        return;
+      }
+
       try {
-        const response = await fetch(`${apiUrl}/api/v1/system-settings/llm-models`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.chat_model) {
-            setCurrentChatModel(data.chat_model.model_name);
-          }
-          if (data.available_chat_models) {
-            setAvailableChatModels(data.available_chat_models);
-          }
+        const response = await fetch(`${apiUrl}/api/v1/system-settings/llm-models`, {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-      } catch (err) {
-        console.error('Failed to load chat model:', err);
+
+        // Read response as text first to handle potential Content-Length mismatch
+        const text = await response.text();
+
+        if (!text || text.trim().length === 0) {
+          throw new Error('Empty response from server');
+        }
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          throw new Error(`Failed to parse JSON response: ${parseErr}`);
+        }
+
+        if (data.chat_model) {
+          setCurrentChatModel(data.chat_model.model_name);
+        }
+        if (data.available_chat_models) {
+          setAvailableChatModels(data.available_chat_models);
+        }
+
+        // Mark as loaded only on success
+        chatModelLoadedRef.current = apiUrl;
+      } catch (err: any) {
+        // Handle Content-Length mismatch and network errors with retry
+        const isContentLengthError = err?.message?.includes('Content-Length') ||
+                                   err?.message?.includes('ERR_CONTENT_LENGTH_MISMATCH') ||
+                                   err?.name === 'TypeError' && err?.message?.includes('Failed to fetch');
+
+        if (isContentLengthError && retryCount < 2) {
+          // Retry after a short delay
+          setTimeout(() => {
+            loadChatModel(retryCount + 1);
+          }, 1000 * (retryCount + 1));
+          return;
+        }
+
+        // Only log error if not a retry attempt or final failure
+        if (retryCount === 0 || retryCount >= 2) {
+          console.warn('Failed to load chat model:', err?.message || err);
+        }
       }
     };
 
@@ -316,7 +362,25 @@ export default function WorkspaceChat({
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
-      const errorMessage = err.message || t('workspaceSendMessageFailed');
+
+      // Extract user-friendly error message, preserving URLs
+      let errorMessage = err.message || t('workspaceSendMessageFailed');
+
+      // Handle specific error types with user-friendly messages, but preserve original message with URLs
+      if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('insufficient_quota')) {
+        // Keep original message if it contains helpful URLs, otherwise use simplified message
+        if (errorMessage.includes('http') || errorMessage.includes('docs')) {
+          // Preserve original message with URLs
+          errorMessage = errorMessage;
+        } else {
+          errorMessage = 'API quota exceeded. Please check your plan and billing details.';
+        }
+      } else if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+        errorMessage = 'API authentication failed. Please check your API key.';
+      } else if (errorMessage.includes('500') || errorMessage.includes('internal server error')) {
+        errorMessage = 'Server error. Please try again later.';
+      }
+
       const errorChatMessage: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
@@ -325,6 +389,11 @@ export default function WorkspaceChat({
         event_type: 'error'
       };
       setMessages(prev => [...prev, errorChatMessage]);
+
+      // Scroll to show error message
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
     } finally {
       // Only scroll to bottom if user hasn't manually scrolled up
       if (!userScrolledRef.current) {

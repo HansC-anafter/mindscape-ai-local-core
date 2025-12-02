@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { t } from '@/lib/i18n';
 import ContextCard from './ContextCard';
 import SuggestedNextStepsCard from './SuggestedNextStepsCard';
@@ -81,8 +81,20 @@ export default function MindscapeAIWorkbench({
   const [showDetectedIntents, setShowDetectedIntents] = useState(false);
   const [showSuggestedSteps, setShowSuggestedSteps] = useState(false);
 
+  // Track last loaded workspaceId and refreshTrigger to prevent duplicate loads
+  const lastWorkspaceIdRef = useRef<string | null>(null);
+  const lastRefreshTriggerRef = useRef(0);
+
   useEffect(() => {
-    loadWorkbenchData();
+    // Only load if workspaceId changed or refreshTrigger increased
+    const workspaceIdChanged = lastWorkspaceIdRef.current !== workspaceId;
+    const refreshTriggered = refreshTrigger > lastRefreshTriggerRef.current;
+
+    if (workspaceIdChanged || refreshTriggered) {
+      loadWorkbenchData();
+      lastWorkspaceIdRef.current = workspaceId;
+      lastRefreshTriggerRef.current = refreshTrigger;
+    }
   }, [workspaceId, refreshTrigger]);
 
   useEffect(() => {

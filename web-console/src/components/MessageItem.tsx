@@ -31,6 +31,17 @@ const markdownComponents = {
   h2: ({ children }: any) => <h2 className="text-sm font-bold mb-2">{children}</h2>,
   h3: ({ children }: any) => <h3 className="text-xs font-bold mb-1">{children}</h3>,
   blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 pl-2 italic mb-2">{children}</blockquote>,
+  a: ({ href, children }: any) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-600 hover:text-blue-800 underline break-all"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </a>
+  ),
 };
 
 function MessageItemComponent({ message, onCopy }: MessageItemProps) {
@@ -108,7 +119,9 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
         <div
           ref={messageContainerRef}
           className={`relative max-w-[80%] min-w-[200px] rounded-lg px-6 py-3 ${
-            message.role === 'user'
+            message.event_type === 'error'
+              ? 'bg-red-50 border-2 border-red-200 text-red-900'
+              : message.role === 'user'
               ? 'bg-blue-600 text-white'
               : message.is_welcome
               ? 'bg-blue-50 border-2 border-blue-200 text-gray-900'
@@ -131,7 +144,26 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
             {isVisible || message.role === 'user' ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                components={markdownComponents}
+                components={{
+                  ...markdownComponents,
+                  a: ({ href, children }: any) => (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={
+                        message.event_type === 'error'
+                          ? 'text-red-700 hover:text-red-900 underline break-all font-medium'
+                          : message.role === 'user'
+                          ? 'text-blue-200 hover:text-white underline break-all'
+                          : 'text-blue-600 hover:text-blue-800 underline break-all'
+                      }
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
               >
                 {message.is_welcome && (message.content.startsWith('welcome.') || message.content.includes('.'))
                   ? (t(message.content as any) || message.content)

@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useT } from '@/lib/i18n';
+import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 
 // Laser scan effect styles
 const laserScanStyle = `
@@ -91,6 +92,9 @@ export default function ActivePlaybookIndicator({
   apiUrl = 'http://localhost:8000',
 }: ActivePlaybookIndicatorProps) {
   const t = useT();
+  // Use context data if available to avoid duplicate API calls
+  const contextData = useWorkspaceDataOptional();
+
   const [activePlaybooks, setActivePlaybooks] = useState<ActivePlaybook[]>([]);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -99,112 +103,113 @@ export default function ActivePlaybookIndicator({
   // Debounce helper ref
   const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const loadActivePlaybooks = async () => {
-    // Initialize variables at function scope to avoid ReferenceError
-    let runningTasks: any[] = [];
-    let pendingTasks: any[] = [];
+  // Process tasks to extract active playbooks
+  const processTasks = (allTasks: any[]) => {
+    const playbookMap = new Map<string, ActivePlaybook>();
 
+    // Filter tasks by status
+    const runningTasks = allTasks.filter(
+      (task: any) => {
+        const status = (task.status || '').toLowerCase().trim();
+        const hasPlaybook = !!(task.pack_id || task.playbook_id || task.task_type);
+        return status === 'running' && hasPlaybook;
+      }
+    );
+
+    const pendingTasks = allTasks.filter(
+      (task: any) => {
+        const status = (task.status || '').toLowerCase().trim();
+        const hasPlaybook = !!(task.pack_id || task.playbook_id || task.task_type);
+        return status === 'pending' && hasPlaybook;
+      }
+    );
+
+    // Collect RUNNING playbooks
+    runningTasks.forEach((task: any) => {
+      const key = task.pack_id || task.playbook_id || task.task_type || '';
+      if (key && !playbookMap.has(key)) {
+        playbookMap.set(key, {
+          playbook_id: task.playbook_id,
+          pack_id: task.pack_id,
+          display_name: task.pack_id || task.playbook_id || task.task_type || 'Unknown',
+          status: task.status
+        });
+      }
+    });
+
+    // Count unique pending tasks (if no running tasks)
+    let pendingCount = 0;
+    if (runningTasks.length === 0) {
+      const uniquePendingPlaybooks = new Set<string>();
+      pendingTasks.forEach((task: any) => {
+        const key = task.pack_id || task.playbook_id || task.task_type || '';
+        if (key) {
+          uniquePendingPlaybooks.add(key);
+        }
+      });
+      pendingCount = uniquePendingPlaybooks.size;
+    }
+
+    const playbooks = Array.from(playbookMap.values());
+    const currentPendingCount = runningTasks.length === 0
+      ? Array.from(new Set(pendingTasks.map((t: any) => t.pack_id || t.playbook_id || t.task_type || '').filter(Boolean))).length
+      : 0;
+
+    return { playbooks, pendingCount, currentPendingCount, runningTasks, pendingTasks };
+  };
+
+  const loadActivePlaybooks = async () => {
     try {
       setLoading(true);
 
-      // Try multiple data sources
-      const playbookMap = new Map<string, ActivePlaybook>();
+      let allTasks: any[] = [];
 
-      // 1. Try loading from tasks
-      try {
-        const tasksResponse = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=20`
-        );
-
-        if (tasksResponse.ok) {
-          const tasksData = await tasksResponse.json();
-          const allTasks = tasksData.tasks || [];
-
-          if (process.env.NODE_ENV === 'development') {
-          console.log('[ActivePlaybookIndicator] Tasks data:', allTasks);
-
-          // Debug: log all tasks to understand structure
-          if (allTasks.length > 0) {
-            console.log('[ActivePlaybookIndicator] All tasks details:', allTasks.map((t: any) => ({
-              id: t.id,
-              status: t.status,
-              pack_id: t.pack_id,
-              playbook_id: t.playbook_id,
-              task_type: t.task_type,
-              execution_id: t.execution_id
-            })));
-            }
-          }
-
-          // Filter tasks by status
-          // Status values from API are lowercase: "running", "pending", "succeeded", "failed"
-          runningTasks = allTasks.filter(
-            (task: any) => {
-              const status = (task.status || '').toLowerCase().trim();
-              const hasPlaybook = !!(task.pack_id || task.playbook_id || task.task_type);
-              return status === 'running' && hasPlaybook;
-            }
-          );
-
-          pendingTasks = allTasks.filter(
-            (task: any) => {
-              const status = (task.status || '').toLowerCase().trim();
-              const hasPlaybook = !!(task.pack_id || task.playbook_id || task.task_type);
-              return status === 'pending' && hasPlaybook;
-            }
-          );
-
-          if (process.env.NODE_ENV === 'development') {
-          console.log('[ActivePlaybookIndicator] Running tasks:', runningTasks);
-          console.log('[ActivePlaybookIndicator] Pending tasks:', pendingTasks);
-          }
-
-          // Collect RUNNING playbooks
-          runningTasks.forEach((task: any) => {
-            const key = task.pack_id || task.playbook_id || task.task_type || '';
-            if (key && !playbookMap.has(key)) {
-              playbookMap.set(key, {
-                playbook_id: task.playbook_id,
-                pack_id: task.pack_id,
-                display_name: task.pack_id || task.playbook_id || task.task_type || 'Unknown',
-                status: task.status
-              });
-            }
-          });
-
-          // Count unique pending tasks (if no running tasks)
-          if (runningTasks.length === 0) {
-            const uniquePendingPlaybooks = new Set<string>();
-            pendingTasks.forEach((task: any) => {
-              const key = task.pack_id || task.playbook_id || task.task_type || '';
-              if (key) {
-                uniquePendingPlaybooks.add(key);
-              }
-            });
-            setPendingTasksCount(uniquePendingPlaybooks.size);
-          } else {
-            setPendingTasksCount(0);
-          }
+      // Use context data if available, otherwise fetch from API
+      if (contextData?.tasks) {
+        allTasks = contextData.tasks;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[ActivePlaybookIndicator] Using tasks from context:', allTasks.length);
         }
-      } catch (err) {
-        console.warn('[ActivePlaybookIndicator] Failed to load playbooks from tasks:', err);
+      } else {
+        // Fallback: fetch from API if context not available
+        try {
+          const tasksResponse = await fetch(
+            `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=20`
+          );
+
+          if (tasksResponse.ok) {
+            const tasksData = await tasksResponse.json();
+            allTasks = tasksData.tasks || [];
+          }
+        } catch (err) {
+          console.warn('[ActivePlaybookIndicator] Failed to load playbooks from tasks:', err);
+        }
       }
 
-      // Note: We only check tasks API for RUNNING status
-      // Timeline items are historical records, not current execution status
+      if (process.env.NODE_ENV === 'development' && allTasks.length > 0) {
+        console.log('[ActivePlaybookIndicator] Tasks data:', allTasks);
+        console.log('[ActivePlaybookIndicator] All tasks details:', allTasks.map((t: any) => ({
+          id: t.id,
+          status: t.status,
+          pack_id: t.pack_id,
+          playbook_id: t.playbook_id,
+          task_type: t.task_type,
+          execution_id: t.execution_id
+        })));
+      }
 
-      const playbooks = Array.from(playbookMap.values());
+      const { playbooks, pendingCount, currentPendingCount, runningTasks, pendingTasks } = processTasks(allTasks);
+
       if (process.env.NODE_ENV === 'development') {
-      console.log('[ActivePlaybookIndicator] Final playbooks:', playbooks);
+        console.log('[ActivePlaybookIndicator] Running tasks:', runningTasks);
+        console.log('[ActivePlaybookIndicator] Pending tasks:', pendingTasks);
+        console.log('[ActivePlaybookIndicator] Final playbooks:', playbooks);
       }
 
       setActivePlaybooks(playbooks);
+      setPendingTasksCount(pendingCount);
 
       // Fade in/out animation - show animation if there are running tasks or pending tasks
-      const currentPendingCount = runningTasks.length === 0
-        ? Array.from(new Set(pendingTasks.map((t: any) => t.pack_id || t.playbook_id || t.task_type || '').filter(Boolean))).length
-        : 0;
-
       if (playbooks.length > 0 || currentPendingCount > 0) {
         setIsVisible(true);
       } else {
@@ -225,10 +230,16 @@ export default function ActivePlaybookIndicator({
     }, 300);
   };
 
+  // Track if initial load has been done to prevent duplicate loads
+  const hasLoadedRef = useRef<string | null>(null);
+
   // Pure event-driven: No polling, only react to events
   useEffect(() => {
-    // Initial load only
-    loadActivePlaybooks();
+    // Only load once per workspaceId
+    if (hasLoadedRef.current !== workspaceId) {
+      loadActivePlaybooks();
+      hasLoadedRef.current = workspaceId;
+    }
 
     // Track last event time for health check
     let lastEventTime = Date.now();
@@ -299,7 +310,7 @@ export default function ActivePlaybookIndicator({
       if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
       if (healthCheckTimer) clearTimeout(healthCheckTimer);
     };
-  }, [workspaceId]);
+  }, [workspaceId, contextData?.tasks]); // Re-process when context tasks update
 
   // Format playbook names for display
   const formatPlaybookName = (playbook: ActivePlaybook): string => {

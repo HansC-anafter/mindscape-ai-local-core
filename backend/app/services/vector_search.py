@@ -46,20 +46,42 @@ class VectorSearchService:
             return False
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for query text"""
+        """Generate embedding for query text using configured model"""
         try:
-            openai_key = os.getenv("OPENAI_API_KEY")
-            if not openai_key:
-                logger.warning("OPENAI_API_KEY not set")
+            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.services.config_store import ConfigStore
+
+            # Get embedding model from system settings
+            settings_store = SystemSettingsStore()
+            embedding_setting = settings_store.get_setting("embedding_model")
+
+            if not embedding_setting:
+                logger.warning("No embedding model configured, using default: text-embedding-3-small")
+                model_name = "text-embedding-3-small"
+                provider = "openai"
+            else:
+                model_name = str(embedding_setting.value)
+                provider = embedding_setting.metadata.get("provider", "openai")
+
+            # Get API key
+            config_store = ConfigStore()
+            config = config_store.get_or_create_config("default-user")
+            api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+
+            if not api_key:
+                logger.warning("OpenAI API key not configured for embedding generation")
                 return None
 
             import openai
-            client = openai.OpenAI(api_key=openai_key)
+            client = openai.OpenAI(api_key=api_key)
             response = client.embeddings.create(
-                model="text-embedding-3-small",
+                model=model_name,
                 input=text
             )
-            return response.data[0].embedding
+
+            embedding = response.data[0].embedding
+            logger.debug(f"Generated embedding using model: {model_name} (dimension: {len(embedding)})")
+            return embedding
 
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
@@ -70,7 +92,8 @@ class VectorSearchService:
         table: str,
         query_embedding: List[float],
         filters: Dict[str, Any] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        require_model_match: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Generic vector search across any table
@@ -80,6 +103,7 @@ class VectorSearchService:
             query_embedding: Query vector
             filters: Additional filters (e.g., {"playbook_code": "xxx"})
             top_k: Number of results
+            require_model_match: If True, only search embeddings created with the same model
 
         Returns:
             List of matching records with similarity scores
@@ -87,6 +111,15 @@ class VectorSearchService:
         conn = self._get_connection()
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Get current embedding model for filtering
+            current_model_name = None
+            if require_model_match and table == "mindscape_personal":
+                from backend.app.services.system_settings_store import SystemSettingsStore
+                settings_store = SystemSettingsStore()
+                embedding_setting = settings_store.get_setting("embedding_model")
+                if embedding_setting:
+                    current_model_name = str(embedding_setting.value)
 
             # Build WHERE clause from filters
             where_clauses = []
@@ -96,6 +129,11 @@ class VectorSearchService:
                 for key, value in filters.items():
                     where_clauses.append(f"{key} = %s")
                     params.append(value)
+
+            # Add model matching filter if required
+            if require_model_match and current_model_name and table == "mindscape_personal":
+                where_clauses.append("metadata->>'embedding_model' = %s")
+                params.append(current_model_name)
 
             where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -182,7 +220,10 @@ class VectorSearchService:
         user_id: str = "default_user"
     ) -> Dict[str, Any]:
         """
-        场景 1：AI 成员执行 Playbook时查询 SOP + 个人context
+        Execute playbook with combined context from SOP and personal memory
+
+        Searches both playbook SOP knowledge and user's personal context to provide
+        comprehensive context for AI agent execution.
 
         Args:
             playbook_code: Playbook identifier
@@ -190,23 +231,20 @@ class VectorSearchService:
             user_id: User identifier
 
         Returns:
-            Combined context for AI
+            Combined context for AI with formatted text
         """
-        # 1. Search Playbook SOP
         playbook_chunks = await self.search_playbook_sop(
             playbook_code=playbook_code,
             query=user_query,
             top_k=5
         )
 
-        # 2. Search personal context
         personal_context = await self.search_personal_context(
             user_id=user_id,
             query=user_query,
             top_k=3
         )
 
-        # 3. Format context
         context = {
             "playbook_sop": [
                 {
@@ -226,7 +264,6 @@ class VectorSearchService:
             ]
         }
 
-        # 4. Generate formatted context string
         context_text = self._format_context_for_llm(context)
 
         return {
@@ -239,18 +276,16 @@ class VectorSearchService:
         """Format context for LLM consumption"""
         parts = []
 
-        # Playbook SOP
         if context["playbook_sop"]:
             parts.append("## Playbook SOP:")
             for i, chunk in enumerate(context["playbook_sop"], 1):
-                parts.append(f"\n### {chunk['section_type'].title()} (相似度: {chunk['similarity']:.2f})")
+                parts.append(f"\n### {chunk['section_type'].title()} (similarity: {chunk['similarity']:.2f})")
                 parts.append(chunk["content"])
 
-        # Personal context
         if context["personal_context"]:
             parts.append("\n\n## Your Personal Context:")
             for i, ctx in enumerate(context["personal_context"], 1):
-                parts.append(f"\n### {ctx['source_type']} (相似度: {ctx['similarity']:.2f})")
+                parts.append(f"\n### {ctx['source_type']} (similarity: {ctx['similarity']:.2f})")
                 parts.append(ctx["content"])
 
         return "\n".join(parts)

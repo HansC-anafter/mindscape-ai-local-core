@@ -168,9 +168,15 @@ export default function TimelinePanel({
     }));
   };
 
+  // Track if initial load has been done to prevent duplicate loads
+  const hasLoadedRef = useRef<string | null>(null);
+
   useEffect(() => {
-    // Load timeline items on mount (timeline items are not in context yet)
-    loadTimelineItems();
+    // Only load timeline items once per workspaceId (timeline items are not in context yet)
+    if (hasLoadedRef.current !== workspaceId) {
+      loadTimelineItems();
+      hasLoadedRef.current = workspaceId;
+    }
 
     // Only load executions and workspace if not using context
     if (!contextData) {
@@ -211,7 +217,7 @@ export default function TimelinePanel({
       }
       window.removeEventListener('workspace-chat-updated', handleChatUpdate);
     };
-  }, [workspaceId, contextData]);
+  }, [workspaceId]); // Remove contextData from dependencies to prevent re-loading
 
   // Expose loadTimelineItems for manual refresh
   useEffect(() => {
@@ -776,6 +782,10 @@ export default function TimelinePanel({
                               // If using context, refresh executions to get latest data
                               if (updatedExecution.status !== execution.status) {
                                 contextData.refreshExecutions();
+                                // If execution completed, also refresh tasks
+                                if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                                  contextData.refreshTasks();
+                                }
                               }
                             } else {
                               // If not using context, update local state
