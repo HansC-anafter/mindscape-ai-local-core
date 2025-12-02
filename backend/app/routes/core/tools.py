@@ -1629,41 +1629,6 @@ async def import_claude_mcp_config(request: MCPImportClaudeConfigRequest):
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 
-@router.get("/status", response_model=Dict[str, Any])
-async def get_tools_status(
-    profile_id: str = Query('default-user', description="Profile ID")
-):
-    """
-    Get status of all tools for a profile
-
-    Returns tool connection status for all registered tools:
-    - unavailable: Tool not registered
-    - registered_but_not_connected: Tool registered but no active connection
-    - connected: Tool has active and validated connection
-
-    Example:
-        GET /api/tools/status?profile_id=user123
-    """
-    try:
-        data_dir = os.getenv("DATA_DIR", "./data")
-        tool_connection_store = ToolConnectionStore(db_path=f"{data_dir}/my_agent_console.db")
-        tool_status_checker = ToolStatusChecker(tool_connection_store)
-        statuses = tool_status_checker.list_all_tools_status(profile_id)
-
-        return {
-            "tools": {
-                tool_type: {
-                    "status": status.value,
-                    "info": get_tool_info(tool_type)
-                }
-                for tool_type, status in statuses.items()
-            }
-        }
-    except Exception as e:
-        logger.error(f"Failed to get tools status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/{tool_type}/status", response_model=Dict[str, Any])
 async def get_tool_status(
     tool_type: str,
