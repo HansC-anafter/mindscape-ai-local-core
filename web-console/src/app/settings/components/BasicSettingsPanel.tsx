@@ -45,10 +45,9 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
     await saveSettings();
   };
 
-  // Render specific section if activeSection is provided
+  // Render specific section based on activeSection
   const renderSection = () => {
     if (!activeSection) {
-      // Show all sections if no specific section is requested
       return null;
     }
 
@@ -169,94 +168,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
     }
   };
 
-  const renderAllSections = () => {
-    return (
-      <div className="space-y-6">
-        <BackendModeSettings mode={mode} onModeChange={setMode} />
-
-        {mode === 'remote_crs' && (
-          <div className="border-t dark:border-gray-700 pt-6 space-y-4">
-            {loading ? (
-              <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('serviceUrl')} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={remoteUrl}
-                    onChange={(e) => setRemoteUrl(e.target.value)}
-                    placeholder="https://your-agent-service.example.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('apiToken')} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={remoteToken}
-                    onChange={(e) => setRemoteToken(e.target.value)}
-                    placeholder={
-                      config?.remote_crs_configured
-                        ? t('tokenPlaceholderConfigured')
-                        : t('tokenPlaceholder')
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    required
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {mode === 'local' && (
-          <>
-            <div className="border-t dark:border-gray-700 pt-6">
-              {loading ? (
-                <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>
-              ) : (
-                <APIAndQuotaSettings
-                  config={config}
-                  openaiKey={openaiKey}
-                  anthropicKey={anthropicKey}
-                  onOpenaiKeyChange={setOpenaiKey}
-                  onAnthropicKeyChange={setAnthropicKey}
-                />
-              )}
-            </div>
-
-            <div className="border-t dark:border-gray-700 pt-6">
-              <EmbeddingSettings />
-            </div>
-
-            <div className="border-t dark:border-gray-700 pt-6">
-              <LLMChatSettings />
-            </div>
-          </>
-        )}
-
-        {config && (
-          <div className="border-t pt-4">
-            <BackendStatusSection availableBackends={config.available_backends} />
-          </div>
-        )}
-
-        <div className="border-t pt-6">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('oauthIntegration')}</h3>
-          <GoogleOAuthSettings />
-        </div>
-      </div>
-    );
-  };
-
-  const sectionContent = activeSection ? renderSection() : renderAllSections();
+  const sectionContent = renderSection();
 
   return (
     <Card>

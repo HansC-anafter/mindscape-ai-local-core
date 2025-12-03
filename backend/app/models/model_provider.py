@@ -54,6 +54,8 @@ class ModelConfigCard(BaseModel):
     model: ModelConfig = Field(..., description="Model configuration")
     api_key_configured: bool = Field(..., description="Whether API key is configured")
     base_url: Optional[str] = Field(None, description="Base URL (if applicable)")
+    project_id: Optional[str] = Field(None, description="GCP Project ID (for Vertex AI)")
+    location: Optional[str] = Field(None, description="GCP Location/Region (for Vertex AI, e.g., us-central1)")
     quota_info: Optional[Dict[str, Any]] = Field(None, description="Quota information (if available)")
 
 

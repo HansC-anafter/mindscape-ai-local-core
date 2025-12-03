@@ -29,6 +29,157 @@ router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
 # Initialize store
 settings_store = SystemSettingsStore()
 
+# Default model definitions (moved to module level for import)
+DEFAULT_CHAT_MODELS = [
+    {
+        "model_name": "gpt-5.1-pro",
+        "provider": "openai",
+        "description": "OpenAI GPT-5.1 Pro (latest, Nov 2025) - Enhanced for writing, data science, business",
+        "is_latest": True,
+        "is_recommended": True
+    },
+    {
+        "model_name": "gpt-5.1",
+        "provider": "openai",
+        "description": "OpenAI GPT-5.1 (latest, Nov 2025) - Latest general-purpose model",
+        "is_latest": True
+    },
+    {
+        "model_name": "gpt-4o",
+        "provider": "openai",
+        "description": "OpenAI GPT-4o (updated Mar 2025) - High quality, deprecated Feb 2026",
+        "is_deprecated": True,
+        "deprecation_date": "2026-02-16"
+    },
+    {
+        "model_name": "gpt-4o-mini",
+        "provider": "openai",
+        "description": "OpenAI GPT-4o Mini - Cost-effective, 128K context"
+    },
+    {
+        "model_name": "claude-opus-4.5",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Opus 4.5 (latest) - Most powerful, enhanced coding & automation",
+        "is_latest": True
+    },
+    {
+        "model_name": "claude-haiku-4.5",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Haiku 4.5 (latest, Oct 2025) - Fastest, most cost-efficient",
+        "is_latest": True
+    },
+    {
+        "model_name": "claude-sonnet-4.5",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Sonnet 4.5 (latest) - Balanced performance"
+    },
+    {
+        "model_name": "claude-3.5-sonnet",
+        "provider": "anthropic",
+        "description": "Anthropic Claude 3.5 Sonnet (deprecated Oct 2025)",
+        "is_deprecated": True
+    },
+    {
+        "model_name": "claude-3-haiku",
+        "provider": "anthropic",
+        "description": "Anthropic Claude 3 Haiku (legacy)"
+    },
+    {
+        "model_name": "gemini-3-pro",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini 3 Pro (latest, Nov 2025 preview) - Most capable model, 1M context window",
+        "is_latest": True,
+        "is_recommended": True,
+        "context_window": 1000000
+    },
+    {
+        "model_name": "gemini-2.5-pro",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini 2.5 Pro (stable, Jun 2025) - Enhanced performance and accuracy",
+        "is_latest": True,
+        "context_window": 2000000
+    },
+    {
+        "model_name": "gemini-2.5-flash",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini 2.5 Flash (stable, Jun 2025) - Fast and efficient",
+        "is_latest": True,
+        "context_window": 1000000
+    },
+    {
+        "model_name": "gemini-2.5-flash-lite",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini 2.5 Flash-Lite (preview) - Lower cost option",
+        "context_window": 1000000
+    },
+    {
+        "model_name": "gemini-1.5-pro",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini 1.5 Pro - 2M context window",
+        "context_window": 2000000
+    },
+    {
+        "model_name": "gemini-1.5-flash",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini 1.5 Flash - Fast and efficient, 1M context window",
+        "context_window": 1000000
+    },
+    {
+        "model_name": "gemini-pro",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini Pro (legacy) - General purpose model"
+    },
+    {
+        "model_name": "gemini-pro-vision",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini Pro Vision (legacy) - Multimodal model with vision capabilities"
+    }
+]
+
+DEFAULT_EMBEDDING_MODELS = [
+    {
+        "model_name": "text-embedding-3-large",
+        "provider": "openai",
+        "description": "OpenAI text-embedding-3-large (latest) - 3072 dimensions, best performance",
+        "is_latest": True,
+        "is_recommended": True,
+        "dimensions": 3072
+    },
+    {
+        "model_name": "text-embedding-3-small",
+        "provider": "openai",
+        "description": "OpenAI text-embedding-3-small - 1536 dimensions, cost-effective",
+        "dimensions": 1536
+    },
+    {
+        "model_name": "text-embedding-ada-002",
+        "provider": "openai",
+        "description": "OpenAI text-embedding-ada-002 (legacy) - 1536 dimensions",
+        "is_legacy": True,
+        "dimensions": 1536
+    },
+    {
+        "model_name": "text-embedding-004",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Gemini Embedding (latest, Jul 2025) - 768 dimensions, supports 100+ languages, 2048 token input",
+        "is_latest": True,
+        "is_recommended": True,
+        "dimensions": 768
+    },
+    {
+        "model_name": "textembedding-gecko@003",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Text Embedding Gecko 003 - 768 dimensions, optimized for retrieval",
+        "dimensions": 768
+    },
+    {
+        "model_name": "textembedding-gecko-multilingual@001",
+        "provider": "vertex-ai",
+        "description": "Google Vertex AI Text Embedding Gecko Multilingual - 768 dimensions, supports 100+ languages",
+        "dimensions": 768
+    }
+]
+
 # Obsidian configuration endpoints
 @router.get("/obsidian")
 async def get_obsidian_config():
@@ -149,89 +300,7 @@ async def get_llm_model_settings():
                 metadata=embedding_setting.metadata
             )
 
-        # Available models (2025 latest, with older models for downgrade)
-        # Note: These are default models, will be migrated to database
-        DEFAULT_CHAT_MODELS = [
-            {
-                "model_name": "gpt-5.1-pro",
-                "provider": "openai",
-                "description": "OpenAI GPT-5.1 Pro (latest, Nov 2025) - Enhanced for writing, data science, business",
-                "is_latest": True,
-                "is_recommended": True
-            },
-            {
-                "model_name": "gpt-5.1",
-                "provider": "openai",
-                "description": "OpenAI GPT-5.1 (latest, Nov 2025) - Latest general-purpose model",
-                "is_latest": True
-            },
-            {
-                "model_name": "gpt-4o",
-                "provider": "openai",
-                "description": "OpenAI GPT-4o (updated Mar 2025) - High quality, deprecated Feb 2026",
-                "is_deprecated": True,
-                "deprecation_date": "2026-02-16"
-            },
-            {
-                "model_name": "gpt-4o-mini",
-                "provider": "openai",
-                "description": "OpenAI GPT-4o Mini - Cost-effective, 128K context"
-            },
-            {
-                "model_name": "claude-opus-4.5",
-                "provider": "anthropic",
-                "description": "Anthropic Claude Opus 4.5 (latest) - Most powerful, enhanced coding & automation",
-                "is_latest": True
-            },
-            {
-                "model_name": "claude-haiku-4.5",
-                "provider": "anthropic",
-                "description": "Anthropic Claude Haiku 4.5 (latest, Oct 2025) - Fastest, most cost-efficient",
-                "is_latest": True
-            },
-            {
-                "model_name": "claude-sonnet-4.5",
-                "provider": "anthropic",
-                "description": "Anthropic Claude Sonnet 4.5 (latest) - Balanced performance"
-            },
-            {
-                "model_name": "claude-3.5-sonnet",
-                "provider": "anthropic",
-                "description": "Anthropic Claude 3.5 Sonnet (deprecated Oct 2025)",
-                "is_deprecated": True
-            },
-            {
-                "model_name": "claude-3-haiku",
-                "provider": "anthropic",
-                "description": "Anthropic Claude 3 Haiku (legacy)"
-            }
-        ]
-
-        DEFAULT_EMBEDDING_MODELS = [
-            {
-                "model_name": "text-embedding-3-large",
-                "provider": "openai",
-                "description": "OpenAI text-embedding-3-large (latest) - 3072 dimensions, best performance",
-                "is_latest": True,
-                "is_recommended": True,
-                "dimensions": 3072
-            },
-            {
-                "model_name": "text-embedding-3-small",
-                "provider": "openai",
-                "description": "OpenAI text-embedding-3-small - 1536 dimensions, cost-effective",
-                "dimensions": 1536
-            },
-            {
-                "model_name": "text-embedding-ada-002",
-                "provider": "openai",
-                "description": "OpenAI text-embedding-ada-002 (legacy) - 1536 dimensions",
-                "is_legacy": True,
-                "dimensions": 1536
-            }
-        ]
-
-        # Use default models for now (will be replaced with database models later)
+        # Use module-level default models
         available_chat_models = DEFAULT_CHAT_MODELS
         available_embedding_models = DEFAULT_EMBEDDING_MODELS
 
@@ -381,6 +450,14 @@ async def get_model_config(model_id: int):
         if model.provider_name == "ollama":
             base_url = "http://localhost:11434"
 
+        project_id = None
+        location = None
+        if model.provider_name == "vertex-ai":
+            project_id_setting = settings_store.get_setting("vertex_ai_project_id")
+            location_setting = settings_store.get_setting("vertex_ai_location")
+            project_id = project_id_setting.value if project_id_setting else None
+            location = location_setting.value if location_setting else "us-central1"
+
         return {
             "model": {
                 "id": model.id,
@@ -400,11 +477,80 @@ async def get_model_config(model_id: int):
             },
             "api_key_configured": api_key_configured,
             "base_url": base_url,
+            "project_id": project_id,
+            "location": location,
             "quota_info": None,
         }
     except Exception as e:
         logger.error(f"Failed to get model config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get model config: {str(e)}")
+
+
+@router.put("/models/{model_id}/config", response_model=Dict[str, Any])
+async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...)):
+    """
+    Update model configuration (API key, base URL, project ID, location, etc.)
+
+    Args:
+        model_id: Model ID
+        config: Configuration data (api_key, base_url, project_id, location)
+
+    Returns:
+        Success message
+    """
+    try:
+        from backend.app.services.model_config_store import ModelConfigStore
+        from backend.app.services.system_settings_store import SystemSettingsStore
+
+        model_store = ModelConfigStore()
+        settings_store = SystemSettingsStore()
+
+        model = model_store.get_model_by_id(model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+
+        if "api_key" in config and config["api_key"]:
+            api_key_setting_key = f"{model.provider_name}_api_key"
+            settings_store.set_setting(
+                key=api_key_setting_key,
+                value=config["api_key"],
+                value_type=SettingType.STRING,
+                category="models",
+                description=f"API key for {model.provider_name}",
+                is_sensitive=True
+            )
+
+        if model.provider_name == "ollama" and "base_url" in config:
+            settings_store.set_setting(
+                key="ollama_base_url",
+                value=config.get("base_url", "http://localhost:11434"),
+                value_type=SettingType.STRING,
+                category="models",
+                description="Ollama base URL"
+            )
+
+        if model.provider_name == "vertex-ai":
+            if "project_id" in config and config["project_id"]:
+                settings_store.set_setting(
+                    key="vertex_ai_project_id",
+                    value=config["project_id"],
+                    value_type=SettingType.STRING,
+                    category="models",
+                    description="GCP Project ID for Vertex AI"
+                )
+            if "location" in config and config["location"]:
+                settings_store.set_setting(
+                    key="vertex_ai_location",
+                    value=config["location"],
+                    value_type=SettingType.STRING,
+                    category="models",
+                    description="GCP Location/Region for Vertex AI"
+                )
+
+        return {"success": True, "message": "Model configuration updated successfully"}
+    except Exception as e:
+        logger.error(f"Failed to update model config: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update model config: {str(e)}")
 
 
 @router.get("/category/{category}", response_model=List[SystemSetting])
@@ -503,13 +649,13 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
                     logger.info(f"Verification read - key exists: True, value length: {verify_length}, value preview: {verify_value_str[:30] if verify_value_str else '(empty)'}...")
                     if verify_value_str and verify_length > 0:
                         if verify_value_str == client_id_value:
-                            logger.info(f"✓ Verified google_oauth_client_id saved successfully (length: {verify_length})")
+                            logger.info(f"Verified google_oauth_client_id saved successfully (length: {verify_length})")
                         else:
-                            logger.error(f"✗ Verification failed - value mismatch! Expected: {client_id_value[:30]}..., Got: {verify_value_str[:30]}...")
+                            logger.error(f"Verification failed - value mismatch! Expected: {client_id_value[:30]}..., Got: {verify_value_str[:30]}...")
                     else:
-                        logger.error(f"✗ WARNING: google_oauth_client_id verification failed - value is empty after save! (length: {verify_length})")
+                        logger.error(f"WARNING: google_oauth_client_id verification failed - value is empty after save! (length: {verify_length})")
                 else:
-                    logger.error("✗ WARNING: google_oauth_client_id verification failed - setting not found after save!")
+                    logger.error("WARNING: google_oauth_client_id verification failed - setting not found after save!")
 
         if request.client_secret is not None:
             client_secret_value = request.client_secret.strip() if isinstance(request.client_secret, str) else str(request.client_secret)
@@ -536,13 +682,13 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
                     logger.info(f"Verification read - key exists: True, value length: {verify_length}")
                     if verify_value_str and verify_length > 0:
                         if verify_value_str == client_secret_value:
-                            logger.info(f"✓ Verified google_oauth_client_secret saved successfully (length: {verify_length})")
+                            logger.info(f"Verified google_oauth_client_secret saved successfully (length: {verify_length})")
                         else:
-                            logger.error(f"✗ Verification failed - value mismatch for client_secret!")
+                            logger.error(f"Verification failed - value mismatch for client_secret!")
                     else:
-                        logger.error(f"✗ WARNING: google_oauth_client_secret verification failed - value is empty after save! (length: {verify_length})")
+                        logger.error(f"WARNING: google_oauth_client_secret verification failed - value is empty after save! (length: {verify_length})")
                 else:
-                    logger.error("✗ WARNING: google_oauth_client_secret verification failed - setting not found after save!")
+                    logger.error("WARNING: google_oauth_client_secret verification failed - setting not found after save!")
             else:
                 logger.warning("Received empty client_secret, skipping save")
 
@@ -569,11 +715,11 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
                     verify_value_str = str(verify.value) if verify.value else ""
                     verify_length = len(verify_value_str)
                     if verify_value_str and verify_length > 0:
-                        logger.info(f"✓ Verified google_oauth_redirect_uri saved successfully (length: {verify_length})")
+                        logger.info(f"Verified google_oauth_redirect_uri saved successfully (length: {verify_length})")
                     else:
-                        logger.error(f"✗ WARNING: google_oauth_redirect_uri verification failed - value is empty after save!")
+                        logger.error(f"WARNING: google_oauth_redirect_uri verification failed - value is empty after save!")
                 else:
-                    logger.error("✗ WARNING: google_oauth_redirect_uri verification failed - setting not found after save!")
+                    logger.error("WARNING: google_oauth_redirect_uri verification failed - setting not found after save!")
             else:
                 logger.warning("Received empty redirect_uri, skipping save")
 
@@ -602,13 +748,13 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
                     logger.info(f"Verification read - key exists: True, value length: {verify_length}, value: {verify_value_str}")
                     if verify_value_str and verify_length > 0:
                         if verify_value_str == backend_url_value:
-                            logger.info(f"✓ Verified backend_url saved successfully (length: {verify_length})")
+                            logger.info(f"Verified backend_url saved successfully (length: {verify_length})")
                         else:
-                            logger.error(f"✗ Verification failed - value mismatch! Expected: {backend_url_value}, Got: {verify_value_str}")
+                            logger.error(f"Verification failed - value mismatch! Expected: {backend_url_value}, Got: {verify_value_str}")
                     else:
-                        logger.error(f"✗ WARNING: backend_url verification failed - value is empty after save! (length: {verify_length})")
+                        logger.error(f"WARNING: backend_url verification failed - value is empty after save! (length: {verify_length})")
                 else:
-                    logger.error("✗ WARNING: backend_url verification failed - setting not found after save!")
+                    logger.error("WARNING: backend_url verification failed - setting not found after save!")
 
         logger.info(f"Google OAuth configuration update completed. Updated fields: {list(updated_settings.keys())}")
 
@@ -732,7 +878,7 @@ async def test_google_oauth_config(
             "success": True,
             "valid": True,
             "warnings": warnings,
-            "message": "Configuration format is valid. Note: This only validates format, not actual credentials.",
+            "message": "Configuration format is valid. This only validates format, not actual credentials.",
             "tested_at": datetime.utcnow().isoformat()
         }
     except Exception as e:
@@ -749,7 +895,7 @@ async def get_setting(key: str):
     """
     Get a specific setting by key
 
-    Note: This is a catch-all route. Specific routes like /google-oauth
+    This is a catch-all route. Specific routes like /google-oauth
     should be defined BEFORE this route to avoid conflicts.
     """
     try:

@@ -23,6 +23,8 @@ interface ModelConfigCardData {
   model: ModelItem;
   api_key_configured: boolean;
   base_url?: string;
+  project_id?: string;
+  location?: string;
   quota_info?: {
     used: number;
     limit: number;
@@ -35,19 +37,43 @@ interface ModelConfigCardProps {
 }
 
 export function ModelConfigCard({ card }: ModelConfigCardProps) {
-  const { model, api_key_configured, base_url, quota_info } = card;
+  const { model, api_key_configured, base_url, project_id, location, quota_info } = card;
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(base_url || '');
+  const [projectId, setProjectId] = useState(project_id || '');
+  const [vertexLocation, setVertexLocation] = useState(location || 'us-central1');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  const handleSaveApiKey = async () => {
+  const handleSaveConfig = async () => {
     try {
       setSaving(true);
-      await settingsApi.put(`/api/v1/system-settings/models/${model.id}/api-key`, { api_key: apiKey });
+      const config: any = {};
+
+      if (apiKey) {
+        config.api_key = apiKey;
+      }
+
+      if (model.provider === 'ollama' && baseUrl) {
+        config.base_url = baseUrl;
+      }
+
+      if (model.provider === 'vertex-ai') {
+        if (projectId) {
+          config.project_id = projectId;
+        }
+        if (vertexLocation) {
+          config.location = vertexLocation;
+        }
+      }
+
+      await settingsApi.put(`/api/v1/system-settings/models/${model.id}/config`, config);
+      setApiKey('');
+      setTestResult('Configuration saved successfully');
     } catch (err) {
-      console.error('Failed to save API key:', err);
+      console.error('Failed to save configuration:', err);
+      setTestResult(`Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
@@ -101,7 +127,7 @@ export function ModelConfigCard({ card }: ModelConfigCardProps) {
               className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <button
-              onClick={handleSaveApiKey}
+              onClick={handleSaveConfig}
               disabled={saving}
               className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -128,6 +154,38 @@ export function ModelConfigCard({ card }: ModelConfigCardProps) {
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
           </div>
+        )}
+
+        {model.provider === 'vertex-ai' && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                GCP Project ID
+              </label>
+              <input
+                type="text"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                placeholder="your-project-id"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Location ({t('optional') || 'Optional'})
+              </label>
+              <input
+                type="text"
+                value={vertexLocation}
+                onChange={(e) => setVertexLocation(e.target.value)}
+                placeholder="us-central1"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Default: us-central1. Other options: us-east1, us-west1, europe-west1, asia-northeast1
+              </p>
+            </div>
+          </>
         )}
 
         <div className="grid grid-cols-2 gap-4">
