@@ -375,9 +375,19 @@ class SystemSettingsStore:
         ))
 
         conn.commit()
+
+        # Verify the save was successful
+        cursor.execute("SELECT value FROM system_settings WHERE key = ?", (setting.key,))
+        saved_row = cursor.fetchone()
+        saved_value = saved_row[0] if saved_row else None
+
         conn.close()
 
-        logger.info(f"Saved system setting: {setting.key}")
+        if saved_value != value_str:
+            logger.error(f"WARNING: Saved value mismatch for {setting.key}. Expected: {value_str[:50]}..., Got: {saved_value[:50] if saved_value else 'None'}...")
+        else:
+            logger.info(f"Saved system setting: {setting.key} (value length: {len(value_str) if value_str else 0})")
+
         return setting
 
     def update_settings(self, settings: Dict[str, Union[str, int, float, bool, Dict[str, Any], List[Any]]]) -> Dict[str, SystemSetting]:
