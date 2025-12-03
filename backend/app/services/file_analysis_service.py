@@ -50,7 +50,7 @@ class FileAnalysisService:
             workspace = self.store.get_workspace(workspace_id)
         except Exception:
             pass
-        
+
         locale = get_locale_from_context(workspace=workspace) or "en"
         i18n = get_i18n_service(default_locale=locale)
         return i18n.t(module, key, **kwargs)
@@ -68,7 +68,7 @@ class FileAnalysisService:
 
         Args:
             workspace_id: Workspace ID
-            file_data: Base64 encoded file data
+            file_data: Base64 encoded file data (data URL format)
             file_name: File name
             file_type: File MIME type
             file_size: File size in bytes
@@ -79,23 +79,51 @@ class FileAnalysisService:
         if not file_data or not file_data.startswith('data:'):
             raise ValueError("Invalid file_data format, expected base64 data URL")
 
-        from backend.app.capabilities.core_files.services.upload import handle_upload
-        upload_result = await handle_upload(files=[file_data])
+        import base64
+        import os
+        from pathlib import Path
 
-        if not upload_result.get("file_paths") or not upload_result.get("file_ids"):
-            raise ValueError("Failed to upload file")
+        # Extract base64 data from data URL
+        # Format: data:[<mediatype>][;base64],<data>
+        header, encoded = file_data.split(',', 1)
+        file_content = base64.b64decode(encoded)
 
-        file_id = upload_result["file_ids"][0]
-        file_path = upload_result["file_paths"][0]
+        # Generate unique file ID
+        file_id = str(uuid.uuid4())
+
+        # Determine upload directory
+        uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
+        workspace_uploads_dir = Path(uploads_dir) / workspace_id
+        workspace_uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get file extension from filename
+        file_ext = Path(file_name).suffix if file_name else ""
+        if not file_ext:
+            # Try to infer extension from MIME type
+            if file_type:
+                mime_to_ext = {
+                    'image/jpeg': '.jpg',
+                    'image/png': '.png',
+                    'image/gif': '.gif',
+                    'application/pdf': '.pdf',
+                    'text/plain': '.txt',
+                    'application/json': '.json',
+                }
+                file_ext = mime_to_ext.get(file_type, '')
+
+        # Save file
+        file_path = workspace_uploads_dir / f"{file_id}{file_ext}"
+        with open(file_path, "wb") as f:
+            f.write(file_content)
 
         logger.info(f"Uploaded file: {file_name} -> {file_path} (file_id: {file_id})")
 
         return {
             "file_id": file_id,
-            "file_path": file_path,
+            "file_path": str(file_path),
             "file_name": file_name,
             "file_type": file_type,
-            "file_size": file_size
+            "file_size": file_size or len(file_content)
         }
 
     async def analyze_file(

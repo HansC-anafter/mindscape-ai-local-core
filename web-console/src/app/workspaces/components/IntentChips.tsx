@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { t } from '@/lib/i18n';
 
 interface IntentTag {
   id: string;
@@ -105,8 +106,8 @@ export default function IntentChips({
 
   return (
     <div className="px-4 pt-2 pb-1">
-      <div className="text-xs text-gray-500 mb-1.5">
-        💭 Mindscape 看到的可能方向（僅供參考）
+      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+        {t('mindscapePossibleDirections') || 'Mindscape 看到的可能方向（僅供參考）'}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {intentTags.map((tag) => (
@@ -116,8 +117,8 @@ export default function IntentChips({
             disabled={confirmingId === tag.id}
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all ${
               confirmingId === tag.id
-                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                : 'bg-gray-50 text-gray-600 border-gray-300 hover:bg-gray-100 hover:border-gray-400 cursor-pointer'
+                ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 cursor-not-allowed'
+                : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer'
             }`}
           >
             <span>{tag.title}</span>

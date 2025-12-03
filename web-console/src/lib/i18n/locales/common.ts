@@ -33,6 +33,11 @@ export const commonZhTW = {
   add: '添加',
   accept: '接受',
   skip: '略過',
+  copy: '複製',
+  open: '開啟',
+  download: '下載',
+  sourceIntent: '來源 Intent',
+  noOutcomes: '尚無成果',
 
   // Common
   loading: '載入中...',

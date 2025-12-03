@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
+import { t } from '@/lib/i18n';
 
 interface Artifact {
   id: string;
@@ -287,7 +288,7 @@ export default function OutcomesPanel({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500">載入中...</div>
+        <div className="text-sm text-gray-500 dark:text-gray-400">{t('loading') || '載入中...'}</div>
       </div>
     );
   }
@@ -295,15 +296,15 @@ export default function OutcomesPanel({
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-red-500">錯誤: {error}</div>
+        <div className="text-sm text-red-500 dark:text-red-400">{t('error') || '錯誤'}: {error}</div>
       </div>
     );
   }
 
   if (artifacts.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500">尚無成果</div>
+      <div className="flex items-center justify-center h-full px-2">
+        <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes') || '尚無成果'}</div>
       </div>
     );
   }
@@ -324,20 +325,7 @@ export default function OutcomesPanel({
         />
       )}
 
-      {/* Header with manual refresh button */}
-      <div className="flex items-center justify-between px-4 pt-2 pb-2 border-b border-gray-200">
-        <h3 className="text-sm font-medium text-gray-700">成果</h3>
-        <button
-          onClick={handleManualRefresh}
-          className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors flex items-center gap-1"
-          title="手動刷新"
-        >
-          <span>🔄</span>
-          <span>刷新</span>
-        </button>
-      </div>
-
-      <div className="h-full overflow-y-auto p-4 space-y-3">
+      <div className="h-full overflow-y-auto p-2 space-y-2">
         {artifacts.map((artifact) => {
           const isHighlighted = highlightedArtifactIds.has(artifact.id);
           return (
@@ -345,10 +333,10 @@ export default function OutcomesPanel({
             key={artifact.id}
             onClick={() => handleArtifactClick(artifact)}
             className={`
-              bg-white border rounded-lg p-3 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer
+              bg-white dark:bg-gray-800 border rounded-lg p-3 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all cursor-pointer
               ${isHighlighted
-                ? 'border-blue-400 shadow-lg bg-blue-50 animate-pulse'
-                : 'border-gray-200'
+                ? 'border-blue-400 dark:border-blue-500 shadow-lg bg-blue-50 dark:bg-blue-900/20 animate-pulse'
+                : 'border-gray-200 dark:border-gray-700'
               }
             `}
             style={isHighlighted ? {
@@ -356,54 +344,53 @@ export default function OutcomesPanel({
             } : undefined}
           >
           {/* Header */}
-          <div className="flex items-start gap-2 mb-2">
-            <span className="text-xl flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
+          <div className="flex items-start gap-1.5 mb-1">
+            <span className="text-lg flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
             <div className="flex-1 min-w-0">
-              <h4 className="font-semibold text-sm text-gray-900 truncate">{artifact.title}</h4>
-              <p className="text-xs text-gray-500 mt-1 line-clamp-2">{artifact.summary}</p>
+              <h4 className="font-semibold text-xs text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h4>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{artifact.summary}</p>
             </div>
           </div>
 
           {/* Meta Info */}
-          <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500 mb-1">
             <span>{artifact.playbook_code}</span>
             <span>•</span>
             <span>{new Date(artifact.created_at).toLocaleDateString('zh-TW')}</span>
             {artifact.intent_id && (
               <>
                 <span>•</span>
-                <span className="text-blue-500">來源 Intent</span>
+                <span className="text-blue-500 dark:text-blue-400">{t('sourceIntent') || '來源 Intent'}</span>
               </>
             )}
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 mt-2">
+          <div className="flex items-center gap-1.5 mt-1">
             {artifact.primary_action_type === 'copy' && (
               <button
                 onClick={(e) => handleCopy(artifact, e)}
-                className="px-2 py-1 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                className="px-1.5 py-0.5 text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
               >
-                複製
+                {t('copy') || '複製'}
               </button>
             )}
             {artifact.primary_action_type === 'open_external' && (
               <button
                 onClick={(e) => handleOpenExternal(artifact, e)}
-                className="px-2 py-1 text-xs bg-green-50 text-green-600 rounded hover:bg-green-100 transition-colors"
+                className="px-1.5 py-0.5 text-[10px] bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
               >
-                開啟
+                {t('open') || '開啟'}
               </button>
             )}
             {artifact.primary_action_type === 'download' && (
               <button
                 onClick={(e) => handleOpenExternal(artifact, e)}
-                className="px-2 py-1 text-xs bg-purple-50 text-purple-600 rounded hover:bg-purple-100 transition-colors"
+                className="px-1.5 py-0.5 text-[10px] bg-gray-50 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-800/40 transition-colors"
               >
-                下載
+                {t('download') || '下載'}
               </button>
             )}
-            {/* Note: publish_wp is not implemented, so we don't show it */}
           </div>
         </div>
         );

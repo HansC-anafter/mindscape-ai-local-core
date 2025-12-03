@@ -23,8 +23,8 @@ import platform
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Path as PathParam, Query, Body
-from pydantic import ValidationError
+from fastapi import APIRouter, HTTPException, Path as PathParam, Query, Body, File, UploadFile, Form
+from pydantic import ValidationError, BaseModel, Field
 
 from ...models.workspace import (
     Workspace,
@@ -833,6 +833,65 @@ async def get_workspace_tasks(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RejectTaskRequest(BaseModel):
+    """Request model for rejecting a task"""
+    reason_code: Optional[str] = Field(None, description="Rejection reason code")
+    comment: Optional[str] = Field(None, description="Optional comment explaining rejection")
+
+
+@router.post("/{workspace_id}/tasks/{task_id}/reject")
+async def reject_task(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    task_id: str = PathParam(..., description="Task ID"),
+    request: RejectTaskRequest = Body(...)
+):
+    """Reject a task"""
+    try:
+        from ...services.stores.tasks_store import TasksStore
+        from ...services.stores.task_feedback_store import TaskFeedbackStore
+        from ...models.workspace import TaskFeedback, TaskFeedbackAction, TaskFeedbackReasonCode
+
+        tasks_store = TasksStore(db_path=store.db_path)
+        feedback_store = TaskFeedbackStore(db_path=store.db_path)
+
+        task = tasks_store.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        if task.workspace_id != workspace_id:
+            raise HTTPException(status_code=403, detail="Task does not belong to this workspace")
+
+        reason_code_enum = None
+        if request.reason_code:
+            try:
+                reason_code_enum = TaskFeedbackReasonCode(request.reason_code)
+            except ValueError:
+                logger.warning(f"Invalid reason_code: {request.reason_code}")
+
+        feedback = TaskFeedback(
+            id=str(uuid.uuid4()),
+            task_id=task_id,
+            workspace_id=workspace_id,
+            user_id="default-user",
+            action=TaskFeedbackAction.REJECT,
+            reason_code=reason_code_enum,
+            comment=request.comment
+        )
+
+        feedback_store.create_feedback(feedback)
+
+        return {
+            "success": True,
+            "message": "Task rejected successfully",
+            "feedback_id": feedback.id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reject task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{workspace_id}/workbench")
 async def get_workspace_workbench(
     workspace_id: str = PathParam(..., description="Workspace ID"),
@@ -946,6 +1005,142 @@ async def fix_task_status(
         return result
     except Exception as e:
         logger.error(f"Failed to fix task status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# File Upload and Analysis Endpoints
+# ============================================================================
+
+@router.post("/{workspace_id}/files/upload")
+async def upload_file(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    file: UploadFile = File(...),
+    file_name: Optional[str] = Form(None),
+    file_type: Optional[str] = Form(None),
+    file_size: Optional[int] = Form(None)
+):
+    """
+    Upload file to workspace
+
+    Supports multipart/form-data:
+    - file: File to upload
+    - file_name: File name (optional, defaults to uploaded file name)
+    - file_type: File MIME type (optional)
+    - file_size: File size in bytes (optional)
+    """
+    try:
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        import base64
+        from ...services.file_analysis_service import FileAnalysisService
+        from ...services.stores.timeline_items_store import TimelineItemsStore
+        from ...services.stores.tasks_store import TasksStore
+
+        timeline_items_store = TimelineItemsStore(db_path=store.db_path)
+        tasks_store = TasksStore(db_path=store.db_path)
+        file_service = FileAnalysisService(store, timeline_items_store, tasks_store)
+
+        # Read file content
+        file_content = await file.read()
+
+        # Convert to base64 data URL
+        file_base64 = base64.b64encode(file_content).decode('utf-8')
+        file_data_url = f"data:{file.content_type or 'application/octet-stream'};base64,{file_base64}"
+
+        # Use provided file_name or fallback to uploaded file name
+        actual_file_name = file_name or file.filename or "uploaded_file"
+        actual_file_type = file_type or file.content_type
+        actual_file_size = file_size or len(file_content)
+
+        result = await file_service.upload_file(
+            workspace_id=workspace_id,
+            file_data=file_data_url,
+            file_name=actual_file_name,
+            file_type=actual_file_type,
+            file_size=actual_file_size
+        )
+
+        return {
+            "file_id": result["file_id"],
+            "file_path": result["file_path"],
+            "file_name": result["file_name"],
+            "file_type": result.get("file_type"),
+            "file_size": result.get("file_size")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{workspace_id}/files/analyze")
+async def analyze_file(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    request: dict = Body(...)
+):
+    """
+    Analyze uploaded file
+
+    Request body:
+    - file_id: File ID from upload (preferred)
+    - file_data: Base64 encoded file data (fallback)
+    - file_name: File name
+    - file_type: File MIME type (optional)
+    - file_size: File size in bytes (optional)
+    - file_path: File path on server (optional)
+    """
+    try:
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        from ...services.file_analysis_service import FileAnalysisService
+        from ...services.stores.timeline_items_store import TimelineItemsStore
+        from ...services.stores.tasks_store import TasksStore
+
+        timeline_items_store = TimelineItemsStore(db_path=store.db_path)
+        tasks_store = TasksStore(db_path=store.db_path)
+        file_service = FileAnalysisService(store, timeline_items_store, tasks_store)
+
+        file_id = request.get("file_id")
+        file_data = request.get("file_data")
+        file_name = request.get("file_name")
+        file_type = request.get("file_type")
+        file_size = request.get("file_size")
+        file_path = request.get("file_path")
+
+        if not file_id and not file_data:
+            raise HTTPException(status_code=400, detail="Either file_id or file_data is required")
+        if not file_name:
+            raise HTTPException(status_code=400, detail="file_name is required")
+
+        profile_id = workspace.owner_user_id
+        result = await file_service.analyze_file(
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            file_id=file_id,
+            file_data=file_data,
+            file_name=file_name,
+            file_type=file_type,
+            file_size=file_size,
+            file_path=file_path
+        )
+
+        return {
+            "file_id": result.get("file_id"),
+            "file_path": result.get("file_path"),
+            "event_id": result.get("event_id"),
+            "saved_file_path": result.get("file_path"),
+            "collaboration_results": result.get("collaboration_results", {})
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to analyze file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

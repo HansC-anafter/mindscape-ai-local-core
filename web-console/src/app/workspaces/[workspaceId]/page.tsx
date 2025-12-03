@@ -235,10 +235,10 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500">{t('loadingWorkspace')}</div>
+          <div className="text-gray-500 dark:text-gray-400">{t('loadingWorkspace')}</div>
         </div>
       </div>
     );
@@ -247,17 +247,17 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   if (error || (!workspace && !loading)) {
     console.log('Rendering error state:', { error, workspace: workspace?.id, loading });
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
           <div className="text-center">
-            <div className="text-red-500 mb-4">{error || t('workspaceNotFound')}</div>
+            <div className="text-red-500 dark:text-red-400 mb-4">{error || t('workspaceNotFound')}</div>
             {error && error.includes('Rate limit') && (
               <button
                 onClick={() => {
                   contextData.refreshWorkspace();
                 }}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                className="px-4 py-2 bg-blue-500 dark:bg-blue-700 text-white rounded hover:bg-blue-600 dark:hover:bg-blue-600"
               >
                 {t('retryButton')}
               </button>
@@ -269,7 +269,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
 
       <div className="flex flex-col h-[calc(100vh-48px)]">
@@ -289,7 +289,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar - Tab Panel and Workspace Scope Panel */}
-          <div className="w-80 border-r bg-white flex flex-col">
+          <div className="w-80 border-r dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
             {/* Tab Panel Section - Top */}
             <div className="flex-1 overflow-hidden min-h-0">
               <LeftSidebarTabs
@@ -307,13 +307,21 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                       // Also dispatch event to ensure all components are notified
                       window.dispatchEvent(new CustomEvent('clear-execution-focus'));
                     }}
+                    onArtifactClick={setSelectedArtifact}
                   />
                 }
                 outcomesContent={
-                  <OutcomesPanel
+                  <TimelinePanel
                     workspaceId={workspaceId}
                     apiUrl={API_URL}
-                    onArtifactClick={setSelectedArtifact}
+                    isInSettingsPage={false}
+                    focusExecutionId={focusExecutionId}
+                    onClearFocus={() => {
+                      setFocusExecutionId(null);
+                      setSelectedExecutionId(null);
+                      window.dispatchEvent(new CustomEvent('clear-execution-focus'));
+                    }}
+                    showArchivedOnly={true}
                   />
                 }
                 backgroundContent={
@@ -327,7 +335,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
             {/* Workspace Scope Panel - Bottom (Data Sources only, compact layout) */}
             {workspace && (
-              <div className="border-t bg-orange-50/30 mt-auto">
+              <div className="border-t dark:border-gray-700 bg-orange-50/30 dark:bg-orange-900/10 mt-auto">
                 <WorkspaceScopePanel
                   dataSources={workspace.data_sources}
                   workspaceId={workspaceId}
@@ -365,16 +373,16 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
           </div>
 
           {/* Right Sidebar - Execution Chat (when focused) or Workspace Tools (default) */}
-          <div className="w-80 border-l bg-white flex flex-col">
+          <div className="w-80 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
             {/* Header - Title with AI Team Collaborating and settings icon */}
-            <div className="flex items-center justify-between border-b bg-gray-50 px-3 py-1.5">
+            <div className="flex items-center justify-between border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5">
               <div className="flex items-center gap-2 flex-1">
-                <h3 className="text-xs font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-white px-2 py-0.5 rounded-lg shadow-md border border-blue-300 flex-shrink-0">
+                <h3 className="text-xs font-bold bg-gradient-to-r from-blue-500 to-gray-600 text-white px-2 py-0.5 rounded-lg shadow-md border border-blue-300 dark:border-blue-700 flex-shrink-0">
                   {t('mindscapeAIWorkbench')}
                 </h3>
-                <div className="h-3 w-px bg-gray-300"></div>
+                <div className="h-3 w-px bg-gray-300 dark:bg-gray-600"></div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <h3 className="text-xs font-semibold text-gray-900">
+                  <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                     {focusExecutionId
                       ? (focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation'))
                       : t('aiTeamCollaborating')
@@ -386,7 +394,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
               {!focusExecutionId && (
                 <button
                   onClick={() => setShowSystemTools(!showSystemTools)}
-                  className="ml-2 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+                  className="ml-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex-shrink-0"
                   title={t('systemStatusAndTools') || 'System Status & Tools'}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -423,19 +431,20 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                           onRefresh={() => contextData.refreshAll()}
                         />
                       ) : (
-                        <div className="text-sm text-gray-500">Loading system status...</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
                       )}
                     </div>
                   </div>
                 ) : (
                   <>
                     {/* AI Team Collaboration Panel - Top */}
-                    <div className="flex-1 border-b bg-blue-50/30 overflow-y-auto min-h-0">
+                    <div className="flex-1 border-b dark:border-gray-700 bg-blue-50/30 dark:bg-blue-900/10 overflow-y-auto min-h-0">
                       <div className="p-3">
                         <PendingTasksPanel
                           workspaceId={workspaceId}
                           apiUrl={API_URL}
                           onViewArtifact={setSelectedArtifact}
+                          onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
                           workspace={workspace ? {
                             playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config
                           } : undefined}
@@ -525,10 +534,10 @@ export default function WorkspacePage() {
 
   if (!workspaceId) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500">{t('workspaceNotFound')}</div>
+          <div className="text-gray-500 dark:text-gray-400">{t('workspaceNotFound')}</div>
         </div>
       </div>
     );

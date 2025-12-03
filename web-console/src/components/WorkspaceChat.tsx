@@ -874,7 +874,7 @@ export default function WorkspaceChat({
               {t('workspaceAnalysisNoResults')}
             </p>
             <details className="mt-2">
-              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">查看原始回應</summary>
+              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse') || '查看原始回應'}</summary>
               <pre className="text-xs mt-2 overflow-auto text-gray-900 dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
             </details>
           </div>
@@ -889,7 +889,10 @@ export default function WorkspaceChat({
           {loadingMore && (
             <div className="flex justify-center py-2">
               <div className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-gray-400 dark:border-gray-500 border-t-transparent rounded-full animate-spin"></div>
+                <div
+                  className="w-4 h-4 border-2 border-gray-400 dark:border-gray-200 border-t-transparent rounded-full"
+                  style={{ animation: 'spin 1s linear infinite' }}
+                />
                 <span>Loading older messages...</span>
               </div>
             </div>
@@ -913,7 +916,14 @@ export default function WorkspaceChat({
             <div className="flex justify-start py-4">
               <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-6 py-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 border-2 border-gray-600 dark:border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  <div
+                    className="w-5 h-5 border-2 border-gray-600 dark:border-gray-200 border-t-transparent rounded-full"
+                    style={{
+                      animation: 'spin 1s linear infinite',
+                      borderColor: 'currentColor',
+                      borderTopColor: 'transparent'
+                    }}
+                  />
                   <span className="text-sm text-gray-700 dark:text-gray-300">{t('processingMessage')}</span>
                 </div>
               </div>
@@ -984,7 +994,7 @@ export default function WorkspaceChat({
       {/* Input form - Cursor-style expandable input */}
       <form
         onSubmit={handleSend}
-        className="relative border-t bg-gray-50"
+        className="relative border-t bg-white dark:bg-gray-900"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

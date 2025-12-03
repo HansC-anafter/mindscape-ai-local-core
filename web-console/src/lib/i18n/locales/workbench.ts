@@ -188,6 +188,7 @@ export const workbenchZhTW = {
   'welcome.new_workspace': '歡迎來到「{workspace_title}」工作區！\n\n這是您的工作協作空間，我可以在這裡協助您：\n\n**我可以幫您：**\n• 執行 Playbook 工作流程（如：每日規劃、專案拆解等）\n• 管理任務和追蹤進度\n• 回答問題和提供建議\n• 分析您的工作模式\n\n**快速開始：**\n• 直接告訴我您想要完成什麼任務\n• 或點擊下方的建議快速開始\n\n**建議：**\n如果您是第一次使用，建議先完成「心智空間」的冷啟動任務，這樣我能更好地理解您的需求和工作習慣。\n\n隨時告訴我您需要什麼幫助！',
   'welcome.returning_workspace': '歡迎回到「{workspace_title}」工作區！\n\n我可以協助您：\n• 執行 Playbook 工作流程\n• 管理專案和任務\n• 回答問題和提供建議\n• 分析您的工作模式\n\n直接告訴我您想要做什麼，或點擊下方的建議快速開始！',
   'welcome.fallback': '歡迎來到「{workspace_title}」工作區！我可以協助您執行 Playbook、管理任務、回答問題等。直接告訴我您想要做什麼吧！',
+  mindscapePossibleDirections: 'Mindscape 看到的可能方向（僅供參考）',
   'suggestions.organize_tasks': '幫我整理今天的任務',
   'suggestions.daily_planning': '執行每日規劃 Playbook',
   'suggestions.view_progress': '查看我的專案進度',
@@ -390,4 +391,5 @@ export const workbenchEn = {
   'suggestion.create_intent_card_title': 'Create Intent Card',
   'suggestion.create_intent_card_titl': 'Create Intent Card', // typo fallback
   'suggestion.create_intent_card_description': 'Start tracking your long-term goals and tasks',
+  viewOriginalResponse: '查看原始回應',
 } as const satisfies Partial<Record<MessageKey, string>>;

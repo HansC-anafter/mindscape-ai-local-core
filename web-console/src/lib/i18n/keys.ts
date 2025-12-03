@@ -966,6 +966,7 @@ export const keys = {
   retryArtifactCreation: true,
   retry: true,
   viewArtifact: true,
+  viewOriginalResponse: true,
   runInsightDraftChanges: true,
   reviewAISuggestions: true,
   aiAnalysis: true,
