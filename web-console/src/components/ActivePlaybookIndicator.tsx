@@ -333,15 +333,15 @@ export default function ActivePlaybookIndicator({
     <>
       <style dangerouslySetInnerHTML={{ __html: laserScanStyle }} />
       <div className={`flex items-center gap-1.5 leading-tight ${isVisible || showPendingStatus ? 'fade-in-out slide-in opacity-100' : 'opacity-50'}`}>
-        <span className="text-xs font-medium text-gray-700 whitespace-nowrap leading-tight">
+        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 whitespace-nowrap leading-tight">
           {t('activePlaybook')}:
         </span>
         {playbookNames ? (
           <button
             className={`
               px-2 py-0.5 text-xs font-medium rounded transition-all duration-300
-              bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700
-              border border-blue-200 hover:border-blue-300
+              bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/40 dark:to-blue-800/40 text-blue-700 dark:text-blue-300
+              border border-blue-200 dark:border-blue-700 hover:border-blue-300 dark:hover:border-blue-600
               shadow-sm hover:shadow-md hover:-translate-y-0.5
               backdrop-blur-sm leading-tight
             `}

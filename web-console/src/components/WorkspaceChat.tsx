@@ -1091,7 +1091,7 @@ export default function WorkspaceChat({
         )}
 
         {/* Input container with expandable textarea */}
-        <div className="flex flex-col border-t border-gray-200/50 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-900/50 backdrop-blur-sm">
+        <div className="flex flex-col border-t border-gray-200/60 dark:border-gray-700/60 backdrop-blur-sm">
           {/* Main input area */}
           <div className="flex-1 relative px-4 pt-3">
             <textarea

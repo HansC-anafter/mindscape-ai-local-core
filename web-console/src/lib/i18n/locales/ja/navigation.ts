@@ -19,5 +19,8 @@ export const navigationJa = {
   navHistory: '実行履歴',
   navSystem: 'システム管理',
   navSettings: '設定',
+  switchToLightMode: 'ライトモードに切り替え',
+  switchToDarkMode: 'ダークモードに切り替え',
+  workspaceList: 'ワークスペース一覧',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

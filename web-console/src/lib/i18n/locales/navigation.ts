@@ -19,6 +19,9 @@ export const navigationZhTW = {
   navHistory: '執行記錄',
   navSystem: '系統管理',
   navSettings: '設定',
+  switchToLightMode: '切換至日間模式',
+  switchToDarkMode: '切換至夜間模式',
+  workspaceList: '工作區列表',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const navigationEn = {
@@ -36,4 +39,7 @@ export const navigationEn = {
   navHistory: 'History',
   navSystem: 'System Management',
   navSettings: 'Settings',
+  switchToLightMode: 'Switch to Light Mode',
+  switchToDarkMode: 'Switch to Dark Mode',
+  workspaceList: 'Workspace List',
 } as const satisfies Partial<Record<MessageKey, string>>;
