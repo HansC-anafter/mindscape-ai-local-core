@@ -1,9 +1,10 @@
 """
 WordPress tool provider routes
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any
 from pydantic import BaseModel
+from datetime import datetime
 
 from backend.app.models.tool_registry import ToolConnectionModel
 from backend.app.services.tool_registry import ToolRegistryService
@@ -52,16 +53,19 @@ async def discover_wordpress_capabilities(
 @router.post("/wordpress/connect", response_model=ToolConnectionModel)
 async def create_wordpress_connection(
     request: WordPressConnectionRequest,
+    profile_id: str = Query("default-user", description="Profile ID for multi-tenant support"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
     """Create a WordPress connection (without discovery)"""
     try:
-        conn = registry.create_connection(
+        # Use legacy method for WordPress (maintains backward compatibility)
+        conn = registry.create_connection_legacy(
             connection_id=request.connection_id,
             name=request.name,
             wp_url=request.wp_url,
             wp_username=request.wp_username,
             wp_application_password=request.wp_application_password,
+            profile_id=profile_id
         )
         return conn
     except Exception as e:

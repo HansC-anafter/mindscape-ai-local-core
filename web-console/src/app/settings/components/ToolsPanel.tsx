@@ -10,13 +10,49 @@ import { InlineAlert } from './InlineAlert';
 import { WordPressConnectionWizard } from './wizards/WordPressConnectionWizard';
 import { NotionConnectionWizard } from './wizards/NotionConnectionWizard';
 import { GoogleDriveConnectionWizard } from './wizards/GoogleDriveConnectionWizard';
+import { SlackConnectionWizard } from './wizards/SlackConnectionWizard';
 import { VectorDBConnectionWizard } from './wizards/VectorDBConnectionWizard';
 import { LocalFilesystemManager } from './wizards/LocalFilesystemManager';
 import { ObsidianConfigWizard } from './wizards/ObsidianConfigWizard';
+import { MCPServerPanel } from './panels/MCPServerPanel';
+import { ThirdPartyWorkflowPanel } from './panels/ThirdPartyWorkflowPanel';
 import { useTools } from '../hooks/useTools';
 import { dispatchToolConfigUpdated } from '../../../lib/tool-status-events';
 
-const TOOLS: Array<{
+interface ToolsPanelProps {
+  activeSection?: string;
+  activeProvider?: string;
+}
+
+// System tools - local/system-level tools
+const SYSTEM_TOOLS: Array<{
+  toolType: string;
+  name: string;
+  description: string;
+  icon: string;
+}> = [
+  {
+    toolType: 'local_files',
+    name: 'Local File System',
+    description: 'Access local folders for document collection and RAG',
+    icon: '💾',
+  },
+  {
+    toolType: 'vector_db',
+    name: 'Vector Database (PostgreSQL / pgvector)',
+    description: 'Store semantic vectors for mindscape and documents, used for search and RAG',
+    icon: '🗄️',
+  },
+  {
+    toolType: 'obsidian',
+    name: 'Obsidian',
+    description: 'Connect to local Obsidian vaults for research workflows and knowledge management',
+    icon: '📚',
+  },
+];
+
+// External SaaS tools - third-party cloud services
+const EXTERNAL_SAAS_TOOLS: Array<{
   toolType: string;
   name: string;
   description: string;
@@ -41,32 +77,25 @@ const TOOLS: Array<{
     icon: '📁',
   },
   {
-    toolType: 'local_files',
-    name: 'Local File System',
-    description: 'Access local folders for document collection and RAG',
-    icon: '💾',
-  },
-  {
-    toolType: 'vector_db',
-    name: 'Vector Database (PostgreSQL / pgvector)',
-    description: 'Store semantic vectors for mindscape and documents, used for search and RAG',
-    icon: '🗄️',
-  },
-  {
-    toolType: 'obsidian',
-    name: 'Obsidian',
-    description: 'Connect to local Obsidian vaults for research workflows and knowledge management',
-    icon: '📚',
-  },
-  {
     toolType: 'canva',
     name: 'Canva',
     description: 'Design platform for creating visual content, templates, and graphics',
     icon: '🎨',
   },
+  {
+    toolType: 'slack',
+    name: 'Slack',
+    description: 'Connect to Slack workspace for messaging, channels, and file sharing',
+    icon: '💬',
+  },
 ];
 
-export function ToolsPanel() {
+interface ToolsPanelProps {
+  activeSection?: string;
+  activeProvider?: string;
+}
+
+export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = {}) {
   const {
     loading,
     connections,
@@ -173,12 +202,20 @@ export function ToolsPanel() {
         />
       )}
 
+      {!activeSection && (
+        <div className="text-center py-12 text-gray-500">
+          <p>{t('toolsAndIntegrations')}</p>
+          <p className="text-sm mt-2">{t('selectToolsSection') || '請選擇一個工具分類'}</p>
+        </div>
+      )}
+
+      {activeSection === 'system-tools' && (
       <Section
-        title={t('toolsAndIntegrations')}
-        description={t('toolsAndIntegrationsDescription')}
+          title={t('systemTools')}
+          description={t('systemToolsDescription') || '本地系統工具，用於文檔收集、向量存儲和知識管理'}
       >
         <ToolGrid>
-          {TOOLS.map((tool) => {
+            {SYSTEM_TOOLS.map((tool) => {
             const status = getToolStatus(tool.toolType);
             const isLocal = tool.toolType === 'local_files';
             const localStatus = isLocal
@@ -212,6 +249,48 @@ export function ToolsPanel() {
           })}
         </ToolGrid>
       </Section>
+      )}
+
+      {activeSection === 'external-saas-tools' && (
+        <Section
+          title={t('externalSAASTools')}
+          description={t('externalSAASToolsDescription') || '外部 SaaS 服務整合，用於連接雲端服務和第三方平台'}
+        >
+          <ToolGrid>
+            {EXTERNAL_SAAS_TOOLS.map((tool) => {
+              const status = getToolStatus(tool.toolType);
+              return (
+                <ToolCard
+                  key={tool.toolType}
+                  toolType={tool.toolType}
+                  name={tool.name}
+                  description={tool.description}
+                  icon={tool.icon}
+                  status={status}
+                  onConfigure={() => setSelectedTool(tool.toolType)}
+                  onTest={
+                    status.status === 'connected'
+                      ? () => {
+                          const conn = connections.find((c) => c.tool_type === tool.toolType);
+                          if (conn) handleTestConnection(conn.id);
+                        }
+                      : undefined
+                  }
+                  testing={testingConnection === tool.toolType || testingConnection !== null}
+                />
+              );
+            })}
+          </ToolGrid>
+        </Section>
+      )}
+
+      {activeSection === 'mcp-server' && (
+        <MCPServerPanel activeProvider={activeProvider} />
+      )}
+
+      {activeSection === 'third-party-workflow' && (
+        <ThirdPartyWorkflowPanel activeProvider={activeProvider} />
+      )}
 
       {selectedTool === 'wordpress' && (
         <WordPressConnectionWizard onClose={() => setSelectedTool(null)} onSuccess={() => handleWizardSuccess('wordpress')} />
@@ -225,6 +304,13 @@ export function ToolsPanel() {
         <GoogleDriveConnectionWizard
           onClose={() => setSelectedTool(null)}
           onSuccess={() => handleWizardSuccess('google_drive')}
+        />
+      )}
+
+      {selectedTool === 'slack' && (
+        <SlackConnectionWizard
+          onClose={() => setSelectedTool(null)}
+          onSuccess={() => handleWizardSuccess('slack')}
         />
       )}
 

@@ -13,6 +13,7 @@ from . import canva
 from . import google_drive
 from . import langchain
 from . import mcp
+from . import slack
 
 # Export all provider routers
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "google_drive",
     "langchain",
     "mcp",
+    "slack",
 ]

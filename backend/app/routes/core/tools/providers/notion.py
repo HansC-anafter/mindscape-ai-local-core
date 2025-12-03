@@ -1,9 +1,10 @@
 """
 Notion tool provider routes
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 from backend.app.models.tool_registry import ToolConnectionModel
 from backend.app.services.tool_registry import ToolRegistryService
@@ -65,15 +66,24 @@ async def discover_notion_capabilities(
 @router.post("/notion/connect", response_model=ToolConnectionModel)
 async def create_notion_connection(
     request: NotionConnectionRequest,
+    profile_id: str = Query("default-user", description="Profile ID for multi-tenant support"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
     """Create a Notion connection (without discovery)"""
     try:
-        conn = registry.create_connection(
-            connection_id=request.connection_id,
+        connection = ToolConnectionModel(
+            id=request.connection_id,
+            profile_id=profile_id,
+            tool_type="notion",
+            connection_type="local",
             name=request.name,
-            api_key=request.api_key
+            description=f"Notion connection: {request.name}",
+            api_key=request.api_key,
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
         )
+        conn = registry.create_connection(connection)
         return conn
     except Exception as e:
         raise_api_error(500, f"Failed to create connection: {str(e)}")

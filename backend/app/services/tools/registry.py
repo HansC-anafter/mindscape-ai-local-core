@@ -23,6 +23,10 @@ from backend.app.services.tools.canva.canva_tools import (
     create_canva_tools,
     get_canva_tool_by_name
 )
+from backend.app.services.tools.slack.slack_tools import (
+    create_slack_tools,
+    get_slack_tool_by_name
+)
 
 # Tool priority classification
 CORE_TOOLS = ["wordpress"]  # Core tools, must be fully implemented
@@ -205,6 +209,39 @@ def register_canva_tools(connection: ToolConnection) -> List[MindscapeTool]:
         # Canva tools are useful for writers (content creators) and planners (presentations)
         # Note: ToolMetadata doesn't have allowed_agent_roles field by default,
         # but we can add it to the metadata if needed for tool filtering
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
+def register_slack_tools(connection: ToolConnection) -> List[MindscapeTool]:
+    """
+    Register all Slack tools
+
+    Args:
+        connection: Slack connection configuration
+
+    Returns:
+        List of registered tools
+
+    Example:
+        >>> slack_conn = ToolConnection(
+        ...     id="my-slack",
+        ...     tool_type="slack",
+        ...     api_key="xoxb-...",
+        ...     oauth_token="xoxb-..."
+        ... )
+        >>> tools = register_slack_tools(slack_conn)
+        >>> print(f"Registered {len(tools)} tools")
+    """
+    access_token = connection.oauth_token or connection.api_key
+    if not access_token:
+        raise ValueError("Slack access token is required (oauth_token or api_key)")
+
+    tools = create_slack_tools(access_token)
+
+    for tool in tools:
+        tool_id = f"{connection.id}.{tool.metadata.name}"
         register_mindscape_tool(tool_id, tool)
 
     return tools

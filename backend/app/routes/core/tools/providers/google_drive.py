@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import RedirectResponse
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
+from datetime import datetime
 import os
 import logging
 
@@ -79,16 +80,27 @@ async def discover_google_drive_capabilities(
 @router.post("/google-drive/connect", response_model=ToolConnectionModel)
 async def create_google_drive_connection(
     request: GoogleDriveConnectionRequest,
+    profile_id: str = Query("default-user", description="Profile ID for multi-tenant support"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
     """Create a Google Drive connection (without discovery)"""
     try:
-        conn = registry.create_connection(
-            connection_id=request.connection_id,
+        connection = ToolConnectionModel(
+            id=request.connection_id,
+            profile_id=profile_id,
+            tool_type="google_drive",
+            connection_type="local",
             name=request.name,
+            description=f"Google Drive connection: {request.name}",
             api_key=request.api_key,
-            api_secret=request.api_secret
+            api_secret=request.api_secret,
+            oauth_token=request.api_key,
+            oauth_refresh_token=request.api_secret,
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
         )
+        conn = registry.create_connection(connection)
         return conn
     except Exception as e:
         raise_api_error(500, f"Failed to create connection: {str(e)}")

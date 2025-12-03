@@ -25,6 +25,7 @@ from .providers import canva
 from .providers import google_drive
 from .providers import langchain
 from .providers import mcp
+from .providers import slack
 
 # Create main router
 router = APIRouter()
@@ -53,3 +54,4 @@ router.include_router(canva.router)
 router.include_router(google_drive.router)
 router.include_router(langchain.router)
 router.include_router(mcp.router)
+router.include_router(slack.router)

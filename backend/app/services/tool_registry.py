@@ -471,6 +471,20 @@ class ToolRegistryService:
         except ImportError:
             logger.warning("Canva provider not available")
 
+        # Register Slack Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.slack_provider import SlackDiscoveryProvider
+            self.register_discovery_provider(SlackDiscoveryProvider())
+        except ImportError:
+            logger.warning("Slack provider not available")
+
+        # Register Twitter Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.twitter_provider import TwitterDiscoveryProvider
+            self.register_discovery_provider(TwitterDiscoveryProvider())
+        except ImportError:
+            logger.warning("Twitter provider not available")
+
     async def discover_tool_capabilities(
         self,
         provider_name: str,

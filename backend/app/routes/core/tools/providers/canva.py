@@ -5,10 +5,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import RedirectResponse
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
+from datetime import datetime
 import logging
 
 from backend.app.models.tool_registry import ToolConnectionModel
 from backend.app.services.tool_registry import ToolRegistryService
+from backend.app.services.tools.discovery_provider import ToolConfig
 from ..base import get_tool_registry, raise_api_error
 
 logger = logging.getLogger(__name__)
@@ -35,9 +37,52 @@ class CanvaConnectionRequest(BaseModel):
     )
 
 
+@router.post("/canva/discover", response_model=Dict[str, Any])
+async def discover_canva_capabilities(
+    request: CanvaConnectionRequest,
+    registry: ToolRegistryService = Depends(get_tool_registry),
+):
+    """
+    Discover Canva capabilities using discovery provider
+
+    Uses the new architecture ToolRegistryService with CanvaDiscoveryProvider.
+    """
+    try:
+        config = ToolConfig(
+            tool_type="canva",
+            connection_type="oauth2" if request.oauth_token or (request.client_id and request.client_secret) else "http_api",
+            api_key=request.api_key,
+            base_url=request.base_url or "https://api.canva.com/rest/v1",
+            custom_config={
+                "oauth_token": request.oauth_token,
+                "client_id": request.client_id,
+                "client_secret": request.client_secret,
+                "brand_id": request.brand_id,
+            }
+        )
+
+        result = await registry.discover_tool_capabilities(
+            provider_name="canva",
+            config=config,
+            connection_id=request.connection_id
+        )
+
+        return {
+            "success": True,
+            "connection_id": request.connection_id,
+            "name": request.name,
+            "discovered_tools": result.get("discovered_tools", []),
+            "tools_count": len(result.get("discovered_tools", []))
+        }
+    except Exception as e:
+        logger.error(f"Canva discovery failed: {e}", exc_info=True)
+        raise_api_error(500, f"Discovery failed: {str(e)}")
+
+
 @router.post("/canva/connect", response_model=ToolConnectionModel)
 async def create_canva_connection(
     request: CanvaConnectionRequest,
+    profile_id: str = Query("default-user", description="Profile ID for multi-tenant support"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
     """
@@ -59,30 +104,47 @@ async def create_canva_connection(
         from backend.app.services.tools.base import ToolConnection
         from backend.app.services.tools.registry import register_canva_tools
 
-        connection = ToolConnection(
+        # Create ToolConnectionModel instance
+        connection_model = ToolConnectionModel(
             id=request.connection_id,
+            profile_id=profile_id,
+            tool_type="canva",
+            connection_type="local",
+            name=request.name,
+            description=f"Canva connection: {request.name}",
+            api_key=request.api_key,
+            oauth_token=request.oauth_token,
+            base_url=request.base_url or "https://api.canva.com/rest/v1",
+            config={
+                "client_id": request.client_id,
+                "client_secret": request.client_secret,
+                "brand_id": request.brand_id,
+                "redirect_uri": request.redirect_uri
+            } if (request.client_id or request.brand_id or request.redirect_uri) else {},
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+
+        # Create connection in registry
+        conn_model = registry.create_connection(connection_model)
+
+        # Register tools
+        tool_connection = ToolConnection(
+            id=conn_model.id,
             tool_type="canva",
             connection_type="local",
             api_key=request.api_key,
             oauth_token=request.oauth_token,
-            base_url=request.base_url,
-            name=request.name,
-            description=f"Canva connection: {request.name}",
+            base_url=conn_model.base_url,
+            name=conn_model.name
         )
 
         if request.client_id and request.client_secret and not request.oauth_token:
             logger.info(f"Canva connection created with OAuth credentials. OAuth flow needs to be completed.")
 
-        tools = register_canva_tools(connection)
-
-        conn_model = registry.create_connection(
-            connection_id=request.connection_id,
-            name=request.name,
-            tool_type="canva",
-            api_key=request.api_key,
-            oauth_token=request.oauth_token,
-            base_url=request.base_url,
-        )
+        tools = register_canva_tools(tool_connection)
+        logger.info(f"Registered {len(tools)} Canva tools for connection: {request.connection_id}")
 
         return conn_model
 
@@ -166,8 +228,9 @@ async def canva_oauth_callback(
             raise_api_error(400, "Invalid or expired state token")
 
         connection_id = state_data["connection_id"]
+        profile_id = state_data.get("profile_id", "default-user")
 
-        connection_model = registry.get_connection(connection_id)
+        connection_model = registry.get_connection(connection_id, profile_id)
         if not connection_model:
             raise_api_error(404, f"Connection not found: {connection_id}")
 
@@ -175,9 +238,11 @@ async def canva_oauth_callback(
         if not code_verifier:
             raise_api_error(400, "Code verifier not found for state token")
 
-        client_id = None
-        client_secret = None
-        redirect_uri = None
+        # Get client_id and client_secret from connection config
+        config = connection_model.config or {}
+        client_id = config.get("client_id")
+        client_secret = config.get("client_secret")
+        redirect_uri = config.get("redirect_uri")
 
         if not client_id or not client_secret:
             raise_api_error(400, "client_id and client_secret must be stored in connection. Please create connection with OAuth credentials first.")
@@ -198,13 +263,36 @@ async def canva_oauth_callback(
 
         oauth_manager.cleanup_state(state)
 
+        # Update connection with OAuth token
+        connection_model.oauth_token = access_token
+        if refresh_token:
+            connection_model.oauth_refresh_token = refresh_token
+        connection_model.updated_at = datetime.utcnow()
+        registry.update_connection(connection_model)
+
+        # Register tools after OAuth completion
+        try:
+            from backend.app.services.tools.base import ToolConnection
+            from backend.app.services.tools.registry import register_canva_tools
+
+            tool_connection = ToolConnection(
+                id=connection_model.id,
+                tool_type="canva",
+                connection_type="local",
+                oauth_token=access_token,
+                base_url=connection_model.base_url,
+                name=connection_model.name
+            )
+            tools = register_canva_tools(tool_connection)
+            logger.info(f"Registered {len(tools)} Canva tools after OAuth completion")
+        except Exception as e:
+            logger.warning(f"Failed to register Canva tools: {e}")
+
         return {
             "success": True,
             "message": "OAuth authorization completed",
             "connection_id": connection_id,
-            "access_token": access_token[:20] + "..." if access_token else None,
-            "has_refresh_token": bool(refresh_token),
-            "next_step": f"Update connection {connection_id} with oauth_token: {access_token}"
+            "tools_registered": len(tools) if 'tools' in locals() else 0
         }
 
     except HTTPException:
