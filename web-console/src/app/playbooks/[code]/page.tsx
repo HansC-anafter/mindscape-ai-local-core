@@ -6,7 +6,6 @@ import Link from 'next/link';
 import Header from '../../../components/Header';
 import PlaybookChat from '../../../components/PlaybookChat';
 import { t, useLocale } from '../../../lib/i18n';
-import { getPlaybookMetadata } from '../../../lib/i18n/locales/playbooks';
 import PlaybookInfo from '../../../components/playbook/PlaybookInfo';
 import VersionSelector from '../../../components/playbook/VersionSelector';
 import PlaybookTabs from '../../../components/playbook/PlaybookTabs';
@@ -137,7 +136,7 @@ export default function PlaybookDetailPage() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [playbookCode]);
+  }, [playbookCode, locale]);
 
   const loadPlaybookList = async () => {
     try {
@@ -151,8 +150,8 @@ export default function PlaybookDetailPage() {
         const data = await response.json();
         setPlaybookList(data.map((p: any) => ({
           playbook_code: p.playbook_code,
-          name: getPlaybookMetadata(p.playbook_code, 'name', targetLanguage as 'zh-TW' | 'en' | 'ja') || p.name,
-          description: getPlaybookMetadata(p.playbook_code, 'description', targetLanguage as 'zh-TW' | 'en' | 'ja') || p.description,
+          name: p.name,
+          description: p.description,
           icon: p.icon
         })));
       }
@@ -219,11 +218,19 @@ export default function PlaybookDetailPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setPlaybook(prev => prev ? {
-          ...prev,
-          execution_status: data.execution_status,
-          version_info: data.version_info
-        } : data);
+        setPlaybook(prev => {
+          if (!prev) {
+            // If no previous data, use the full response
+            return data;
+          }
+          // Only update execution_status and version_info, preserve metadata from initial load
+          // This ensures language-specific metadata (name, description, tags) is not overwritten
+          return {
+            ...prev,
+            execution_status: data.execution_status,
+            version_info: data.version_info
+          };
+        });
       }
     } catch (err) {
       console.debug('Failed to update execution status:', err);
@@ -386,7 +393,7 @@ export default function PlaybookDetailPage() {
       window.location.href = redirectUrl.toString();
     } catch (err: any) {
       console.error('Failed to create workspace and execute playbook:', err);
-      alert(`執行失敗：${err.message}`);
+      alert(t('executionFailedWithError', { error: err.message }));
       setIsExecuting(false);
     }
   };
@@ -453,8 +460,10 @@ export default function PlaybookDetailPage() {
     );
   }
 
-  const playbookName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.name;
-  const playbookDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.description;
+  // Use data directly from backend API - backend already returns localized data based on target_language
+  const playbookName = playbook.metadata.name;
+  const playbookDescription = playbook.metadata.description;
+  const playbookTags = playbook.metadata.tags || [];
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950" style={{ scrollBehavior: 'auto' }}>
@@ -564,7 +573,7 @@ export default function PlaybookDetailPage() {
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{playbookDescription}</p>
                     <div className="flex flex-wrap gap-2">
-                      {playbook.metadata.tags?.map((tag) => (
+                      {playbookTags.map((tag) => (
                         <span
                           key={tag}
                           className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded"

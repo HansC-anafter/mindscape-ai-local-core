@@ -77,9 +77,10 @@ async def list_playbooks(
                 playbook_dict[code] = playbook
             # If preference specified, prefer matching locale
             elif preferred_locale:
+                # If new playbook matches preferred locale and current doesn't, replace
                 if playbook_locale == preferred_locale and playbook_dict[code].metadata.locale != preferred_locale:
                     playbook_dict[code] = playbook
-                # If current is preferred and new is not, keep current
+                # If current matches preferred locale and new doesn't, keep current
                 elif playbook_dict[code].metadata.locale == preferred_locale and playbook_locale != preferred_locale:
                     continue
                 # If neither matches preference, prefer zh-TW > en > ja
@@ -87,6 +88,11 @@ async def list_playbooks(
                     locale_priority = {'zh-TW': 3, 'en': 2, 'ja': 1}
                     if locale_priority.get(playbook_locale, 0) > locale_priority.get(playbook_dict[code].metadata.locale, 0):
                         playbook_dict[code] = playbook
+            # If no preference, prefer zh-TW > en > ja
+            else:
+                locale_priority = {'zh-TW': 3, 'en': 2, 'ja': 1}
+                if locale_priority.get(playbook_locale, 0) > locale_priority.get(playbook_dict[code].metadata.locale, 0):
+                    playbook_dict[code] = playbook
 
         playbooks = list(playbook_dict.values())
 
@@ -265,6 +271,8 @@ async def get_playbook(
                 preferred_locale = 'en'
             elif target_language.startswith('zh'):
                 preferred_locale = 'zh-TW'
+            elif target_language.startswith('ja') or target_language == 'ja':
+                preferred_locale = 'ja'
         elif locale:
             preferred_locale = locale
 

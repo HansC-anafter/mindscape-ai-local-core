@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { useLocale, t } from '../../lib/i18n';
-import { getPlaybookMetadata } from '../../lib/i18n/locales/playbooks';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -169,10 +168,10 @@ export default function PlaybookInfo({
     }
   };
 
-  // Get localized metadata with fallback to original
-  const localizedName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.name;
-  const localizedDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.description;
-  const localizedTags = (getPlaybookMetadata(playbookCode, 'tags', locale as 'zh-TW' | 'en' | 'ja') as string[] | undefined) || playbook.metadata.tags;
+  // Use data directly from backend API - backend already returns localized data based on target_language
+  const localizedName = playbook.metadata.name;
+  const localizedDescription = playbook.metadata.description;
+  const localizedTags = playbook.metadata.tags || [];
 
   return (
     <div className="lg:col-span-2 bg-white shadow rounded-lg p-6">

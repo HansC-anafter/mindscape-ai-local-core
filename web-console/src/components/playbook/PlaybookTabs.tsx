@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../lib/i18n';
+import { t, useLocale } from '../../lib/i18n';
 
 interface PlaybookTabsProps {
   activeTab: 'info' | 'sop' | 'suggestions' | 'history';
@@ -57,6 +57,7 @@ export default function PlaybookTabs({
   onCopyClick,
   onLLMClick
 }: PlaybookTabsProps) {
+  const [locale] = useLocale();
   return (
     <div className="bg-white dark:bg-gray-800 shadow rounded-lg mb-6">
       <div className="border-b border-gray-200 dark:border-gray-700">
@@ -138,8 +139,8 @@ export default function PlaybookTabs({
                 </div>
               ) : (
                 <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">尚未關聯任何長期意圖</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">可以在「心智空間」中建立意圖並關聯到此 Playbook</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('noAssociatedIntents')}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('createIntentInMindscape')}</p>
                 </div>
               )}
             </div>
@@ -188,13 +189,13 @@ export default function PlaybookTabs({
                     onClick={onLLMClick}
                     className="px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 bg-white dark:bg-gray-800"
                   >
-                    讓 LLM 根據我的使用情境，做一份個人版本
+                    {t('letLLMCreatePersonalVersion')}
                   </button>
                 </div>
               </div>
             ) : (
               <div>
-                <p className="text-gray-600 dark:text-gray-400 mb-4">你已經有個人版本了。可以重新用 LLM 調整：</p>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">{t('youAlreadyHavePersonalVersion')}</p>
                 <button
                   onClick={onLLMClick}
                   className="px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 bg-white dark:bg-gray-800"
@@ -214,26 +215,26 @@ export default function PlaybookTabs({
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                       <span className="inline-block w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></span>
-                      執行中 ({playbook.execution_status.active_executions.length})
+                      {t('executingWithCount', { count: playbook.execution_status.active_executions.length })}
                     </h4>
                     {playbook.execution_status.active_executions.map(exec => (
                       <div key={exec.execution_id} className="p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg mb-3 shadow-sm">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="text-sm font-medium text-green-900 dark:text-green-300 mb-1">
-                              執行 ID: <code className="text-xs bg-green-100 dark:bg-green-900/30 px-1 rounded">{exec.execution_id.slice(0, 12)}...</code>
+                              {t('executionId')}: <code className="text-xs bg-green-100 dark:bg-green-900/30 px-1 rounded">{exec.execution_id.slice(0, 12)}...</code>
                             </div>
                             <div className="text-xs text-green-700 dark:text-green-400 mb-1">
-                              狀態: <span className="font-medium">{exec.status === 'running' ? t('playbookExecStatusRunning') : exec.status}</span>
+                              {t('status')}: <span className="font-medium">{exec.status === 'running' ? t('playbookExecStatusRunning') : exec.status}</span>
                             </div>
                             {exec.started_at && (
                               <div className="text-xs text-green-600 dark:text-green-400">
-                                開始時間: {new Date(exec.started_at).toLocaleString('zh-TW')}
+                                {t('startedAt')}: {new Date(exec.started_at).toLocaleString(locale === 'en' ? 'en-US' : locale === 'ja' ? 'ja-JP' : 'zh-TW')}
                               </div>
                             )}
                           </div>
                           <span className="px-2 py-1 text-xs bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-300 rounded font-medium">
-                            🔄 進行中
+                            {t('inProgress')}
                           </span>
                         </div>
                       </div>
@@ -242,13 +243,13 @@ export default function PlaybookTabs({
                 )}
                 {playbook.execution_status.recent_executions && playbook.execution_status.recent_executions.length > 0 && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">最近執行記錄</h4>
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('recentExecutionHistory')}</h4>
                     {playbook.execution_status.recent_executions.map(exec => (
                       <div key={exec.execution_id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg mb-2 hover:border-gray-300 dark:hover:border-gray-600 transition-colors">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">
-                              執行 ID: <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">{exec.execution_id.slice(0, 12)}...</code>
+                              {t('executionId')}: <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">{exec.execution_id.slice(0, 12)}...</code>
                             </div>
                             <div className="flex items-center gap-2 mb-1">
                               <span className={`text-xs px-2 py-0.5 rounded font-medium ${
@@ -263,10 +264,10 @@ export default function PlaybookTabs({
                             </div>
                             {exec.started_at && (
                               <div className="text-xs text-gray-500 dark:text-gray-400">
-                                開始: {new Date(exec.started_at).toLocaleString('zh-TW')}
+                                {t('started')}: {new Date(exec.started_at).toLocaleString(locale === 'en' ? 'en-US' : locale === 'ja' ? 'ja-JP' : 'zh-TW')}
                                 {exec.completed_at && (
                                   <span className="ml-2">
-                                    | 完成: {new Date(exec.completed_at).toLocaleString('zh-TW')}
+                                    | {t('completedLabel')}: {new Date(exec.completed_at).toLocaleString(locale === 'en' ? 'en-US' : locale === 'ja' ? 'ja-JP' : 'zh-TW')}
                                   </span>
                                 )}
                               </div>
@@ -280,15 +281,15 @@ export default function PlaybookTabs({
                 {(!playbook.execution_status.active_executions || playbook.execution_status.active_executions.length === 0) &&
                  (!playbook.execution_status.recent_executions || playbook.execution_status.recent_executions.length === 0) && (
                   <div className="text-center py-12">
-                    <p className="text-gray-500 dark:text-gray-400 mb-2">尚無執行記錄</p>
+                    <p className="text-gray-500 dark:text-gray-400 mb-2">{t('noExecutionRecord')}</p>
                     <p className="text-xs text-gray-400 dark:text-gray-500">{t('clickExecuteButton')}</p>
                   </div>
                 )}
               </div>
             ) : (
               <div className="text-center py-12">
-                <p className="text-gray-500 dark:text-gray-400 mb-2">尚無執行記錄</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">點擊下方的「執行」按鈕開始使用此 Playbook</p>
+                <p className="text-gray-500 dark:text-gray-400 mb-2">{t('noExecutionRecord')}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">{t('clickExecuteButton')}</p>
               </div>
             )}
           </div>
