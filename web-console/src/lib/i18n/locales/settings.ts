@@ -687,13 +687,12 @@ export const settingsEn = {
   connectTools: 'Connect Tools',
   viewAllSettings: 'View All Settings',
   // SaaS integrations - imported from modular files
-  ...slackZhTW,
-  ...airtableZhTW,
-  ...googleSheetsZhTW,
-  ...githubZhTW,
-  ...toolsZhTW,
+  ...slackEn,
+  ...airtableEn,
+  ...googleSheetsEn,
+  ...githubEn,
+  ...toolsEn,
 } as const satisfies Partial<Record<MessageKey, string>>;
-  backendDescription: 'Configure how agents are executed. For most users, "Local LLM" is recommended. Remote backend is an advanced option for developers.',
   backendMode: 'Backend Mode',
   localLLM: 'Local LLM',
   localLLMDescription: 'Execute agents using local LLM providers (OpenAI, Anthropic)',
