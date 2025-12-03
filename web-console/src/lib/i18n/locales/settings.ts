@@ -693,9 +693,6 @@ export const settingsEn = {
   ...githubEn,
   ...toolsEn,
 } as const satisfies Partial<Record<MessageKey, string>>;
-  backendMode: 'Backend Mode',
-  localLLM: 'Local LLM',
-  localLLMDescription: 'Execute agents using local LLM providers (OpenAI, Anthropic)',
   remoteAgentService: 'Remote Agent Service',
   remoteAgentServiceDescription: 'Execute agents using a remote agent orchestration service (Advanced - for developers)',
   backendStatus: 'Backend Status',
