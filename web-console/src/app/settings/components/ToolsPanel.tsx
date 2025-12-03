@@ -36,25 +36,26 @@ const getSystemTools = (t: (key: string) => string): Array<{
 }> => [
   {
     toolType: 'local_files',
-    name: t('toolLocalFilesName'),
+    name: 'Local File System',
     description: t('toolLocalFilesDescription'),
     icon: '💾',
   },
   {
     toolType: 'vector_db',
-    name: t('toolVectorDBName'),
+    name: 'Vector Database (PostgreSQL / pgvector)',
     description: t('toolVectorDBDescription'),
     icon: '🗄️',
   },
   {
     toolType: 'obsidian',
-    name: t('toolObsidianName'),
+    name: 'Obsidian',
     description: t('toolObsidianDescription'),
     icon: '📚',
   },
 ];
 
 // External SaaS tools - third-party cloud services
+// Tool names are brand names and don't need i18n, only descriptions do
 const getExternalSaaSTools = (t: (key: string) => string): Array<{
   toolType: string;
   name: string;
@@ -63,49 +64,49 @@ const getExternalSaaSTools = (t: (key: string) => string): Array<{
 }> => [
   {
     toolType: 'wordpress',
-    name: t('toolWordPressName'),
+    name: 'WordPress',
     description: t('toolWordPressDescription'),
     icon: '🌐',
   },
   {
     toolType: 'notion',
-    name: t('toolNotionName'),
+    name: 'Notion',
     description: t('toolNotionDescription'),
     icon: '📝',
   },
   {
     toolType: 'google_drive',
-    name: t('toolGoogleDriveName'),
+    name: 'Google Drive',
     description: t('toolGoogleDriveDescription'),
     icon: '📁',
   },
   {
     toolType: 'canva',
-    name: t('toolCanvaName'),
+    name: 'Canva',
     description: t('toolCanvaDescription'),
     icon: '🎨',
   },
   {
     toolType: 'slack',
-    name: t('toolSlackName'),
+    name: 'Slack',
     description: t('toolSlackDescription'),
     icon: '💬',
   },
   {
     toolType: 'airtable',
-    name: t('toolAirtableName'),
+    name: 'Airtable',
     description: t('toolAirtableDescription'),
     icon: '📊',
   },
   {
     toolType: 'google_sheets',
-    name: t('toolGoogleSheetsName'),
+    name: 'Google Sheets',
     description: t('toolGoogleSheetsDescription'),
     icon: '📈',
   },
   {
     toolType: 'github',
-    name: t('toolGitHubName'),
+    name: 'GitHub',
     description: t('toolGitHubDescription'),
     icon: '💻',
   },
