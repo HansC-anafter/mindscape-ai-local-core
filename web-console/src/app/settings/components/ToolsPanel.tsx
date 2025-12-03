@@ -12,6 +12,7 @@ import { NotionConnectionWizard } from './wizards/NotionConnectionWizard';
 import { GoogleDriveConnectionWizard } from './wizards/GoogleDriveConnectionWizard';
 import { SlackConnectionWizard } from './wizards/SlackConnectionWizard';
 import { AirtableConnectionWizard } from './wizards/AirtableConnectionWizard';
+import { GoogleSheetsConnectionWizard } from './wizards/GoogleSheetsConnectionWizard';
 import { VectorDBConnectionWizard } from './wizards/VectorDBConnectionWizard';
 import { LocalFilesystemManager } from './wizards/LocalFilesystemManager';
 import { ObsidianConfigWizard } from './wizards/ObsidianConfigWizard';
@@ -94,6 +95,12 @@ const EXTERNAL_SAAS_TOOLS: Array<{
     name: 'Airtable',
     description: 'Connect to Airtable for structured data management, tables, and records',
     icon: '📊',
+  },
+  {
+    toolType: 'google_sheets',
+    name: 'Google Sheets',
+    description: 'Connect to Google Sheets for spreadsheet management, read/write ranges, and data operations',
+    icon: '📈',
   },
 ];
 
@@ -325,6 +332,13 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
         <AirtableConnectionWizard
           onClose={() => setSelectedTool(null)}
           onSuccess={() => handleWizardSuccess('airtable')}
+        />
+      )}
+
+      {selectedTool === 'google_sheets' && (
+        <GoogleSheetsConnectionWizard
+          onClose={() => setSelectedTool(null)}
+          onSuccess={() => handleWizardSuccess('google_sheets')}
         />
       )}
 

@@ -28,12 +28,16 @@ from .providers import langchain
 from .providers import mcp
 from .providers import slack
 from .providers import airtable
+from .providers import google_sheets
 
 # Create main router
 router = APIRouter()
 
 # Include status router FIRST (before base router) to ensure /status matches before /{tool_type}/status
 router.include_router(status_router)
+
+# Include OAuth router (for social media integrations)
+router.include_router(oauth_router)
 
 # Include connections router BEFORE base router to ensure /connections matches before /{tool_id}
 router.include_router(connections_router)
@@ -58,3 +62,4 @@ router.include_router(langchain.router)
 router.include_router(mcp.router)
 router.include_router(slack.router)
 router.include_router(airtable.router)
+router.include_router(google_sheets.router)

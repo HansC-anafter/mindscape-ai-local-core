@@ -485,6 +485,13 @@ class ToolRegistryService:
         except ImportError:
             logger.warning("Airtable provider not available")
 
+        # Register Google Sheets Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.google_sheets_provider import GoogleSheetsDiscoveryProvider
+            self.register_discovery_provider(GoogleSheetsDiscoveryProvider())
+        except ImportError:
+            logger.warning("Google Sheets provider not available")
+
         # Register Twitter Provider (Core built-in)
         try:
             from backend.app.services.tools.providers.twitter_provider import TwitterDiscoveryProvider

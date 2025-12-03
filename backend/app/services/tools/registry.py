@@ -31,6 +31,10 @@ from backend.app.services.tools.airtable.airtable_tools import (
     create_airtable_tools,
     get_airtable_tool_by_name
 )
+from backend.app.services.tools.google_sheets.google_sheets_tools import (
+    create_google_sheets_tools,
+    get_google_sheets_tool_by_name
+)
 
 # Tool priority classification
 CORE_TOOLS = ["wordpress"]  # Core tools, must be fully implemented
@@ -275,6 +279,39 @@ def register_airtable_tools(connection: ToolConnection) -> List[MindscapeTool]:
         raise ValueError("Airtable API key is required")
 
     tools = create_airtable_tools(api_key)
+
+    for tool in tools:
+        tool_id = f"{connection.id}.{tool.metadata.name}"
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
+def register_google_sheets_tools(connection: ToolConnection) -> List[MindscapeTool]:
+    """
+    Register all Google Sheets tools
+
+    Args:
+        connection: Google Sheets connection configuration
+
+    Returns:
+        List of registered tools
+
+    Example:
+        >>> sheets_conn = ToolConnection(
+        ...     id="my-sheets",
+        ...     tool_type="google_sheets",
+        ...     api_key="ya29...",
+        ...     oauth_token="ya29..."
+        ... )
+        >>> tools = register_google_sheets_tools(sheets_conn)
+        >>> print(f"Registered {len(tools)} tools")
+    """
+    access_token = connection.oauth_token or connection.api_key
+    if not access_token:
+        raise ValueError("Google Sheets access token is required (oauth_token or api_key)")
+
+    tools = create_google_sheets_tools(access_token)
 
     for tool in tools:
         tool_id = f"{connection.id}.{tool.metadata.name}"

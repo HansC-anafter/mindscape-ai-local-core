@@ -179,12 +179,13 @@ class GoogleDriveOAuthManager:
 
         return result
 
-    def build_authorization_url(self, state_token: str) -> str:
+    def build_authorization_url(self, state_token: str, scopes: Optional[List[str]] = None) -> str:
         """
         Build Google OAuth 2.0 authorization URL
 
         Args:
             state_token: OAuth state token
+            scopes: Optional list of OAuth scopes. If not provided, defaults to Google Drive read-only scope.
 
         Returns:
             Google OAuth authorization URL
@@ -195,10 +196,11 @@ class GoogleDriveOAuthManager:
         # Google OAuth 2.0 authorization endpoint
         auth_url = "https://accounts.google.com/o/oauth2/v2/auth"
 
-        # Required scopes for Google Drive read-only access
-        scopes = [
-            "https://www.googleapis.com/auth/drive.readonly"
-        ]
+        # Default scopes for Google Drive read-only access
+        if scopes is None:
+            scopes = [
+                "https://www.googleapis.com/auth/drive.readonly"
+            ]
         scope_string = " ".join(scopes)
 
         # Build query parameters

@@ -15,6 +15,7 @@ from . import langchain
 from . import mcp
 from . import slack
 from . import airtable
+from . import google_sheets
 
 # Export all provider routers
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "mcp",
     "slack",
     "airtable",
+    "google_sheets",
 ]
