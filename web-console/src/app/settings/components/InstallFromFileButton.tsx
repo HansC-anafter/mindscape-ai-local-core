@@ -106,20 +106,18 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
   };
 
   return (
-    <div>
-      <div className="mb-3">
-        <label className="flex items-center space-x-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={allowOverwrite}
-            onChange={(e) => setAllowOverwrite(e.target.checked)}
-            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-          />
-          <span className="text-sm text-gray-700">
-            {t('allowOverwrite')}
-          </span>
-        </label>
-      </div>
+    <div className="flex items-center gap-2">
+      <label className="flex items-center space-x-1 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={allowOverwrite}
+          onChange={(e) => setAllowOverwrite(e.target.checked)}
+          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+        />
+        <span className="text-xs text-gray-700">
+          {t('allowOverwrite')}
+        </span>
+      </label>
       <input
         ref={fileInputRef}
         type="file"
@@ -138,7 +136,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
       />
       <label
         htmlFor="mindpack-file-input"
-        className="inline-block px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 cursor-pointer disabled:opacity-50"
+        className="inline-block px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 cursor-pointer disabled:opacity-50"
         style={{
           opacity: (phase === 'installing' || phase === 'mapping_roles') ? 0.5 : 1,
           cursor: (phase === 'installing' || phase === 'mapping_roles') ? 'not-allowed' : 'pointer',

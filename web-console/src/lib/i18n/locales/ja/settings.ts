@@ -231,5 +231,20 @@ export const settingsJa = {
   noWorkspaceSelected: 'ワークスペースが選択されておらず、一般的なヘルスチェックも失敗しました',
   copyRedirectURI: 'Redirect URI をコピー',
   redirectURICopied: 'Redirect URI がクリップボードにコピーされました',
+
+  // Configuration Assistant
+  configAssistant: '設定アシスタント',
+  configAssistantWelcome: 'ようこそ！以下のお手伝いができます：',
+  configAssistantHelpLLM: 'LLM API キーの設定',
+  configAssistantHelpTools: 'ツールとサービスの接続',
+  configAssistantHelpDiagnose: '設定問題の診断',
+  configAssistantHelpAnswer: '設定に関する質問への回答',
+  configAssistantPlaceholder: '設定について質問...',
+  configAssistantError: '申し訳ございませんが、リクエストを処理できませんでした。後でもう一度お試しください。',
+  configAssistantIssueNoLLM: 'LLM API キーが設定されていません',
+  configAssistantIssueTools: '個のツールが接続されていません',
+  configAssistantIssueServices: '個のサービス問題',
+  configAssistantDetectedIssues: '検出された問題',
+  configAssistantFallback: 'アシスタント API はまだ利用できません。現在の設定に基づいて、適切な設定ページにナビゲートできます。何を設定しますか？',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

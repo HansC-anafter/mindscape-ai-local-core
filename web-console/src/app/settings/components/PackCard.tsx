@@ -65,8 +65,8 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
       <div className="flex items-start space-x-4 mb-4">
         {pack.icon && <span className="text-3xl">{pack.icon}</span>}
         <div className="flex-1">
-          <div className="flex items-start justify-between mb-2">
-            <h3 className="text-lg font-semibold text-gray-900">{pack.name || packName}</h3>
+          {/* Status, Version, Date - Above name */}
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             {pack.installed && (
               <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
                 {t('installed')}
@@ -77,19 +77,24 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                 {t('default')}
               </span>
             )}
+            {(pack.version || pack.installed_at) && (
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                {pack.version && <span>v{pack.version}</span>}
+                {pack.installed_at && (
+                  <span>
+                    {t('installedAt')}: {new Date(pack.installed_at).toLocaleDateString('zh-TW')}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Name */}
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">{pack.name || packName}</h3>
+
+          {/* Description */}
           {packDescription && (
             <p className="text-sm text-gray-600 mb-2">{packDescription}</p>
-          )}
-          {(pack.version || pack.installed_at) && (
-            <div className="flex items-center gap-3 text-xs text-gray-500">
-              {pack.version && <span>v{pack.version}</span>}
-              {pack.installed_at && (
-                <span>
-                  {t('installedAt')}: {new Date(pack.installed_at).toLocaleDateString('zh-TW')}
-                </span>
-              )}
-            </div>
           )}
         </div>
       </div>

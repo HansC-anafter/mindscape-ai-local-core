@@ -1,0 +1,125 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { settingsApi } from '../utils/settingsApi';
+import type { BackendConfig, ToolConnection, CapabilityPack } from '../types';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+export interface SettingsContext {
+  currentTab: string;
+  currentSection?: string;
+  configSnapshot: {
+    backend: {
+      mode: string;
+      openai_configured: boolean;
+      anthropic_configured: boolean;
+      remote_crs_configured: boolean;
+    };
+    tools: {
+      total: number;
+      connected: number;
+      configured: number;
+      issues: Array<{
+        tool_id: string;
+        issue: string;
+      }>;
+    };
+    packs: {
+      installed: number;
+      enabled: number;
+    };
+    services: {
+      backend: 'healthy' | 'unhealthy' | 'unavailable';
+      llm: 'configured' | 'not_configured';
+      vector_db: 'connected' | 'not_connected';
+      issues: Array<{
+        type: string;
+        severity: 'error' | 'warning' | 'info';
+        message: string;
+      }>;
+    };
+  };
+}
+
+export function useSettingsContext(currentTab: string, currentSection?: string) {
+  const [context, setContext] = useState<SettingsContext | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const collectConfigState = useCallback(async () => {
+    try {
+      const [backendConfig, tools, packs] = await Promise.all([
+        settingsApi.get<BackendConfig>('/api/v1/system-settings/backend'),
+        settingsApi.get<ToolConnection[]>('/api/v1/system-settings/tool-connections', { silent: true }),
+        settingsApi.get<CapabilityPack[]>('/api/v1/system-settings/capability-packs', { silent: true }),
+      ]);
+
+      let healthStatus = null;
+      try {
+        const workspaceId = typeof window !== 'undefined'
+          ? localStorage.getItem('currentWorkspaceId')
+          : null;
+        if (workspaceId) {
+          const healthResponse = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/health`);
+          if (healthResponse.ok) {
+            healthStatus = await healthResponse.json();
+          }
+        } else {
+          const generalHealth = await fetch(`${API_URL}/health`);
+          if (generalHealth.ok) {
+            healthStatus = await generalHealth.json();
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch health status:', err);
+      }
+
+      const snapshot: SettingsContext['configSnapshot'] = {
+        backend: {
+          mode: backendConfig.current_mode || 'local',
+          openai_configured: backendConfig.openai_api_key_configured,
+          anthropic_configured: backendConfig.anthropic_api_key_configured,
+          remote_crs_configured: backendConfig.remote_crs_configured,
+        },
+        tools: {
+          total: tools.length,
+          connected: tools.filter(t => t.enabled).length,
+          configured: tools.length,
+          issues: tools.filter(t => !t.enabled).map(t => ({
+            tool_id: t.id,
+            issue: 'Not connected'
+          }))
+        },
+        packs: {
+          installed: packs.length,
+          enabled: packs.filter(p => p.enabled).length,
+        },
+        services: {
+          backend: healthStatus?.overall_status === 'healthy' ? 'healthy' : 'unhealthy',
+          llm: (backendConfig.openai_api_key_configured || backendConfig.anthropic_api_key_configured) ? 'configured' : 'not_configured',
+          vector_db: healthStatus?.vector_db_connected ? 'connected' : 'not_connected',
+          issues: healthStatus?.issues || []
+        }
+      };
+
+      setContext({
+        currentTab,
+        currentSection,
+        configSnapshot: snapshot,
+      });
+    } catch (err) {
+      console.error('Failed to collect config state:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentTab, currentSection]);
+
+  useEffect(() => {
+    collectConfigState();
+    const interval = setInterval(collectConfigState, 30000);
+    return () => clearInterval(interval);
+  }, [collectConfigState]);
+
+  return { context, loading, refresh: collectConfigState };
+}
+

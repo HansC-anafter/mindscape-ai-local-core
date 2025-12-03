@@ -236,6 +236,21 @@ export const settingsZhTW = {
   noWorkspaceSelected: '未選擇工作空間且一般健康檢查失敗',
   copyRedirectURI: '複製 Redirect URI',
   redirectURICopied: 'Redirect URI 已複製到剪貼板',
+
+  // Configuration Assistant
+  configAssistant: '配置助理',
+  configAssistantWelcome: '歡迎！我可以幫你：',
+  configAssistantHelpLLM: '配置 LLM API 金鑰',
+  configAssistantHelpTools: '連接工具與服務',
+  configAssistantHelpDiagnose: '診斷配置問題',
+  configAssistantHelpAnswer: '回答配置相關問題',
+  configAssistantPlaceholder: '詢問配置相關問題...',
+  configAssistantError: '抱歉，暫時無法處理你的請求。請稍後再試。',
+  configAssistantIssueNoLLM: '未配置 LLM API 金鑰',
+  configAssistantIssueTools: '個工具未連接',
+  configAssistantIssueServices: '個服務問題',
+  configAssistantDetectedIssues: '檢測到問題',
+  configAssistantFallback: '配置助理 API 尚未可用。根據您當前的配置，我可以幫您導航到正確的設定頁面。您想配置什麼？',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const settingsEn = {
@@ -470,4 +485,19 @@ export const settingsEn = {
   noWorkspaceSelected: 'No workspace selected and general health check failed',
   copyRedirectURI: 'Copy Redirect URI',
   redirectURICopied: 'Redirect URI copied to clipboard',
+
+  // Configuration Assistant
+  configAssistant: 'Configuration Assistant',
+  configAssistantWelcome: 'Welcome! I can help you with:',
+  configAssistantHelpLLM: 'Configure LLM API keys',
+  configAssistantHelpTools: 'Connect tools and services',
+  configAssistantHelpDiagnose: 'Diagnose configuration issues',
+  configAssistantHelpAnswer: 'Answer configuration questions',
+  configAssistantPlaceholder: 'Ask about configuration...',
+  configAssistantError: 'Sorry, I could not process your request. Please try again later.',
+  configAssistantIssueNoLLM: 'No LLM API keys configured',
+  configAssistantIssueTools: 'tools not connected',
+  configAssistantIssueServices: 'service issues',
+  configAssistantDetectedIssues: 'Detected issues',
+  configAssistantFallback: 'The assistant API is not yet available. Based on your current configuration, I can help you navigate to the right settings. What would you like to configure?',
 } as const satisfies Partial<Record<MessageKey, string>>;

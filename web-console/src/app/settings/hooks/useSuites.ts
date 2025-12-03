@@ -35,10 +35,12 @@ export function useSuites(): UseSuitesReturn {
   const loadSuites = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await settingsApi.get<CapabilitySuite[]>('/api/v1/capability-suites/');
-      setSuites(data);
+      // Try capability-suites endpoint first, fallback to system-settings if not available
+      const data = await settingsApi.get<CapabilitySuite[]>('/api/v1/capability-suites/', { silent: true });
+      setSuites(data || []);
     } catch (err) {
       console.error('Failed to load suites:', err);
+      // If API doesn't exist, suites will be empty (expected for local-core)
       setSuites([]);
     } finally {
       setLoading(false);

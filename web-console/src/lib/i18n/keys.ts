@@ -1115,6 +1115,19 @@ export const keys = {
   noWorkspaceSelected: true,
   copyRedirectURI: true,
   redirectURICopied: true,
+  configAssistant: true,
+  configAssistantWelcome: true,
+  configAssistantHelpLLM: true,
+  configAssistantHelpTools: true,
+  configAssistantHelpDiagnose: true,
+  configAssistantHelpAnswer: true,
+  configAssistantPlaceholder: true,
+  configAssistantError: true,
+  configAssistantIssueNoLLM: true,
+  configAssistantIssueTools: true,
+  configAssistantIssueServices: true,
+  configAssistantDetectedIssues: true,
+  configAssistantFallback: true,
 } as const;
 
 export type MessageKey = keyof typeof keys;
