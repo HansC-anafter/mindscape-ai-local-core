@@ -27,7 +27,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
     settingsApi.get('/api/v1/tools/connections?tool_type=google_drive&active_only=true')
       .then((response: any) => {
         const connections = response.data || response;
-        const activeConnection = Array.isArray(connections) 
+        const activeConnection = Array.isArray(connections)
           ? connections.find((conn: any) => conn.is_active && conn.oauth_token)
           : null;
         setHasGoogleDriveConnection(!!activeConnection);
