@@ -693,7 +693,6 @@ export const settingsEn = {
   ...githubEn,
   ...toolsEn,
 } as const satisfies Partial<Record<MessageKey, string>>;
-  remoteAgentService: 'Remote Agent Service',
   remoteAgentServiceDescription: 'Execute agents using a remote agent orchestration service (Advanced - for developers)',
   backendStatus: 'Backend Status',
   available: 'Available',
