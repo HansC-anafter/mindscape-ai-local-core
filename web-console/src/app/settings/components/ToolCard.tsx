@@ -6,7 +6,6 @@ import { Card } from './Card';
 import { StatusPill } from './StatusPill';
 import type { ToolStatus } from '../types';
 import { settingsApi } from '../utils/settingsApi';
-import { listenToToolConfigUpdated } from '../../../lib/tool-status-events';
 
 interface ToolCardProps {
   toolType: string;
@@ -34,90 +33,71 @@ export function ToolCard({
   onTest,
   testing = false,
 }: ToolCardProps) {
-  const [playbooks, setPlaybooks] = useState<PlaybookInfo[]>([]);
-  const [loadingPlaybooks, setLoadingPlaybooks] = useState(false);
+  const [playbookCount, setPlaybookCount] = useState<number | null>(null);
+  const [loadingCount, setLoadingCount] = useState(false);
   const hasLoadedRef = useRef(false);
 
-  // Load playbooks that use this tool dynamically
-  const loadPlaybooks = React.useCallback(() => {
-    if (status.status === 'connected' && !loadingPlaybooks) {
-      setLoadingPlaybooks(true);
+  useEffect(() => {
+    if (status.status === 'connected' && !hasLoadedRef.current) {
+      setLoadingCount(true);
       settingsApi
-        .get<PlaybookInfo[]>(`/api/v1/playbooks?uses_tool=${toolType}&scope=all`)
+        .get<PlaybookInfo[]>(`/api/v1/playbooks?uses_tool=${toolType}&scope=all`, { silent: true })
         .then((data) => {
-          setPlaybooks(data);
+          const count = Array.isArray(data) ? data.length : 0;
+          console.log(`[ToolCard] Loaded playbook count for ${toolType}:`, count, data);
+          setPlaybookCount(count);
           hasLoadedRef.current = true;
         })
         .catch((err) => {
-          console.error(`Failed to load playbooks for tool ${toolType}:`, err);
-          setPlaybooks([]);
+          console.error(`[ToolCard] Failed to load playbook count for tool ${toolType}:`, err);
+          setPlaybookCount(0);
+          hasLoadedRef.current = true;
         })
         .finally(() => {
-          setLoadingPlaybooks(false);
+          setLoadingCount(false);
         });
-    }
-  }, [toolType, status.status, loadingPlaybooks]);
-
-  // Load playbooks when tool becomes connected
-  useEffect(() => {
-    if (status.status === 'connected' && !hasLoadedRef.current) {
-      loadPlaybooks();
     } else if (status.status !== 'connected') {
-      // Reset when tool is disconnected
       hasLoadedRef.current = false;
-      setPlaybooks([]);
+      setPlaybookCount(null);
+      setLoadingCount(false);
     }
-  }, [status.status, loadPlaybooks]);
+  }, [toolType, status.status]);
 
-  // Listen to tool config updates to refresh playbooks
-  useEffect(() => {
-    const cleanup = listenToToolConfigUpdated(() => {
-      // Reset and reload if tool is connected
-      if (status.status === 'connected') {
-        hasLoadedRef.current = false;
-        loadPlaybooks();
-      }
-    }, toolType);
-
-    return cleanup;
-  }, [toolType, status.status, loadPlaybooks]);
+  const formatPlaybookCount = (count: number) => {
+    const template = t('playbooksUsingThisTool');
+    if (template.includes('{count}')) {
+      const plural = count !== 1 ? 's' : '';
+      const verb = count !== 1 ? 'use' : 'uses';
+      return template
+        .replace('{count}', count.toString())
+        .replace('{plural}', plural)
+        .replace('{verb}', verb);
+    }
+    return template.replace('{count}', count.toString());
+  };
 
   return (
-    <Card hover>
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <span className="text-2xl">{icon}</span>
-          <div>
-            <h3 className="font-semibold text-gray-900">{name}</h3>
-            <p className="text-sm text-gray-500 mt-1">{description}</p>
+    <Card hover className="flex flex-col h-full">
+      <div className="flex items-start mb-4 flex-shrink-0">
+        <div className="flex items-start space-x-3 flex-1 min-w-0">
+          <span className="text-2xl flex-shrink-0">{icon}</span>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1.5 leading-tight">{name}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{description}</p>
+            {status.status === 'connected' && (
+              <>
+                {loadingCount ? (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t('loading')}</p>
+                ) : playbookCount !== null && playbookCount > 0 ? (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{formatPlaybookCount(playbookCount)}</p>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      {status.status === 'connected' && (
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <p className="text-xs text-gray-500 mb-2">{t('whichPlaybooksUseThisTool')}</p>
-          {loadingPlaybooks ? (
-            <div className="text-xs text-gray-400 italic">載入中...</div>
-          ) : playbooks.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {playbooks.map((playbook) => (
-                <span
-                  key={playbook.playbook_code}
-                  className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded"
-                  title={playbook.name}
-                >
-                  {playbook.playbook_code}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div className="text-xs text-gray-400 italic">目前沒有使用此工具的 Playbook</div>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
+      <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
         <StatusPill
           status={status.status}
           label={status.label}
@@ -128,14 +108,14 @@ export function ToolCard({
             <button
               onClick={onTest}
               disabled={testing}
-              className="text-sm px-3 py-1 text-purple-600 hover:text-purple-700 disabled:opacity-50"
+              className="text-sm px-3 py-1 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 disabled:opacity-50 whitespace-nowrap"
             >
               {testing ? t('testing') : t('testConnection')}
             </button>
           )}
           <button
             onClick={onConfigure}
-            className="text-sm px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+            className="text-sm px-3 py-1 bg-purple-600 dark:bg-purple-700 text-white rounded hover:bg-purple-700 dark:hover:bg-purple-600 whitespace-nowrap"
           >
             {status.status === 'not_configured' ? t('configure') : t('manage')}
           </button>

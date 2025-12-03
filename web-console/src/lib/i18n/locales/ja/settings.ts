@@ -3,7 +3,7 @@
  * Settings, Settings Tabs, Tool Actions, Capability Packs, Local File System, Vector DB, Obsidian
  */
 import type { MessageKey } from '../../keys';
-import { slackJa, airtableJa, googleSheetsJa, githubJa } from '../saas';
+import { slackJa, airtableJa, googleSheetsJa, githubJa, toolsJa } from '../saas';
 
 export const settingsJa = {
   // Settings
@@ -344,5 +344,6 @@ export const settingsJa = {
   ...airtableJa,
   ...googleSheetsJa,
   ...githubJa,
+  ...toolsJa,
 } as const satisfies Partial<Record<MessageKey, string>>;
 

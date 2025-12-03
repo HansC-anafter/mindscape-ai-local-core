@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { t } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
 import type { ToolConnection, RegisteredTool, VectorDBConfig, ToolStatus, ToolStatusInfo } from '../types';
 import {
@@ -26,7 +27,7 @@ interface UseToolsReturn {
 
 const getDefaultToolStatus = (): ToolStatus => ({
   status: 'not_configured',
-  label: 'Not configured',
+  label: t('statusNotConfigured'),
   icon: '⚠️',
 });
 
@@ -203,56 +204,56 @@ export function useTools(): UseToolsReturn {
         // Priority: health check > tools status API > config
         if (vectorDBConnected !== null) {
           if (vectorDBConnected) {
-            return { status: 'connected', label: 'Connected', icon: '✅' };
+            return { status: 'connected', label: t('statusConnected'), icon: '✅' };
           } else {
-            return { status: 'not_configured', label: 'Not connected', icon: '⚠️' };
+            return { status: 'not_configured', label: t('statusNotConnected'), icon: '⚠️' };
           }
         }
         // Fallback to tools status API
         const statusInfo = toolsStatus[toolType];
         if (statusInfo) {
           if (statusInfo.status === 'connected') {
-            return { status: 'connected', label: 'Connected', icon: '✅' };
+            return { status: 'connected', label: t('statusConnected'), icon: '✅' };
           } else if (statusInfo.status === 'registered_but_not_connected') {
-            return { status: 'registered_but_not_connected', label: 'Not connected', icon: '⚠️' };
+            return { status: 'registered_but_not_connected', label: t('statusNotConnected'), icon: '⚠️' };
           } else if (statusInfo.status === 'unavailable') {
-            return { status: 'unavailable', label: 'Not supported', icon: '🔴' };
+            return { status: 'unavailable', label: t('statusNotSupported'), icon: '🔴' };
           }
         }
         // Fallback to config-based status
         if (!vectorDBConfig) {
-          return { status: 'not_configured', label: 'Not configured', icon: '⚠️' };
+          return { status: 'not_configured', label: t('statusNotConfigured'), icon: '⚠️' };
         }
         if (vectorDBConfig.enabled) {
-          return { status: 'connected', label: 'Enabled', icon: '✅' };
+          return { status: 'connected', label: t('statusEnabled'), icon: '✅' };
         }
-        return { status: 'inactive', label: 'Disabled', icon: '🔌' };
+        return { status: 'inactive', label: t('statusDisabled'), icon: '🔌' };
       }
 
       // For other tools, check tools status API first
       const statusInfo = toolsStatus[toolType];
       if (statusInfo) {
         if (statusInfo.status === 'connected') {
-          return { status: 'connected', label: 'Connected', icon: '✅' };
+          return { status: 'connected', label: t('statusConnected'), icon: '✅' };
         } else if (statusInfo.status === 'registered_but_not_connected') {
-          return { status: 'registered_but_not_connected', label: 'Not connected', icon: '⚠️' };
+          return { status: 'registered_but_not_connected', label: t('statusNotConnected'), icon: '⚠️' };
         } else if (statusInfo.status === 'unavailable') {
-          return { status: 'unavailable', label: 'Not supported', icon: '🔴' };
+          return { status: 'unavailable', label: t('statusNotSupported'), icon: '🔴' };
         }
       }
 
       if (toolType === 'obsidian') {
-        return { status: 'local', label: 'Local mode', icon: '🔌' };
+        return { status: 'local', label: t('statusLocalMode'), icon: '🔌' };
       }
 
       const conn = connections.find((c) => c.tool_type === toolType);
       if (!conn) {
-        return { status: 'not_configured', label: 'Not configured', icon: '⚠️' };
+        return { status: 'not_configured', label: t('statusNotConfigured'), icon: '⚠️' };
       }
       if (conn.enabled) {
-        return { status: 'connected', label: 'Connected', icon: '✅' };
+        return { status: 'connected', label: t('statusConnected'), icon: '✅' };
       }
-      return { status: 'inactive', label: 'Disabled', icon: '🔌' };
+      return { status: 'inactive', label: t('statusDisabled'), icon: '🔌' };
     },
     [connections, vectorDBConfig, toolsStatus, vectorDBConnected]
   );
@@ -261,7 +262,7 @@ export function useTools(): UseToolsReturn {
     (toolType: string): ToolStatus => {
       const status = getToolStatus(toolType);
       if (toolType === 'wordpress') {
-        return { ...status, label: 'Local mode', icon: '🔌' };
+        return { ...status, label: t('statusLocalMode'), icon: '🔌' };
       }
       return status;
     },

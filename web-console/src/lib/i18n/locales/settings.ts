@@ -3,7 +3,7 @@
  * Settings, Settings Tabs, Tool Actions, Capability Packs, Local File System, Vector DB, Obsidian
  */
 import type { MessageKey } from '../keys';
-import { slackZhTW, airtableZhTW, googleSheetsZhTW, githubZhTW } from './saas';
+import { slackZhTW, airtableZhTW, googleSheetsZhTW, githubZhTW, toolsZhTW } from './saas';
 
 export const settingsZhTW = {
   // Settings
@@ -691,4 +691,5 @@ export const settingsEn = {
   ...airtableZhTW,
   ...googleSheetsZhTW,
   ...githubZhTW,
+  ...toolsZhTW,
 } as const satisfies Partial<Record<MessageKey, string>>;

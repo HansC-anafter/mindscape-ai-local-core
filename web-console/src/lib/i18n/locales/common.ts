@@ -101,6 +101,14 @@ export const commonZhTW = {
   requiredToolsNotSupported: '所需工具不支援',
   nextStep: '下一步',
   startedAt: '開始時間',
+  // Tool Status Labels
+  statusNotConfigured: '未配置',
+  statusNotConnected: '未連接',
+  statusConnected: '已連接',
+  statusEnabled: '已啟用',
+  statusDisabled: '已停用',
+  statusLocalMode: '本地模式',
+  statusNotSupported: '不支援',
 
   // Sidebar Tabs
   tabScheduling: '調度',
@@ -218,6 +226,14 @@ export const commonEn = {
   unsupported: 'Unsupported',
   toolsNeedConfiguration: 'Tools need configuration',
   requiredToolsNotSupported: 'Required tools not supported',
+  // Tool Status Labels
+  statusNotConfigured: 'Not configured',
+  statusNotConnected: 'Not connected',
+  statusConnected: 'Connected',
+  statusEnabled: 'Enabled',
+  statusDisabled: 'Disabled',
+  statusLocalMode: 'Local mode',
+  statusNotSupported: 'Not supported',
   nextStep: 'Next Step',
   startedAt: 'Started At',
 

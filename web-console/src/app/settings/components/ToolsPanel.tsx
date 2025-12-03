@@ -28,85 +28,85 @@ interface ToolsPanelProps {
 }
 
 // System tools - local/system-level tools
-const SYSTEM_TOOLS: Array<{
+const getSystemTools = (t: (key: string) => string): Array<{
   toolType: string;
   name: string;
   description: string;
   icon: string;
-}> = [
+}> => [
   {
     toolType: 'local_files',
-    name: 'Local File System',
-    description: 'Access local folders for document collection and RAG',
+    name: t('toolLocalFilesName'),
+    description: t('toolLocalFilesDescription'),
     icon: '💾',
   },
   {
     toolType: 'vector_db',
-    name: 'Vector Database (PostgreSQL / pgvector)',
-    description: 'Store semantic vectors for mindscape and documents, used for search and RAG',
+    name: t('toolVectorDBName'),
+    description: t('toolVectorDBDescription'),
     icon: '🗄️',
   },
   {
     toolType: 'obsidian',
-    name: 'Obsidian',
-    description: 'Connect to local Obsidian vaults for research workflows and knowledge management',
+    name: t('toolObsidianName'),
+    description: t('toolObsidianDescription'),
     icon: '📚',
   },
 ];
 
 // External SaaS tools - third-party cloud services
-const EXTERNAL_SAAS_TOOLS: Array<{
+const getExternalSaaSTools = (t: (key: string) => string): Array<{
   toolType: string;
   name: string;
   description: string;
   icon: string;
-}> = [
+}> => [
   {
     toolType: 'wordpress',
-    name: 'WordPress',
-    description: 'Connect to local or remote WordPress sites for content, SEO, and order management',
+    name: t('toolWordPressName'),
+    description: t('toolWordPressDescription'),
     icon: '🌐',
   },
   {
     toolType: 'notion',
-    name: 'Notion',
-    description: 'Connect to Notion for page search, content reading, and database queries (read-only mode)',
+    name: t('toolNotionName'),
+    description: t('toolNotionDescription'),
     icon: '📝',
   },
   {
     toolType: 'google_drive',
-    name: 'Google Drive',
-    description: 'Connect to Google Drive for file listing and content reading (read-only mode)',
+    name: t('toolGoogleDriveName'),
+    description: t('toolGoogleDriveDescription'),
     icon: '📁',
   },
   {
     toolType: 'canva',
-    name: 'Canva',
-    description: 'Design platform for creating visual content, templates, and graphics',
+    name: t('toolCanvaName'),
+    description: t('toolCanvaDescription'),
     icon: '🎨',
   },
   {
     toolType: 'slack',
-    name: 'Slack',
-    description: 'Connect to Slack workspace for messaging, channels, and file sharing',
+    name: t('toolSlackName'),
+    description: t('toolSlackDescription'),
     icon: '💬',
   },
   {
     toolType: 'airtable',
-    name: 'Airtable',
-    description: 'Connect to Airtable for structured data management, tables, and records',
+    name: t('toolAirtableName'),
+    description: t('toolAirtableDescription'),
     icon: '📊',
   },
   {
     toolType: 'google_sheets',
-    name: 'Google Sheets',
-    description: 'Connect to Google Sheets for spreadsheet management, read/write ranges, and data operations',
+    name: t('toolGoogleSheetsName'),
+    description: t('toolGoogleSheetsDescription'),
     icon: '📈',
   },
   {
     toolType: 'github',
-    name: 'GitHub',
-    description: 'Connect to GitHub for code management, repositories, issues, and pull requests',
+    name: t('toolGitHubName'),
+    description: t('toolGitHubDescription'),
     icon: '💻',
   },
 ];
@@ -226,17 +226,17 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
       {!activeSection && (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <p>{t('toolsAndIntegrations')}</p>
-          <p className="text-sm mt-2">{t('selectToolsSection') || '請選擇一個工具分類'}</p>
+          <p className="text-sm mt-2">{t('selectToolsSection')}</p>
         </div>
       )}
 
       {activeSection === 'system-tools' && (
       <Section
           title={t('systemTools')}
-          description={t('systemToolsDescription') || '本地系統工具，用於文檔收集、向量存儲和知識管理'}
+          description={t('systemToolsDescription')}
       >
         <ToolGrid>
-            {SYSTEM_TOOLS.map((tool) => {
+            {getSystemTools(t).map((tool) => {
             const status = getToolStatus(tool.toolType);
             const isLocal = tool.toolType === 'local_files';
             const localStatus = isLocal
@@ -275,10 +275,10 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
       {activeSection === 'external-saas-tools' && (
         <Section
           title={t('externalSAASTools')}
-          description={t('externalSAASToolsDescription') || '外部 SaaS 服務整合，用於連接雲端服務和第三方平台'}
+          description={t('externalSAASToolsDescription')}
         >
           <ToolGrid>
-            {EXTERNAL_SAAS_TOOLS.map((tool) => {
+            {getExternalSaaSTools(t).map((tool) => {
               const status = getToolStatus(tool.toolType);
               return (
                 <ToolCard
