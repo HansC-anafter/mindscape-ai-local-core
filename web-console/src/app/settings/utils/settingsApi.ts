@@ -37,7 +37,7 @@ export const settingsApi = {
         // For expected errors (501, 404) with silent flag, return empty/default data instead of throwing
         if (options?.silent && (response.status === 501 || response.status === 404)) {
           // Suppress error for expected cases - return empty object/array based on endpoint
-          if (endpoint.includes('/connections')) {
+          if (endpoint.includes('/connections') || endpoint.includes('/capability-packs') || endpoint.includes('/capability-suites') || endpoint.includes('/playbooks')) {
             return [] as T;
           }
           return {} as T;
@@ -51,7 +51,7 @@ export const settingsApi = {
     } catch (error) {
       // If silent flag is set and it's a network error, return default value
       if (options?.silent) {
-        if (endpoint.includes('/connections')) {
+        if (endpoint.includes('/connections') || endpoint.includes('/tool-connections') || endpoint.includes('/capability-packs') || endpoint.includes('/capability-suites') || endpoint.includes('/playbooks')) {
           return [] as T;
         }
         return {} as T;

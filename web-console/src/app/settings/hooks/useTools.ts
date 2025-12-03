@@ -42,8 +42,9 @@ export function useTools(): UseToolsReturn {
   const loadTools = useCallback(async () => {
     setLoading(true);
     try {
+      const profileId = 'default-user';
       const [connData, toolsData] = await Promise.all([
-        settingsApi.get<ToolConnection[]>('/api/v1/tools/connections', { silent: true }),
+        settingsApi.get<ToolConnection[]>(`/api/v1/tools/connections/?profile_id=${profileId}`, { silent: true }),
         settingsApi.get<RegisteredTool[]>('/api/v1/tools?enabled_only=false').catch((err) => {
           console.debug('Failed to load tools:', err);
           return [];

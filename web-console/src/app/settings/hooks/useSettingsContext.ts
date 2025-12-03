@@ -48,10 +48,11 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
 
   const collectConfigState = useCallback(async () => {
     try {
+      const profileId = 'default-user';
       const [backendConfig, tools, packs] = await Promise.all([
-        settingsApi.get<BackendConfig>('/api/v1/system-settings/backend'),
-        settingsApi.get<ToolConnection[]>('/api/v1/system-settings/tool-connections', { silent: true }),
-        settingsApi.get<CapabilityPack[]>('/api/v1/system-settings/capability-packs', { silent: true }),
+        settingsApi.get<BackendConfig>(`/api/v1/config/backend?profile_id=${profileId}`, { silent: true }),
+        settingsApi.get<ToolConnection[]>(`/api/v1/tools/connections/?profile_id=${profileId}`, { silent: true }),
+        settingsApi.get<CapabilityPack[]>('/api/v1/capability-packs/', { silent: true }),
       ]);
 
       let healthStatus = null;
@@ -76,27 +77,27 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
 
       const snapshot: SettingsContext['configSnapshot'] = {
         backend: {
-          mode: backendConfig.current_mode || 'local',
-          openai_configured: backendConfig.openai_api_key_configured,
-          anthropic_configured: backendConfig.anthropic_api_key_configured,
-          remote_crs_configured: backendConfig.remote_crs_configured,
+          mode: backendConfig?.current_mode || 'local',
+          openai_configured: backendConfig?.openai_api_key_configured || false,
+          anthropic_configured: backendConfig?.anthropic_api_key_configured || false,
+          remote_crs_configured: backendConfig?.remote_crs_configured || false,
         },
         tools: {
-          total: tools.length,
-          connected: tools.filter(t => t.enabled).length,
-          configured: tools.length,
-          issues: tools.filter(t => !t.enabled).map(t => ({
+          total: Array.isArray(tools) ? tools.length : 0,
+          connected: Array.isArray(tools) ? tools.filter(t => t.enabled).length : 0,
+          configured: Array.isArray(tools) ? tools.length : 0,
+          issues: Array.isArray(tools) ? tools.filter(t => !t.enabled).map(t => ({
             tool_id: t.id,
             issue: 'Not connected'
-          }))
+          })) : []
         },
         packs: {
-          installed: packs.length,
-          enabled: packs.filter(p => p.enabled).length,
+          installed: Array.isArray(packs) ? packs.length : 0,
+          enabled: Array.isArray(packs) ? packs.filter(p => p.enabled).length : 0,
         },
         services: {
           backend: healthStatus?.overall_status === 'healthy' ? 'healthy' : 'unhealthy',
-          llm: (backendConfig.openai_api_key_configured || backendConfig.anthropic_api_key_configured) ? 'configured' : 'not_configured',
+          llm: (backendConfig?.openai_api_key_configured || backendConfig?.anthropic_api_key_configured) ? 'configured' : 'not_configured',
           vector_db: healthStatus?.vector_db_connected ? 'connected' : 'not_connected',
           issues: healthStatus?.issues || []
         }
