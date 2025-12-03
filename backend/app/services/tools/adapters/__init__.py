@@ -4,6 +4,7 @@ Tool adapters for integrating external tool ecosystems.
 This package provides adapters for:
 - LangChain tools (Phase 1)
 - MCP (Model Context Protocol) tools (Phase 2)
+- Remote tools via Cloud Remote Tools (Phase 3)
 """
 
 # LangChain adapter
@@ -62,6 +63,19 @@ except ImportError:
     MCPServerManager = None
 
 
+# Remote tool adapter
+try:
+    from backend.app.services.tools.adapters.remote_adapter import (
+        RemoteToolAdapter,
+    )
+
+    REMOTE_TOOLS_AVAILABLE = True
+
+except ImportError:
+    REMOTE_TOOLS_AVAILABLE = False
+    RemoteToolAdapter = None
+
+
 __all__ = [
     # LangChain
     "LangChainToolAdapter",
@@ -81,6 +95,9 @@ __all__ = [
     "is_mcp_available",
     "MCPServerManager",
     "MCP_AVAILABLE",
+    # Remote tools
+    "RemoteToolAdapter",
+    "REMOTE_TOOLS_AVAILABLE",
 ]
 
 

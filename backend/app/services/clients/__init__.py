@@ -1,10 +1,8 @@
 """
-Multi-Cluster Clients
+External Service Clients
 
-Client services for connecting to multi-cluster architecture:
-- Site-Hub: Authentication and tenant management
-- Semantic-Hub: Agent execution
-- CRS-Hub: Capability governance (optional)
+Client services for connecting to external services.
+Vendor-specific clients should be implemented in cloud repo as system capability packs.
 """
 
 

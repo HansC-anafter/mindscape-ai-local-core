@@ -62,9 +62,9 @@ class MindscapeStore:
         self.workspaces = WorkspacesStore(db_path)
         self.artifacts = ArtifactsStore(db_path)
 
-        # Initialize database schema and migrations
+        # Initialize database schema
+        # Note: Database migrations are managed by Alembic (run: alembic upgrade head)
         self._init_db()
-        self._migrate_db()
         self.ensure_default_profile()
 
     @contextmanager
@@ -88,16 +88,12 @@ class MindscapeStore:
 
     def _migrate_db(self):
         """
-        Run database migrations
+        Database migrations are now managed by Alembic.
 
-        Uses the migration framework to apply incremental schema changes.
+        Run migrations using: alembic upgrade head
         """
-        from backend.app.services.stores.migrations import run_migrations
-
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            run_migrations(cursor)
-            conn.commit()
+        # Migrations are handled by Alembic, not here
+        pass
 
     def ensure_default_profile(self):
         """Ensure default-user profile exists for local development"""

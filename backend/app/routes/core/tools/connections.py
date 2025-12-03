@@ -61,7 +61,11 @@ async def create_connection(
         is_active=True,
     )
 
-    return registry.create_connection(connection)
+    created_connection = registry.create_connection(connection)
+
+    # Remote tools are now registered via system capability packs in cloud repo
+
+    return created_connection
 
 
 @router.get("/connections", response_model=List[ToolConnectionModel])

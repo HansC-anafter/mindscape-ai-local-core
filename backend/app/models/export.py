@@ -1,6 +1,6 @@
 """
-Console-Kit Extension Export Models
-Defines export formats specific to console-kit platform integration
+External Extension Export Models
+Defines export formats for external platform integration
 """
 
 from datetime import datetime
@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 
 class ConsoleKitTemplate(BaseModel):
     """
-    Console-Kit chainagent template format (Platform Extension)
+    External extension chainagent template format (Platform Extension)
 
-    This format is specific to console-kit platform for creating chainagent blueprints.
+    This format is for external platform integration, creating chainagent blueprints.
     Designed for productization and multi-tenant scenarios.
     """
 
@@ -124,7 +124,7 @@ class ExportPreview(BaseModel):
 
 
 class ConsoleKitExportRequest(BaseModel):
-    """Request to export as console-kit template"""
+    """Request to export as external extension template"""
     profile_id: str
     template_name: str
     template_description: str = ""
@@ -136,7 +136,7 @@ class ConsoleKitExportRequest(BaseModel):
 
 
 class ConsoleKitExportResponse(BaseModel):
-    """Response from console-kit template export"""
+    """Response from external extension template export"""
     success: bool
     template_id: str
     download_url: Optional[str] = None
@@ -151,9 +151,9 @@ class ConsoleKitExportResponse(BaseModel):
 
 class ConsoleKitImportValidationResult(BaseModel):
     """
-    Result of console-kit template validation
+    Result of external extension template validation
 
-    This is used by console-kit platform to validate imported templates.
+    This is used by external extension platforms to validate imported templates.
     """
     is_valid: bool
     export_version: str

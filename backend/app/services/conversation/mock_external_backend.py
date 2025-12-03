@@ -2,7 +2,7 @@
 Mock External Backend for Testing
 
 Provides mock implementations of ExternalBackend for testing purposes.
-Used when other clusters (Semantic-Hub, Site-Hub, CRS-Hub) are not yet implemented.
+Used when external backend services are not yet implemented.
 """
 
 import asyncio

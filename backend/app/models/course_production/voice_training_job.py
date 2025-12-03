@@ -1,8 +1,8 @@
 """
 Voice Training Job Model
 
-聲紋訓練任務定義
-存儲在 Semantic Hub (semantic_hub) - 任務追蹤表
+Voice training job definition
+Stored in external database - job tracking table
 """
 
 from datetime import datetime
@@ -31,9 +31,9 @@ class TrainingJobPriority(str, Enum):
 
 class VoiceTrainingJob(BaseModel):
     """
-    聲紋訓練任務
+    Voice training job
 
-    存儲在 Semantic Hub，負責實際的訓練執行
+    Stored in external database, responsible for actual training execution
     """
     id: str = Field(..., description="Training job ID (UUID)")
     voice_profile_id: str = Field(..., description="關聯的 voice profile ID")

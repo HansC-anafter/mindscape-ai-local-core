@@ -1,13 +1,13 @@
 """
 External Backend Protocol Interface
 
-Defines the protocol interface for external backend services (e.g., Site-Hub).
+Defines the protocol interface for external backend services.
 Mindscape core only recognizes this protocol and does not know specific implementations.
 
 Key Principles:
 - Mindscape core only knows this protocol, not specific implementations
-- All cloud services (site-hub, semantic-hub, custom tools) implement this protocol as plugins
-- Core has no site-hub hardcoding
+- All cloud services implement this protocol as plugins
+- Core has no vendor-specific hardcoding
 """
 
 import logging
@@ -41,7 +41,7 @@ class ExternalBackend(ABC):
         This method should:
         - Receive Mindscape's workspace context
         - Transform to standardized format (if needed)
-        - Call downstream services (e.g., Semantic-Hub) for RAG retrieval
+        - Call downstream services for RAG retrieval
         - Return RAG-only results (no workspace/intents/tasks duplication)
 
         Args:
@@ -219,7 +219,7 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
 
     Args:
         config: {
-            "driver": str,      # e.g., "anafter.site-hub" or "@an-after/mindscape-site-hub-backend"
+            "driver": str,      # e.g., "external.backend" or "@external/mindscape-backend"
             "options": Dict     # Backend configuration options
         }
 
@@ -241,9 +241,9 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
     try:
         # Dynamically load plugin package
         # Try multiple import strategies:
-        # 1. Relative import (for built-in backends like .site_hub_backend)
-        # 2. Absolute import (for external packages like mindscape_external_site_hub)
-        # 3. Built-in backend shortcut (site_hub_backend → .site_hub_backend)
+        # 1. Relative import (for built-in backends)
+        # 2. Absolute import (for external packages)
+        # 3. Built-in backend shortcut
 
         module = None
 
@@ -253,7 +253,7 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
             current_package = __name__.rsplit(".", 1)[0]  # Get package name
             module = importlib.import_module(driver, package=current_package)
         # Strategy 2: Built-in backend shortcuts
-        elif driver in ["site_hub_backend", "mock_external_backend"]:
+        elif driver in ["external_backend", "mock_external_backend"]:
             # Use current module's package for relative imports
             current_package = __name__.rsplit(".", 1)[0]  # Get package name
             module = importlib.import_module(f".{driver}", package=current_package)
@@ -279,12 +279,12 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
             logger.error(f"Plugin {driver} returned instance does not conform to ExternalBackend protocol")
             return None
 
-        logger.info(f"✅ Successfully loaded external backend: {driver}")
+        logger.info(f"Successfully loaded external backend: {driver}")
         return backend
 
     except ImportError as e:
-        logger.warning(f"⚠️ Cannot load plugin package {driver}: {e}")
+        logger.warning(f"Cannot load plugin package {driver}: {e}")
         return None
     except Exception as e:
-        logger.error(f"❌ Failed to load external backend: {e}")
+        logger.error(f"Failed to load external backend: {e}")
         return None

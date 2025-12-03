@@ -1,6 +1,11 @@
 """
 Tool Connection API Routes
 Endpoints for managing tool connections
+
+DEPRECATED: This route is deprecated in favor of /api/v1/tools/connections.
+Please use the new API endpoints for new code.
+
+Migration: All functionality has been migrated to ToolRegistryService.
 """
 
 from fastapi import APIRouter, HTTPException, Query

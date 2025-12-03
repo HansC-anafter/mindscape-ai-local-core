@@ -353,6 +353,8 @@ async def update_workspace(
         request_dict = request.dict(exclude_unset=False)
         if 'mode' in request_dict:
             workspace.mode = request.mode
+        if hasattr(request, 'playbook_storage_config') and request.playbook_storage_config is not None:
+            workspace.playbook_storage_config = request.playbook_storage_config
 
         # Handle storage path update (if these fields exist in request)
         if hasattr(request, 'storage_base_path') and request.storage_base_path is not None:

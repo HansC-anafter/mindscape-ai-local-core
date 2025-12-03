@@ -102,7 +102,7 @@ __all__ = [
     "BackupRequest",
     "PortableExportRequest",
     "ExportResponse",
-    # Console-Kit Extension Export
+    # External Extension Export
     "ConsoleKitTemplate",
     "ConsoleKitExportRequest",
     "ConsoleKitExportResponse",

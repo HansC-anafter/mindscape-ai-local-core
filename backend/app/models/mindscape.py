@@ -108,10 +108,10 @@ class MindscapeProfile(BaseModel):
     preferences: UserPreferences = Field(default_factory=UserPreferences,
                                        description="User preferences")
 
-    # External references (for console-kit integration)
+    # External references (for external integration)
     external_ref: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="External references (e.g., tenant_uuid, site_uuid) - optional, used by console-kit"
+        description="External references (e.g., tenant_uuid, site_uuid) - optional, used by external extensions"
     )
 
     # Tags for categorization and template export

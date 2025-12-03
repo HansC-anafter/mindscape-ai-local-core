@@ -1,19 +1,17 @@
 """
 Generic HTTP Backend
 
-執行 Agent 通過調用遠端 HTTP 服務。
+Execute agent by calling remote HTTP services.
 
-設計原則：
-- 平台中立：不綁定特定服務（CRS-Hub、LangGraph Cloud、自建服務都可用）
-- 協議抽象：支持多種協議格式
-- 擴展友好：Console-Kit 可提供預設配置，不修改 Core
+Design principles:
+- Platform neutral: not bound to specific services
+- Protocol abstraction: supports multiple protocol formats
+- Extension friendly: external extensions can provide default configurations
 
-用途：
-- 調用任何符合協議的遠端 Agent 服務
-- 支持 Console-Kit CRS-Hub
-- 支持 LangGraph Cloud
-- 支持自定義 Agent 服務器
-- 支持 MCP Server (通過 HTTP 包裝)
+Purpose:
+- Call any remote agent service that conforms to the protocol
+- Support custom agent servers
+- Support MCP Server (via HTTP wrapper)
 """
 
 import os
@@ -32,12 +30,12 @@ logger = logging.getLogger(__name__)
 
 class GenericHTTPBackend(AgentBackend):
     """
-    通用 HTTP Backend
+    Generic HTTP Backend
 
-    特性：
-    - 不綁定任何特定平台
-    - 支持自定義端點和協議
-    - Console-Kit CRS-Hub 只是其中一種使用方式
+    Features:
+    - Not bound to any specific platform
+    - Supports custom endpoints and protocols
+    - Can be used with various remote agent services
     """
 
     def __init__(

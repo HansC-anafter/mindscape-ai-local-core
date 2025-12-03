@@ -265,7 +265,7 @@ class ToolConnectionStore:
         """
         Export connections as templates (without sensitive data)
 
-        Used for template export to console-kit.
+        Used for template export to external extensions.
         """
         connections = self.get_connections_by_profile(profile_id, active_only=True)
 

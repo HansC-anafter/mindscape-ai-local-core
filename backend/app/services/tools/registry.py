@@ -40,13 +40,9 @@ from backend.app.services.tools.github.github_tools import (
     get_github_tool_by_name
 )
 
-# Import remote tools
-try:
-    from backend.app.services.tools.providers.line_remote_tool import RemoteLineTool
-    REMOTE_TOOLS_AVAILABLE = True
-except ImportError:
-    REMOTE_TOOLS_AVAILABLE = False
-    RemoteLineTool = None
+# Remote tools are now provided by system capability packs in cloud repo
+# This registry only handles local tools and generic mechanisms
+REMOTE_TOOLS_AVAILABLE = False
 
 # Tool priority classification
 CORE_TOOLS = ["wordpress"]  # Core tools, must be fully implemented
@@ -57,7 +53,7 @@ STATIC_TOOL_REGISTRY: Dict[str, Dict[str, Type[Tool]]] = {
     # Core tool: WordPress (must implement)
     "wordpress": {
         "local": WordPressTool,
-        # "remote": RemoteWordPressTool,  # TODO: Implement for console-kit
+        # Remote tools are provided by system capability packs in cloud repo
     },
     # Third-party tools: BYO mode (provide connector only)
     # "notion": {
@@ -363,45 +359,6 @@ def register_github_tools(connection: ToolConnection) -> List[MindscapeTool]:
         register_mindscape_tool(tool_id, tool)
 
     return tools
-
-
-def register_line_remote_tool(connection: ToolConnection) -> MindscapeTool:
-    """
-    Register LINE remote tool via Cloud Remote Tools
-
-    Args:
-        connection: ToolConnection instance with connection_type='remote'
-            Must contain:
-            - remote_cluster_url: Cloud Remote Tools service URL
-            - remote_connection_id: Channel ID (LINE channel ID)
-            - config.api_token: API authentication token
-
-    Returns:
-        Registered RemoteLineTool instance
-
-    Example:
-        >>> line_conn = ToolConnection(
-        ...     id="my-line",
-        ...     tool_type="line",
-        ...     connection_type="remote",
-        ...     remote_cluster_url="https://console.openseo.sinnie.yoga",
-        ...     remote_connection_id="e109c2ae-...",
-        ...     config={"api_token": "token_abc123"}
-        ... )
-        >>> tool = register_line_remote_tool(line_conn)
-        >>> print(f"Registered tool: {tool.metadata.name}")
-    """
-    if not REMOTE_TOOLS_AVAILABLE or RemoteLineTool is None:
-        raise ImportError("RemoteLineTool is not available. Check if line_remote_tool module is properly imported.")
-
-    if connection.connection_type != "remote":
-        raise ValueError(f"register_line_remote_tool requires connection_type='remote', got '{connection.connection_type}'")
-
-    tool = RemoteLineTool(connection)
-    tool_id = f"{connection.id}.{tool.metadata.name}"
-    register_mindscape_tool(tool_id, tool)
-
-    return tool
 
 
 def get_dynamic_tools_for_site(site_id: str) -> List[str]:

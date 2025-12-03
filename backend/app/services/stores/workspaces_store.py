@@ -25,8 +25,9 @@ class WorkspacesStore(StoreBase):
                     default_playbook_id, default_locale, mode, data_sources,
                     playbook_auto_execution_config, suggestion_history,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
+                    playbook_storage_config,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 workspace.id,
                 workspace.owner_user_id,
@@ -43,6 +44,7 @@ class WorkspacesStore(StoreBase):
                 workspace.artifacts_dir,
                 workspace.uploads_dir,
                 self.serialize_json(workspace.storage_config) if workspace.storage_config else None,
+                self.serialize_json(workspace.playbook_storage_config) if workspace.playbook_storage_config else None,
                 self.to_isoformat(workspace.created_at),
                 self.to_isoformat(workspace.updated_at)
             ))
@@ -112,6 +114,7 @@ class WorkspacesStore(StoreBase):
                     artifacts_dir = ?,
                     uploads_dir = ?,
                     storage_config = ?,
+                    playbook_storage_config = ?,
                     updated_at = ?
                 WHERE id = ?
             ''', (
@@ -128,6 +131,7 @@ class WorkspacesStore(StoreBase):
                 workspace.artifacts_dir,
                 workspace.uploads_dir,
                 self.serialize_json(workspace.storage_config) if workspace.storage_config else None,
+                self.serialize_json(workspace.playbook_storage_config) if workspace.playbook_storage_config else None,
                 self.to_isoformat(workspace.updated_at),
                 workspace.id
             ))
@@ -191,6 +195,11 @@ class WorkspacesStore(StoreBase):
         except (KeyError, IndexError):
             storage_config = None
 
+        try:
+            playbook_storage_config = self.deserialize_json(row['playbook_storage_config'], None) if row['playbook_storage_config'] else None
+        except (KeyError, IndexError):
+            playbook_storage_config = None
+
         return Workspace(
             id=row['id'],
             owner_user_id=row['owner_user_id'],
@@ -207,6 +216,7 @@ class WorkspacesStore(StoreBase):
             artifacts_dir=artifacts_dir,
             uploads_dir=uploads_dir,
             storage_config=storage_config,
+            playbook_storage_config=playbook_storage_config,
             created_at=self.from_isoformat(row['created_at']),
             updated_at=self.from_isoformat(row['updated_at'])
         )

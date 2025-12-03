@@ -41,7 +41,7 @@ class ExternalBackend(ABC):
         This method should:
         - Receive Mindscape's workspace context
         - Transform to standardized format (if needed)
-        - Call downstream services (e.g., Semantic-Hub) for RAG retrieval
+        - Call downstream services for RAG retrieval
         - Return RAG-only results (no workspace/intents/tasks duplication)
 
         Args:
@@ -219,7 +219,7 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
 
     Args:
         config: {
-            "driver": str,      # e.g., "anafter.site-hub" or "@an-after/mindscape-site-hub-backend"
+            "driver": str,      # e.g., "external.backend" or "@external/mindscape-backend"
             "options": Dict     # Backend configuration options
         }
 

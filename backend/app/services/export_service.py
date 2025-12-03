@@ -1,6 +1,6 @@
 """
 Export Service
-Handles exporting user configuration as templates for console-kit
+Handles exporting user configuration as templates for external extensions
 """
 
 import json

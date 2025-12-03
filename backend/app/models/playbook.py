@@ -149,7 +149,7 @@ class PlaybookMetadata(BaseModel):
                     "Default behavior with language_strategy='model_native'."
     )
 
-    # AI Role association (for console-kit export)
+    # AI Role association (for external export)
     entry_agent_type: Optional[str] = Field(
         default=None,
         description="Corresponding AI role: planner, writer, coach, coder"

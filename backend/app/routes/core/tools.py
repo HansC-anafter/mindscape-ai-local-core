@@ -17,7 +17,7 @@ from ...models.tool_registry import RegisteredTool, ToolConnectionModel
 from ...services.tool_registry import ToolRegistryService
 from ...services.tools.discovery_provider import ToolConfig
 from ...services.tool_status_checker import ToolStatusChecker
-from ...services.tool_connection_store import ToolConnectionStore
+# ToolConnectionStore is deprecated, use ToolRegistryService instead
 from ...services.tool_info import get_tool_info
 import os
 import logging
@@ -35,12 +35,12 @@ def get_tool_registry() -> ToolRegistryService:
     data_dir = os.getenv("DATA_DIR", "./data")
     registry = ToolRegistryService(data_dir=data_dir)
 
-    # Register console-kit extensions (WordPress provider)
+    # Register external extensions (WordPress provider)
     try:
         from ...extensions.console_kit import register_console_kit_tools
         register_console_kit_tools(registry)
     except ImportError:
-        pass  # Console-kit extension not installed, skip
+        pass  # External extension not installed, skip
 
     # Register community extensions (optional)
     try:
@@ -125,8 +125,8 @@ async def discover_tool_capabilities(
 
     Supported providers:
     - 'generic_http': Generic HTTP API
-    - 'wordpress': WordPress site (requires console-kit extension)
-    - 'notion': Notion workspace (requires console-kit extension)
+    - 'wordpress': WordPress site (requires external extension)
+    - 'notion': Notion workspace (requires external extension)
     - Other user-defined providers
 
     Example Request:
@@ -1220,8 +1220,8 @@ async def get_tools_status(
     """
     try:
         data_dir = os.getenv("DATA_DIR", "./data")
-        tool_connection_store = ToolConnectionStore(db_path=f"{data_dir}/my_agent_console.db")
-        tool_status_checker = ToolStatusChecker(tool_connection_store)
+        tool_registry = ToolRegistryService(data_dir=data_dir)
+        tool_status_checker = ToolStatusChecker(tool_registry)
         statuses = tool_status_checker.list_all_tools_status(profile_id)
 
         return {
@@ -1627,6 +1627,29 @@ async def connect_mcp_server(request: MCPConnectRequest):
         raise HTTPException(status_code=500, detail=f"Connection failed: {str(e)}")
 
 
+@router.delete("/mcp/servers/{server_id}", response_model=Dict[str, Any])
+async def delete_mcp_server(server_id: str):
+    """
+    Delete MCP server
+
+    Removes the server and disconnects it
+    """
+    try:
+        from ...services.tools.adapters.mcp_manager import MCPServerManager
+
+        manager = MCPServerManager()
+        await manager.remove_server(server_id)
+
+        return {
+            "success": True,
+            "message": f"MCP server {server_id} deleted"
+        }
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
+
+
 @router.post("/mcp/import-claude-config", response_model=Dict[str, Any])
 async def import_claude_mcp_config(request: MCPImportClaudeConfigRequest):
     """
@@ -1681,8 +1704,8 @@ async def get_tools_status(
     """
     try:
         data_dir = os.getenv("DATA_DIR", "./data")
-        tool_connection_store = ToolConnectionStore(db_path=f"{data_dir}/my_agent_console.db")
-        tool_status_checker = ToolStatusChecker(tool_connection_store)
+        tool_registry = ToolRegistryService(data_dir=data_dir)
+        tool_status_checker = ToolStatusChecker(tool_registry)
         statuses = tool_status_checker.list_all_tools_status(profile_id)
 
         return {
@@ -1714,8 +1737,8 @@ async def get_tool_status(
     """
     try:
         data_dir = os.getenv("DATA_DIR", "./data")
-        tool_connection_store = ToolConnectionStore(db_path=f"{data_dir}/my_agent_console.db")
-        tool_status_checker = ToolStatusChecker(tool_connection_store)
+        tool_registry = ToolRegistryService(data_dir=data_dir)
+        tool_status_checker = ToolStatusChecker(tool_registry)
         status = tool_status_checker.get_tool_status(tool_type, profile_id)
 
         return {

@@ -244,25 +244,7 @@ class ToolRegistryService:
                     connection = ToolConnectionModel(**conn_data)
                     self._connections[(row["profile_id"], row["id"])] = connection
 
-                    # Auto-register remote tools for remote connections
-                    if connection.connection_type == "remote" and connection.tool_type == "line" and connection.is_active:
-                        try:
-                            from backend.app.services.tools.registry import register_line_remote_tool
-                            from backend.app.services.tools.base import ToolConnection
-
-                            tool_connection = ToolConnection(
-                                id=connection.id,
-                                tool_type=connection.tool_type,
-                                connection_type=connection.connection_type,
-                                remote_cluster_url=connection.remote_cluster_url,
-                                remote_connection_id=connection.remote_connection_id,
-                                name=connection.name,
-                                description=connection.description,
-                                config=connection.config if connection.config else {},
-                            )
-                            register_line_remote_tool(tool_connection)
-                        except Exception as reg_error:
-                            logger.warning(f"Failed to register remote LINE tool for connection {connection.id}: {reg_error}")
+                    # Remote tools are now registered via system capability packs in cloud repo
 
                 except Exception as e:
                     logger.warning(f"Error loading connection {row['id']}: {e}")
@@ -304,25 +286,7 @@ class ToolRegistryService:
                             profile_id = conn.profile_id if hasattr(conn, 'profile_id') and conn.profile_id else 'default-user'
                             self._connections[(profile_id, conn.id)] = conn
 
-                            # Auto-register remote tools for remote connections
-                            if conn.connection_type == "remote" and conn.tool_type == "line" and conn.is_active:
-                                try:
-                                    from backend.app.services.tools.registry import register_line_remote_tool
-                                    from backend.app.services.tools.base import ToolConnection
-
-                                    tool_connection = ToolConnection(
-                                        id=conn.id,
-                                        tool_type=conn.tool_type,
-                                        connection_type=conn.connection_type,
-                                        remote_cluster_url=conn.remote_cluster_url,
-                                        remote_connection_id=conn.remote_connection_id,
-                                        name=conn.name,
-                                        description=conn.description,
-                                        config=conn.config if conn.config else {},
-                                    )
-                                    register_line_remote_tool(tool_connection)
-                                except Exception as reg_error:
-                                    logger.warning(f"Failed to register remote LINE tool for connection {conn.id}: {reg_error}")
+                            # Remote tools are now registered via system capability packs in cloud repo
 
                         except Exception as e:
                             logger.warning(f"Error loading connection {key}: {e}")
@@ -459,7 +423,7 @@ class ToolRegistryService:
             provider: Tool discovery provider instance
 
         Example:
-            # Console-Kit Extension registers WordPress provider
+            # External extension registers WordPress provider
             registry.register_discovery_provider(WordPressToolProvider())
 
             # User custom provider
@@ -1220,12 +1184,12 @@ class ToolRegistryService:
 
         # Check if WordPress provider is registered
         if "wordpress" not in self._discovery_providers:
-            # Try to register WordPress provider from console-kit extension
+            # Try to register WordPress provider from external extension
             try:
                 from backend.app.extensions.console_kit import register_console_kit_tools
                 register_console_kit_tools(self)
             except ImportError:
-                logger.warning("WordPress provider not available (console-kit extension not installed)")
+                logger.warning("WordPress provider not available (external extension not installed)")
 
         # Use generic discovery method
         config = ToolConfig(

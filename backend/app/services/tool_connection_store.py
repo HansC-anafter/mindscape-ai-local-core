@@ -1,6 +1,11 @@
 """
 Tool Connection Store Service
 Manages persistent storage for tool connection configurations
+
+DEPRECATED: This service is deprecated in favor of ToolRegistryService.
+Please use ToolRegistryService for new code.
+
+Migration: Use backend/scripts/migrate_tool_connections.py to migrate data.
 """
 
 import sqlite3
@@ -256,7 +261,7 @@ class ToolConnectionStore:
         """
         Export connections as templates (without sensitive data)
 
-        Used for template export to console-kit.
+        Used for template export to external extensions.
         """
         connections = self.get_connections_by_profile(profile_id, active_only=True)
 

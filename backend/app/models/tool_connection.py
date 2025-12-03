@@ -51,7 +51,7 @@ class ToolConnection(BaseModel):
     base_url: Optional[str] = Field(None, description="API base URL")
 
     # Remote connection (via remote service)
-    remote_cluster_url: Optional[str] = Field(None, description="Remote service cluster URL (e.g., console-kit, custom backend)")
+    remote_cluster_url: Optional[str] = Field(None, description="Remote service base URL")
     remote_connection_id: Optional[str] = Field(None, description="Connection ID in remote service")
 
     # Configuration

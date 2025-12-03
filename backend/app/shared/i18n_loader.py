@@ -208,7 +208,7 @@ def get_locale_from_context(
     playbook_metadata: Optional[Any] = None
 ) -> str:
     """
-    Determine locale from context following multi-cluster architecture hierarchy
+    Determine locale from context following priority hierarchy
 
     Priority order:
     1. project.working_language (if project exists) - highest priority

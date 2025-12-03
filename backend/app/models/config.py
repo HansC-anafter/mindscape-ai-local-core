@@ -16,7 +16,7 @@ class RemoteBackendConfig(BaseModel):
     Remote Backend Configuration
 
     Purpose: Describes how to connect to remote agent services
-    Supports: Console-Kit CRS-Hub, LangGraph Cloud, self-hosted services
+    Supports: Various remote agent service implementations
     """
 
     name: str = Field(

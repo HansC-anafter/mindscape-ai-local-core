@@ -200,42 +200,9 @@ def init_workspaces_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(primary_project_id)')
 
-    # Migration: Add mode column if it doesn't exist
-    try:
-        cursor.execute('ALTER TABLE workspaces ADD COLUMN mode TEXT')
-    except sqlite3.OperationalError:
-        # Column already exists, ignore
-        pass
-
-    # Migration: Add data_sources column if it doesn't exist
-    try:
-        cursor.execute('ALTER TABLE workspaces ADD COLUMN data_sources TEXT')
-    except sqlite3.OperationalError:
-        # Column already exists, ignore
-        pass
-
-    # Migration: Add playbook_auto_execution_config column if it doesn't exist
-    try:
-        cursor.execute('ALTER TABLE workspaces ADD COLUMN playbook_auto_execution_config TEXT')
-    except sqlite3.OperationalError:
-        # Column already exists, ignore
-        pass
-
-    # Migration: Add suggestion_history column if it doesn't exist
-    try:
-        cursor.execute('ALTER TABLE workspaces ADD COLUMN suggestion_history TEXT')
-    except sqlite3.OperationalError:
-        # Column already exists, ignore
-        pass
-
-    # Migration: Add storage configuration columns if they don't exist
-    # These will be properly handled by migration_004, but we add them here for backward compatibility
-    for column_name in ['storage_base_path', 'artifacts_dir', 'uploads_dir', 'storage_config']:
-        try:
-            cursor.execute(f'ALTER TABLE workspaces ADD COLUMN {column_name} TEXT')
-        except sqlite3.OperationalError:
-            # Column already exists, ignore
-            pass
+    # Schema changes are now managed by Alembic migrations
+    # This function only creates the base table structure
+    # All column additions should be done through Alembic
 
 
 def init_events_schema(cursor):

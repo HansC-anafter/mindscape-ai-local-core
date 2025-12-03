@@ -28,12 +28,12 @@ def get_tool_registry() -> ToolRegistryService:
     data_dir = os.getenv("DATA_DIR", "./data")
     registry = ToolRegistryService(data_dir=data_dir)
 
-    # Register console-kit extensions (WordPress provider)
+    # Register external extensions (WordPress provider)
     try:
         from backend.app.extensions.console_kit import register_console_kit_tools
         register_console_kit_tools(registry)
     except ImportError:
-        pass  # Console-kit extension not installed, skip
+        pass  # External extension not installed, skip
 
     # Register community extensions (optional)
     try:
@@ -115,8 +115,8 @@ async def discover_tool_capabilities(
 
     Supported providers:
     - 'generic_http': Generic HTTP API
-    - 'wordpress': WordPress site (requires console-kit extension)
-    - 'notion': Notion workspace (requires console-kit extension)
+    - 'wordpress': WordPress site (requires external extension)
+    - 'notion': Notion workspace (requires external extension)
     - Other user-defined providers
 
     Example Request:
