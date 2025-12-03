@@ -5,22 +5,20 @@ import { t } from '../../../lib/i18n';
 import { useBasicSettings } from '../hooks/useBasicSettings';
 import { Card } from './Card';
 import { InlineAlert } from './InlineAlert';
-import { StatusPill } from './StatusPill';
 import { LLMModelSettings } from './LLMModelSettings';
 import { GoogleOAuthSettings } from './GoogleOAuthSettings';
-import type { BackendInfo } from '../types';
+import { BackendModeSettings } from './panels/BackendModeSettings';
+import { ModelsAndQuotaPanel } from './panels/ModelsAndQuotaPanel';
+import { APIAndQuotaSettings } from './panels/APIAndQuotaSettings';
+import { EmbeddingSettings } from './panels/EmbeddingSettings';
+import { LLMChatSettings } from './panels/LLMChatSettings';
+import { BackendStatusSection } from './panels/BackendStatusSection';
 
-const dayOfWeekOptions = [
-  { value: 0, key: 'dayOfWeekMonday' as const },
-  { value: 1, key: 'dayOfWeekTuesday' as const },
-  { value: 2, key: 'dayOfWeekWednesday' as const },
-  { value: 3, key: 'dayOfWeekThursday' as const },
-  { value: 4, key: 'dayOfWeekFriday' as const },
-  { value: 5, key: 'dayOfWeekSaturday' as const },
-  { value: 6, key: 'dayOfWeekSunday' as const },
-];
+interface BasicSettingsPanelProps {
+  activeSection?: string;
+}
 
-export function BasicSettingsPanel() {
+export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = {}) {
   const {
     loading,
     saving,
@@ -32,15 +30,11 @@ export function BasicSettingsPanel() {
     remoteToken,
     openaiKey,
     anthropicKey,
-    enableHabitSuggestions,
-    reviewPreferences,
     setMode,
     setRemoteUrl,
     setRemoteToken,
     setOpenaiKey,
     setAnthropicKey,
-    setEnableHabitSuggestions,
-    setReviewPreferences,
     saveSettings,
     clearError,
     clearSuccess,
@@ -51,361 +45,237 @@ export function BasicSettingsPanel() {
     await saveSettings();
   };
 
-  if (loading) {
+  // Render specific section if activeSection is provided
+  const renderSection = () => {
+    if (!activeSection) {
+      // Show all sections if no specific section is requested
+      return null;
+    }
+
+    switch (activeSection) {
+      case 'models-and-quota':
+        return <ModelsAndQuotaPanel />;
+      case 'backend-mode':
+        return (
+          <div className="space-y-6">
+            {loading ? (
+              <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>
+            ) : (
+              <>
+                <BackendModeSettings mode={mode} onModeChange={setMode} />
+                {mode === 'remote_crs' && (
+                  <div className="border-t dark:border-gray-700 pt-6 space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {t('serviceUrl')} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={remoteUrl}
+                        onChange={(e) => setRemoteUrl(e.target.value)}
+                        placeholder="https://your-agent-service.example.com"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {t('apiToken')} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={remoteToken}
+                        onChange={(e) => setRemoteToken(e.target.value)}
+                        placeholder={
+                          config?.remote_crs_configured
+                            ? t('tokenPlaceholderConfigured')
+                            : t('tokenPlaceholder')
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+
+      case 'api-quota':
+        if (loading) {
+          return (
+            <div className="text-center py-4 text-sm text-gray-500">{t('loading')}</div>
+          );
+        }
+        if (mode !== 'local') {
+          return (
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              {t('apiAndQuota') || 'API 與配額'} {t('availableInLocalMode') || 'is only available in local mode'}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-6">
+            <APIAndQuotaSettings
+              config={config}
+              openaiKey={openaiKey}
+              anthropicKey={anthropicKey}
+              onOpenaiKeyChange={setOpenaiKey}
+              onAnthropicKeyChange={setAnthropicKey}
+            />
+          </div>
+        );
+
+      case 'embedding':
+        if (mode !== 'local') {
+          return (
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              {t('embeddingModel')} {t('availableInLocalMode') || 'is only available in local mode'}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-6">
+            <EmbeddingSettings />
+          </div>
+        );
+
+      case 'llm-chat':
+        if (mode !== 'local') {
+          return (
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              {t('llmChatModel') || 'LLM 推理與對話'} {t('availableInLocalMode') || 'is only available in local mode'}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-6">
+            <LLMChatSettings />
+          </div>
+        );
+
+
+      case 'oauth':
+        return (
+          <div className="space-y-6">
+            <GoogleOAuthSettings />
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const renderAllSections = () => {
     return (
-      <Card>
-        <div className="text-center py-8">{t('loading')}</div>
-      </Card>
+      <div className="space-y-6">
+        <BackendModeSettings mode={mode} onModeChange={setMode} />
+
+        {mode === 'remote_crs' && (
+          <div className="border-t dark:border-gray-700 pt-6 space-y-4">
+            {loading ? (
+              <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('serviceUrl')} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={remoteUrl}
+                    onChange={(e) => setRemoteUrl(e.target.value)}
+                    placeholder="https://your-agent-service.example.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('apiToken')} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={remoteToken}
+                    onChange={(e) => setRemoteToken(e.target.value)}
+                    placeholder={
+                      config?.remote_crs_configured
+                        ? t('tokenPlaceholderConfigured')
+                        : t('tokenPlaceholder')
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    required
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {mode === 'local' && (
+          <>
+            <div className="border-t dark:border-gray-700 pt-6">
+              {loading ? (
+                <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>
+              ) : (
+                <APIAndQuotaSettings
+                  config={config}
+                  openaiKey={openaiKey}
+                  anthropicKey={anthropicKey}
+                  onOpenaiKeyChange={setOpenaiKey}
+                  onAnthropicKeyChange={setAnthropicKey}
+                />
+              )}
+            </div>
+
+            <div className="border-t dark:border-gray-700 pt-6">
+              <EmbeddingSettings />
+            </div>
+
+            <div className="border-t dark:border-gray-700 pt-6">
+              <LLMChatSettings />
+            </div>
+          </>
+        )}
+
+        {config && (
+          <div className="border-t pt-4">
+            <BackendStatusSection availableBackends={config.available_backends} />
+          </div>
+        )}
+
+        <div className="border-t pt-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('oauthIntegration')}</h3>
+          <GoogleOAuthSettings />
+        </div>
+      </div>
     );
-  }
+  };
+
+  const sectionContent = activeSection ? renderSection() : renderAllSections();
 
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('basicSettings')}</h2>
+      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('basicSettings')}</h2>
 
       {error && <InlineAlert type="error" message={error} onDismiss={clearError} />}
       {success && <InlineAlert type="success" message={success} onDismiss={clearSuccess} />}
 
       <form onSubmit={handleSubmit}>
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('backendMode')}
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="mode"
-                  value="local"
-                  checked={mode === 'local'}
-                  onChange={(e) => setMode(e.target.value)}
-                  className="mr-2"
-                />
-                <div>
-                  <span className="font-medium">{t('localLLM')}</span>
-                  <p className="text-sm text-gray-500">{t('localLLMDescription')}</p>
-                </div>
-              </label>
-              <label className="flex items-center opacity-50">
-                <input
-                  type="radio"
-                  name="mode"
-                  value="remote_crs"
-                  checked={mode === 'remote_crs'}
-                  onChange={(e) => setMode(e.target.value)}
-                  className="mr-2"
-                  disabled
-                />
-                <div>
-                  <span className="font-medium">{t('remoteAgentService')}</span>
-                  <p className="text-sm text-gray-500">{t('remoteAgentServiceDescription')} (Not available in local-only version)</p>
-                </div>
-              </label>
-            </div>
-          </div>
+        {sectionContent}
 
-          {mode === 'local' && (
-            <div className="border-t pt-6 space-y-6">
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-4">{t('llmApiKeyConfig')}</h3>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      {t('openaiApiKey')} <span className="text-gray-500">({t('apiKeyOptional')})</span>
-                    </label>
-                    {config?.openai_api_key_configured && (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
-                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        {t('configured')}
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="password"
-                    value={openaiKey}
-                    onChange={(e) => setOpenaiKey(e.target.value)}
-                    placeholder={
-                      config?.openai_api_key_configured
-                        ? t('apiKeyConfigured')
-                        : t('apiKeyPlaceholder')
-                    }
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
-                      config?.openai_api_key_configured
-                        ? 'border-green-300 bg-green-50 focus:ring-green-500'
-                        : 'border-gray-300 focus:ring-purple-500'
-                    }`}
-                  />
-                  <p className={`mt-1 text-sm ${
-                    config?.openai_api_key_configured
-                      ? 'text-green-600 font-medium'
-                      : 'text-gray-500'
-                  }`}>
-                    {config?.openai_api_key_configured ? t('apiKeyConfigured') : t('apiKeyHint')}
-                  </p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      {t('anthropicApiKey')} <span className="text-gray-500">({t('apiKeyOptional')})</span>
-                    </label>
-                    {config?.anthropic_api_key_configured && (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
-                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        {t('configured')}
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="password"
-                    value={anthropicKey}
-                    onChange={(e) => setAnthropicKey(e.target.value)}
-                    placeholder={
-                      config?.anthropic_api_key_configured
-                        ? t('apiKeyConfigured')
-                        : t('apiKeyPlaceholder')
-                    }
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
-                      config?.anthropic_api_key_configured
-                        ? 'border-green-300 bg-green-50 focus:ring-green-500'
-                        : 'border-gray-300 focus:ring-purple-500'
-                    }`}
-                  />
-                  {config?.anthropic_api_key_configured && (
-                    <p className="mt-1 text-sm text-green-600 font-medium">
-                      {t('apiKeyConfigured')}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="border-t pt-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-4">{t('modelConfiguration')}</h3>
-                <LLMModelSettings />
-              </div>
-            </div>
-          )}
-
-          {mode === 'remote_crs' && (
-            <div className="border-t pt-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('serviceUrl')} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={remoteUrl}
-                  onChange={(e) => setRemoteUrl(e.target.value)}
-                  placeholder="https://your-agent-service.example.com"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('apiToken')} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="password"
-                  value={remoteToken}
-                  onChange={(e) => setRemoteToken(e.target.value)}
-                  placeholder={
-                    config?.remote_crs_configured
-                      ? t('tokenPlaceholderConfigured')
-                      : t('tokenPlaceholder')
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="border-t pt-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">{t('habitSuggestions')}</h3>
-            <div className="space-y-3">
-              <label className="flex items-start">
-                <input
-                  type="checkbox"
-                  checked={enableHabitSuggestions}
-                  onChange={(e) => setEnableHabitSuggestions(e.target.checked)}
-                  className="mt-1 mr-3"
-                />
-                <div>
-                  <span className="font-medium text-gray-900">{t('enableHabitSuggestions')}</span>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {t('enableHabitSuggestionsDescription')}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {enableHabitSuggestions
-                      ? t('habitSuggestionsEnabled')
-                      : t('habitSuggestionsDisabled')}
-                  </p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div className="border-t pt-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">{t('reviewPreferences')}</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('reviewCadence')}
-                </label>
-                <select
-                  value={reviewPreferences.cadence}
-                  onChange={(e) =>
-                    setReviewPreferences({
-                      cadence: e.target.value as 'manual' | 'weekly' | 'monthly',
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="manual">{t('reviewCadenceManual')}</option>
-                  <option value="weekly">{t('reviewCadenceWeekly')}</option>
-                  <option value="monthly">{t('reviewCadenceMonthly')}</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">{t('reviewCadenceDescription')}</p>
-              </div>
-
-              {reviewPreferences.cadence === 'weekly' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('reviewDayOfWeek')}
-                  </label>
-                  <select
-                    value={reviewPreferences.day_of_week ?? 6}
-                    onChange={(e) =>
-                      setReviewPreferences({ day_of_week: parseInt(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    {dayOfWeekOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {t(option.key)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {reviewPreferences.cadence === 'monthly' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('reviewDayOfMonth')}
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    value={reviewPreferences.day_of_month ?? 28}
-                    onChange={(e) =>
-                      setReviewPreferences({
-                        day_of_month: parseInt(e.target.value) || 28,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-              )}
-
-              {reviewPreferences.cadence !== 'manual' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('reviewTimeOfDay')}
-                    </label>
-                    <input
-                      type="time"
-                      value={reviewPreferences.time_of_day || '21:00'}
-                      onChange={(e) =>
-                        setReviewPreferences({ time_of_day: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('reviewMinEntries')}
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={reviewPreferences.min_entries ?? 10}
-                      onChange={(e) =>
-                        setReviewPreferences({
-                          min_entries: parseInt(e.target.value) || 10,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">{t('reviewMinEntriesDescription')}</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('reviewMinInsightEvents')}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={reviewPreferences.min_insight_events ?? 3}
-                      onChange={(e) =>
-                        setReviewPreferences({
-                          min_insight_events: parseInt(e.target.value) || 3,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t('reviewMinInsightEventsDescription')}
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {config && (
-            <div className="border-t pt-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">{t('backendStatus')}</h3>
-              <div className="space-y-2 text-sm">
-                {Object.entries(config.available_backends).map(([key, info]) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-gray-600">{info.name}</span>
-                    <StatusPill
-                      status={info.available ? 'enabled' : 'disabled'}
-                      label={info.available ? t('available') : t('notConfigured')}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="border-t pt-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">{t('oauthIntegration')}</h3>
-            <GoogleOAuthSettings />
-          </div>
-
-          <div className="flex justify-end border-t pt-4">
+        <div className="flex justify-end border-t dark:border-gray-700 pt-4 mt-6">
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+              className="px-4 py-2 bg-purple-600 dark:bg-purple-700 text-white rounded-md hover:bg-purple-700 dark:hover:bg-purple-600 disabled:opacity-50"
             >
               {saving ? t('saving') : t('save')}
             </button>
-          </div>
         </div>
       </form>
     </Card>

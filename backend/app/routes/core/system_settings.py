@@ -4,7 +4,8 @@ System Settings API Routes
 Endpoints for managing system-level settings.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body, Request
+import json
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -149,7 +150,8 @@ async def get_llm_model_settings():
             )
 
         # Available models (2025 latest, with older models for downgrade)
-        available_chat_models = [
+        # Note: These are default models, will be migrated to database
+        DEFAULT_CHAT_MODELS = [
             {
                 "model_name": "gpt-5.1-pro",
                 "provider": "openai",
@@ -205,7 +207,7 @@ async def get_llm_model_settings():
             }
         ]
 
-        available_embedding_models = [
+        DEFAULT_EMBEDDING_MODELS = [
             {
                 "model_name": "text-embedding-3-large",
                 "provider": "openai",
@@ -229,6 +231,10 @@ async def get_llm_model_settings():
             }
         ]
 
+        # Use default models for now (will be replaced with database models later)
+        available_chat_models = DEFAULT_CHAT_MODELS
+        available_embedding_models = DEFAULT_EMBEDDING_MODELS
+
         return LLMModelSettingsResponse(
             chat_model=chat_model,
             embedding_model=embedding_model,
@@ -237,6 +243,168 @@ async def get_llm_model_settings():
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get LLM model settings: {str(e)}")
+
+
+@router.get("/models", response_model=List[Dict[str, Any]])
+async def get_models(
+    model_type: Optional[str] = Query(None, description="Filter by model type ('chat' or 'embedding')"),
+    enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
+    provider: Optional[str] = Query(None, description="Filter by provider name")
+):
+    """
+    Get all models with optional filters
+
+    Returns:
+        List of model configurations
+    """
+    try:
+        from backend.app.services.model_config_store import ModelConfigStore
+        from backend.app.models.model_provider import ModelType
+
+        store = ModelConfigStore()
+
+        models = store.get_all_models()
+        if not models:
+            store.initialize_default_models()
+            models = store.get_all_models()
+
+        model_type_enum = None
+        if model_type:
+            model_type_enum = ModelType(model_type)
+
+        filtered_models = store.get_all_models(
+            model_type=model_type_enum,
+            enabled=enabled,
+            provider=provider
+        )
+
+        return [
+            {
+                "id": m.id,
+                "model_name": m.model_name,
+                "provider": m.provider_name,
+                "model_type": m.model_type.value,
+                "display_name": m.display_name,
+                "description": m.description,
+                "enabled": m.enabled,
+                "is_latest": m.is_latest,
+                "is_recommended": m.is_recommended,
+                "is_deprecated": m.is_deprecated,
+                "deprecation_date": m.deprecation_date,
+                "dimensions": m.dimensions,
+                "context_window": m.context_window,
+                "icon": m.icon,
+            }
+            for m in filtered_models
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get models: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get models: {str(e)}")
+
+
+@router.put("/models/{model_id}/enable", response_model=Dict[str, Any])
+async def toggle_model_enabled(
+    model_id: int,
+    request: Dict[str, bool] = Body(...)
+):
+    """
+    Enable or disable a model
+
+    Args:
+        model_id: Model ID
+        request: Request body with 'enabled' boolean
+
+    Returns:
+        Updated model configuration
+    """
+    try:
+        from backend.app.services.model_config_store import ModelConfigStore
+
+        store = ModelConfigStore()
+        enabled = request.get("enabled", False)
+
+        model = store.toggle_model_enabled(model_id, enabled)
+
+        if not model:
+            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+
+        return {
+            "id": model.id,
+            "model_name": model.model_name,
+            "provider": model.provider_name,
+            "model_type": model.model_type.value,
+            "display_name": model.display_name,
+            "description": model.description,
+            "enabled": model.enabled,
+            "is_latest": model.is_latest,
+            "is_recommended": model.is_recommended,
+            "is_deprecated": model.is_deprecated,
+            "deprecation_date": model.deprecation_date,
+            "dimensions": model.dimensions,
+            "context_window": model.context_window,
+            "icon": model.icon,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to toggle model enabled: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to toggle model enabled: {str(e)}")
+
+
+@router.get("/models/{model_id}/config", response_model=Dict[str, Any])
+async def get_model_config(model_id: int):
+    """
+    Get model configuration card data
+
+    Args:
+        model_id: Model ID
+
+    Returns:
+        Model configuration card data
+    """
+    try:
+        from backend.app.services.model_config_store import ModelConfigStore
+        from backend.app.services.system_settings_store import SystemSettingsStore
+
+        model_store = ModelConfigStore()
+        settings_store = SystemSettingsStore()
+
+        model = model_store.get_model_by_id(model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+
+        api_key_setting_key = f"{model.provider_name}_api_key"
+        api_key_setting = settings_store.get_setting(api_key_setting_key)
+        api_key_configured = api_key_setting is not None and bool(api_key_setting.value)
+
+        base_url = None
+        if model.provider_name == "ollama":
+            base_url = "http://localhost:11434"
+
+        return {
+            "model": {
+                "id": model.id,
+                "model_name": model.model_name,
+                "provider": model.provider_name,
+                "model_type": model.model_type.value,
+                "display_name": model.display_name,
+                "description": model.description,
+                "enabled": model.enabled,
+                "is_latest": model.is_latest,
+                "is_recommended": model.is_recommended,
+                "is_deprecated": model.is_deprecated,
+                "deprecation_date": model.deprecation_date,
+                "dimensions": model.dimensions,
+                "context_window": model.context_window,
+                "icon": model.icon,
+            },
+            "api_key_configured": api_key_configured,
+            "base_url": base_url,
+            "quota_info": None,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get model config: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get model config: {str(e)}")
 
 
 @router.get("/category/{category}", response_model=List[SystemSetting])
@@ -300,61 +468,152 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
     try:
         from ...models.system_settings import SystemSetting, SettingType
 
+        request_dict = request.dict(exclude_none=True)
+        logger.info(f"Received Google OAuth update request with {len(request_dict)} fields: {list(request_dict.keys())}")
+        for key, value in request_dict.items():
+            if key == "client_secret":
+                logger.info(f"  {key}: {'*** (masked, length: ' + str(len(value)) + ')' if value else 'empty'}")
+            else:
+                logger.info(f"  {key}: {str(value)[:50] + '...' if value and len(str(value)) > 50 else (value or 'empty')}")
+
         updated_settings = {}
 
         if request.client_id is not None:
-            setting = SystemSetting(
-                key="google_oauth_client_id",
-                value=request.client_id,
-                value_type=SettingType.STRING,
-                category="oauth",
-                description="Google OAuth 2.0 Client ID for Google Drive integration",
-                is_sensitive=False,
-                is_user_editable=True
-            )
-            settings_store.save_setting(setting)
-            updated_settings["client_id"] = request.client_id
+            client_id_value = request.client_id.strip() if isinstance(request.client_id, str) else str(request.client_id)
+            if client_id_value:
+                setting = SystemSetting(
+                    key="google_oauth_client_id",
+                    value=client_id_value,
+                    value_type=SettingType.STRING,
+                    category="oauth",
+                    description="Google OAuth 2.0 Client ID for Google Drive integration",
+                    is_sensitive=False,
+                    is_user_editable=True
+                )
+                logger.info(f"Attempting to save google_oauth_client_id: {client_id_value[:30]}... (length: {len(client_id_value)})")
+                settings_store.save_setting(setting)
+                updated_settings["client_id"] = client_id_value
+                logger.info(f"Save operation completed for google_oauth_client_id")
+
+                # Verify save immediately after commit
+                verify = settings_store.get_setting("google_oauth_client_id")
+                if verify:
+                    verify_value_str = str(verify.value) if verify.value else ""
+                    verify_length = len(verify_value_str)
+                    logger.info(f"Verification read - key exists: True, value length: {verify_length}, value preview: {verify_value_str[:30] if verify_value_str else '(empty)'}...")
+                    if verify_value_str and verify_length > 0:
+                        if verify_value_str == client_id_value:
+                            logger.info(f"✓ Verified google_oauth_client_id saved successfully (length: {verify_length})")
+                        else:
+                            logger.error(f"✗ Verification failed - value mismatch! Expected: {client_id_value[:30]}..., Got: {verify_value_str[:30]}...")
+                    else:
+                        logger.error(f"✗ WARNING: google_oauth_client_id verification failed - value is empty after save! (length: {verify_length})")
+                else:
+                    logger.error("✗ WARNING: google_oauth_client_id verification failed - setting not found after save!")
 
         if request.client_secret is not None:
-            setting = SystemSetting(
-                key="google_oauth_client_secret",
-                value=request.client_secret,
-                value_type=SettingType.STRING,
-                category="oauth",
-                description="Google OAuth 2.0 Client Secret for Google Drive integration",
-                is_sensitive=True,
-                is_user_editable=True
-            )
-            settings_store.save_setting(setting)
-            updated_settings["client_secret"] = "***"
+            client_secret_value = request.client_secret.strip() if isinstance(request.client_secret, str) else str(request.client_secret)
+            if client_secret_value:
+                setting = SystemSetting(
+                    key="google_oauth_client_secret",
+                    value=client_secret_value,
+                    value_type=SettingType.STRING,
+                    category="oauth",
+                    description="Google OAuth 2.0 Client Secret for Google Drive integration",
+                    is_sensitive=True,
+                    is_user_editable=True
+                )
+                logger.info(f"Attempting to save google_oauth_client_secret (length: {len(client_secret_value)})")
+                settings_store.save_setting(setting)
+                updated_settings["client_secret"] = "***"
+                logger.info(f"Save operation completed for google_oauth_client_secret")
+
+                # Verify save
+                verify = settings_store.get_setting("google_oauth_client_secret")
+                if verify:
+                    verify_value_str = str(verify.value) if verify.value else ""
+                    verify_length = len(verify_value_str)
+                    logger.info(f"Verification read - key exists: True, value length: {verify_length}")
+                    if verify_value_str and verify_length > 0:
+                        if verify_value_str == client_secret_value:
+                            logger.info(f"✓ Verified google_oauth_client_secret saved successfully (length: {verify_length})")
+                        else:
+                            logger.error(f"✗ Verification failed - value mismatch for client_secret!")
+                    else:
+                        logger.error(f"✗ WARNING: google_oauth_client_secret verification failed - value is empty after save! (length: {verify_length})")
+                else:
+                    logger.error("✗ WARNING: google_oauth_client_secret verification failed - setting not found after save!")
+            else:
+                logger.warning("Received empty client_secret, skipping save")
 
         if request.redirect_uri is not None:
-            setting = SystemSetting(
-                key="google_oauth_redirect_uri",
-                value=request.redirect_uri,
-                value_type=SettingType.STRING,
-                category="oauth",
-                description="Google OAuth Redirect URI",
-                is_sensitive=False,
-                is_user_editable=True
-            )
-            settings_store.save_setting(setting)
-            updated_settings["redirect_uri"] = request.redirect_uri
+            redirect_uri_value = request.redirect_uri.strip() if isinstance(request.redirect_uri, str) and request.redirect_uri.strip() else None
+            if redirect_uri_value:
+                logger.info(f"Attempting to save google_oauth_redirect_uri: {redirect_uri_value}")
+                setting = SystemSetting(
+                    key="google_oauth_redirect_uri",
+                    value=redirect_uri_value,
+                    value_type=SettingType.STRING,
+                    category="oauth",
+                    description="Google OAuth Redirect URI",
+                    is_sensitive=False,
+                    is_user_editable=True
+                )
+                settings_store.save_setting(setting)
+                updated_settings["redirect_uri"] = redirect_uri_value
+                logger.info(f"Save operation completed for google_oauth_redirect_uri")
+
+                # Verify save
+                verify = settings_store.get_setting("google_oauth_redirect_uri")
+                if verify:
+                    verify_value_str = str(verify.value) if verify.value else ""
+                    verify_length = len(verify_value_str)
+                    if verify_value_str and verify_length > 0:
+                        logger.info(f"✓ Verified google_oauth_redirect_uri saved successfully (length: {verify_length})")
+                    else:
+                        logger.error(f"✗ WARNING: google_oauth_redirect_uri verification failed - value is empty after save!")
+                else:
+                    logger.error("✗ WARNING: google_oauth_redirect_uri verification failed - setting not found after save!")
+            else:
+                logger.warning("Received empty redirect_uri, skipping save")
 
         if request.backend_url is not None:
-            setting = SystemSetting(
-                key="backend_url",
-                value=request.backend_url,
-                value_type=SettingType.STRING,
-                category="oauth",
-                description="Backend URL for OAuth callback construction",
-                is_sensitive=False,
-                is_user_editable=True
-            )
-            settings_store.save_setting(setting)
-            updated_settings["backend_url"] = request.backend_url
+            backend_url_value = request.backend_url.strip() if isinstance(request.backend_url, str) else str(request.backend_url)
+            if backend_url_value:
+                setting = SystemSetting(
+                    key="backend_url",
+                    value=backend_url_value,
+                    value_type=SettingType.STRING,
+                    category="oauth",
+                    description="Backend URL for OAuth callback construction",
+                    is_sensitive=False,
+                    is_user_editable=True
+                )
+                logger.info(f"Attempting to save backend_url: {backend_url_value} (length: {len(backend_url_value)})")
+                settings_store.save_setting(setting)
+                updated_settings["backend_url"] = backend_url_value
+                logger.info(f"Save operation completed for backend_url")
 
-        logger.info("Google OAuth configuration updated, will reload on next OAuth request")
+                # Verify save
+                verify = settings_store.get_setting("backend_url")
+                if verify:
+                    verify_value_str = str(verify.value) if verify.value else ""
+                    verify_length = len(verify_value_str)
+                    logger.info(f"Verification read - key exists: True, value length: {verify_length}, value: {verify_value_str}")
+                    if verify_value_str and verify_length > 0:
+                        if verify_value_str == backend_url_value:
+                            logger.info(f"✓ Verified backend_url saved successfully (length: {verify_length})")
+                        else:
+                            logger.error(f"✗ Verification failed - value mismatch! Expected: {backend_url_value}, Got: {verify_value_str}")
+                    else:
+                        logger.error(f"✗ WARNING: backend_url verification failed - value is empty after save! (length: {verify_length})")
+                else:
+                    logger.error("✗ WARNING: backend_url verification failed - setting not found after save!")
+
+        logger.info(f"Google OAuth configuration update completed. Updated fields: {list(updated_settings.keys())}")
+
+        if not updated_settings:
+            logger.warning("No fields were updated - all values may be empty or None")
 
         return {
             "success": True,
@@ -362,36 +621,103 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
             "updated_settings": updated_settings
         }
     except Exception as e:
+        logger.error(f"Failed to update Google OAuth config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update Google OAuth config: {str(e)}")
+
+
+class GoogleOAuthTestRequest(BaseModel):
+    """Google OAuth test request body"""
+    client_id: Optional[str] = Field(default=None, description="Client ID to test")
+    client_secret: Optional[str] = Field(default=None, description="Client Secret to test")
 
 
 @router.post("/google-oauth/test", response_model=Dict[str, Any])
 async def test_google_oauth_config(
-    client_id: Optional[str] = Query(None, description="Client ID to test (uses current setting if not provided)"),
-    client_secret: Optional[str] = Query(None, description="Client Secret to test (uses current setting if not provided)"),
+    request: Request,
 ):
     """Test Google OAuth configuration by validating credentials format"""
     try:
-        if not client_id:
-            client_id_setting = settings_store.get_setting("google_oauth_client_id")
-            client_id = str(client_id_setting.value) if client_id_setting and client_id_setting.value else None
+        # Read JSON body directly from request
+        try:
+            request_body = await request.json()
+        except Exception as json_error:
+            logger.error(f"Failed to parse JSON body: {json_error}")
+            logger.info(f"Request Content-Type: {request.headers.get('content-type', 'not set')}")
+            raise HTTPException(status_code=400, detail=f"Invalid JSON in request body: {str(json_error)}")
 
-        if not client_secret:
+        # Log request headers and body
+        content_type = request.headers.get('content-type', 'not set')
+        logger.info(f"Received test request - Content-Type: {content_type}")
+        logger.info(f"Raw request body type: {type(request_body)}")
+        logger.info(f"Raw request body keys: {list(request_body.keys()) if isinstance(request_body, dict) else 'not a dict'}")
+
+        # Extract values from request body
+        test_client_id = None
+        test_client_secret = None
+
+        # Get client_id from request body
+        if isinstance(request_body, dict) and "client_id" in request_body:
+            client_id_value = request_body.get("client_id")
+            logger.info(f"Raw client_id from request: type={type(client_id_value)}, value={'None' if client_id_value is None else ('empty' if client_id_value == '' else client_id_value[:30] + '...')}")
+            if client_id_value is not None:
+                if isinstance(client_id_value, str):
+                    client_id_trimmed = client_id_value.strip()
+                    if client_id_trimmed:
+                        test_client_id = client_id_trimmed
+                        logger.info(f"Extracted client_id from request body: {test_client_id[:30]}... (length: {len(test_client_id)})")
+                else:
+                    test_client_id = str(client_id_value).strip()
+                    logger.info(f"Extracted client_id from request body (converted to string): {test_client_id[:30]}...")
+
+        # Get client_secret from request body
+        if isinstance(request_body, dict) and "client_secret" in request_body:
+            client_secret_value = request_body.get("client_secret")
+            logger.info(f"Raw client_secret from request: type={type(client_secret_value)}, present={client_secret_value is not None and client_secret_value != ''}")
+            if client_secret_value is not None:
+                if isinstance(client_secret_value, str):
+                    client_secret_trimmed = client_secret_value.strip()
+                    if client_secret_trimmed:
+                        test_client_secret = client_secret_trimmed
+                        logger.info(f"Extracted client_secret from request body (masked, length: {len(test_client_secret)})")
+                else:
+                    test_client_secret = str(client_secret_value).strip()
+                    logger.info(f"Extracted client_secret from request body (converted to string, masked)")
+
+        logger.info(f"After processing - client_id: {'present (length: ' + str(len(test_client_id)) + ')' if test_client_id else 'missing'}, client_secret: {'present' if test_client_secret else 'missing'}")
+
+        # Fall back to database if not provided
+        if not test_client_id:
+            client_id_setting = settings_store.get_setting("google_oauth_client_id")
+            test_client_id = str(client_id_setting.value) if client_id_setting and client_id_setting.value else None
+            logger.info(f"Loaded client_id from database: {'present' if test_client_id else 'missing'}")
+
+        if not test_client_secret:
             client_secret_setting = settings_store.get_setting("google_oauth_client_secret")
-            client_secret = str(client_secret_setting.value) if client_secret_setting and client_secret_setting.value else None
+            test_client_secret = str(client_secret_setting.value) if client_secret_setting and client_secret_setting.value else None
+            logger.info(f"Loaded client_secret from database: {'present' if test_client_secret else 'missing'}")
 
         errors = []
         warnings = []
 
-        if not client_id:
-            errors.append("Client ID is required")
-        elif not client_id.endswith(".apps.googleusercontent.com"):
-            warnings.append("Client ID should end with .apps.googleusercontent.com")
+        logger.info(f"Validating - test_client_id: {'present' if test_client_id else 'None'}, test_client_secret: {'present' if test_client_secret else 'None'}")
 
-        if not client_secret:
+        if not test_client_id:
+            errors.append("Client ID is required")
+        else:
+            test_client_id = test_client_id.strip()
+            if not test_client_id:
+                errors.append("Client ID cannot be empty")
+            elif not test_client_id.endswith(".apps.googleusercontent.com"):
+                warnings.append("Client ID should end with .apps.googleusercontent.com")
+
+        if not test_client_secret:
             errors.append("Client Secret is required")
-        elif len(client_secret) < 10:
-            warnings.append("Client Secret seems too short")
+        else:
+            test_client_secret = test_client_secret.strip()
+            if not test_client_secret:
+                errors.append("Client Secret cannot be empty")
+            elif len(test_client_secret) < 10:
+                warnings.append("Client Secret seems too short")
 
         if errors:
             return {
@@ -410,6 +736,7 @@ async def test_google_oauth_config(
             "tested_at": datetime.utcnow().isoformat()
         }
     except Exception as e:
+        logger.error(f"Failed to test Google OAuth config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to test Google OAuth config: {str(e)}")
 
 
@@ -772,6 +1099,211 @@ async def test_embedding_model_connection(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to test embedding model: {str(e)}")
+
+
+# ============================================
+# Embedding Migration Endpoints
+# ============================================
+
+@router.post("/embedding-migrations", response_model=Dict[str, Any])
+async def create_embedding_migration(
+    request: Dict[str, Any]
+):
+    """Create a new embedding migration task"""
+    try:
+        from ...services.embedding_migration_service import EmbeddingMigrationService
+        from ...models.embedding_migration import EmbeddingMigrationCreate, MigrationStrategy
+
+        service = EmbeddingMigrationService()
+        user_id = request.get("user_id", "default-user")
+
+        create_request = EmbeddingMigrationCreate(
+            source_model=request["source_model"],
+            target_model=request["target_model"],
+            source_provider=request.get("source_provider", "openai"),
+            target_provider=request.get("target_provider", "openai"),
+            workspace_id=request.get("workspace_id"),
+            intent_id=request.get("intent_id"),
+            scope=request.get("scope"),
+            strategy=MigrationStrategy(request.get("strategy", "replace")),
+            metadata=request.get("metadata", {})
+        )
+
+        migration = await service.create_migration_task(create_request, user_id)
+
+        return {
+            "success": True,
+            "migration": {
+                "id": str(migration.id),
+                "source_model": migration.source_model,
+                "target_model": migration.target_model,
+                "total_count": migration.total_count,
+                "status": migration.status,
+                "created_at": migration.created_at.isoformat()
+            },
+            "message": f"Migration task created with {migration.total_count} embeddings to migrate"
+        }
+    except Exception as e:
+        logger.error(f"Failed to create migration task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create migration task: {str(e)}")
+
+
+@router.get("/embedding-migrations", response_model=Dict[str, Any])
+async def list_embedding_migrations(
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(100, description="Maximum number of results"),
+    offset: int = Query(0, description="Offset for pagination")
+):
+    """List all embedding migration tasks"""
+    try:
+        from ...services.embedding_migration_service import EmbeddingMigrationService
+        from ...models.embedding_migration import MigrationStatus
+
+        service = EmbeddingMigrationService()
+        migration_status = MigrationStatus(status) if status else None
+
+        migrations = await service.list_migrations(
+            user_id=user_id,
+            status=migration_status,
+            limit=limit,
+            offset=offset
+        )
+
+        return {
+            "success": True,
+            "migrations": [
+                {
+                    "id": str(m.id),
+                    "source_model": m.source_model,
+                    "target_model": m.target_model,
+                    "total_count": m.total_count,
+                    "processed_count": m.processed_count,
+                    "failed_count": m.failed_count,
+                    "status": m.status,
+                    "progress_percentage": (m.processed_count / m.total_count * 100) if m.total_count > 0 else 0,
+                    "created_at": m.created_at.isoformat(),
+                    "started_at": m.started_at.isoformat() if m.started_at else None,
+                    "completed_at": m.completed_at.isoformat() if m.completed_at else None
+                }
+                for m in migrations
+            ],
+            "total": len(migrations)
+        }
+    except Exception as e:
+        logger.error(f"Failed to list migration tasks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list migration tasks: {str(e)}")
+
+
+@router.get("/embedding-migrations/{migration_id}", response_model=Dict[str, Any])
+async def get_embedding_migration(migration_id: str):
+    """Get migration task status"""
+    try:
+        from ...services.embedding_migration_service import EmbeddingMigrationService
+        from uuid import UUID
+
+        service = EmbeddingMigrationService()
+        migration = await service.get_migration_status(UUID(migration_id))
+
+        if not migration:
+            raise HTTPException(status_code=404, detail=f"Migration {migration_id} not found")
+
+        progress_percentage = (migration.processed_count / migration.total_count * 100) if migration.total_count > 0 else 0
+
+        return {
+            "success": True,
+            "migration": {
+                "id": str(migration.id),
+                "source_model": migration.source_model,
+                "target_model": migration.target_model,
+                "source_provider": migration.source_provider,
+                "target_provider": migration.target_provider,
+                "strategy": migration.strategy,
+                "total_count": migration.total_count,
+                "processed_count": migration.processed_count,
+                "failed_count": migration.failed_count,
+                "status": migration.status,
+                "progress_percentage": progress_percentage,
+                "error_message": migration.error_message,
+                "created_at": migration.created_at.isoformat(),
+                "started_at": migration.started_at.isoformat() if migration.started_at else None,
+                "completed_at": migration.completed_at.isoformat() if migration.completed_at else None
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get migration status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get migration status: {str(e)}")
+
+
+@router.post("/embedding-migrations/{migration_id}/start", response_model=Dict[str, Any])
+async def start_embedding_migration(migration_id: str):
+    """Start executing a migration task"""
+    try:
+        from ...services.embedding_migration_service import EmbeddingMigrationService
+        from uuid import UUID
+
+        service = EmbeddingMigrationService()
+        await service.execute_migration(UUID(migration_id))
+
+        return {
+            "success": True,
+            "message": f"Migration task {migration_id} started"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to start migration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start migration: {str(e)}")
+
+
+@router.post("/embedding-migrations/{migration_id}/cancel", response_model=Dict[str, Any])
+async def cancel_embedding_migration(migration_id: str):
+    """Cancel an in-progress migration task"""
+    try:
+        from ...services.embedding_migration_service import EmbeddingMigrationService
+        from uuid import UUID
+
+        service = EmbeddingMigrationService()
+        cancelled = await service.cancel_migration(UUID(migration_id))
+
+        if not cancelled:
+            raise HTTPException(status_code=404, detail=f"Migration {migration_id} not found or cannot be cancelled")
+
+        return {
+            "success": True,
+            "message": f"Migration task {migration_id} cancelled"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel migration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to cancel migration: {str(e)}")
+
+
+@router.delete("/embedding-migrations/{migration_id}", response_model=Dict[str, Any])
+async def delete_embedding_migration(migration_id: str):
+    """Delete a migration task"""
+    try:
+        from ...services.embedding_migration_service import EmbeddingMigrationService
+        from uuid import UUID
+
+        service = EmbeddingMigrationService()
+        deleted = await service.delete_migration(UUID(migration_id))
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Migration {migration_id} not found")
+
+        return {
+            "success": True,
+            "message": f"Migration task {migration_id} deleted"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete migration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete migration: {str(e)}")
 
 
 # Google OAuth endpoints moved above to fix route conflict

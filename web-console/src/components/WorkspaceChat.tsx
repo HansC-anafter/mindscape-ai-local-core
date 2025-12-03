@@ -9,6 +9,7 @@ import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
 import IntentChips from '../app/workspaces/components/IntentChips';
+import { useEnabledModels } from '../app/settings/hooks/useEnabledModels';
 
 interface WorkspaceChatProps {
   workspaceId: string;
@@ -28,6 +29,7 @@ export default function WorkspaceChat({
   const [showHealthCard, setShowHealthCard] = useState(false);
   const [analyzingFile, setAnalyzingFile] = useState(false);
   const [currentChatModel, setCurrentChatModel] = useState<string>('');
+  const { enabledModels: enabledChatModels, loading: modelsLoading } = useEnabledModels('chat');
   const [availableChatModels, setAvailableChatModels] = useState<Array<{model_name: string; provider: string}>>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [contextTokenCount, setContextTokenCount] = useState<number | null>(null);
@@ -160,7 +162,12 @@ export default function WorkspaceChat({
         if (data.chat_model) {
           setCurrentChatModel(data.chat_model.model_name);
         }
-        if (data.available_chat_models) {
+        if (enabledChatModels.length > 0 && !modelsLoading) {
+          setAvailableChatModels(enabledChatModels.map(m => ({
+            model_name: m.model_name,
+            provider: m.provider
+          })));
+        } else if (data.available_chat_models) {
           setAvailableChatModels(data.available_chat_models);
         }
 
@@ -190,6 +197,15 @@ export default function WorkspaceChat({
     checkLLMConfiguration();
     loadChatModel();
   }, [apiUrl]);
+
+  useEffect(() => {
+    if (enabledChatModels.length > 0 && !modelsLoading) {
+      setAvailableChatModels(enabledChatModels.map(m => ({
+        model_name: m.model_name,
+        provider: m.provider
+      })));
+    }
+  }, [enabledChatModels, modelsLoading]);
 
   useEffect(() => {
     loadWorkspaceInfo();
@@ -685,7 +701,7 @@ export default function WorkspaceChat({
         if (activeElement && (
           activeElement.tagName === 'TEXTAREA' ||
           activeElement.tagName === 'INPUT' ||
-          activeElement.isContentEditable
+          (activeElement as HTMLElement).isContentEditable
         )) {
           return; // Let default copy behavior work in input fields
         }
@@ -763,11 +779,11 @@ export default function WorkspaceChat({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white relative">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative">
       {/* LLM Not Configured Overlay */}
       {llmConfigured === false && (
-        <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="max-w-md mx-4 p-6 bg-white rounded-lg shadow-lg border-2 border-yellow-300">
+        <div className="absolute inset-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="max-w-md mx-4 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg border-2 border-yellow-300 dark:border-yellow-600">
             <div className="flex items-start space-x-4">
               <div className="flex-shrink-0">
                 <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
@@ -777,10 +793,10 @@ export default function WorkspaceChat({
                 </div>
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
                   {t('apiKeyNotConfigured')}
                 </h3>
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
                   {t('settingsHint')}
                 </p>
                 <div className="flex space-x-3">
@@ -832,14 +848,14 @@ export default function WorkspaceChat({
 
         {analyzingFile && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg px-6 py-4">
+            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+                  <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                  <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                 </div>
-                <span className="text-sm text-gray-600">{t('thinking')}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">{t('thinking')}</span>
               </div>
             </div>
           </div>
@@ -853,13 +869,13 @@ export default function WorkspaceChat({
 
         {/* Debug: Show raw result if no collaboration results */}
         {fileAnalysisResult && !fileAnalysisResult.collaboration_results && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-yellow-800">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 mb-4">
+            <p className="text-sm text-yellow-800 dark:text-yellow-300">
               {t('workspaceAnalysisNoResults')}
             </p>
             <details className="mt-2">
-              <summary className="text-xs text-yellow-600 cursor-pointer">查看原始回應</summary>
-              <pre className="text-xs mt-2 overflow-auto">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
+              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">查看原始回應</summary>
+              <pre className="text-xs mt-2 overflow-auto text-gray-900 dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
             </details>
           </div>
         )}
@@ -872,14 +888,14 @@ export default function WorkspaceChat({
         >
           {loadingMore && (
             <div className="flex justify-center py-2">
-              <div className="text-xs text-gray-500 flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+              <div className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-gray-400 dark:border-gray-500 border-t-transparent rounded-full animate-spin"></div>
                 <span>Loading older messages...</span>
               </div>
             </div>
           )}
           {messages.length === 0 && !messagesLoading ? (
-            <div className="text-center text-gray-500 mt-8">
+            <div className="text-center text-gray-500 dark:text-gray-300 mt-8">
               <p>{t('noMessagesYet')}</p>
             </div>
           ) : (
@@ -895,10 +911,10 @@ export default function WorkspaceChat({
           )}
           {isLoading && !analyzingFile && !isStreaming && (
             <div className="flex justify-start py-4">
-              <div className="bg-gray-100 rounded-lg px-6 py-4 shadow-sm">
+              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-6 py-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-sm text-gray-700">{t('processingMessage')}</span>
+                  <div className="w-5 h-5 border-2 border-gray-600 dark:border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{t('processingMessage')}</span>
                 </div>
               </div>
             </div>
@@ -993,7 +1009,7 @@ export default function WorkspaceChat({
             {uploadedFiles.map((file) => (
               <div
                 key={file.id}
-                className="relative group flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2 flex-shrink-0"
+                className="relative group flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 flex-shrink-0"
                 style={{
                   minWidth: 0,
                   maxWidth: 'calc(100% - 0.5rem)',
@@ -1007,21 +1023,21 @@ export default function WorkspaceChat({
                     className="w-10 h-10 object-cover rounded flex-shrink-0"
                   />
                 ) : (
-                  <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
-                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded flex items-center justify-center flex-shrink-0">
+                    <svg className="w-6 h-6 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
                 )}
                 <div className="flex-1 min-w-0 overflow-hidden" style={{ minWidth: 0 }}>
-                  <p className="text-sm font-medium text-gray-900 truncate break-all" style={{
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate break-all" style={{
                     maxWidth: '100%',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap'
                   }}>{file.name}</p>
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-500 truncate">{formatFileSize(file.size)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-300 truncate">{formatFileSize(file.size)}</p>
                     {/* Analysis status indicator */}
                     {file.analysisStatus === 'analyzing' && (
                       <div className="flex items-center gap-1">
@@ -1050,7 +1066,7 @@ export default function WorkspaceChat({
                 <button
                   type="button"
                   onClick={() => removeFile(file.id)}
-                  className="text-gray-400 hover:text-red-600 transition-colors flex-shrink-0 ml-1"
+                  className="text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0 ml-1"
                   aria-label="Remove file"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1075,7 +1091,7 @@ export default function WorkspaceChat({
         )}
 
         {/* Input container with expandable textarea */}
-        <div className="flex flex-col border-t border-gray-200 bg-white">
+        <div className="flex flex-col border-t border-gray-200/50 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-900/50 backdrop-blur-sm">
           {/* Main input area */}
           <div className="flex-1 relative px-4 pt-3">
             <textarea
@@ -1088,7 +1104,7 @@ export default function WorkspaceChat({
               onKeyDown={handleKeyPress}
               placeholder={llmConfigured === false ? t('configureApiKeyFirst') : t('typeMessageOrDropFiles')}
               disabled={llmConfigured === false}
-              className="w-full resize-none border-0 focus:outline-none focus:ring-0 disabled:bg-transparent disabled:cursor-not-allowed overflow-y-auto text-xs"
+              className="w-full resize-none border border-gray-200/50 dark:border-gray-700/50 rounded-lg px-3 py-2 bg-white/80 dark:bg-gray-800/80 focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:focus:ring-blue-400/50 focus:border-blue-300 dark:focus:border-blue-600 disabled:bg-gray-100/50 dark:disabled:bg-gray-800/50 disabled:cursor-not-allowed overflow-y-auto text-xs text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all"
               style={{ minHeight: '2.5rem', maxHeight: '200px', lineHeight: '1.25rem' }}
               autoComplete="off"
               data-lpignore="true"
@@ -1114,7 +1130,7 @@ export default function WorkspaceChat({
           />
 
           {/* Bottom bar with model selector and action buttons */}
-          <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-gray-100">
+          <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-gray-200/30 dark:border-gray-700/30">
             {/* Left: Copy all button and Model selector */}
             <div className="flex items-center gap-2">
               {/* Copy all messages button */}
@@ -1123,8 +1139,8 @@ export default function WorkspaceChat({
                   onClick={handleCopyAll}
                   className={`text-xs px-2 py-1 border rounded transition-colors ${
                     copiedAll
-                      ? 'bg-green-50 border-green-300 text-green-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300'
+                      : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                   }`}
                   title={t('copyAllMessages') + ' (Cmd/Ctrl+Shift+C)'}
                 >
@@ -1164,7 +1180,7 @@ export default function WorkspaceChat({
                     }
                   }
                 }}
-                className="text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
                 title={t('workspaceSelectChatModel')}
               >
                 {availableChatModels.map((model) => (
@@ -1175,9 +1191,9 @@ export default function WorkspaceChat({
               </select>
               {currentChatModel && (
                 <>
-                  <span className="text-xs text-gray-500">✓ {currentChatModel}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-300">✓ {currentChatModel}</span>
                   {contextTokenCount !== null && (
-                    <span className="text-xs text-gray-400" title="Context tokens">
+                    <span className="text-xs text-gray-400 dark:text-gray-400" title="Context tokens">
                       {contextTokenCount >= 1000
                         ? `${(contextTokenCount / 1000).toFixed(1)}k`
                         : contextTokenCount.toLocaleString()} tokens
@@ -1193,7 +1209,7 @@ export default function WorkspaceChat({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={llmConfigured === false}
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                className="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-500 disabled:cursor-not-allowed"
                 title={t('uploadFile')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1205,7 +1221,7 @@ export default function WorkspaceChat({
                 disabled={((!input.trim() && uploadedFiles.length === 0) || llmConfigured === false)}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   (!input.trim() && uploadedFiles.length === 0) || llmConfigured === false
-                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                     : isLoading
                     ? 'bg-blue-500 text-white cursor-wait'
                     : 'bg-blue-600 text-white hover:bg-blue-700'
