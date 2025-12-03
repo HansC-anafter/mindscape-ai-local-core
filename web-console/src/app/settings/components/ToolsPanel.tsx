@@ -11,6 +11,7 @@ import { WordPressConnectionWizard } from './wizards/WordPressConnectionWizard';
 import { NotionConnectionWizard } from './wizards/NotionConnectionWizard';
 import { GoogleDriveConnectionWizard } from './wizards/GoogleDriveConnectionWizard';
 import { SlackConnectionWizard } from './wizards/SlackConnectionWizard';
+import { AirtableConnectionWizard } from './wizards/AirtableConnectionWizard';
 import { VectorDBConnectionWizard } from './wizards/VectorDBConnectionWizard';
 import { LocalFilesystemManager } from './wizards/LocalFilesystemManager';
 import { ObsidianConfigWizard } from './wizards/ObsidianConfigWizard';
@@ -87,6 +88,12 @@ const EXTERNAL_SAAS_TOOLS: Array<{
     name: 'Slack',
     description: 'Connect to Slack workspace for messaging, channels, and file sharing',
     icon: '💬',
+  },
+  {
+    toolType: 'airtable',
+    name: 'Airtable',
+    description: 'Connect to Airtable for structured data management, tables, and records',
+    icon: '📊',
   },
 ];
 
@@ -203,7 +210,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
       )}
 
       {!activeSection && (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <p>{t('toolsAndIntegrations')}</p>
           <p className="text-sm mt-2">{t('selectToolsSection') || '請選擇一個工具分類'}</p>
         </div>
@@ -311,6 +318,13 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
         <SlackConnectionWizard
           onClose={() => setSelectedTool(null)}
           onSuccess={() => handleWizardSuccess('slack')}
+        />
+      )}
+
+      {selectedTool === 'airtable' && (
+        <AirtableConnectionWizard
+          onClose={() => setSelectedTool(null)}
+          onSuccess={() => handleWizardSuccess('airtable')}
         />
       )}
 

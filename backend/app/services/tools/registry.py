@@ -27,6 +27,10 @@ from backend.app.services.tools.slack.slack_tools import (
     create_slack_tools,
     get_slack_tool_by_name
 )
+from backend.app.services.tools.airtable.airtable_tools import (
+    create_airtable_tools,
+    get_airtable_tool_by_name
+)
 
 # Tool priority classification
 CORE_TOOLS = ["wordpress"]  # Core tools, must be fully implemented
@@ -239,6 +243,38 @@ def register_slack_tools(connection: ToolConnection) -> List[MindscapeTool]:
         raise ValueError("Slack access token is required (oauth_token or api_key)")
 
     tools = create_slack_tools(access_token)
+
+    for tool in tools:
+        tool_id = f"{connection.id}.{tool.metadata.name}"
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
+def register_airtable_tools(connection: ToolConnection) -> List[MindscapeTool]:
+    """
+    Register all Airtable tools
+
+    Args:
+        connection: Airtable connection configuration
+
+    Returns:
+        List of registered tools
+
+    Example:
+        >>> airtable_conn = ToolConnection(
+        ...     id="my-airtable",
+        ...     tool_type="airtable",
+        ...     api_key="pat..."
+        ... )
+        >>> tools = register_airtable_tools(airtable_conn)
+        >>> print(f"Registered {len(tools)} tools")
+    """
+    api_key = connection.api_key
+    if not api_key:
+        raise ValueError("Airtable API key is required")
+
+    tools = create_airtable_tools(api_key)
 
     for tool in tools:
         tool_id = f"{connection.id}.{tool.metadata.name}"

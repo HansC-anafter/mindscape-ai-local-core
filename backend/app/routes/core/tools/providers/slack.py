@@ -280,11 +280,14 @@ async def validate_slack_connection(
                     raise Exception(f"Slack API error: {error}")
 
                 # Update connection validation status
-                registry.update_connection_validation(
-                    connection_id=connection_id,
-                    is_validated=True,
-                    validation_error=None
-                )
+                connection_model = registry.get_connection(connection_id=connection_id)
+                if connection_model:
+                    registry.update_validation_status(
+                        connection_id=connection_id,
+                        profile_id=connection_model.profile_id,
+                        is_valid=True,
+                        error_message=None
+                    )
 
                 return {
                     "success": True,

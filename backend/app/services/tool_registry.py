@@ -478,12 +478,54 @@ class ToolRegistryService:
         except ImportError:
             logger.warning("Slack provider not available")
 
+        # Register Airtable Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.airtable_provider import AirtableDiscoveryProvider
+            self.register_discovery_provider(AirtableDiscoveryProvider())
+        except ImportError:
+            logger.warning("Airtable provider not available")
+
         # Register Twitter Provider (Core built-in)
         try:
             from backend.app.services.tools.providers.twitter_provider import TwitterDiscoveryProvider
             self.register_discovery_provider(TwitterDiscoveryProvider())
         except ImportError:
             logger.warning("Twitter provider not available")
+
+        # Register Facebook Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.facebook_provider import FacebookDiscoveryProvider
+            self.register_discovery_provider(FacebookDiscoveryProvider())
+        except ImportError:
+            logger.warning("Facebook provider not available")
+
+        # Register Instagram Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.instagram_provider import InstagramDiscoveryProvider
+            self.register_discovery_provider(InstagramDiscoveryProvider())
+        except ImportError:
+            logger.warning("Instagram provider not available")
+
+        # Register LinkedIn Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.linkedin_provider import LinkedInDiscoveryProvider
+            self.register_discovery_provider(LinkedInDiscoveryProvider())
+        except ImportError:
+            logger.warning("LinkedIn provider not available")
+
+        # Register YouTube Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.youtube_provider import YouTubeDiscoveryProvider
+            self.register_discovery_provider(YouTubeDiscoveryProvider())
+        except ImportError:
+            logger.warning("YouTube provider not available")
+
+        # Register Line Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.line_provider import LineDiscoveryProvider
+            self.register_discovery_provider(LineDiscoveryProvider())
+        except ImportError:
+            logger.warning("Line provider not available")
 
     async def discover_tool_capabilities(
         self,

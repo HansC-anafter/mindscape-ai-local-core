@@ -16,6 +16,7 @@ from .connections import router as connections_router
 from .status import router as status_router
 from .execution import router as execution_router
 from .registration import router as registration_router
+from .oauth import router as oauth_router
 
 # Import provider routers
 from .providers import local_filesystem
@@ -26,6 +27,7 @@ from .providers import google_drive
 from .providers import langchain
 from .providers import mcp
 from .providers import slack
+from .providers import airtable
 
 # Create main router
 router = APIRouter()
@@ -55,3 +57,4 @@ router.include_router(google_drive.router)
 router.include_router(langchain.router)
 router.include_router(mcp.router)
 router.include_router(slack.router)
+router.include_router(airtable.router)
