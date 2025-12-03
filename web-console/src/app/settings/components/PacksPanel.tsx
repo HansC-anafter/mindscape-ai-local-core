@@ -19,8 +19,8 @@ interface PacksPanelProps {
 type PackTab = 'suites' | 'packages';
 
 export function PacksPanel({ getToolStatus }: PacksPanelProps) {
-  const { packs, installingPack, loadPacks, installPack } = usePacks();
-  const { suites, installingSuite, loadSuites, installSuite } = useSuites();
+  const { packs, loading: packsLoading, installingPack, loadPacks, installPack } = usePacks();
+  const { suites, loading: suitesLoading, installingSuite, loadSuites, installSuite } = useSuites();
   const [activeTab, setActiveTab] = useState<PackTab>('suites');
   const [installSuccess, setInstallSuccess] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -142,10 +142,14 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
         <Section
           description={t('capabilitySuitesDescription')}
         >
-          {suites.length === 0 ? (
+          {suitesLoading ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-sm">{t('noCapabilitySuitesAvailable') || 'No capability suites available'}</p>
-              <p className="text-gray-400 text-xs mt-2">{t('capabilitySuitesFromSharedLayer') || 'Capability suites are loaded from the shared layer'}</p>
+              <p className="text-gray-500 text-sm">載入中...</p>
+            </div>
+          ) : suites.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-sm">無可用能力套裝</p>
+              <p className="text-gray-400 text-xs mt-2">能力套裝從共享層載入</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -177,19 +181,27 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
         <Section
           description={t('capabilityPackagesDescription')}
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {packs.map((pack) => (
-              <PackCard
-                key={pack.id}
-                pack={pack}
-                onInstall={() => handleInstallPack(pack.id)}
-                installing={installingPack === pack.id}
-                getToolStatus={getToolStatus}
-              />
-            ))}
-          </div>
+          {packsLoading ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-sm">載入中...</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                {packs.map((pack) => (
+                  <PackCard
+                    key={pack.id}
+                    pack={pack}
+                    onInstall={() => handleInstallPack(pack.id)}
+                    installing={installingPack === pack.id}
+                    getToolStatus={getToolStatus}
+                  />
+                ))}
+              </div>
 
-          <InstalledCapabilitiesList refreshTrigger={refreshTrigger} />
+              <InstalledCapabilitiesList refreshTrigger={refreshTrigger} />
+            </>
+          )}
         </Section>
       )}
     </div>
