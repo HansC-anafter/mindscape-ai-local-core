@@ -10,9 +10,9 @@ interface NavigationItem {
   icon?: string;
   tab: SettingsTab;
   section?: string;
-  provider?: string;      // 品牌/提供商
-  model?: string;         // 具體模型
-  service?: string;       // 服務類型
+  provider?: string;
+  model?: string;
+  service?: string;
   children?: NavigationItem[];
 }
 
@@ -90,6 +90,26 @@ const navigationItems: NavigationItem[] = [
     label: 'mindscapeConfiguration',
     icon: '🧠',
     tab: 'mindscape',
+  },
+  {
+    id: 'packs',
+    label: 'capabilityPacks',
+    icon: '📦',
+    tab: 'packs',
+    children: [
+      {
+        id: 'capability-suites',
+        label: 'capabilitySuites',
+        tab: 'packs',
+        section: 'suites',
+      },
+      {
+        id: 'capability-packages',
+        label: 'capabilityPackages',
+        tab: 'packs',
+        section: 'packages',
+      },
+    ],
   },
   {
     id: 'tools',
@@ -278,7 +298,7 @@ export function SettingsNavigation({
   onNavigate,
 }: SettingsNavigationProps) {
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(
-    new Set(['basic']) // 默認展開基礎設定
+    new Set(['basic'])
   );
 
   const toggleExpand = (itemId: string) => {
@@ -303,51 +323,63 @@ export function SettingsNavigation({
 
           return (
             <div key={item.id}>
-              <button
-                onClick={() => {
-                  if (hasChildren) {
-                    // If not expanded, expand first
-                    if (!isExpanded) {
-                      toggleExpand(item.id);
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    if (hasChildren) {
+                      // If not expanded, expand first
+                      if (!isExpanded) {
+                        toggleExpand(item.id);
+                      }
+                      // For social_media, navigate to overview (parent level)
+                      if (item.tab === 'social_media') {
+                        onNavigate(item.tab);
+                        return;
+                      }
+                      // For other items, navigate to first child
+                      const firstChild = item.children![0];
+                      if (firstChild) {
+                        onNavigate(firstChild.tab, firstChild.section, firstChild.provider, firstChild.model, firstChild.service);
+                        return;
+                      }
                     }
-                    // For social_media, navigate to overview (parent level)
-                    if (item.tab === 'social_media') {
-                      onNavigate(item.tab);
-                      return;
-                    }
-                    // For other items, navigate to first child
-                    const firstChild = item.children![0];
-                    if (firstChild) {
-                      onNavigate(firstChild.tab, firstChild.section, firstChild.provider, firstChild.model, firstChild.service);
-                      return;
-                    }
-                  }
-                  onNavigate(item.tab);
-                }}
-                className={`w-full text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center justify-between ${
-                  isActive
-                    ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-l-4 border-purple-500 dark:border-purple-500'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
+                    onNavigate(item.tab);
+                  }}
+                  className={`flex-1 text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-l-4 border-purple-500 dark:border-purple-500'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
                   {item.icon && <span className="text-xs">{item.icon}</span>}
                   <span>{t(item.label as any)}</span>
-                </div>
+                </button>
                 {hasChildren && (
-                  <svg
-                    className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleExpand(item.id);
+                    }}
+                    className="px-1 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+                    <svg
+                      className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
                 )}
-              </button>
+              </div>
 
-              {hasChildren && isExpanded && (
-                <div className="ml-4 mt-1 space-y-0.5">
+              {hasChildren && (
+                <div
+                  className={`ml-4 mt-1 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${
+                    isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+                  }`}
+                >
                   {item.children!.map((child) => {
                     const hasGrandchildren = child.children && child.children.length > 0;
                     const isChildExpanded = expandedItems.has(child.id);
@@ -359,49 +391,62 @@ export function SettingsNavigation({
 
                     return (
                       <div key={child.id}>
-                        <button
-                          onClick={() => {
-                            if (hasGrandchildren) {
-                              // Expand if collapsed
-                              if (!expandedItems.has(child.id)) {
-                                toggleExpand(child.id);
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => {
+                              if (hasGrandchildren) {
+                                // Expand if collapsed
+                                if (!expandedItems.has(child.id)) {
+                                  toggleExpand(child.id);
+                                }
+                                // Always navigate to first grandchild when clicking child with grandchildren
+                                const firstGrandchild = child.children![0];
+                                if (firstGrandchild) {
+                                  onNavigate(firstGrandchild.tab, firstGrandchild.section, firstGrandchild.provider, firstGrandchild.model, firstGrandchild.service);
+                                  return;
+                                }
                               }
-                              // Always navigate to first grandchild when clicking child with grandchildren
-                              const firstGrandchild = child.children![0];
-                              if (firstGrandchild) {
-                                onNavigate(firstGrandchild.tab, firstGrandchild.section, firstGrandchild.provider, firstGrandchild.model, firstGrandchild.service);
+                              // For social_media sub-items, navigate to overview with provider anchor
+                              if (child.tab === 'social_media' && child.provider) {
+                                onNavigate(child.tab, undefined, child.provider);
                                 return;
                               }
-                            }
-                            // For social_media sub-items, navigate to overview with provider anchor
-                            if (child.tab === 'social_media' && child.provider) {
-                              onNavigate(child.tab, undefined, child.provider);
-                              return;
-                            }
-                            onNavigate(child.tab, child.section);
-                          }}
-                          className={`w-full text-left px-2 py-1 rounded-md text-xs transition-colors flex items-center justify-between ${
-                            isChildActive
-                              ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-medium'
-                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-                          }`}
-                        >
-                          <span>{t(child.label as any)}</span>
+                              onNavigate(child.tab, child.section);
+                            }}
+                            className={`flex-1 text-left px-2 py-1 rounded-md text-xs transition-colors ${
+                              isChildActive
+                                ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-medium'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            <span>{t(child.label as any)}</span>
+                          </button>
                           {hasGrandchildren && (
-                            <svg
-                              className={`w-2.5 h-2.5 transition-transform ${isChildExpanded ? 'rotate-90' : ''}`}
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpand(child.id);
+                              }}
+                              className="px-1 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                             >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
+                              <svg
+                                className={`w-2.5 h-2.5 transition-transform ${isChildExpanded ? 'rotate-90' : ''}`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
                           )}
-                        </button>
+                        </div>
 
-                        {/* 第三層：品牌/提供商 */}
-                        {hasGrandchildren && isChildExpanded && (
-                          <div className="ml-3 mt-0.5 space-y-0.5">
+                        {hasGrandchildren && (
+                          <div
+                            className={`ml-3 mt-0.5 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${
+                              isChildExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+                            }`}
+                          >
                             {child.children!.map((grandchild) => {
                               const isGrandchildActive = activeTab === grandchild.tab &&
                                 activeSection === grandchild.section &&
