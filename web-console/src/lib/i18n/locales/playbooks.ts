@@ -1,102 +1,15 @@
 /**
  * Playbooks i18n messages
  * Playbooks, PlaybookChat, and playbook-related errors
+ * Modularized i18n - messages are imported from playbooks/ directory
  */
 import type { MessageKey } from '../keys';
+import { playbooksZhTW } from './playbooks/zh-TW';
+import { playbooksEn } from './playbooks/en';
+import { playbooksJa } from './playbooks/ja';
 
-export const playbooksZhTW = {
-  // PlaybookChat
-  sendMessageFailed: '發送消息失敗，請重試',
-  conversationCompleted: '對話已完成',
-  enterYourAnswer: '輸入你的回答...',
-  sending: '發送中...',
-  send: '發送',
-  quickStart: '快速開始',
-  uploadFile: '上傳檔案',
-  dropFilesHere: '拖放檔案到這裡',
-  typeMessageOrDropFiles: '輸入訊息或拖放檔案...',
-
-  aiWillUpdateProjectStatus: 'AI 會持續從你的使用記錄中更新這些專案狀態',
-  lastUpdated: '上次更新：',
-  tellUsOneThingYouWantToPush: '說出一件你最想推進的事',
-  aiWillBreakItDown: 'AI 會幫你拆成可執行的步驟',
-  autoCreateFirstIntent: '自動建立第一張「長線任務卡」',
-  aiWillUseThesePreferences: 'AI 會用這些偏好來規劃任務',
-  whatThreeThingsThisWeek: '這週打算做哪 3 件事',
-  whatToolsDoYouUse: '平常用什麼工具工作（WP / Notion / ...）',
-  whatWorkRhythmDoYouLike: '你喜歡什麼樣的工作節奏',
-
-  // Playbooks
-  playbooks: 'Playbooks',
-  playbooksTitle: 'Playbook 工作劇本庫',
-  playbookWorkflow: '可反覆執行的工作流程',
-  playbookStepMindscape: '讀取心智空間',
-  playbookStepTools: '使用工具',
-  playbookStepMembers: 'AI 成員執行',
-  playbooksDescription: '這些成員「一起跟你磨出來的做事方法」，可反覆使用',
-  playbookDetailDescription: '這是一段你跟 AI 一起寫的「慣用手法」，它會：先讀哪個心智空間、再用哪些工具、由哪幾個成員分工完成',
-  filterTags: '篩選標籤',
-  tags: '標籤',
-  reload: '重新載入',
-  searchPlaybooks: '搜尋 Playbook...',
-  systemPlaybook: '系統 Playbook',
-  hasTest: '有測試',
-  viewDetails: '查看詳情',
-  executeNow: '立即執行',
-  creating: '建立中...',
-  hasPersonalVariant: '已有個人版本',
-  coldStartTask: '冷啟動任務',
-  noPlaybooksFound: '找不到符合條件的 Playbook',
-  noPlaybooks: '還沒有 Playbook。你可以透過 API 建立，或等待後續版本支援 UI 建立。',
-  hasPersonalNotes: '有個人備註',
-  noDescription: '暫無描述',
-  backToList: '返回 Playbook 列表',
-  personalNotes: '個人備註',
-  myNotes: '💬 我的筆記',
-  writeYourNotesHere: '在這裡寫下你的個人筆記...',
-  saveNotes: '儲存筆記',
-  sopDocument: 'SOP 文件',
-  noSopContent: '暫無 SOP 內容',
-  associatedIntents: '關聯的意圖卡',
-  associatedIntentsIcon: '🎯 關聯的意圖卡',
-  usingMindscape: '使用心智空間',
-  participatingMembers: '參與 AI 成員',
-  usingTools: '會用到的工具',
-  requiredTools: '🔧 需要工具',
-  usageCount: '使用次數',
-  playbookInput: '輸入',
-  playbookOutput: '輸出',
-  executePlaybook: '開始執行 Playbook',
-  executing: '執行中...',
-  executionCompleted: '✅ 已完成',
-  executionFailed: '執行失敗',
-  willReturnAfterCompletion: '完成後會自動返回心智空間並更新進度',
-
-  // Playbook errors
-  playbookEnterVariantName: '請輸入版本名稱',
-  playbookSelectAtLeastOneSuggestion: '請至少選擇一個建議',
-  playbookCreateVariantFailed: '創建變體失敗：{error}',
-  playbookVariantCreated: '已建立個人版本「{name}」，後續執行將使用此版本',
-  playbookSaveFailed: '儲存失敗',
-  playbookCreateVariantFailedError: '建立個人版本失敗：{error}',
-  playbookGetSuggestionsFailed: '獲取優化建議失敗：{error}',
-  playbookVariantCreatedSuccess: '變體已創建！',
-
-  // Playbook tabs
-  playbookTabInfo: '資訊',
-  playbookTabSuggestions: '使用建議',
-  playbookTabHistory: '執行記錄',
-  playbookIntentStatusActive: '進行中',
-  playbookIntentStatusCompleted: '已完成',
-  playbookIntentPriorityHigh: '高優先級',
-  playbookIntentPriorityMedium: '中優先級',
-  playbookIntentPriorityLow: '低優先級',
-  playbookExecStatusRunning: '運行中',
-  playbookStatusLabel: '狀態: ',
-  playbookMyVariant: '我的版本：{name}',
-  playbookMyVariantDefault: '我的版本',
-  findPlaybook: '找 Playbook',
-} as const satisfies Partial<Record<MessageKey, string>>;
+// Re-export for backward compatibility
+export { playbooksZhTW, playbooksEn, playbooksJa };
 
 // Playbook Metadata (Phase 1: i18n localization)
 // Separate export for nested metadata structure
@@ -357,99 +270,6 @@ export const playbookMetadataEn = {
     },
 } as const;
 
-export const playbooksEn = {
-  // PlaybookChat
-  sendMessageFailed: 'Failed to send message, please retry',
-  conversationCompleted: 'Conversation completed',
-  enterYourAnswer: 'Enter your answer...',
-  sending: 'Sending...',
-  send: 'Send',
-  quickStart: 'Quick Start',
-  uploadFile: 'Upload File',
-  dropFilesHere: 'Drop files here',
-  typeMessageOrDropFiles: 'Type message or drop files...',
-
-  aiWillUpdateProjectStatus: 'AI will continuously update these project statuses from your usage records',
-  lastUpdated: 'Last Updated:',
-  tellUsOneThingYouWantToPush: 'Tell us one thing you want to push forward',
-  aiWillBreakItDown: 'AI will break it down into executable steps',
-  autoCreateFirstIntent: 'Automatically create first "Long-term Task Card"',
-  aiWillUseThesePreferences: 'AI will use these preferences to plan tasks',
-  whatThreeThingsThisWeek: 'What 3 things do you plan to do this week',
-  whatToolsDoYouUse: 'What tools do you usually work with (WP / Notion / ...)',
-  whatWorkRhythmDoYouLike: 'What work rhythm do you prefer',
-
-  // Playbooks
-  playbooks: 'Playbooks',
-  playbooksTitle: 'Playbook Library',
-  playbookWorkflow: 'Reusable workflows',
-  playbookStepMindscape: 'Read Mindscape',
-  playbookStepTools: 'Use Tools',
-  playbookStepMembers: 'AI Execute',
-  playbooksDescription: 'These members\' "shared SOPs" that you\'ve refined together, reusable',
-  playbookDetailDescription: 'This is a "habitual workflow" you and AI wrote together. It will: read which Mindscape, use which tools, executed by which members',
-  filterTags: 'Filter Tags',
-  tags: 'Tags',
-  reload: 'Reload',
-  searchPlaybooks: 'Search Playbooks...',
-  systemPlaybook: 'System Playbook',
-  hasTest: 'Tested',
-  viewDetails: 'View Details',
-  executeNow: 'Execute Now',
-  creating: 'Creating...',
-  hasPersonalVariant: 'Has Personal Variant',
-  coldStartTask: 'Cold Start Task',
-  noPlaybooksFound: 'No matching Playbooks found',
-  noPlaybooks: 'No Playbooks yet. You can create via API, or wait for future versions to support UI creation.',
-  hasPersonalNotes: 'Has personal notes',
-  noDescription: 'No description',
-  backToList: 'Back to Playbook List',
-  personalNotes: 'Personal Notes',
-  myNotes: '💬 My Notes',
-  writeYourNotesHere: 'Write your personal notes here...',
-  saveNotes: 'Save Notes',
-  sopDocument: 'SOP Document',
-  noSopContent: 'No SOP content',
-  associatedIntents: 'Associated Intent Cards',
-  associatedIntentsIcon: '🎯 Associated Intent Cards',
-  usingMindscape: 'Using Mindscape',
-  participatingMembers: 'Participating AI Members',
-  usingTools: 'Tools Used',
-  requiredTools: '🔧 Required Tools',
-  usageCount: 'Usage Count',
-  playbookInput: 'Input',
-  playbookOutput: 'Output',
-  executePlaybook: 'Execute Playbook',
-  executing: 'Executing...',
-  executionCompleted: '✅ Completed',
-  executionFailed: 'Execution Failed',
-  willReturnAfterCompletion: 'Will automatically return to Mindscape and update progress after completion',
-
-  // Playbook errors
-  playbookEnterVariantName: 'Please enter variant name',
-  playbookSelectAtLeastOneSuggestion: 'Please select at least one suggestion',
-  playbookCreateVariantFailed: 'Failed to create variant: {error}',
-  playbookVariantCreated: 'Personal variant "{name}" created. Future executions will use this variant.',
-  playbookSaveFailed: 'Save failed',
-  playbookCreateVariantFailedError: 'Failed to create personal variant: {error}',
-  playbookGetSuggestionsFailed: 'Failed to get optimization suggestions: {error}',
-  playbookVariantCreatedSuccess: 'Variant created!',
-
-  // Playbook tabs
-  playbookTabInfo: 'Info',
-  playbookTabSuggestions: 'Usage Suggestions',
-  playbookTabHistory: 'Execution History',
-  playbookIntentStatusActive: 'Active',
-  playbookIntentStatusCompleted: 'Completed',
-  playbookIntentPriorityHigh: 'High Priority',
-  playbookIntentPriorityMedium: 'Medium Priority',
-  playbookIntentPriorityLow: 'Low Priority',
-  playbookExecStatusRunning: 'Running',
-  playbookStatusLabel: 'Status: ',
-  playbookMyVariant: 'My Variant: {name}',
-  playbookMyVariantDefault: 'My Variant',
-  findPlaybook: 'Find Playbook',
-} as const satisfies Partial<Record<MessageKey, string>>;
 
 // Helper function to get playbook metadata
 export function getPlaybookMetadata(

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useLocale } from '../../lib/i18n';
+import { useLocale, t } from '../../lib/i18n';
 import { getPlaybookMetadata } from '../../lib/i18n/locales/playbooks';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -61,14 +61,14 @@ export default function PlaybookInfo({
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '檔案上傳失敗');
+        throw new Error(error.detail || t('fileUploadFailed'));
       }
 
       const result = await response.json();
       setShowFileUpload(false);
       return result;
     } catch (error: any) {
-      alert(`檔案上傳失敗：${error.message}`);
+      alert(t('fileUploadFailed') + ': ' + error.message);
       throw error;
     } finally {
       setIsUploading(false);
@@ -96,7 +96,7 @@ export default function PlaybookInfo({
     }
 
     setIsTesting(true);
-    setTestResult({ status: 'testing', message: '測試執行中...' });
+    setTestResult({ status: 'testing', message: t('testingInProgress') });
 
     try {
       const useUploaded = needsFileUpload && uploadedFiles.length > 0;
@@ -112,10 +112,10 @@ export default function PlaybookInfo({
       );
 
       if (!response.ok) {
-        let errorMessage = '測試失敗';
+        let errorMessage = t('testFailed');
         try {
           const error = await response.json();
-          errorMessage = error.detail || error.message || '測試失敗';
+          errorMessage = error.detail || error.message || t('testFailed');
           // Add status code to error message for better handling
           if (response.status === 404) {
             errorMessage = `404: ${errorMessage}`;
@@ -132,18 +132,18 @@ export default function PlaybookInfo({
       if (testStatus === 'passed') {
         setTestResult({
           status: 'passed',
-          message: '✅ 測試通過！'
+          message: t('testPassed')
         });
       } else if (testStatus === 'failed') {
         const errors = result.test_results?.errors || [];
         setTestResult({
           status: 'failed',
-          message: `❌ 測試失敗：${errors.join('; ')}`
+          message: t('testExecutionError', { error: errors.join('; ') })
         });
       } else {
         setTestResult({
           status: 'error',
-          message: `⚠️ 測試錯誤：${result.test_results?.error || '未知錯誤'}`
+          message: t('testError', { error: result.test_results?.error || t('unknownError') })
         });
       }
     } catch (error: any) {
@@ -152,12 +152,12 @@ export default function PlaybookInfo({
       if (errorMsg.includes('404') || errorMsg.includes('not available')) {
         setTestResult({
           status: 'error',
-          message: 'ℹ️ 此 Playbook 尚未提供冒煙測試功能'
+          message: t('smokeTestNotAvailable')
         });
       } else {
         setTestResult({
           status: 'error',
-          message: `❌ 測試執行錯誤：${errorMsg || '未知錯誤'}`
+          message: t('testExecutionError', { error: errorMsg || t('unknownError') })
         });
       }
     } finally {
@@ -201,9 +201,9 @@ export default function PlaybookInfo({
                 ? 'bg-red-100 text-red-700 hover:bg-red-200'
                 : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
             }`}
-            title={needsFileUpload ? "執行冒煙測試（需要先上傳 PDF 檔案）" : "執行冒煙測試"}
+            title={needsFileUpload ? t('runSmokeTestWithFile') : t('runSmokeTest')}
           >
-            {isTesting ? '🔄 測試中...' : isUploading ? '📤 上傳中...' : '🧪 測試'}
+            {isTesting ? t('testing') : isUploading ? t('uploading') : t('test')}
           </button>
           <button
             onClick={onToggleFavorite}
@@ -230,9 +230,9 @@ export default function PlaybookInfo({
       {showFileUpload && needsFileUpload && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">上傳測試 PDF 檔案</h3>
+            <h3 className="text-lg font-semibold mb-4">{t('uploadTestPdfFiles')}</h3>
             <p className="text-sm text-gray-600 mb-4">
-              請上傳 1-2 個 PDF 檔案用於 OCR 測試
+              {t('pleaseUploadPdfFiles')}
             </p>
 
             <input
@@ -248,7 +248,7 @@ export default function PlaybookInfo({
 
             {uploadedFiles.length > 0 && (
               <div className="mb-4">
-                <p className="text-sm font-medium mb-2">已選擇檔案：</p>
+                <p className="text-sm font-medium mb-2">{t('selectedFiles')}</p>
                 <ul className="text-sm text-gray-600 space-y-1">
                   {uploadedFiles.map((file, idx) => (
                     <li key={idx}>• {file.name} ({(file.size / 1024).toFixed(1)} KB)</li>
@@ -265,12 +265,12 @@ export default function PlaybookInfo({
                 }}
                 className="px-4 py-2 text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
               >
-                取消
+                {t('cancel')}
               </button>
               <button
                 onClick={async () => {
                   if (uploadedFiles.length === 0) {
-                    alert('請先選擇檔案');
+                    alert(t('pleaseSelectFile'));
                     return;
                   }
                   try {
@@ -284,7 +284,7 @@ export default function PlaybookInfo({
                 disabled={uploadedFiles.length === 0 || isUploading}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
               >
-                {isUploading ? '上傳中...' : '上傳並測試'}
+                {isUploading ? t('uploading') : t('uploadAndTest')}
               </button>
             </div>
           </div>

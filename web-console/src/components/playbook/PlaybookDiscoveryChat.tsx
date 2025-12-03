@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { t } from '../../lib/i18n';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -28,7 +29,7 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
     {
       id: 'initial',
       role: 'assistant',
-      content: '告訴我你的需求，我幫你找到最適合的 Playbook。例如：「我想分析數據」、「我需要生成 Instagram 貼文」等。',
+      content: t('tellMeYourNeeds'),
       timestamp: new Date()
     }
   ]);
@@ -73,11 +74,11 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
 
       if (response.ok) {
         const data = await response.json();
-        let content = data.suggestion || '根據你的需求，我建議使用以下 Playbook...';
+        let content = data.suggestion || t('basedOnYourNeeds');
 
         // Add recommended playbooks as clickable items
         if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
-          content += '\n\n推薦的 Playbook：\n';
+          content += '\n\n' + t('recommendedPlaybooks') + '\n';
           data.recommended_playbooks.forEach((pb: any, index: number) => {
             content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
           });
@@ -98,7 +99,7 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: '抱歉，暫時無法處理你的請求。請稍後再試。',
+        content: t('sorryCannotProcess'),
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -125,8 +126,8 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
               <div
                 className={`max-w-[85%] rounded-lg px-3 py-2 text-xs whitespace-pre-wrap ${
                   message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-800'
+                    ? 'bg-blue-600 dark:bg-blue-700 text-white'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                 }`}
               >
                 {message.content}
@@ -149,15 +150,15 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
                           }, 0);
                         }
                       }}
-                    className="w-full text-left p-2 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                    className="w-full text-left p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                   >
                     <div className="flex items-start gap-2">
                       {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium text-gray-900 truncate">
+                        <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
                           {pb.name}
                         </div>
-                        <div className="text-xs text-gray-600 line-clamp-2 mt-0.5">
+                        <div className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mt-0.5">
                           {pb.description}
                         </div>
                       </div>
@@ -170,7 +171,7 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
         ))}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-600">
+            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
               <span className="inline-block animate-pulse">思考中...</span>
             </div>
           </div>
@@ -178,23 +179,23 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-gray-200 pt-3">
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
         <div className="flex gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="描述你的需求..."
-            className="flex-1 px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={t('describeYourNeeds')}
+            className="flex-1 px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             disabled={isLoading}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
-            className="px-4 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
           >
-            發送
+                  {t('send')}
           </button>
         </div>
       </div>

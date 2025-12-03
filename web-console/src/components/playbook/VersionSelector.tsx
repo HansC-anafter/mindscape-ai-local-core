@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { t } from '../../lib/i18n';
 
 interface VersionSelectorProps {
   hasPersonalVariant: boolean;
@@ -27,7 +28,7 @@ export default function VersionSelector({
 }: VersionSelectorProps) {
   return (
     <div className="flex items-center gap-6">
-      <h3 className="text-sm font-semibold text-gray-900 whitespace-nowrap">目前執行版本</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{t('currentExecutionVersion')}</h3>
 
       <div className="flex items-center gap-4 flex-1">
         {!hasPersonalVariant ? (
@@ -41,7 +42,7 @@ export default function VersionSelector({
                 onChange={() => onVersionChange('system')}
                 className="w-4 h-4"
               />
-              <span className="text-sm">系統版本（v{systemVersion}）</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">系統版本（v{systemVersion}）</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer opacity-50">
               <input
@@ -51,20 +52,20 @@ export default function VersionSelector({
                 disabled
                 className="w-4 h-4"
               />
-              <span className="text-sm">我的版本（尚未建立）</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('myVersionNotCreated')}</span>
             </label>
             <div className="flex items-center gap-2 ml-auto">
               <button
                 onClick={onCopyClick}
-                className="px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900 border border-gray-300 rounded hover:bg-gray-50"
+                className="px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
               >
-                直接複製
+                {t('directCopy')}
               </button>
               <button
                 onClick={onLLMClick}
-                className="px-3 py-1.5 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                className="px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 bg-white dark:bg-gray-800"
               >
-                LLM 客製化
+                {t('llmCustomization')}
               </button>
             </div>
           </>
@@ -79,8 +80,8 @@ export default function VersionSelector({
                 onChange={() => onVersionChange('personal')}
                 className="w-4 h-4"
               />
-              <span className="text-sm font-medium">
-                我的版本：{defaultVariant?.variant_name || '我的版本'}
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {t('playbookMyVariant', { name: defaultVariant?.variant_name || t('playbookMyVariantDefault') })}
               </span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
@@ -92,20 +93,20 @@ export default function VersionSelector({
                 onChange={() => onVersionChange('system')}
                 className="w-4 h-4"
               />
-              <span className="text-sm">系統版本（v{systemVersion}）</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">系統版本（v{systemVersion}）</span>
             </label>
             <div className="flex items-center gap-2 ml-auto">
               <button
                 onClick={() => {/* TODO: Show diff */}}
-                className="px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900 border border-gray-300 rounded hover:bg-gray-50"
+                className="px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
               >
-                查看差異
+                {t('viewDiff')}
               </button>
               <button
                 onClick={onLLMClick}
-                className="px-3 py-1.5 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                className="px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 bg-white dark:bg-gray-800"
               >
-                重新調整
+                {t('readjust')}
               </button>
             </div>
           </>
@@ -117,12 +118,12 @@ export default function VersionSelector({
         {activeExecutionsCount > 0 ? (
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            <span className="text-xs text-green-600 font-medium">
-              {activeExecutionsCount} 個執行中
+            <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+              {t('activeExecutions', { count: activeExecutionsCount })}
             </span>
           </div>
         ) : (
-          <span className="text-xs text-gray-500">尚無執行記錄</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{t('noExecutionRecord')}</span>
         )}
       </div>
     </div>

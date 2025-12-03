@@ -197,7 +197,7 @@ export default function LLMDrawer({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder="描述你的使用情境..."
+                  placeholder={t('describeYourUseCase')}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={loading}
                   autoComplete="off"
@@ -211,7 +211,7 @@ export default function LLMDrawer({
                   disabled={loading || !input.trim()}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                 >
-                  發送
+                  {t('send')}
                 </button>
               </div>
             </div>
@@ -220,7 +220,7 @@ export default function LLMDrawer({
           {/* Right: Preview Area */}
           <div className="w-96 flex flex-col bg-gray-50">
             <div className="p-4 border-b border-gray-200">
-              <h3 className="font-medium text-gray-900">變更預覽</h3>
+              <h3 className="font-medium text-gray-900">{t('changePreview')}</h3>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
@@ -258,7 +258,7 @@ export default function LLMDrawer({
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 text-center py-8">
-                  開始對話後，優化建議會顯示在這裡
+                  {t('afterStartingConversation')}
                 </p>
               )}
             </div>
@@ -268,13 +268,13 @@ export default function LLMDrawer({
               <div className="p-4 border-t border-gray-200 space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    版本名稱
+                    {t('variantName')}
                   </label>
                   <input
                     type="text"
                     value={variantName}
                     onChange={(e) => setVariantName(e.target.value)}
-                    placeholder="例如：政府補助專用版"
+                    placeholder={t('exampleVariantName')}
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                     autoComplete="off"
                     data-lpignore="true"
@@ -285,12 +285,12 @@ export default function LLMDrawer({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    說明（選填）
+                    {t('descriptionOptional')}
                   </label>
                   <textarea
                     value={variantDescription}
                     onChange={(e) => setVariantDescription(e.target.value)}
-                    placeholder="這個版本主要用在..."
+                    placeholder={t('variantDescriptionPlaceholder')}
                     rows={2}
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                     autoComplete="off"

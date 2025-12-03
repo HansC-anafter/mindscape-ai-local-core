@@ -189,26 +189,26 @@ export default function PlaybooksPage() {
   }, [playbooks]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
 
       {/* Page Header - Single Row */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
           <div className="flex items-center justify-between gap-6">
             {/* Left: Title and Workflow */}
             <div className="flex items-center gap-6 flex-shrink-0">
-              <h1 className="text-xl font-bold text-gray-900 whitespace-nowrap">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                 {t('playbooksTitle')}
               </h1>
               {/* Workflow visualization */}
-              <div className="hidden md:flex items-center gap-2 text-xs text-gray-600 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg px-3 py-2 border border-blue-100">
+              <div className="hidden md:flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg px-3 py-2 border border-blue-100 dark:border-blue-800">
                 <span className="text-base">🧠</span>
                 <span>{t('playbookStepMindscape')}</span>
-                <span className="text-gray-400">→</span>
+                <span className="text-gray-400 dark:text-gray-500">→</span>
                 <span className="text-base">🔧</span>
                 <span>{t('playbookStepTools')}</span>
-                <span className="text-gray-400">→</span>
+                <span className="text-gray-400 dark:text-gray-500">→</span>
                 <span className="text-base">🤖</span>
                 <span>{t('playbookStepMembers')}</span>
               </div>
@@ -221,13 +221,13 @@ export default function PlaybooksPage() {
                 placeholder={t('searchPlaybooks')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1 px-3 py-1.5 text-sm border rounded-md"
+                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
               <button
                 onClick={() => {
                   setSelectedTags(prev => [...prev]);
                 }}
-                className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 whitespace-nowrap"
+                className="px-3 py-1.5 text-sm bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap"
               >
                 {t('reload')}
               </button>
@@ -235,8 +235,8 @@ export default function PlaybooksPage() {
           </div>
 
           {error && (
-            <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="mt-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
             </div>
           )}
         </div>
@@ -247,13 +247,13 @@ export default function PlaybooksPage() {
         <div className="grid grid-cols-12 gap-0">
           {/* Left Column: Filter Tags */}
           <div className="col-span-12 lg:col-span-2">
-            <div className="bg-white shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">{t('filterTags')}</h3>
+            <div className="bg-white dark:bg-gray-900 shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('filterTags')}</h3>
 
               {/* Tags Filter */}
               {allTags.length > 0 && (
                 <div className="mb-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">{t('tags')}</h4>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('tags')}</h4>
                   {allTags.map(tag => (
                     <label key={tag} className="flex items-center mb-2">
                       <input
@@ -268,7 +268,7 @@ export default function PlaybooksPage() {
                         }}
                         className="mr-2"
                       />
-                      <span className="text-sm">{tag}</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">{tag}</span>
                     </label>
                   ))}
                 </div>
@@ -280,17 +280,17 @@ export default function PlaybooksPage() {
           <div className="col-span-12 lg:col-span-7">
             <div className="h-[calc(100vh-8rem)] overflow-y-auto p-4">
               {loading ? (
-                <p className="text-gray-600">{t('loading')}</p>
+                <p className="text-gray-600 dark:text-gray-400">{t('loading')}</p>
               ) : filteredPlaybooks.length === 0 ? (
-                <div className="bg-white shadow rounded-lg p-12 text-center">
-                  <p className="text-gray-600">{t('noPlaybooksFound')}</p>
+                <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-12 text-center">
+                  <p className="text-gray-600 dark:text-gray-400">{t('noPlaybooksFound')}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {filteredPlaybooks.map(playbook => (
                     <div
                       key={playbook.playbook_code}
-                      className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer"
+                      className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer border border-gray-200 dark:border-gray-700"
                       onClick={() => router.push(`/playbooks/${playbook.playbook_code}`)}
                     >
                       {/* Top row: Icon, System Playbook, Test badge, Favorite */}
@@ -298,12 +298,12 @@ export default function PlaybooksPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-3xl">{playbook.icon || '📋'}</span>
                           {playbook.kind === 'system_tool' && (
-                            <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                            <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
                               {t('systemPlaybook')}
                             </span>
                           )}
                           {supportedTestPlaybooks.has(playbook.playbook_code) && (
-                            <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded flex items-center gap-1">
+                            <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded flex items-center gap-1">
                               🧪 {t('hasTest')}
                             </span>
                           )}
@@ -321,26 +321,26 @@ export default function PlaybooksPage() {
                       </div>
 
                       {/* Title */}
-                      <h3 className="font-semibold text-lg mb-2 min-h-[3rem]">
+                      <h3 className="font-semibold text-lg mb-2 min-h-[3rem] text-gray-900 dark:text-gray-100">
                         {getPlaybookMetadata(playbook.playbook_code, 'name', locale as 'zh-TW' | 'en') || playbook.name}
                       </h3>
 
                       {/* Description */}
-                      <p className="text-sm text-gray-600 mb-4 line-clamp-2 flex-grow">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2 flex-grow">
                         {getPlaybookMetadata(playbook.playbook_code, 'description', locale as 'zh-TW' | 'en') || playbook.description}
                       </p>
 
                       {/* Tags row */}
                       <div className="flex flex-wrap gap-2 mb-3 min-h-[1.5rem]">
                         {playbook.has_personal_variant && (
-                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                          <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
                             {t('hasPersonalVariant')}
                           </span>
                         )}
                         {(playbook.tags || []).slice(0, 2).map(tag => (
                           <span
                             key={tag}
-                            className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
+                            className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded"
                           >
                             {tag}
                           </span>
@@ -349,20 +349,20 @@ export default function PlaybooksPage() {
 
                       {/* Onboarding task */}
                       {playbook.onboarding_task && (
-                        <div className="text-xs text-blue-600 font-medium mb-2">
+                        <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-2">
                           {t('coldStartTask')} {playbook.onboarding_task.replace('task', '')}
                         </div>
                       )}
 
                       {/* Bottom row: Usage count and action buttons */}
-                      <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-100">
-                        <span className="text-xs text-gray-500">
+                      <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
                           👁️ {playbook.user_meta?.use_count || 0} {t('times')}
                         </span>
                         <button
                           onClick={(e) => handleExecuteNow(e, playbook)}
                           disabled={creatingWorkspace === playbook.playbook_code}
-                          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
                         >
                           {creatingWorkspace === playbook.playbook_code ? t('creating') : t('executeNow')}
                         </button>
@@ -376,8 +376,8 @@ export default function PlaybooksPage() {
 
           {/* Right Column: Playbook Discovery Chat */}
           <div className="col-span-12 lg:col-span-3">
-            <div className="bg-white shadow h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-0">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">{t('findPlaybook')}</h3>
+            <div className="bg-white dark:bg-gray-900 shadow h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-0">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('findPlaybook')}</h3>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <PlaybookDiscoveryChat
                   onPlaybookSelect={(playbookCode) => {
