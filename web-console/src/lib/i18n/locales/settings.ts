@@ -345,6 +345,12 @@ export const settingsZhTW = {
   configureLLMKeys: '配置 LLM 金鑰',
   connectTools: '連接工具',
   viewAllSettings: '查看所有設定',
+  // SaaS integrations - imported from modular files
+  ...slackZhTW,
+  ...airtableZhTW,
+  ...googleSheetsZhTW,
+  ...githubZhTW,
+  ...toolsZhTW,
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const settingsEn = {
