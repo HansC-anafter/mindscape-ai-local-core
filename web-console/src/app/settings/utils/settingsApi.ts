@@ -51,7 +51,7 @@ export const settingsApi = {
     } catch (error) {
       // If silent flag is set and it's a network error, return default value
       if (options?.silent) {
-        if (endpoint.includes('/connections') || endpoint.includes('/tool-connections') || endpoint.includes('/capability-packs') || endpoint.includes('/capability-suites') || endpoint.includes('/playbooks')) {
+        if (endpoint.includes('/connections') || endpoint.includes('/capability-packs') || endpoint.includes('/capability-suites') || endpoint.includes('/playbooks')) {
           return [] as T;
         }
         return {} as T;
