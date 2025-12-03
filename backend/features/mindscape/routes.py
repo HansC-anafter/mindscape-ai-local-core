@@ -7,7 +7,9 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError, BaseModel
+import json
 
 from backend.app.models.mindscape import (
     MindscapeProfile, IntentCard, IntentLog,
@@ -187,6 +189,7 @@ async def get_profile(user_id: str = Path(..., description="Profile ID")):
     profile = store.get_profile(user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
+    # Return Pydantic model directly - FastAPI will handle serialization correctly
     return profile
 
 
