@@ -693,11 +693,6 @@ export const settingsEn = {
   ...githubZhTW,
   ...toolsZhTW,
 } as const satisfies Partial<Record<MessageKey, string>>;
-
-export const settingsEn = {
-  // Settings
-  settings: 'Settings',
-  backendConfiguration: 'Agent Backend Configuration',
   backendDescription: 'Configure how agents are executed. For most users, "Local LLM" is recommended. Remote backend is an advanced option for developers.',
   backendMode: 'Backend Mode',
   localLLM: 'Local LLM',
