@@ -20,7 +20,6 @@ from .routes.core import (
     config,
     system_settings,
     tools,
-    tool_connections,
 )
 
 # Core primitives
@@ -86,7 +85,6 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(config.router, tags=["config"])
     app.include_router(system_settings.router, tags=["system"])
     app.include_router(tools.router, tags=["tools"])
-    app.include_router(tool_connections.router, tags=["tools"])
 
 def register_core_primitives(app: FastAPI) -> None:
     """Register core primitives"""

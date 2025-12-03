@@ -7,9 +7,11 @@ Design Principles:
 - Platform neutral: not bound to any specific tool type
 - Plugin-based: extend via ToolDiscoveryProvider
 - Open-closed: extend functionality without modifying Core code
+- SQLite storage for consistency with other services
 """
 import json
 import os
+import sqlite3
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -45,27 +47,219 @@ class ToolRegistryService:
     - Responsible for registration, querying, and management only
     """
 
-    def __init__(self, data_dir: str = "./data"):
+    def __init__(self, data_dir: str = "./data", db_path: Optional[str] = None):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
+
+        # SQLite database path
+        if db_path:
+            self.db_path = db_path
+        else:
+            self.db_path = str(self.data_dir / "tool_registry.db")
+
+        # Legacy JSON files (for backward compatibility during migration)
         self.registry_file = self.data_dir / "tool_registry.json"
         self.connections_file = self.data_dir / "tool_connections.json"
 
         # In-memory cache
+        # Tools: keyed by tool_id
         self._tools: Dict[str, RegisteredTool] = {}
-        self._connections: Dict[str, ToolConnectionModel] = {}
+        # Connections: keyed by (profile_id, connection_id) tuple for multi-tenant support
+        self._connections: Dict[tuple, ToolConnectionModel] = {}
 
         # Discovery providers registry
         self._discovery_providers: Dict[str, ToolDiscoveryProvider] = {}
 
-        # Load data
+        # Initialize database
+        self._ensure_tables()
+
+        # Load data (from SQLite, fallback to JSON for migration)
         self._load_registry()
 
         # Register default providers (built-in)
         self._register_default_providers()
 
+    def _ensure_tables(self):
+        """Create database tables if they don't exist"""
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Tool registry table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tool_registry (
+                tool_id TEXT PRIMARY KEY,
+                site_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                origin_capability_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                methods TEXT NOT NULL,
+                danger_level TEXT DEFAULT 'low',
+                input_schema TEXT DEFAULT '{}',
+                enabled INTEGER DEFAULT 1,
+                read_only INTEGER DEFAULT 0,
+                allowed_agent_roles TEXT DEFAULT '[]',
+                side_effect_level TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Tool connections table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tool_connections (
+                id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                tool_type TEXT NOT NULL,
+                connection_type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                icon TEXT,
+                api_key TEXT,
+                api_secret TEXT,
+                oauth_token TEXT,
+                oauth_refresh_token TEXT,
+                base_url TEXT,
+                wp_url TEXT,
+                wp_username TEXT,
+                wp_application_password TEXT,
+                remote_cluster_url TEXT,
+                remote_connection_id TEXT,
+                config TEXT DEFAULT '{}',
+                associated_roles TEXT DEFAULT '[]',
+                enabled INTEGER DEFAULT 1,
+                is_active INTEGER DEFAULT 1,
+                is_validated INTEGER DEFAULT 0,
+                last_validated_at TEXT,
+                validation_error TEXT,
+                usage_count INTEGER DEFAULT 0,
+                last_used_at TEXT,
+                last_discovery TEXT,
+                discovery_method TEXT,
+                x_platform TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (profile_id, id)
+            )
+        """)
+
+        # Indexes
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_connections_profile
+            ON tool_connections(profile_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_connections_type
+            ON tool_connections(tool_type)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_connections_active
+            ON tool_connections(is_active)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_registry_site
+            ON tool_registry(site_id)
+        """)
+
+        conn.commit()
+        conn.close()
+
     def _load_registry(self):
-        """Load tool registry from disk"""
+        """Load tool registry from SQLite database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Load tools
+            cursor.execute("SELECT * FROM tool_registry")
+            rows = cursor.fetchall()
+            for row in rows:
+                try:
+                    tool_data = {
+                        "tool_id": row["tool_id"],
+                        "site_id": row["site_id"],
+                        "provider": row["provider"],
+                        "display_name": row["display_name"],
+                        "origin_capability_id": row["origin_capability_id"],
+                        "category": row["category"],
+                        "description": row["description"],
+                        "endpoint": row["endpoint"],
+                        "methods": json.loads(row["methods"]) if row["methods"] else [],
+                        "danger_level": row["danger_level"],
+                        "input_schema": json.loads(row["input_schema"]) if row["input_schema"] else {},
+                        "enabled": bool(row["enabled"]),
+                        "read_only": bool(row["read_only"]),
+                        "allowed_agent_roles": json.loads(row["allowed_agent_roles"]) if row["allowed_agent_roles"] else [],
+                        "side_effect_level": row["side_effect_level"],
+                        "created_at": datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
+                        "updated_at": datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow(),
+                    }
+                    self._tools[row["tool_id"]] = RegisteredTool(**tool_data)
+                except Exception as e:
+                    logger.warning(f"Error loading tool {row['tool_id']}: {e}")
+
+            # Load connections
+            cursor.execute("SELECT * FROM tool_connections")
+            rows = cursor.fetchall()
+            for row in rows:
+                try:
+                    conn_data = {
+                        "id": row["id"],
+                        "profile_id": row["profile_id"],
+                        "tool_type": row["tool_type"],
+                        "connection_type": row["connection_type"],
+                        "name": row["name"],
+                        "description": row["description"],
+                        "icon": row["icon"],
+                        "api_key": row["api_key"],
+                        "api_secret": row["api_secret"],
+                        "oauth_token": row["oauth_token"],
+                        "oauth_refresh_token": row["oauth_refresh_token"],
+                        "base_url": row["base_url"],
+                        "wp_url": row["wp_url"],
+                        "wp_username": row["wp_username"],
+                        "wp_application_password": row["wp_application_password"],
+                        "remote_cluster_url": row["remote_cluster_url"],
+                        "remote_connection_id": row["remote_connection_id"],
+                        "config": json.loads(row["config"]) if row["config"] else {},
+                        "associated_roles": json.loads(row["associated_roles"]) if row["associated_roles"] else [],
+                        "enabled": bool(row["enabled"]),
+                        "is_active": bool(row["is_active"]),
+                        "is_validated": bool(row["is_validated"]),
+                        "last_validated_at": datetime.fromisoformat(row["last_validated_at"]) if row["last_validated_at"] else None,
+                        "validation_error": row["validation_error"],
+                        "usage_count": row["usage_count"],
+                        "last_used_at": datetime.fromisoformat(row["last_used_at"]) if row["last_used_at"] else None,
+                        "last_discovery": datetime.fromisoformat(row["last_discovery"]) if row["last_discovery"] else None,
+                        "discovery_method": row["discovery_method"],
+                        "x_platform": json.loads(row["x_platform"]) if row["x_platform"] else None,
+                        "created_at": datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
+                        "updated_at": datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow(),
+                    }
+                    connection = ToolConnectionModel(**conn_data)
+                    self._connections[(row["profile_id"], row["id"])] = connection
+                except Exception as e:
+                    logger.warning(f"Error loading connection {row['id']}: {e}")
+
+            conn.close()
+            logger.info(f"Loaded {len(self._tools)} tools and {len(self._connections)} connections from database")
+
+        except sqlite3.OperationalError as e:
+            # Table doesn't exist yet, try loading from JSON for migration
+            logger.info("Database tables not found, attempting to load from JSON files for migration")
+            self._load_registry_from_json()
+        except Exception as e:
+            logger.error(f"Error loading registry from database: {e}")
+            # Fallback to JSON
+            self._load_registry_from_json()
+
+    def _load_registry_from_json(self):
+        """Load tool registry from JSON files (migration fallback)"""
         if self.registry_file.exists():
             try:
                 with open(self.registry_file, 'r', encoding='utf-8') as f:
@@ -75,23 +269,116 @@ class ToolRegistryService:
                         for tool_id, tool_data in data.items()
                     }
             except Exception as e:
-                print(f"Error loading tool registry: {e}")
+                logger.error(f"Error loading tool registry from JSON: {e}")
                 self._tools = {}
 
         if self.connections_file.exists():
             try:
                 with open(self.connections_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self._connections = {
-                        conn_id: ToolConnectionModel(**conn_data)
-                        for conn_id, conn_data in data.items()
-                    }
+                    self._connections = {}
+                    for key, conn_data in data.items():
+                        try:
+                            conn = ToolConnectionModel(**conn_data)
+                            profile_id = conn.profile_id if hasattr(conn, 'profile_id') and conn.profile_id else 'default-user'
+                            self._connections[(profile_id, conn.id)] = conn
+                        except Exception as e:
+                            logger.warning(f"Error loading connection {key}: {e}")
             except Exception as e:
-                print(f"Error loading connections: {e}")
+                logger.error(f"Error loading connections from JSON: {e}")
                 self._connections = {}
 
     def _save_registry(self):
-        """Save tool registry to disk"""
+        """Save tool registry to SQLite database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Save tools
+            for tool_id, tool in self._tools.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tool_registry (
+                        tool_id, site_id, provider, display_name, origin_capability_id,
+                        category, description, endpoint, methods, danger_level,
+                        input_schema, enabled, read_only, allowed_agent_roles,
+                        side_effect_level, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    tool.tool_id,
+                    tool.site_id,
+                    tool.provider,
+                    tool.display_name,
+                    tool.origin_capability_id,
+                    tool.category,
+                    tool.description,
+                    tool.endpoint,
+                    json.dumps(tool.methods),
+                    tool.danger_level,
+                    json.dumps(tool.input_schema.dict()),
+                    1 if tool.enabled else 0,
+                    1 if tool.read_only else 0,
+                    json.dumps(tool.allowed_agent_roles),
+                    tool.side_effect_level,
+                    tool.created_at.isoformat(),
+                    tool.updated_at.isoformat(),
+                ))
+
+            # Save connections
+            for (profile_id, conn_id), connection in self._connections.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tool_connections (
+                        id, profile_id, tool_type, connection_type, name, description, icon,
+                        api_key, api_secret, oauth_token, oauth_refresh_token, base_url,
+                        wp_url, wp_username, wp_application_password,
+                        remote_cluster_url, remote_connection_id, config, associated_roles,
+                        enabled, is_active, is_validated, last_validated_at, validation_error,
+                        usage_count, last_used_at, last_discovery, discovery_method,
+                        x_platform, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    connection.id,
+                    connection.profile_id,
+                    connection.tool_type,
+                    connection.connection_type,
+                    connection.name,
+                    connection.description,
+                    connection.icon,
+                    connection.api_key,
+                    connection.api_secret,
+                    connection.oauth_token,
+                    connection.oauth_refresh_token,
+                    connection.base_url,
+                    connection.wp_url,
+                    connection.wp_username,
+                    connection.wp_application_password,
+                    connection.remote_cluster_url,
+                    connection.remote_connection_id,
+                    json.dumps(connection.config),
+                    json.dumps(connection.associated_roles),
+                    1 if connection.enabled else 0,
+                    1 if connection.is_active else 0,
+                    1 if connection.is_validated else 0,
+                    connection.last_validated_at.isoformat() if connection.last_validated_at else None,
+                    connection.validation_error,
+                    connection.usage_count,
+                    connection.last_used_at.isoformat() if connection.last_used_at else None,
+                    connection.last_discovery.isoformat() if connection.last_discovery else None,
+                    connection.discovery_method,
+                    json.dumps(connection.x_platform) if connection.x_platform else None,
+                    connection.created_at.isoformat(),
+                    connection.updated_at.isoformat(),
+                ))
+
+            conn.commit()
+            conn.close()
+
+        except Exception as e:
+            logger.error(f"Error saving registry to database: {e}")
+            # Fallback to JSON for migration
+            self._save_registry_to_json()
+
+    def _save_registry_to_json(self):
+        """Save tool registry to JSON files (migration fallback)"""
         try:
             with open(self.registry_file, 'w', encoding='utf-8') as f:
                 json.dump(
@@ -102,19 +389,23 @@ class ToolRegistryService:
                     default=str
                 )
         except Exception as e:
-            print(f"Error saving tool registry: {e}")
+            logger.error(f"Error saving tool registry to JSON: {e}")
 
         try:
             with open(self.connections_file, 'w', encoding='utf-8') as f:
+                connections_dict = {
+                    f"{profile_id}:{conn_id}": conn.dict()
+                    for (profile_id, conn_id), conn in self._connections.items()
+                }
                 json.dump(
-                    {conn_id: conn.dict() for conn_id, conn in self._connections.items()},
+                    connections_dict,
                     f,
                     indent=2,
                     ensure_ascii=False,
                     default=str
                 )
         except Exception as e:
-            print(f"Error saving connections: {e}")
+            logger.error(f"Error saving connections to JSON: {e}")
 
     def register_discovery_provider(self, provider: ToolDiscoveryProvider):
         """
@@ -184,7 +475,8 @@ class ToolRegistryService:
         self,
         provider_name: str,
         config: ToolConfig,
-        connection_id: Optional[str] = None
+        connection_id: Optional[str] = None,
+        profile_id: str = "default-user"
     ) -> Dict[str, Any]:
         """
         Discover tool capabilities using specified provider
@@ -290,20 +582,29 @@ class ToolRegistryService:
             registered_tools.append(registered_tool.dict())
 
         # Update/Create connection record
-        if connection_id in self._connections:
-            conn = self._connections[connection_id]
-            conn.last_discovery = datetime.now()
+        key = (profile_id, connection_id)
+        if key in self._connections:
+            conn = self._connections[key]
+            conn.last_discovery = datetime.utcnow()
+            conn.updated_at = datetime.utcnow()
         else:
             conn = ToolConnectionModel(
                 id=connection_id,
+                profile_id=profile_id,
                 name=f"{provider_name} - {connection_id}",
-                wp_url=config.base_url,  # Legacy field, should be generalized
-                wp_username=config.api_key,
-                wp_application_password=config.api_secret,
-                last_discovery=datetime.now(),
+                tool_type=config.tool_type,
+                connection_type=config.connection_type,
+                base_url=config.base_url,
+                api_key=config.api_key,
+                api_secret=config.api_secret,
+                # Legacy WordPress fields for backward compatibility
+                wp_url=config.base_url if config.tool_type == "wordpress" else None,
+                wp_username=config.api_key if config.tool_type == "wordpress" else None,
+                wp_application_password=config.api_secret if config.tool_type == "wordpress" else None,
+                last_discovery=datetime.utcnow(),
                 discovery_method=provider_name,
             )
-            self._connections[connection_id] = conn
+            self._connections[key] = conn
 
         # Save to disk
         self._save_registry()
@@ -396,52 +697,317 @@ class ToolRegistryService:
 
         return tool
 
-    def get_connections(self) -> List[ToolConnectionModel]:
-        """Get all tool connections"""
+    def get_connections(self, profile_id: Optional[str] = None) -> List[ToolConnectionModel]:
+        """
+        Get all tool connections
+
+        Args:
+            profile_id: Optional profile ID to filter connections. If None, returns all connections.
+
+        Returns:
+            List of tool connections
+        """
+        if profile_id:
+            return [
+                conn for (pid, _), conn in self._connections.items()
+                if pid == profile_id
+            ]
         return list(self._connections.values())
 
-    def get_connection(self, connection_id: str) -> Optional[ToolConnectionModel]:
-        """Get a specific connection"""
-        return self._connections.get(connection_id)
+    def get_connection(self, connection_id: str, profile_id: Optional[str] = None) -> Optional[ToolConnectionModel]:
+        """
+        Get a specific connection
+
+        Args:
+            connection_id: Connection ID
+            profile_id: Optional profile ID. If None, searches across all profiles (backward compatibility).
+
+        Returns:
+            Tool connection if found, None otherwise
+        """
+        if profile_id:
+            return self._connections.get((profile_id, connection_id))
+
+        # Backward compatibility: search across all profiles
+        for (pid, cid), conn in self._connections.items():
+            if cid == connection_id:
+                return conn
+        return None
 
     def create_connection(
+        self,
+        connection: ToolConnectionModel,
+    ) -> ToolConnectionModel:
+        """
+        Create a new tool connection
+
+        Args:
+            connection: ToolConnectionModel instance with all required fields
+
+        Returns:
+            Created connection
+        """
+        connection.updated_at = datetime.utcnow()
+        if not connection.created_at:
+            connection.created_at = datetime.utcnow()
+
+        # Store with (profile_id, connection_id) as key
+        self._connections[(connection.profile_id, connection.id)] = connection
+        self._save_registry()
+        return connection
+
+    def create_connection_legacy(
         self,
         connection_id: str,
         name: str,
         wp_url: str,
         wp_username: str,
         wp_application_password: str,
+        profile_id: str = "default-user",
     ) -> ToolConnectionModel:
-        """Create a new WordPress connection"""
+        """
+        Create a new WordPress connection (legacy method for backward compatibility)
+
+        Args:
+            connection_id: Connection ID
+            name: Connection name
+            wp_url: WordPress site URL
+            wp_username: WordPress username
+            wp_application_password: WordPress application password
+            profile_id: Profile ID (defaults to "default-user")
+
+        Returns:
+            Created connection
+        """
         conn = ToolConnectionModel(
             id=connection_id,
+            profile_id=profile_id,
             name=name,
+            tool_type="wordpress",
+            connection_type="local",
             wp_url=wp_url,
             wp_username=wp_username,
             wp_application_password=wp_application_password,
+            base_url=wp_url,
+            api_key=wp_username,
+            api_secret=wp_application_password,
         )
-        self._connections[connection_id] = conn
-        self._save_registry()
-        return conn
+        return self.create_connection(conn)
 
-    def delete_connection(self, connection_id: str) -> bool:
-        """Delete a connection and all its tools"""
-        if connection_id not in self._connections:
-            return False
+    def delete_connection(self, connection_id: str, profile_id: Optional[str] = None) -> bool:
+        """
+        Delete a connection and all its tools
 
-        # Remove all tools for this connection
-        tool_ids_to_remove = [
-            tool_id for tool_id, tool in self._tools.items()
-            if tool.site_id == connection_id
+        Args:
+            connection_id: Connection ID
+            profile_id: Optional profile ID. If None, deletes from all profiles (backward compatibility).
+
+        Returns:
+            True if deleted, False if not found
+        """
+        deleted = False
+
+        if profile_id:
+            key = (profile_id, connection_id)
+            if key in self._connections:
+                # Remove all tools for this connection
+                tool_ids_to_remove = [
+                    tool_id for tool_id, tool in self._tools.items()
+                    if tool.site_id == connection_id
+                ]
+                for tool_id in tool_ids_to_remove:
+                    del self._tools[tool_id]
+                    unregister_dynamic_tool(tool_id)
+
+                del self._connections[key]
+                deleted = True
+        else:
+            # Backward compatibility: search and delete across all profiles
+            keys_to_delete = [
+                key for key, conn in self._connections.items()
+                if conn.id == connection_id
+            ]
+            for key in keys_to_delete:
+                # Remove all tools for this connection
+                tool_ids_to_remove = [
+                    tool_id for tool_id, tool in self._tools.items()
+                    if tool.site_id == connection_id
+                ]
+                for tool_id in tool_ids_to_remove:
+                    del self._tools[tool_id]
+                    unregister_dynamic_tool(tool_id)
+
+                del self._connections[key]
+                deleted = True
+
+        if deleted:
+            self._save_registry()
+
+        return deleted
+
+    def get_connections_by_profile(self, profile_id: str, active_only: bool = True) -> List[ToolConnectionModel]:
+        """
+        Get all tool connections for a profile
+
+        Args:
+            profile_id: Profile ID
+            active_only: If True, return only active connections
+
+        Returns:
+            List of tool connections
+        """
+        connections = [
+            conn for (pid, _), conn in self._connections.items()
+            if pid == profile_id
         ]
-        for tool_id in tool_ids_to_remove:
-            del self._tools[tool_id]
-            # Unregister from dynamic tool registry
-            unregister_dynamic_tool(tool_id)
 
-        del self._connections[connection_id]
+        if active_only:
+            connections = [conn for conn in connections if conn.is_active]
+
+        # Sort by usage_count descending, then name ascending
+        connections.sort(key=lambda c: (-c.usage_count, c.name))
+        return connections
+
+    def get_connections_by_tool_type(self, profile_id: str, tool_type: str) -> List[ToolConnectionModel]:
+        """
+        Get all connections for a specific tool type
+
+        Args:
+            profile_id: Profile ID
+            tool_type: Tool type (e.g., "wordpress", "notion")
+
+        Returns:
+            List of tool connections
+        """
+        connections = [
+            conn for (pid, _), conn in self._connections.items()
+            if pid == profile_id and conn.tool_type == tool_type and conn.is_active
+        ]
+
+        # Sort by usage_count descending, then name ascending
+        connections.sort(key=lambda c: (-c.usage_count, c.name))
+        return connections
+
+    def get_connections_by_role(self, profile_id: str, role_id: str) -> List[ToolConnectionModel]:
+        """
+        Get all connections associated with a specific AI role
+
+        Args:
+            profile_id: Profile ID
+            role_id: AI role ID
+
+        Returns:
+            List of tool connections
+        """
+        connections = self.get_connections_by_profile(profile_id, active_only=True)
+        return [
+            conn for conn in connections
+            if role_id in conn.associated_roles
+        ]
+
+    def update_connection(self, connection: ToolConnectionModel) -> ToolConnectionModel:
+        """
+        Update a tool connection
+
+        Args:
+            connection: Updated connection model
+
+        Returns:
+            Updated connection
+        """
+        connection.updated_at = datetime.utcnow()
+        self._connections[(connection.profile_id, connection.id)] = connection
         self._save_registry()
-        return True
+        return connection
+
+    def record_connection_usage(self, connection_id: str, profile_id: str):
+        """
+        Record that a connection was used
+
+        Args:
+            connection_id: Connection ID
+            profile_id: Profile ID
+        """
+        key = (profile_id, connection_id)
+        if key in self._connections:
+            conn = self._connections[key]
+            conn.usage_count += 1
+            conn.last_used_at = datetime.utcnow()
+            conn.updated_at = datetime.utcnow()
+            self._save_registry()
+
+    def update_validation_status(
+        self,
+        connection_id: str,
+        profile_id: str,
+        is_valid: bool,
+        error_message: Optional[str] = None
+    ):
+        """
+        Update validation status of a connection
+
+        Args:
+            connection_id: Connection ID
+            profile_id: Profile ID
+            is_valid: Whether connection is valid
+            error_message: Optional error message
+        """
+        key = (profile_id, connection_id)
+        if key in self._connections:
+            conn = self._connections[key]
+            conn.is_validated = is_valid
+            conn.last_validated_at = datetime.utcnow()
+            conn.validation_error = error_message
+            conn.updated_at = datetime.utcnow()
+            self._save_registry()
+
+    def export_as_templates(self, profile_id: str) -> List[Dict[str, Any]]:
+        """
+        Export connections as templates (without sensitive data)
+
+        Args:
+            profile_id: Profile ID
+
+        Returns:
+            List of connection templates
+        """
+        from backend.app.models.tool_connection import ToolConnectionTemplate
+
+        connections = self.get_connections_by_profile(profile_id, active_only=True)
+
+        templates = []
+        for conn in connections:
+            # Generate config schema without actual values
+            config_schema = {
+                "connection_type": conn.connection_type,
+                "fields": {}
+            }
+
+            if conn.connection_type == "local":
+                if conn.api_key:
+                    config_schema["fields"]["api_key"] = {"type": "string", "required": True, "sensitive": True}
+                if conn.api_secret:
+                    config_schema["fields"]["api_secret"] = {"type": "string", "required": True, "sensitive": True}
+                if conn.oauth_token:
+                    config_schema["fields"]["oauth_token"] = {"type": "string", "required": True, "sensitive": True}
+                if conn.base_url:
+                    config_schema["fields"]["base_url"] = {"type": "string", "required": True, "example": conn.base_url}
+
+            # Extract required permissions from config
+            required_permissions = conn.config.get("required_permissions", [])
+
+            template = ToolConnectionTemplate(
+                tool_type=conn.tool_type,
+                name=conn.name,
+                description=conn.description,
+                icon=conn.icon,
+                config_schema=config_schema,
+                required_permissions=required_permissions,
+                associated_roles=conn.associated_roles,
+            )
+            templates.append(template.dict())
+
+        return templates
 
     def get_tools_for_agent_role(self, agent_role: str) -> List[RegisteredTool]:
         """Get tools available for a specific agent role"""

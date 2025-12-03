@@ -146,6 +146,10 @@ class CreateToolConnectionRequest(BaseModel):
 
     config: Dict[str, Any] = Field(default_factory=dict)
     associated_roles: List[str] = Field(default_factory=list)
+    x_platform: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Platform-specific metadata (e.g., workspace_id, actor_id, metadata)"
+    )
 
 
 class UpdateToolConnectionRequest(BaseModel):
@@ -159,6 +163,10 @@ class UpdateToolConnectionRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
     associated_roles: Optional[List[str]] = None
     is_active: Optional[bool] = None
+    x_platform: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Platform-specific metadata (e.g., workspace_id, actor_id, metadata)"
+    )
 
 
 class ValidateToolConnectionRequest(BaseModel):

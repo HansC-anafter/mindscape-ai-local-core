@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 from enum import Enum
 
 from backend.app.services.config_store import ConfigStore
-from backend.app.services.tool_connection_store import ToolConnectionStore
+from backend.app.services.tool_registry import ToolRegistryService
 from backend.app.services.backend_manager import BackendManager
 
 logger = logging.getLogger(__name__)
@@ -55,11 +55,13 @@ class SystemHealthChecker:
     def __init__(
         self,
         config_store: Optional[ConfigStore] = None,
-        tool_connection_store: Optional[ToolConnectionStore] = None,
+        tool_registry: Optional[ToolRegistryService] = None,
         backend_manager: Optional[BackendManager] = None
     ):
+        import os
         self.config_store = config_store or ConfigStore()
-        self.tool_connection_store = tool_connection_store or ToolConnectionStore()
+        data_dir = os.getenv("DATA_DIR", "./data")
+        self.tool_registry = tool_registry or ToolRegistryService(data_dir=data_dir)
         self.backend_manager = backend_manager or BackendManager(config_store=self.config_store)
 
     async def check_workspace_health(
@@ -455,7 +457,7 @@ class SystemHealthChecker:
 
         try:
             for tool_type in tool_types_to_check:
-                connections = self.tool_connection_store.get_connections_by_tool_type(
+                connections = self.tool_registry.get_connections_by_tool_type(
                     profile_id, tool_type
                 )
                 active_connections = [c for c in connections if c.is_active]

@@ -14,6 +14,8 @@ from fastapi import APIRouter
 from .base import router as base_router
 from .connections import router as connections_router
 from .status import router as status_router
+from .execution import router as execution_router
+from .registration import router as registration_router
 
 # Import provider routers
 from .providers import local_filesystem
@@ -30,11 +32,18 @@ router = APIRouter()
 # Include status router FIRST (before base router) to ensure /status matches before /{tool_type}/status
 router.include_router(status_router)
 
-# Include base router (core endpoints: /providers, /discover, /, /{tool_id}, etc.)
-router.include_router(base_router)
-
-# Include connections router
+# Include connections router BEFORE base router to ensure /connections matches before /{tool_id}
 router.include_router(connections_router)
+
+# Include execution router (tool execution for Playbook)
+router.include_router(execution_router)
+
+# Include registration router (enhanced tool registration)
+router.include_router(registration_router)
+
+# Include base router LAST (core endpoints: /providers, /discover, /, /{tool_id}, etc.)
+# This must be last because /{tool_id} is a catch-all route
+router.include_router(base_router)
 
 # Include provider routers
 router.include_router(local_filesystem.router)

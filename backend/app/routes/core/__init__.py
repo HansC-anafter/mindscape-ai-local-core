@@ -12,7 +12,6 @@ from . import (
     config,
     system_settings,
     tools,
-    tool_connections,
     vector_db,
     vector_search,
     capability_packs,

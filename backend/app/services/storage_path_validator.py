@@ -216,10 +216,10 @@ class StoragePathValidator:
             allowed_dirs.extend([d.strip() for d in env_dirs.split(",") if d.strip()])
 
         try:
-            from ...services.tool_connection_store import ToolConnectionStore
-            tool_connection_store = ToolConnectionStore()
+            from ...services.tool_registry import ToolRegistryService
+            tool_registry = ToolRegistryService()
             try:
-                connections = tool_connection_store.get_connections_by_tool_type(
+                connections = tool_registry.get_connections_by_tool_type(
                     profile_id="default-user",
                     tool_type="local_filesystem"
                 )

@@ -13,7 +13,7 @@ from ...models.playbook import (
 from ...services.playbook_store import PlaybookStore
 from ...services.playbook_loader import PlaybookLoader
 from ...services.tool_status_checker import ToolStatusChecker
-from ...services.tool_connection_store import ToolConnectionStore
+from ...services.tool_registry import ToolRegistryService
 from ...services.playbook_tool_checker import PlaybookToolChecker
 import os
 
@@ -747,8 +747,8 @@ async def check_playbook_tools(
 
         # Initialize services
         data_dir = os.getenv("DATA_DIR", "./data")
-        tool_connection_store = ToolConnectionStore(db_path=f"{data_dir}/my_agent_console.db")
-        tool_status_checker = ToolStatusChecker(tool_connection_store)
+        tool_registry = ToolRegistryService(data_dir=data_dir)
+        tool_status_checker = ToolStatusChecker(tool_registry)
         playbook_tool_checker = PlaybookToolChecker(tool_status_checker)
 
         # Check tool dependencies

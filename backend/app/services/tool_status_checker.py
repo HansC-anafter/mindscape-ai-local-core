@@ -8,7 +8,7 @@ Determines: unavailable / registered_but_not_connected / connected
 from typing import Dict, List
 from backend.app.models.tool_connection import ToolConnectionStatus
 from backend.app.services.tool_info import get_tool_info, TOOL_INFO
-from backend.app.services.tool_connection_store import ToolConnectionStore
+from backend.app.services.tool_registry import ToolRegistryService
 
 
 class ToolStatusChecker:
@@ -21,14 +21,14 @@ class ToolStatusChecker:
     - connected: Tool has active and validated connection
     """
 
-    def __init__(self, tool_connection_store: ToolConnectionStore):
+    def __init__(self, tool_registry: ToolRegistryService):
         """
         Initialize tool status checker
 
         Args:
-            tool_connection_store: Tool connection store instance
+            tool_registry: Tool registry service instance
         """
-        self.tool_connection_store = tool_connection_store
+        self.tool_registry = tool_registry
 
     def get_tool_status(
         self,
@@ -51,7 +51,7 @@ class ToolStatusChecker:
             return ToolConnectionStatus.UNAVAILABLE
 
         # Check if user has active connection
-        connections = self.tool_connection_store.get_connections_by_tool_type(
+        connections = self.tool_registry.get_connections_by_tool_type(
             profile_id=profile_id,
             tool_type=tool_type
         )

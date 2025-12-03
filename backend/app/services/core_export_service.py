@@ -22,7 +22,7 @@ from backend.app.models.tool_connection import ToolConnectionTemplate
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook_store import PlaybookStore
 from backend.app.services.ai_role_store import AIRoleStore
-from backend.app.services.tool_connection_store import ToolConnectionStore
+from backend.app.services.tool_registry import ToolRegistryService
 
 
 class CoreExportService:
@@ -40,12 +40,14 @@ class CoreExportService:
         mindscape_store: Optional[MindscapeStore] = None,
         playbook_store: Optional[PlaybookStore] = None,
         ai_role_store: Optional[AIRoleStore] = None,
-        tool_connection_store: Optional[ToolConnectionStore] = None,
+        tool_registry: Optional[ToolRegistryService] = None,
     ):
         self.mindscape_store = mindscape_store or MindscapeStore()
         self.playbook_store = playbook_store or PlaybookStore()
         self.ai_role_store = ai_role_store or AIRoleStore()
-        self.tool_connection_store = tool_connection_store or ToolConnectionStore()
+        import os
+        data_dir = os.getenv("DATA_DIR", "./data")
+        self.tool_registry = tool_registry or ToolRegistryService(data_dir=data_dir)
 
     async def create_backup(self, request: BackupRequest) -> BackupConfiguration:
         """
@@ -63,7 +65,7 @@ class CoreExportService:
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
         playbooks = self.playbook_store.list_playbooks()
-        tool_connections = self.tool_connection_store.get_connections_by_profile(profile_id)
+        tool_connections = self.tool_registry.get_connections_by_profile(profile_id)
 
         # Create backup (including credentials if requested)
         backup = BackupConfiguration(
@@ -107,7 +109,7 @@ class CoreExportService:
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
         playbooks = self.playbook_store.list_playbooks()
-        tool_templates = self.tool_connection_store.export_as_templates(profile_id)
+        tool_templates_data = self.tool_registry.export_as_templates(profile_id)
 
         # Get confirmed habits (optional, can be excluded for privacy)
         confirmed_habits = []
@@ -168,7 +170,7 @@ class CoreExportService:
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
         playbooks = self.playbook_store.list_playbooks()
-        tool_connections = self.tool_connection_store.get_connections_by_profile(profile_id)
+        tool_connections = self.tool_registry.get_connections_by_profile(profile_id)
 
         return ExportPreview(
             mindscape_profile_included=profile is not None,
