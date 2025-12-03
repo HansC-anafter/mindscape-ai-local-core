@@ -1,16 +1,10 @@
 """
-統一工具調用接口
+Unified tool execution interface
 
-提供統一的工具調用接口，支援三種工具類型：
-- builtin: 內建工具
-- langchain: LangChain 工具
-- mcp: MCP 工具
-
-設計原則：
-- 統一接口：無論工具來源，調用方式一致
-- 錯誤處理：完整的錯誤處理和降級機制
-- 異步優先：所有調用都是異步
-- 日誌記錄：詳細的執行日誌
+Provides unified tool execution interface supporting three tool types:
+- builtin: Built-in tools
+- langchain: LangChain tools
+- mcp: MCP tools
 """
 
 from typing import Dict, Any, Optional, List
@@ -32,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 class ToolExecutionResult:
     """
-    工具執行結果
+    Tool execution result
 
-    統一的返回格式，包含執行狀態、結果、錯誤信息等。
+    Unified return format containing execution status, result, error information.
     """
 
     def __init__(
@@ -57,7 +51,7 @@ class ToolExecutionResult:
         self.timestamp = datetime.utcnow()
 
     def to_dict(self) -> Dict[str, Any]:
-        """轉換為字典"""
+        """Convert to dictionary"""
         return {
             "success": self.success,
             "tool_name": self.tool_name,
@@ -72,30 +66,9 @@ class ToolExecutionResult:
 
 class UnifiedToolExecutor:
     """
-    統一工具執行器
+    Unified tool executor
 
-    提供統一的工具調用接口，隱藏不同工具類型的差異。
-
-    Example:
-        >>> executor = UnifiedToolExecutor()
-        >>>
-        >>> # 執行內建工具
-        >>> result = await executor.execute_tool(
-        ...     "wordpress.list_posts",
-        ...     {"per_page": 10}
-        ... )
-        >>>
-        >>> # 執行 LangChain 工具
-        >>> result = await executor.execute_tool(
-        ...     "langchain.wikipedia",
-        ...     {"query": "Python programming"}
-        ... )
-        >>>
-        >>> # 執行 MCP 工具
-        >>> result = await executor.execute_tool(
-        ...     "mcp.github.search_issues",
-        ...     {"repo": "owner/repo", "query": "bug"}
-        ... )
+    Provides unified tool execution interface, hiding differences between tool types.
     """
 
     def __init__(
@@ -104,14 +77,25 @@ class UnifiedToolExecutor:
         tool_resolver: Optional[ToolDependencyResolver] = None
     ):
         """
-        初始化執行器
+        Initialize executor
 
         Args:
-            mcp_manager: MCP Server Manager（可選）
-            tool_resolver: 工具依賴解析器（可選）
+            mcp_manager: MCP Server Manager (optional)
+            tool_resolver: Tool dependency resolver (optional)
         """
-        self.mcp_manager = mcp_manager or MCPServerManager()
-        self.tool_resolver = tool_resolver or ToolDependencyResolver(self.mcp_manager)
+        if mcp_manager is None:
+            if MCPServerManager is not None:
+                self.mcp_manager = MCPServerManager()
+            else:
+                self.mcp_manager = None
+        else:
+            self.mcp_manager = mcp_manager
+
+        if tool_resolver is None:
+            self.tool_resolver = ToolDependencyResolver(self.mcp_manager)
+        else:
+            self.tool_resolver = tool_resolver
+
         self._execution_history: List[ToolExecutionResult] = []
 
     async def execute_tool(
@@ -121,36 +105,23 @@ class UnifiedToolExecutor:
         timeout: Optional[float] = 30.0
     ) -> ToolExecutionResult:
         """
-        執行工具（統一接口）
+        Execute tool (unified interface)
 
         Args:
-            tool_name: 工具名稱（支援多種格式）
-                - "wordpress" -> 內建工具
-                - "langchain.wikipedia" -> LangChain 工具
-                - "mcp.github.search_issues" -> MCP 工具
-            arguments: 工具參數
-            timeout: 超時時間（秒）
+            tool_name: Tool name (supports multiple formats)
+                - "wordpress" -> builtin tool
+                - "langchain.wikipedia" -> LangChain tool
+                - "mcp.github.search_issues" -> MCP tool
+            arguments: Tool arguments
+            timeout: Timeout in seconds
 
         Returns:
-            ToolExecutionResult: 執行結果
-
-        Example:
-            >>> result = await executor.execute_tool(
-            ...     "wikipedia",
-            ...     {"query": "Python"}
-            ... )
-            >>> if result.success:
-            ...     print(result.result)
-            ... else:
-            ...     print(result.error)
+            ToolExecutionResult: Execution result
         """
         start_time = datetime.utcnow()
 
         try:
-            # 解析工具類型
             tool_type, actual_tool_name = self._parse_tool_name(tool_name)
-
-            # 獲取工具實例
             tool = await self._get_tool(tool_type, actual_tool_name)
 
             if not tool:
@@ -158,11 +129,10 @@ class UnifiedToolExecutor:
                     success=False,
                     tool_name=tool_name,
                     tool_type=tool_type,
-                    error=f"工具 {tool_name} 不存在或未註冊"
+                    error=f"Tool {tool_name} not found or not registered"
                 )
 
-            # 執行工具
-            logger.info(f"執行工具: {tool_name}, 參數: {arguments}")
+            logger.info(f"Executing tool: {tool_name}, arguments: {arguments}")
             result = await tool.safe_execute(arguments)
 
             execution_time = (datetime.utcnow() - start_time).total_seconds()
@@ -179,12 +149,11 @@ class UnifiedToolExecutor:
                 }
             )
 
-            # 記錄歷史
             self._execution_history.append(execution_result)
 
             logger.info(
-                f"工具執行成功: {tool_name}, "
-                f"耗時: {execution_time:.2f}s"
+                f"Tool execution succeeded: {tool_name}, "
+                f"duration: {execution_time:.2f}s"
             )
 
             return execution_result
@@ -192,7 +161,7 @@ class UnifiedToolExecutor:
         except Exception as e:
             execution_time = (datetime.utcnow() - start_time).total_seconds()
 
-            error_msg = f"工具執行失敗: {str(e)}"
+            error_msg = f"Tool execution failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
 
             execution_result = ToolExecutionResult(
@@ -209,27 +178,19 @@ class UnifiedToolExecutor:
 
     def _parse_tool_name(self, tool_name: str) -> tuple[str, str]:
         """
-        解析工具名稱，確定工具類型
+        Parse tool name to determine tool type
 
         Args:
-            tool_name: 工具名稱
+            tool_name: Tool name
 
         Returns:
             (tool_type, actual_name)
-
-        Example:
-            >>> _parse_tool_name("langchain.wikipedia")
-            >>> ("langchain", "wikipedia")
-            >>>
-            >>> _parse_tool_name("wordpress")
-            >>> ("builtin", "wordpress")
         """
         if "." in tool_name:
             parts = tool_name.split(".", 1)
             if parts[0] in ["builtin", "langchain", "mcp"]:
                 return parts[0], parts[1]
 
-        # 默認為內建工具
         return "builtin", tool_name
 
     async def _get_tool(
@@ -238,50 +199,49 @@ class UnifiedToolExecutor:
         tool_name: str
     ) -> Optional[MindscapeTool]:
         """
-        獲取工具實例
+        Get tool instance
 
         Args:
-            tool_type: 工具類型（builtin/langchain/mcp）
-            tool_name: 工具名稱
+            tool_type: Tool type (builtin/langchain/mcp)
+            tool_name: Tool name
 
         Returns:
-            工具實例或 None
+            Tool instance or None
         """
         if tool_type == "builtin":
-            # 從 registry 獲取內建工具
             return get_mindscape_tool(tool_name)
 
         elif tool_type == "langchain":
-            # 獲取 LangChain 工具
             if not is_langchain_available():
-                logger.warning("LangChain 未安裝")
+                logger.warning("LangChain not installed")
                 return None
 
-            # 嘗試從 registry 獲取（已註冊的）
             full_name = f"langchain.{tool_name}"
             tool = get_mindscape_tool(full_name)
 
             if not tool:
-                logger.warning(f"LangChain 工具 {tool_name} 未註冊")
+                logger.warning(f"LangChain tool {tool_name} not registered")
 
             return tool
 
         elif tool_type == "mcp":
-            # 獲取 MCP 工具
             if not is_mcp_available():
-                logger.warning("MCP 依賴未安裝")
+                logger.warning("MCP dependencies not installed")
                 return None
 
-            # 從 MCP manager 獲取
+            if self.mcp_manager is None:
+                logger.warning("MCP Manager not initialized")
+                return None
+
             tool = self.mcp_manager.get_tool_by_name(tool_name)
 
             if not tool:
-                logger.warning(f"MCP 工具 {tool_name} 不存在")
+                logger.warning(f"MCP tool {tool_name} not found")
 
             return tool
 
         else:
-            logger.error(f"不支援的工具類型: {tool_type}")
+            logger.error(f"Unsupported tool type: {tool_type}")
             return None
 
     async def execute_tool_dependency(
@@ -291,42 +251,37 @@ class UnifiedToolExecutor:
         env_overrides: Optional[Dict[str, str]] = None
     ) -> ToolExecutionResult:
         """
-        執行工具依賴（從 Playbook 配置）
+        Execute tool dependency (from Playbook configuration)
 
-        自動處理：
-        - 環境變數替換
-        - 工具查找
-        - Fallback 機制
+        Automatically handles:
+        - Environment variable substitution
+        - Tool lookup
+        - Fallback mechanism
 
         Args:
-            tool_dep: 工具依賴聲明
-            arguments: 工具參數
-            env_overrides: 環境變數覆蓋
+            tool_dep: Tool dependency declaration
+            arguments: Tool arguments
+            env_overrides: Environment variable overrides
 
         Returns:
-            ToolExecutionResult: 執行結果
+            ToolExecutionResult: Execution result
         """
-        # 1. 替換環境變數
         tool_dep_resolved = tool_dep.copy(deep=True)
         tool_dep_resolved.config = self.tool_resolver.substitute_env_vars(
             tool_dep.config,
             env_overrides
         )
 
-        # 2. 檢查工具可用性
         check_result = await self.tool_resolver.check_tool_availability(
             tool_dep_resolved,
             env_overrides
         )
 
-        # 3. 如果工具不可用且有 fallback
         if not check_result["available"] and tool_dep.fallback:
             logger.warning(
-                f"工具 {tool_dep.name} 不可用，"
-                f"使用 fallback: {tool_dep.fallback}"
+                f"Tool {tool_dep.name} unavailable, "
+                f"using fallback: {tool_dep.fallback}"
             )
-
-            # 創建 fallback 工具依賴
             fallback_dep = ToolDependency(
                 type=tool_dep.type,
                 name=tool_dep.fallback,
@@ -340,7 +295,6 @@ class UnifiedToolExecutor:
                 env_overrides
             )
 
-        # 4. 執行工具
         if check_result["available"] and check_result["tool"]:
             tool = check_result["tool"]
 
@@ -370,12 +324,11 @@ class UnifiedToolExecutor:
                 )
 
         else:
-            # 工具不可用
             return ToolExecutionResult(
                 success=False,
                 tool_name=tool_dep.name,
                 tool_type=tool_dep.type,
-                error=check_result["error"] or "工具不可用"
+                error=check_result["error"] or "Tool unavailable"
             )
 
     def get_execution_history(
@@ -383,13 +336,13 @@ class UnifiedToolExecutor:
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        獲取執行歷史
+        Get execution history
 
         Args:
-            limit: 限制返回數量（最新的 N 條）
+            limit: Limit number of results (latest N records)
 
         Returns:
-            執行歷史列表
+            List of execution history records
         """
         history = self._execution_history
 
@@ -399,16 +352,16 @@ class UnifiedToolExecutor:
         return [result.to_dict() for result in history]
 
     def clear_history(self):
-        """清空執行歷史"""
+        """Clear execution history"""
         self._execution_history.clear()
-        logger.info("執行歷史已清空")
+        logger.info("Execution history cleared")
 
     def get_statistics(self) -> Dict[str, Any]:
         """
-        獲取執行統計
+        Get execution statistics
 
         Returns:
-            統計信息（成功率、平均執行時間等）
+            Statistics (success rate, average execution time, etc.)
         """
         if not self._execution_history:
             return {
@@ -441,7 +394,7 @@ class UnifiedToolExecutor:
         }
 
     def _get_tool_type_distribution(self) -> Dict[str, int]:
-        """獲取工具類型分布"""
+        """Get tool type distribution"""
         distribution = {}
 
         for result in self._execution_history:
