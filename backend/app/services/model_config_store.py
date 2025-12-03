@@ -117,7 +117,7 @@ class ModelConfigStore:
             query += " AND provider_name = ?"
             params.append(provider)
 
-        query += " ORDER BY provider_name, model_name"
+        query += " ORDER BY provider_name, model_type, is_latest DESC, model_name"
 
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -296,30 +296,33 @@ class ModelConfigStore:
             return
 
         for model_data in DEFAULT_CHAT_MODELS:
+            is_latest = model_data.get("is_latest", False)
             model = ModelConfig(
                 model_name=model_data["model_name"],
                 provider_name=model_data["provider"],
                 model_type=ModelType.CHAT,
                 display_name=model_data["model_name"],
                 description=model_data.get("description", ""),
-                enabled=True,
-                is_latest=model_data.get("is_latest", False),
+                enabled=is_latest,
+                is_latest=is_latest,
                 is_recommended=model_data.get("is_recommended", False),
                 is_deprecated=model_data.get("is_deprecated", False),
                 deprecation_date=model_data.get("deprecation_date"),
+                context_window=model_data.get("context_window"),
                 icon=None,
             )
             self.create_or_update_model(model)
 
         for model_data in DEFAULT_EMBEDDING_MODELS:
+            is_latest = model_data.get("is_latest", False)
             model = ModelConfig(
                 model_name=model_data["model_name"],
                 provider_name=model_data["provider"],
                 model_type=ModelType.EMBEDDING,
                 display_name=model_data["model_name"],
                 description=model_data.get("description", ""),
-                enabled=True,
-                is_latest=model_data.get("is_latest", False),
+                enabled=is_latest,
+                is_latest=is_latest,
                 is_recommended=model_data.get("is_recommended", False),
                 dimensions=model_data.get("dimensions"),
                 icon=None,

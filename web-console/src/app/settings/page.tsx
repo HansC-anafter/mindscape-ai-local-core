@@ -8,6 +8,7 @@ import { SettingsNavigation } from './components/SettingsNavigation';
 import { SettingsConfigAssistant } from './components/SettingsConfigAssistant';
 import { BasicSettingsPanel } from './components/BasicSettingsPanel';
 import { MindscapePanel } from './components/MindscapePanel';
+import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
 import { SocialMediaPanel } from './components/SocialMediaPanel';
 import { ToolsPanel } from './components/ToolsPanel';
 import { PacksPanel } from './components/PacksPanel';
@@ -108,12 +109,14 @@ export default function SettingsPage() {
       <Header />
 
       {/* Page Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-12 z-40">
+        <div className="w-full px-4 sm:px-6 lg:px-12 py-3 flex items-center gap-4">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex-shrink-0 min-w-0">
             {t('systemManagement')} <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">{t('systemManagementDescription')}</span>
           </h1>
+          <div id="settings-notifications" className="flex items-center gap-2 min-w-0 flex-shrink max-w-xs ml-auto"></div>
         </div>
+        <SettingsNotificationContainer />
       </div>
 
       {/* Mobile Navigation (only on small screens) */}
@@ -123,8 +126,6 @@ export default function SettingsPage() {
             { id: 'basic' as SettingsTab, label: t('basicSettings') },
             { id: 'mindscape' as SettingsTab, label: t('mindscapeConfiguration') },
             { id: 'social_media' as SettingsTab, label: t('socialMediaIntegration') },
-            { id: 'tools' as SettingsTab, label: t('toolsAndIntegrations') },
-            { id: 'packs' as SettingsTab, label: t('capabilityPacks') },
             { id: 'localization' as SettingsTab, label: t('localization') },
             { id: 'service_status' as SettingsTab, label: t('serviceStatus') },
           ].map((tab) => (
@@ -133,7 +134,7 @@ export default function SettingsPage() {
               onClick={() => handleNavigate(tab.id)}
               className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md ${
                 activeTab === tab.id
-                  ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >
@@ -145,29 +146,31 @@ export default function SettingsPage() {
 
       {/* Three Column Layout */}
       <main className="w-full">
-        <div className="grid grid-cols-12 gap-0">
+        <div className="grid grid-cols-12">
           {/* Left Column: Navigation (Desktop only) - col-span-2 (16.67%) */}
           <div className="hidden lg:block col-span-2">
-            <SettingsNavigation
-              activeTab={activeTab}
-              activeSection={activeSection}
-              activeProvider={activeProvider}
-              activeModel={activeModel}
-              activeService={activeService}
-              onNavigate={handleNavigate}
-            />
+            <div className="bg-white dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col sticky top-[calc(3rem+3rem)] z-30 border-r border-gray-200 dark:border-gray-700">
+              <SettingsNavigation
+                activeTab={activeTab}
+                activeSection={activeSection}
+                activeProvider={activeProvider}
+                activeModel={activeModel}
+                activeService={activeService}
+                onNavigate={handleNavigate}
+              />
+            </div>
           </div>
 
           {/* Middle Column: Content - col-span-7 (58.33%) */}
-          <div className="col-span-12 lg:col-span-7">
-            <div className="min-h-[calc(100vh-8rem)] lg:h-[calc(100vh-8rem)] overflow-y-auto p-4">
+          <div className="col-span-12 lg:col-span-7 flex flex-col">
+            <div className="flex-1 overflow-y-auto min-h-[calc(100vh-8rem)] p-4">
               {renderContent()}
             </div>
           </div>
 
           {/* Right Column: Assistant (Desktop only) - col-span-3 (25%) */}
           <div className="hidden lg:block col-span-3">
-            <div className="bg-white dark:bg-gray-800 shadow h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-0">
+            <div className="bg-white dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-[calc(3rem+3rem)] z-30 border-l border-gray-200 dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
                 {t('configAssistant')}
               </h3>

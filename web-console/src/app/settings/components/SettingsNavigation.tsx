@@ -92,50 +92,6 @@ const navigationItems: NavigationItem[] = [
     tab: 'mindscape',
   },
   {
-    id: 'social_media',
-    label: 'socialMediaIntegration',
-    icon: '📱',
-    tab: 'social_media',
-    children: [
-      {
-        id: 'twitter',
-        label: 'twitterIntegration',
-        tab: 'social_media',
-        provider: 'twitter',
-      },
-      {
-        id: 'facebook',
-        label: 'facebookIntegration',
-        tab: 'social_media',
-        provider: 'facebook',
-      },
-      {
-        id: 'instagram',
-        label: 'instagramIntegration',
-        tab: 'social_media',
-        provider: 'instagram',
-      },
-      {
-        id: 'linkedin',
-        label: 'linkedinIntegration',
-        tab: 'social_media',
-        provider: 'linkedin',
-      },
-      {
-        id: 'youtube',
-        label: 'youtubeIntegration',
-        tab: 'social_media',
-        provider: 'youtube',
-      },
-      {
-        id: 'line',
-        label: 'lineIntegration',
-        tab: 'social_media',
-        provider: 'line',
-      },
-    ],
-  },
-  {
     id: 'tools',
     label: 'toolsAndIntegrations',
     icon: '🔧',
@@ -242,22 +198,46 @@ const navigationItems: NavigationItem[] = [
     ],
   },
   {
-    id: 'packs',
-    label: 'capabilityPacks',
-    icon: '📦',
-    tab: 'packs',
+    id: 'social_media',
+    label: 'socialMediaIntegration',
+    icon: '📱',
+    tab: 'social_media',
     children: [
       {
-        id: 'capability-suites',
-        label: 'capabilitySuites',
-        tab: 'packs',
-        section: 'suites',
+        id: 'twitter',
+        label: 'twitterIntegration',
+        tab: 'social_media',
+        provider: 'twitter',
       },
       {
-        id: 'capability-packages',
-        label: 'capabilityPackages',
-        tab: 'packs',
-        section: 'packages',
+        id: 'facebook',
+        label: 'facebookIntegration',
+        tab: 'social_media',
+        provider: 'facebook',
+      },
+      {
+        id: 'instagram',
+        label: 'instagramIntegration',
+        tab: 'social_media',
+        provider: 'instagram',
+      },
+      {
+        id: 'linkedin',
+        label: 'linkedinIntegration',
+        tab: 'social_media',
+        provider: 'linkedin',
+      },
+      {
+        id: 'youtube',
+        label: 'youtubeIntegration',
+        tab: 'social_media',
+        provider: 'youtube',
+      },
+      {
+        id: 'line',
+        label: 'lineIntegration',
+        tab: 'social_media',
+        provider: 'line',
       },
     ],
   },
@@ -314,12 +294,8 @@ export function SettingsNavigation({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 shadow h-[calc(100vh-8rem)] overflow-y-auto p-2 sticky top-0">
-      <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2 px-2">
-        {t('systemManagement')}
-      </h3>
-
-      <nav className="space-y-1">
+    <div className="flex flex-col h-full overflow-hidden">
+      <nav className="space-y-1 flex-1 overflow-y-auto min-h-0 px-2 pt-2">
         {navigationItems.map((item) => {
           const isActive = activeTab === item.tab && !activeSection;
           const hasChildren = item.children && item.children.length > 0;
@@ -330,8 +306,10 @@ export function SettingsNavigation({
               <button
                 onClick={() => {
                   if (hasChildren) {
-                    // Expand/collapse on click
-                    toggleExpand(item.id);
+                    // If not expanded, expand first
+                    if (!isExpanded) {
+                      toggleExpand(item.id);
+                    }
                     // For social_media, navigate to overview (parent level)
                     if (item.tab === 'social_media') {
                       onNavigate(item.tab);
@@ -348,7 +326,7 @@ export function SettingsNavigation({
                 }}
                 className={`w-full text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center justify-between ${
                   isActive
-                    ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-l-4 border-purple-500 dark:border-purple-400'
+                    ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-l-4 border-purple-500 dark:border-purple-500'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
               >

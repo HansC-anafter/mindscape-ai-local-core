@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { t } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
-import { InlineAlert } from '../InlineAlert';
 import { ModelConfigCard } from './ModelConfigCard';
+import { showNotification } from '../../hooks/useSettingsNotification';
 
 interface ModelItem {
   id: string | number;
@@ -37,8 +37,8 @@ export function ModelsAndQuotaPanel() {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [configCard, setConfigCard] = useState<ModelConfigCardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadAllModels();
@@ -52,10 +52,15 @@ export function ModelsAndQuotaPanel() {
     }
   }, [selectedModel]);
 
+  const handleConfigSaved = () => {
+    if (selectedModel) {
+      loadModelConfig(selectedModel);
+    }
+  };
+
   const loadAllModels = async () => {
     try {
       setLoading(true);
-      setError(null);
 
       const data = await settingsApi.get<Array<{
         id: number;
@@ -90,7 +95,7 @@ export function ModelsAndQuotaPanel() {
 
       setModels(models);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load models');
+      showNotification('error', err instanceof Error ? err.message : 'Failed to load models');
     } finally {
       setLoading(false);
     }
@@ -115,7 +120,6 @@ export function ModelsAndQuotaPanel() {
 
   const toggleModel = async (modelId: string, enabled: boolean) => {
     try {
-      setError(null);
 
       const updatedModel = await settingsApi.put<ModelItem>(
         `/api/v1/system-settings/models/${modelId}/enable`,
@@ -136,49 +140,81 @@ export function ModelsAndQuotaPanel() {
         setConfigCard(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to toggle model');
+      showNotification('error', err instanceof Error ? err.message : 'Failed to toggle model');
       setModels(prev => prev.map(m =>
         m.id === modelId ? { ...m, enabled: !enabled } : m
       ));
     }
   };
 
-  const filteredModels = models.filter(model =>
-    model.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    model.provider.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    model.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const providers = Array.from(new Set(models.map(m => m.provider))).sort();
+
+  const filteredModels = models.filter(model => {
+    const matchesSearch = !searchQuery ||
+      model.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      model.provider.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      model.description.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesProvider = !selectedProvider || model.provider === selectedProvider;
+
+    return matchesSearch && matchesProvider;
+  });
 
   if (loading) {
     return <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>;
   }
 
   return (
-    <div className="space-y-4">
-      {error && <InlineAlert type="error" message={error} onDismiss={() => setError(null)} />}
-
-      <div>
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-          {t('modelsAndQuota')}
-        </h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          {t('modelsAndQuotaDescription')}
-        </p>
+    <div className="flex flex-col min-h-full">
+      <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+              {t('modelsAndQuota')}
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t('modelsAndQuotaDescription')}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setSelectedProvider(null)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${
+                selectedProvider === null
+                  ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-300 dark:hover:bg-gray-600'
+              }`}
+            >
+              {t('allProviders') || 'All'}
+            </button>
+            {providers.map((provider) => (
+              <button
+                key={provider}
+                onClick={() => setSelectedProvider(provider)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${
+                  selectedProvider === provider
+                    ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                {provider}
+              </button>
+            ))}
+          </div>
+        </div>
+        <input
+          type="text"
+          placeholder={t('searchModels') || 'Search models'}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+        />
       </div>
 
-      <div className="grid grid-cols-12 gap-4 h-[calc(100vh-16rem)]">
-        <div className="col-span-5 border-r border-gray-200 dark:border-gray-700 pr-4">
-          <div className="mb-4">
-            <input
-              type="text"
-              placeholder={t('searchModels') || 'Search models'}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            />
-          </div>
+      <div className="grid grid-cols-12 gap-4 flex-1 min-h-0">
+        <div className="col-span-5 border-r border-gray-200 dark:border-gray-700 pr-4 flex flex-col">
 
-          <div className="space-y-2 max-h-[calc(100vh-20rem)] overflow-y-auto">
+          <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
             {filteredModels.map((model) => (
               <div
                 key={model.id}
@@ -213,7 +249,7 @@ export function ModelsAndQuotaPanel() {
                       }}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+                    <div className="w-11 h-6 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 dark:after:border-gray-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gray-500 dark:peer-checked:bg-gray-500"></div>
                   </label>
                 </div>
               </div>
@@ -221,11 +257,13 @@ export function ModelsAndQuotaPanel() {
           </div>
         </div>
 
-        <div className="col-span-7 pl-4">
+        <div className="col-span-7 pl-4 flex flex-col min-h-0">
           {configCard ? (
-            <ModelConfigCard card={configCard} />
+            <div className="flex-1 overflow-y-auto">
+              <ModelConfigCard card={configCard} onConfigSaved={handleConfigSaved} />
+            </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
+            <div className="flex items-center justify-center flex-1 text-gray-400 dark:text-gray-500">
               {selectedModel && !selectedModel.enabled
                 ? t('enableModelToConfigure') || 'Please enable the model to view configuration'
                 : t('selectModelToConfigure') || 'Select an enabled model to view configuration'}
