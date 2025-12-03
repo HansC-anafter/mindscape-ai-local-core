@@ -69,7 +69,7 @@ export default function PlaybooksPage() {
         const tags = selectedTags.join(',');
         // Use locale from useLocale hook to determine target_language
         // This ensures we get the actual user-selected language
-        const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
+        const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
         const url = `${apiUrl}/api/v1/playbooks?tags=${tags}&target_language=${targetLanguage}&profile_id=default-user`;
 
         const response = await fetch(url);
@@ -322,12 +322,12 @@ export default function PlaybooksPage() {
 
                       {/* Title */}
                       <h3 className="font-semibold text-lg mb-2 min-h-[3rem] text-gray-900 dark:text-gray-100">
-                        {getPlaybookMetadata(playbook.playbook_code, 'name', locale as 'zh-TW' | 'en') || playbook.name}
+                        {getPlaybookMetadata(playbook.playbook_code, 'name', locale as 'zh-TW' | 'en' | 'ja') || playbook.name}
                       </h3>
 
                       {/* Description */}
                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2 flex-grow">
-                        {getPlaybookMetadata(playbook.playbook_code, 'description', locale as 'zh-TW' | 'en') || playbook.description}
+                        {getPlaybookMetadata(playbook.playbook_code, 'description', locale as 'zh-TW' | 'en' | 'ja') || playbook.description}
                       </p>
 
                       {/* Tags row */}

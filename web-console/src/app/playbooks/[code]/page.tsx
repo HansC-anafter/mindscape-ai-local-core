@@ -142,7 +142,7 @@ export default function PlaybookDetailPage() {
   const loadPlaybookList = async () => {
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-      const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
+      const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
       const response = await fetch(
         `${apiUrl}/api/v1/playbooks?target_language=${targetLanguage}&profile_id=default-user`,
         { headers: { 'Content-Type': 'application/json' } }
@@ -151,8 +151,8 @@ export default function PlaybookDetailPage() {
         const data = await response.json();
         setPlaybookList(data.map((p: any) => ({
           playbook_code: p.playbook_code,
-          name: getPlaybookMetadata(p.playbook_code, 'name', targetLanguage as 'zh-TW' | 'en') || p.name,
-          description: getPlaybookMetadata(p.playbook_code, 'description', targetLanguage as 'zh-TW' | 'en') || p.description,
+          name: getPlaybookMetadata(p.playbook_code, 'name', targetLanguage as 'zh-TW' | 'en' | 'ja') || p.name,
+          description: getPlaybookMetadata(p.playbook_code, 'description', targetLanguage as 'zh-TW' | 'en' | 'ja') || p.description,
           icon: p.icon
         })));
       }
@@ -167,7 +167,7 @@ export default function PlaybookDetailPage() {
         setLoading(true);
       }
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-      const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
+      const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
 
       const response = await fetch(
         `${apiUrl}/api/v1/playbooks/${playbookCode}?profile_id=default-user&target_language=${targetLanguage}`,
@@ -206,7 +206,7 @@ export default function PlaybookDetailPage() {
   const loadPlaybookStatus = async () => {
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-      const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
+      const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
 
       const response = await fetch(
         `${apiUrl}/api/v1/playbooks/${playbookCode}?profile_id=default-user&target_language=${targetLanguage}`,
@@ -354,7 +354,7 @@ export default function PlaybookDetailPage() {
 
     try {
       const playbookName = playbook.metadata.name;
-      const targetLanguage = locale === 'en' ? 'en' : 'zh-TW';
+      const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
 
       const createResponse = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}`,
@@ -453,8 +453,8 @@ export default function PlaybookDetailPage() {
     );
   }
 
-  const playbookName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en') || playbook.metadata.name;
-  const playbookDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en') || playbook.metadata.description;
+  const playbookName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.name;
+  const playbookDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.description;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950" style={{ scrollBehavior: 'auto' }}>

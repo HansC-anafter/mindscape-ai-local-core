@@ -170,9 +170,9 @@ export default function PlaybookInfo({
   };
 
   // Get localized metadata with fallback to original
-  const localizedName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en') || playbook.metadata.name;
-  const localizedDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en') || playbook.metadata.description;
-  const localizedTags = (getPlaybookMetadata(playbookCode, 'tags', locale as 'zh-TW' | 'en') as string[] | undefined) || playbook.metadata.tags;
+  const localizedName = getPlaybookMetadata(playbookCode, 'name', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.name;
+  const localizedDescription = getPlaybookMetadata(playbookCode, 'description', locale as 'zh-TW' | 'en' | 'ja') || playbook.metadata.description;
+  const localizedTags = (getPlaybookMetadata(playbookCode, 'tags', locale as 'zh-TW' | 'en' | 'ja') as string[] | undefined) || playbook.metadata.tags;
 
   return (
     <div className="lg:col-span-2 bg-white shadow rounded-lg p-6">
