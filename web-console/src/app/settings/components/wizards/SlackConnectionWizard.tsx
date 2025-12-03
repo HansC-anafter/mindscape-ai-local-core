@@ -72,7 +72,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
       );
 
       setSuccess(
-        `${t('slackConnectionSuccess') || 'Slack connected successfully'}! ${discoverResult.tools_count || 0} ${t('toolsCount') || 'tools'} discovered.`
+        `${t('slackConnectionSuccess')}! ${discoverResult.tools_count || 0} ${t('toolsCount')} discovered.`
       );
       setTimeout(() => {
         onSuccess();
@@ -87,7 +87,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
   const renderStep1 = () => (
     <div>
       <h4 className="text-sm font-medium text-gray-700 mb-3">
-        {t('selectSlackAuthMethod') || 'Select Authentication Method'}
+        {t('selectSlackAuthMethod')}
       </h4>
       <div className="space-y-3">
         <button
@@ -99,7 +99,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
         >
           <div className="font-medium text-gray-900">OAuth 2.0 (Recommended)</div>
           <div className="text-xs text-gray-500 mt-1">
-            {t('slackOAuthDescription') || 'Secure OAuth authentication via Slack App'}
+            {t('slackOAuthDescription')}
           </div>
         </button>
         <button
@@ -111,7 +111,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
         >
           <div className="font-medium text-gray-900">Access Token</div>
           <div className="text-xs text-gray-500 mt-1">
-            {t('slackTokenDescription') || 'Direct access token authentication (bot token xoxb- or user token xoxp-)'}
+            {t('slackTokenDescription')}
           </div>
         </button>
       </div>
@@ -124,7 +124,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('connectionName') || 'Connection Name'}
+              {t('connectionName')}
             </label>
             <input
               type="text"
@@ -137,7 +137,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('slackClientID') || 'Slack Client ID (Optional)'}
+              {t('slackClientID')}
             </label>
             <input
               type="text"
@@ -147,13 +147,13 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
               placeholder="From Slack App settings"
             />
             <p className="text-xs text-gray-500 mt-1">
-              {t('slackClientIDDescription') || 'Get this from your Slack App settings (api.slack.com/apps). If not provided, will use SLACK_CLIENT_ID from environment.'}
+              {t('slackClientIDDescription')}
             </p>
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
             <p className="text-sm text-blue-800">
-              {t('slackOAuthFlowNote') || 'After clicking "Connect", you will be redirected to Slack to authorize the connection.'}
+              {t('slackOAuthFlowNote')}
             </p>
           </div>
         </div>
@@ -163,7 +163,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('connectionName') || 'Connection Name'}
+              {t('connectionName')}
             </label>
             <input
               type="text"
@@ -176,7 +176,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('slackAccessToken') || 'Slack Access Token'}
+              {t('slackAccessToken')}
             </label>
             <input
               type="password"
@@ -186,7 +186,7 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
               placeholder="xoxb-... or xoxp-..."
             />
             <p className="text-xs text-gray-500 mt-1">
-              {t('slackAccessTokenDescription') || 'Bot token (xoxb-) or user token (xoxp-). Get from api.slack.com/apps'}
+              {t('slackAccessTokenDescription')}
             </p>
           </div>
         </div>
@@ -208,17 +208,17 @@ export function SlackConnectionWizard({ onClose, onSuccess }: SlackConnectionWiz
         className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
       >
         {connecting
-          ? t('connecting') || 'Connecting...'
+          ? t('connecting')
           : step === 1
-          ? t('next') || 'Next'
-          : t('connect') || 'Connect'}
+          ? t('next')
+          : t('connect')}
       </button>
     </>
   );
 
   return (
     <WizardShell
-      title={t('connectSlack') || 'Connect Slack'}
+      title={t('connectSlack')}
       onClose={onClose}
       error={error}
       success={success}

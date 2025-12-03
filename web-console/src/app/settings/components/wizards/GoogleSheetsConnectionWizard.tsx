@@ -55,9 +55,9 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
         }
       );
 
-      const reusedMsg = result.oauth_reused ? ` (${t('reusedGoogleDriveOAuth') || 'reused Google Drive OAuth'})` : '';
+      const reusedMsg = result.oauth_reused ? ` (${t('reusedGoogleDriveOAuth')})` : '';
       setSuccess(
-        `${t('googleSheetsConnectionSuccess') || 'Google Sheets connected successfully'}! ${result.tools_count || 0} ${t('toolsCount') || 'tools'} discovered.${reusedMsg}`
+        `${t('googleSheetsConnectionSuccess')}! ${result.tools_count || 0} ${t('toolsCount')} discovered.${reusedMsg}`
       );
       setTimeout(() => {
         onSuccess();
@@ -88,7 +88,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
           onClick={handleOAuth}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
         >
-          {t('connectViaOAuth') || 'Connect via OAuth'}
+          {t('connectViaOAuth')}
         </button>
       )}
       <button
@@ -103,7 +103,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
 
   return (
     <WizardShell
-      title={t('connectGoogleSheets') || 'Connect Google Sheets'}
+      title={t('connectGoogleSheets')}
       onClose={onClose}
       error={error}
       success={success}
@@ -152,11 +152,11 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
               className="mr-2"
             />
             <span className="text-sm text-blue-800">
-              {t('reuseGoogleDriveOAuth') || 'Reuse Google Drive OAuth (recommended)'}
+              {t('reuseGoogleDriveOAuth')}
             </span>
           </label>
           <p className="text-xs text-blue-600 mt-1">
-            {t('reuseGoogleDriveOAuthDescription') || 'Use existing Google Drive OAuth token for Google Sheets access'}
+            {t('reuseGoogleDriveOAuthDescription')}
           </p>
         </div>
       )}
@@ -164,7 +164,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
       {!reuseGoogleDrive && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            {t('googleSheetsAccessToken') || 'Access Token (Optional)'}
+            {t('googleSheetsAccessToken')}
           </label>
           <input
             type="password"
@@ -174,7 +174,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
             placeholder="ya29..."
           />
           <p className="text-xs text-gray-500 mt-1">
-            {t('googleSheetsTokenDescription') || 'Google OAuth access token. Leave empty to use OAuth flow or reuse Google Drive OAuth.'}
+            {t('googleSheetsTokenDescription')}
           </p>
         </div>
       )}
@@ -182,7 +182,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
       {!reuseGoogleDrive && !form.api_key && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
           <p className="text-sm text-yellow-800">
-            {t('googleSheetsOAuthNote') || 'Click "Connect via OAuth" to authenticate with Google, or provide an access token above.'}
+            {t('googleSheetsOAuthNote')}
           </p>
         </div>
       )}

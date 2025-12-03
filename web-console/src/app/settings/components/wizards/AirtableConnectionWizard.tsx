@@ -35,7 +35,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
       );
 
       setSuccess(
-        `${t('airtableConnectionSuccess') || 'Airtable connected successfully'}! ${result.tools_count || 0} ${t('toolsCount') || 'tools'} discovered.`
+        `${t('airtableConnectionSuccess')}! ${result.tools_count || 0} ${t('toolsCount')} discovered.`
       );
       setTimeout(() => {
         onSuccess();
@@ -68,7 +68,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
 
   return (
     <WizardShell
-      title={t('connectAirtable') || 'Connect Airtable'}
+      title={t('connectAirtable')}
       onClose={onClose}
       error={error}
       success={success}
@@ -104,7 +104,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          {t('airtablePersonalAccessToken') || 'Personal Access Token'}
+          {t('airtablePersonalAccessToken')}
         </label>
         <input
           type="password"
@@ -114,7 +114,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
           placeholder="pat..."
         />
         <p className="text-xs text-gray-500 mt-1">
-          {t('airtableTokenDescription') || 'Create a Personal Access Token at airtable.com/developers/web/guides/personal-access-tokens'}
+          {t('airtableTokenDescription')}
         </p>
       </div>
     </WizardShell>

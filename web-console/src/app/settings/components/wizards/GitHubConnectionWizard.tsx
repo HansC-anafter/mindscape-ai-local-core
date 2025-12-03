@@ -72,7 +72,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
       );
 
       setSuccess(
-        `${t('githubConnectionSuccess') || 'GitHub connected successfully'}! ${discoverResult.tools_count || 0} ${t('toolsCount') || 'tools'} discovered.`
+        `${t('githubConnectionSuccess')}! ${discoverResult.tools_count || 0} ${t('toolsCount')} discovered.`
       );
       setTimeout(() => {
         onSuccess();
@@ -87,7 +87,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
   const renderStep1 = () => (
     <div>
       <h4 className="text-sm font-medium text-gray-700 mb-3">
-        {t('selectGitHubAuthMethod') || 'Select Authentication Method'}
+        {t('selectGitHubAuthMethod')}
       </h4>
       <div className="space-y-3">
         <button
@@ -99,7 +99,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
         >
           <div className="font-medium text-gray-900">OAuth 2.0 (Recommended)</div>
           <div className="text-xs text-gray-500 mt-1">
-            {t('githubOAuthDescription') || 'Secure OAuth authentication via GitHub App'}
+            {t('githubOAuthDescription')}
           </div>
         </button>
         <button
@@ -111,7 +111,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
         >
           <div className="font-medium text-gray-900">Personal Access Token</div>
           <div className="text-xs text-gray-500 mt-1">
-            {t('githubTokenDescription') || 'Direct Personal Access Token authentication (ghp_...)'}
+            {t('githubTokenDescription')}
           </div>
         </button>
       </div>
@@ -137,7 +137,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('githubClientID') || 'GitHub Client ID (Optional)'}
+              {t('githubClientID')}
             </label>
             <input
               type="text"
@@ -147,13 +147,13 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
               placeholder="From GitHub App settings"
             />
             <p className="text-xs text-gray-500 mt-1">
-              {t('githubClientIDDescription') || 'Get this from your GitHub App settings (github.com/settings/developers). If not provided, will use GITHUB_CLIENT_ID from environment.'}
+              {t('githubClientIDDescription')}
             </p>
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
             <p className="text-sm text-blue-800">
-              {t('githubOAuthFlowNote') || 'After clicking "Connect", you will be redirected to GitHub to authorize the connection.'}
+              {t('githubOAuthFlowNote')}
             </p>
           </div>
         </div>
@@ -176,7 +176,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('githubPersonalAccessToken') || 'Personal Access Token'}
+              {t('githubPersonalAccessToken')}
             </label>
             <input
               type="password"
@@ -186,7 +186,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
               placeholder="ghp_..."
             />
             <p className="text-xs text-gray-500 mt-1">
-              {t('githubTokenDescription') || 'Create a Personal Access Token at github.com/settings/tokens'}
+              {t('githubTokenDescriptionFull')}
             </p>
           </div>
         </div>
@@ -208,17 +208,17 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
         className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
       >
         {connecting
-          ? t('connecting') || 'Connecting...'
+          ? t('connecting')
           : step === 1
-          ? t('next') || 'Next'
-          : t('connect') || 'Connect'}
+          ? t('next')
+          : t('connect')}
       </button>
     </>
   );
 
   return (
     <WizardShell
-      title={t('connectGitHub') || 'Connect GitHub'}
+      title={t('connectGitHub')}
       onClose={onClose}
       error={error}
       success={success}
