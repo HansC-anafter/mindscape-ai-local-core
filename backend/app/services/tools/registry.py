@@ -35,6 +35,10 @@ from backend.app.services.tools.google_sheets.google_sheets_tools import (
     create_google_sheets_tools,
     get_google_sheets_tool_by_name
 )
+from backend.app.services.tools.github.github_tools import (
+    create_github_tools,
+    get_github_tool_by_name
+)
 
 # Tool priority classification
 CORE_TOOLS = ["wordpress"]  # Core tools, must be fully implemented
@@ -312,6 +316,39 @@ def register_google_sheets_tools(connection: ToolConnection) -> List[MindscapeTo
         raise ValueError("Google Sheets access token is required (oauth_token or api_key)")
 
     tools = create_google_sheets_tools(access_token)
+
+    for tool in tools:
+        tool_id = f"{connection.id}.{tool.metadata.name}"
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
+def register_github_tools(connection: ToolConnection) -> List[MindscapeTool]:
+    """
+    Register all GitHub tools
+
+    Args:
+        connection: GitHub connection configuration
+
+    Returns:
+        List of registered tools
+
+    Example:
+        >>> github_conn = ToolConnection(
+        ...     id="my-github",
+        ...     tool_type="github",
+        ...     api_key="ghp_...",
+        ...     oauth_token="gho_..."
+        ... )
+        >>> tools = register_github_tools(github_conn)
+        >>> print(f"Registered {len(tools)} tools")
+    """
+    access_token = connection.oauth_token or connection.api_key
+    if not access_token:
+        raise ValueError("GitHub access token is required (oauth_token or api_key)")
+
+    tools = create_github_tools(access_token)
 
     for tool in tools:
         tool_id = f"{connection.id}.{tool.metadata.name}"

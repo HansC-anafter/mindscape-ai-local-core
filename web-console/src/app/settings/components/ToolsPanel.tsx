@@ -13,6 +13,7 @@ import { GoogleDriveConnectionWizard } from './wizards/GoogleDriveConnectionWiza
 import { SlackConnectionWizard } from './wizards/SlackConnectionWizard';
 import { AirtableConnectionWizard } from './wizards/AirtableConnectionWizard';
 import { GoogleSheetsConnectionWizard } from './wizards/GoogleSheetsConnectionWizard';
+import { GitHubConnectionWizard } from './wizards/GitHubConnectionWizard';
 import { VectorDBConnectionWizard } from './wizards/VectorDBConnectionWizard';
 import { LocalFilesystemManager } from './wizards/LocalFilesystemManager';
 import { ObsidianConfigWizard } from './wizards/ObsidianConfigWizard';
@@ -101,6 +102,12 @@ const EXTERNAL_SAAS_TOOLS: Array<{
     name: 'Google Sheets',
     description: 'Connect to Google Sheets for spreadsheet management, read/write ranges, and data operations',
     icon: '📈',
+  },
+  {
+    toolType: 'github',
+    name: 'GitHub',
+    description: 'Connect to GitHub for code management, repositories, issues, and pull requests',
+    icon: '💻',
   },
 ];
 
@@ -339,6 +346,13 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
         <GoogleSheetsConnectionWizard
           onClose={() => setSelectedTool(null)}
           onSuccess={() => handleWizardSuccess('google_sheets')}
+        />
+      )}
+
+      {selectedTool === 'github' && (
+        <GitHubConnectionWizard
+          onClose={() => setSelectedTool(null)}
+          onSuccess={() => handleWizardSuccess('github')}
         />
       )}
 

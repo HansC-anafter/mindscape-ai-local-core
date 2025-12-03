@@ -29,6 +29,7 @@ from .providers import mcp
 from .providers import slack
 from .providers import airtable
 from .providers import google_sheets
+from .providers import github
 
 # Create main router
 router = APIRouter()
@@ -63,3 +64,4 @@ router.include_router(mcp.router)
 router.include_router(slack.router)
 router.include_router(airtable.router)
 router.include_router(google_sheets.router)
+router.include_router(github.router)

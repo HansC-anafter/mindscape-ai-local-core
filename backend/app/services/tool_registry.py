@@ -492,6 +492,13 @@ class ToolRegistryService:
         except ImportError:
             logger.warning("Google Sheets provider not available")
 
+        # Register GitHub Provider (Core built-in)
+        try:
+            from backend.app.services.tools.providers.github_provider import GitHubDiscoveryProvider
+            self.register_discovery_provider(GitHubDiscoveryProvider())
+        except ImportError:
+            logger.warning("GitHub provider not available")
+
         # Register Twitter Provider (Core built-in)
         try:
             from backend.app.services.tools.providers.twitter_provider import TwitterDiscoveryProvider
