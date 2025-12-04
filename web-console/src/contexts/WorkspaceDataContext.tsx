@@ -157,16 +157,10 @@ export function WorkspaceDataProvider({
   const loadingTasksRef = useRef(false);
   const loadingExecutionsRef = useRef(false);
   const mountedRef = useRef(true);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load workspace data
   const loadWorkspace = useCallback(async () => {
     if (loadingWorkspaceRef.current || !mountedRef.current) return;
-
-    // Ensure AbortController exists before making request
-    if (!abortControllerRef.current) {
-      abortControllerRef.current = new AbortController();
-    }
 
     loadingWorkspaceRef.current = true;
     setIsLoadingWorkspace(true);
@@ -174,8 +168,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}`,
-        { signal: abortControllerRef.current.signal }
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}`
       );
 
       if (!response.ok) {
@@ -199,31 +192,11 @@ export function WorkspaceDataProvider({
         }
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        // AbortError is expected in React Strict Mode - retry after a short delay
-        console.log('[WorkspaceDataContext] Workspace load aborted (likely React Strict Mode), will retry');
-        // Reset ref to allow retry
-        loadingWorkspaceRef.current = false;
-        // Retry after a short delay if still mounted
-        // Use a ref to store the retry function to avoid dependency issues
-        if (mountedRef.current) {
-          // Create a new AbortController for retry immediately
-          abortControllerRef.current = new AbortController();
-          setTimeout(() => {
-            if (mountedRef.current && !loadingWorkspaceRef.current) {
-              loadWorkspace();
-            }
-          }, 200); // Increased delay to 200ms for more stability
-        }
-        return; // Exit early, don't execute finally block
-      } else {
-        // Other errors - set error state
-        if (mountedRef.current) {
-          console.error('[WorkspaceDataContext] Failed to load workspace:', err);
-          setError(err.message || 'Failed to load workspace');
-          setWorkspace(null);
-          setIsLoadingWorkspace(false);
-        }
+      if (mountedRef.current) {
+        console.error('[WorkspaceDataContext] Failed to load workspace:', err);
+        setError(err.message || 'Failed to load workspace');
+        setWorkspace(null);
+        setIsLoadingWorkspace(false);
       }
     } finally {
       loadingWorkspaceRef.current = false;
@@ -239,8 +212,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`,
-        { signal: abortControllerRef.current?.signal }
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`
       );
 
       if (!response.ok) {
@@ -276,8 +248,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`,
-        { signal: abortControllerRef.current?.signal }
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`
       );
 
       if (!response.ok) {
@@ -306,8 +277,7 @@ export function WorkspaceDataProvider({
 
     try {
       const response = await fetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/health`,
-        { signal: abortControllerRef.current?.signal }
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/health`
       );
 
       if (!response.ok) return;
@@ -378,31 +348,38 @@ export function WorkspaceDataProvider({
   // Initial load
   useEffect(() => {
     mountedRef.current = true;
-    // Create new AbortController for this effect run
-    abortControllerRef.current = new AbortController();
+    loadingWorkspaceRef.current = false;
+    loadingTasksRef.current = false;
+    loadingExecutionsRef.current = false;
 
-    // Load data sequentially to avoid rate limiting
     const loadData = async () => {
-      await loadWorkspace();
-      await new Promise(resolve => setTimeout(resolve, 100));
-      await loadTasks();
-      await new Promise(resolve => setTimeout(resolve, 100));
-      await loadExecutions();
-      await loadSystemStatus();
+      loadingWorkspaceRef.current = false;
+      loadingTasksRef.current = false;
+      loadingExecutionsRef.current = false;
+
+      if (mountedRef.current) {
+        await loadWorkspace();
+      }
+      if (mountedRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await loadTasks();
+      }
+      if (mountedRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await loadExecutions();
+      }
+      if (mountedRef.current) {
+        await loadSystemStatus();
+      }
     };
 
     loadData();
 
     return () => {
       mountedRef.current = false;
-      // Abort any pending requests when component unmounts or workspaceId changes
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]); // Only depend on workspaceId to avoid unnecessary re-renders
+  }, [workspaceId]);
 
   // Listen for workspace events (unified event handling)
   useEffect(() => {
