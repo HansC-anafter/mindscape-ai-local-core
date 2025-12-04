@@ -11,16 +11,22 @@ import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
 import IntentChips from '../app/workspaces/components/IntentChips';
 import { useEnabledModels } from '../app/settings/hooks/useEnabledModels';
 
+type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
+
 interface WorkspaceChatProps {
   workspaceId: string;
   apiUrl?: string;
   onFileAnalyzed?: () => void;
+  executionMode?: ExecutionMode;
+  expectedArtifacts?: string[];
 }
 
 export default function WorkspaceChat({
   workspaceId,
   apiUrl = '',
-  onFileAnalyzed
+  onFileAnalyzed,
+  executionMode,
+  expectedArtifacts
 }: WorkspaceChatProps) {
   const [input, setInput] = useState('');
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('');
@@ -38,11 +44,13 @@ export default function WorkspaceChat({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [duplicateFileToast, setDuplicateFileToast] = useState<{ message: string; count: number } | null>(null);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const scrollPositionRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
   const userScrolledRef = useRef(false);
   const autoScrollRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const duplicateToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -225,7 +233,7 @@ export default function WorkspaceChat({
     }
   };
 
-  // Cleanup file preview URLs on unmount
+  // Cleanup file preview URLs and toast timeout on unmount
   useEffect(() => {
     return () => {
       setUploadedFiles(prev => {
@@ -236,12 +244,32 @@ export default function WorkspaceChat({
         });
         return [];
       });
+      if (duplicateToastTimeoutRef.current) {
+        clearTimeout(duplicateToastTimeoutRef.current);
+      }
     };
   }, []);
 
-  // REMOVED: workspace-chat-updated event listener
-  // This was causing unwanted message reloads when user scrolls up
-  // Messages are now only loaded on initial mount and when explicitly requested
+  // Listen for playbook trigger errors
+  useEffect(() => {
+    const handlePlaybookTriggerError = (event: CustomEvent) => {
+      const { playbook_code, message } = event.detail;
+      const errorMessage = `Playbook "${playbook_code}" 執行失敗: ${message}`;
+      const errorChatMessage: ChatMessage = {
+        id: `playbook-error-${Date.now()}`,
+        role: 'assistant',
+        content: errorMessage,
+        timestamp: new Date(),
+        event_type: 'error'
+      };
+      setMessages(prev => [...prev, errorChatMessage]);
+    };
+
+    window.addEventListener('playbook-trigger-error', handlePlaybookTriggerError as EventListener);
+    return () => {
+      window.removeEventListener('playbook-trigger-error', handlePlaybookTriggerError as EventListener);
+    };
+  }, []);
 
   // Load context token count
   const loadContextTokenCount = useCallback(async () => {
@@ -292,14 +320,6 @@ export default function WorkspaceChat({
 
   const handleAnalyzeFile = async (file: UploadedFile) => {
     try {
-      const userFileMessage: ChatMessage = {
-        id: `file-upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        role: 'user',
-        content: `${t('uploadedFile')}：${file.name}`,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, userFileMessage]);
-
       const result = await analyzeFile(file);
 
       if (result.fileId || result.file_path) {
@@ -420,23 +440,24 @@ export default function WorkspaceChat({
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Allow sending even when processing (non-blocking)
     if ((!input.trim() && uploadedFiles.length === 0)) return;
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: input.trim() || (uploadedFiles.length > 0 ? `${t('uploadFile')} ${uploadedFiles.length} ${t('items')}` : ''),
-      timestamp: new Date()
-    };
+    const currentInput = input.trim();
+    const currentFiles = [...uploadedFiles];
 
-    setMessages(prev => [...prev, userMessage]);
+    if (currentInput.trim()) {
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: currentInput,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, userMessage]);
+    }
     setUserScrolled(false);
     setAutoScroll(true);
     userScrolledRef.current = false;
     autoScrollRef.current = true;
-    const currentInput = input.trim();
-    const currentFiles = [...uploadedFiles];
     setInput('');
     clearFiles();
 
@@ -593,9 +614,6 @@ export default function WorkspaceChat({
     }
   }, []);
 
-  // REMOVED: Auto-scroll on file analysis result
-  // This was causing unwanted scroll resets when user scrolls up
-
   // Scroll to bottom on initial load
   useEffect(() => {
     if (prevMessagesLoadingRef.current !== messagesLoading) {
@@ -729,18 +747,42 @@ export default function WorkspaceChat({
     }
   };
 
-  const handleFileSelect = async (files: FileList | null) => {
+  const handleFileSelect = (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
+    const filesArray = Array.from(files);
     const newFiles = addFiles(files);
-    if (!newFiles || newFiles.length === 0) return;
+    console.log('[handleFileSelect] newFiles:', newFiles);
 
-    newFiles.forEach(file => {
+    const duplicateCount = filesArray.length - (newFiles?.length || 0);
+    if (duplicateCount > 0) {
+      if (duplicateToastTimeoutRef.current) {
+        clearTimeout(duplicateToastTimeoutRef.current);
+      }
+      setDuplicateFileToast({
+        message: duplicateCount === 1
+          ? '重複檔案已跳過'
+          : `${duplicateCount} 個重複檔案已跳過`,
+        count: duplicateCount
+      });
+      duplicateToastTimeoutRef.current = setTimeout(() => {
+        setDuplicateFileToast(null);
+      }, 2000);
+    }
+
+    if (!newFiles || newFiles.length === 0) {
+      console.warn('[handleFileSelect] No new files to analyze (possibly duplicates)');
+      return;
+    }
+
+    newFiles.forEach((file, index) => {
+      console.log(`[handleFileSelect] Scheduling analysis for file ${index + 1}/${newFiles.length}:`, file.name);
       setTimeout(() => {
+        console.log(`[handleFileSelect] Starting analysis for:`, file.name);
         handleAnalyzeFile(file).catch(err => {
-          console.error(`Failed to analyze file ${file.name}:`, err);
+          console.error(`[handleFileSelect] Failed to analyze file ${file.name}:`, err);
         });
-      }, 100);
+      }, index * 200);
     });
   };
 
@@ -897,6 +939,39 @@ export default function WorkspaceChat({
               </div>
             </div>
           )}
+          {/* Execution Mode Notice */}
+          {executionMode && executionMode !== 'qa' && (
+            <div className={`
+              mx-4 mb-4 p-3 rounded-lg border text-sm
+              ${executionMode === 'execution'
+                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                : 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800 text-violet-800 dark:text-violet-200'
+              }
+            `}>
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{executionMode === 'execution' ? '⚡' : '🔄'}</span>
+                <div>
+                  <span className="font-medium">
+                    {executionMode === 'execution' ? '執行模式已啟用' : '混合模式已啟用'}
+                  </span>
+                  <span className="mx-2">·</span>
+                  <span className="opacity-80">
+                    {executionMode === 'execution'
+                      ? 'AI 會優先執行動作並產出文件，而非僅進行對話'
+                      : 'AI 會在對話與執行之間取得平衡'
+                    }
+                  </span>
+                  {expectedArtifacts && expectedArtifacts.length > 0 && (
+                    <>
+                      <span className="mx-2">·</span>
+                      <span className="opacity-80">預期產出：{expectedArtifacts.join(', ').toUpperCase()}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {messages.length === 0 && !messagesLoading ? (
             <div className="text-center text-gray-500 dark:text-gray-300 mt-8">
               <p>{t('noMessagesYet')}</p>
@@ -1013,78 +1088,80 @@ export default function WorkspaceChat({
           </div>
         )}
 
-        {/* Uploaded files preview */}
+        {/* Uploaded files preview - Grid layout */}
         {uploadedFiles.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-2 w-full overflow-x-hidden" style={{ maxWidth: '100%' }}>
-            {uploadedFiles.map((file) => (
-              <div
-                key={file.id}
-                className="relative group flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 flex-shrink-0"
-                style={{
-                  minWidth: 0,
-                  maxWidth: 'calc(100% - 0.5rem)',
-                  width: '100%'
-                }}
-              >
-                {file.preview ? (
-                  <img
-                    src={file.preview}
-                    alt={file.name}
-                    className="w-10 h-10 object-cover rounded flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded flex items-center justify-center flex-shrink-0">
-                    <svg className="w-6 h-6 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                )}
-                <div className="flex-1 min-w-0 overflow-hidden" style={{ minWidth: 0 }}>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate break-all" style={{
-                    maxWidth: '100%',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>{file.name}</p>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-500 dark:text-gray-300 truncate">{formatFileSize(file.size)}</p>
-                    {/* Analysis status indicator */}
+          <div className="mb-2 px-3 pt-2">
+            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-1.5">
+              {uploadedFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="relative group aspect-square bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded overflow-hidden hover:border-blue-400 dark:hover:border-blue-500 transition-colors cursor-pointer"
+                  title={file.name}
+                >
+                  {file.preview ? (
+                    <img
+                      src={file.preview}
+                      alt={file.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-1">
+                      <svg className="w-4 h-4 text-gray-400 dark:text-gray-500 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-[8px] text-gray-600 dark:text-gray-400 text-center truncate w-full px-0.5" title={file.name}>
+                        {file.name.length > 10 ? `${file.name.substring(0, 8)}...` : file.name}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Status indicator overlay */}
+                  <div className="absolute top-0.5 right-0.5 z-10">
                     {file.analysisStatus === 'analyzing' && (
-                      <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-xs text-blue-600">{t('workspaceAnalyzing')}</span>
-                      </div>
+                      <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin bg-white dark:bg-gray-800 shadow-sm" />
                     )}
                     {file.analysisStatus === 'completed' && (
-                      <div className="flex items-center gap-1">
-                        <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      <div className="w-3 h-3 bg-green-500 rounded-full flex items-center justify-center shadow-sm">
+                        <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
-                        <span className="text-xs text-green-600">{t('workspaceAnalysisCompleted')}</span>
                       </div>
                     )}
                     {file.analysisStatus === 'failed' && (
-                      <div className="flex items-center gap-1">
-                        <svg className="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      <div className="w-3 h-3 bg-red-500 rounded-full flex items-center justify-center shadow-sm">
+                        <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                         </svg>
-                        <span className="text-xs text-red-600">{t('workspaceAnalysisFailed')}</span>
                       </div>
                     )}
+                    {(!file.analysisStatus || file.analysisStatus === 'pending') && (
+                      <div className="w-3 h-3 bg-gray-400 dark:bg-gray-600 rounded-full shadow-sm" />
+                    )}
+                  </div>
+
+                  {/* Remove button - shown on hover */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFile(file.id);
+                    }}
+                    className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-red-500 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    aria-label="Remove file"
+                    title="Remove file"
+                  >
+                    <svg className="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+
+                  {/* File info tooltip on hover */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/75 text-white text-[8px] px-0.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity truncate">
+                    {file.name} ({formatFileSize(file.size)})
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeFile(file.id)}
-                  className="text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0 ml-1"
-                  aria-label="Remove file"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
@@ -1096,6 +1173,18 @@ export default function WorkspaceChat({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
               <p className="text-lg font-medium text-blue-600">{t('dropFilesHere')}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Duplicate file toast notification */}
+        {duplicateFileToast && (
+          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg px-4 py-2 shadow-lg flex items-center gap-2">
+              <svg className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span className="text-sm text-amber-800 dark:text-amber-200">{duplicateFileToast.message}</span>
             </div>
           </div>
         )}

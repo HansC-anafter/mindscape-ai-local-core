@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export interface UploadedFile {
   id: string;
@@ -19,6 +19,11 @@ export function useFileUpload(workspaceId: string, apiUrl: string = '') {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [analyzingFiles, setAnalyzingFiles] = useState<Set<string>>(new Set());
   const [isDragging, setIsDragging] = useState(false);
+  const uploadedFilesRef = useRef<UploadedFile[]>([]);
+
+  if (uploadedFilesRef.current !== uploadedFiles) {
+    uploadedFilesRef.current = uploadedFiles;
+  }
 
   const convertFileToBase64 = useCallback((file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -242,24 +247,54 @@ export function useFileUpload(workspaceId: string, apiUrl: string = '') {
     }
   }, [workspaceId, apiUrl, uploadFile]);
 
-  const addFiles = useCallback((files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const addFiles = useCallback((files: FileList | null): UploadedFile[] => {
+    if (!files || files.length === 0) {
+      console.log('[addFiles] No files provided');
+      return [];
+    }
 
-    const newFiles: UploadedFile[] = Array.from(files).map((file) => {
-      const id = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
-      return {
-        id,
-        file,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        preview,
-        analysisStatus: 'pending' as const
-      };
+    const currentFiles = uploadedFilesRef.current;
+    const existingFiles = new Set(
+      currentFiles.map(f => `${f.name}:${f.size}`)
+    );
+    console.log('[addFiles] Current uploadedFiles count (from ref):', currentFiles.length);
+    console.log('[addFiles] Existing files keys:', Array.from(existingFiles));
+
+    const filesArray = Array.from(files);
+    console.log('[addFiles] Input files:', filesArray.map(f => `${f.name}:${f.size}`));
+
+    const newFiles = filesArray
+      .filter(file => {
+        const key = `${file.name}:${file.size}`;
+        const isDuplicate = existingFiles.has(key);
+        if (isDuplicate) {
+          console.log(`[addFiles] Skipping duplicate file: ${file.name} (${file.size} bytes)`);
+        }
+        return !isDuplicate;
+      })
+      .map((file) => {
+        const id = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+        return {
+          id,
+          file,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          preview,
+          analysisStatus: 'pending' as const
+        };
+      });
+
+    console.log('[addFiles] New files to add:', newFiles.length, newFiles.map(f => f.name));
+
+    setUploadedFiles(prev => {
+      const updated = [...prev, ...newFiles];
+      uploadedFilesRef.current = updated;
+      return updated;
     });
 
-    setUploadedFiles(prev => [...prev, ...newFiles]);
+    console.log('[addFiles] Returning newFiles:', newFiles.length);
     return newFiles;
   }, []);
 
