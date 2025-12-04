@@ -200,6 +200,19 @@ def init_workspaces_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(primary_project_id)')
 
+    # Migration: Add execution mode columns if they don't exist
+    # See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
+    for column_def in [
+        ('execution_mode', "TEXT DEFAULT 'qa'"),
+        ('expected_artifacts', 'TEXT'),
+        ('execution_priority', "TEXT DEFAULT 'medium'"),
+    ]:
+        column_name, column_type = column_def
+        try:
+            cursor.execute(f'ALTER TABLE workspaces ADD COLUMN {column_name} {column_type}')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
     # Schema changes are now managed by Alembic migrations
     # This function only creates the base table structure
     # All column additions should be done through Alembic
