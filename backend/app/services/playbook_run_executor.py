@@ -5,15 +5,19 @@ Unified executor for playbook.run = playbook.md + playbook.json
 Automatically selects execution mode based on available components:
 - If playbook.json exists: use WorkflowOrchestrator (structured workflow)
 - If only playbook.md exists: use PlaybookRunner (LLM conversation)
+
+DEPRECATED: Legacy playbook execution, scheduled for removal after P2.
+Do not add new dependencies. Use PlaybookService.execute_playbook() instead.
+This class is only used internally by PlaybookService for backward compatibility.
 """
 
 import logging
 from typing import Dict, Any, Optional
 
 from backend.app.models.playbook import PlaybookRun, PlaybookKind
-from backend.app.services.playbook_loader import PlaybookLoader
 from backend.app.services.playbook_runner import PlaybookRunner
 from backend.app.services.workflow_orchestrator import WorkflowOrchestrator
+from backend.app.services.playbook_service import PlaybookService
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +25,23 @@ logger = logging.getLogger(__name__)
 class PlaybookRunExecutor:
     """Unified executor for playbook.run"""
 
-    def __init__(self):
-        self.playbook_loader = PlaybookLoader()
+    def __init__(self, store=None):
+        """
+        Initialize PlaybookRunExecutor
+
+        Args:
+            store: MindscapeStore instance (optional)
+        """
+        self.store = store
         self.playbook_runner = PlaybookRunner()
-        from backend.app.services.mindscape_store import MindscapeStore
-        store = MindscapeStore()
-        self.workflow_orchestrator = WorkflowOrchestrator(store=store)
+        if store:
+            self.workflow_orchestrator = WorkflowOrchestrator(store=store)
+        else:
+            from backend.app.services.mindscape_store import MindscapeStore
+            store = MindscapeStore()
+            self.workflow_orchestrator = WorkflowOrchestrator(store=store)
+
+        self.playbook_service = PlaybookService(store=store)
 
     async def execute_playbook_run(
         self,
@@ -53,9 +68,11 @@ class PlaybookRunExecutor:
         Returns:
             Execution result dict
         """
-        playbook_run = self.playbook_loader.load_playbook_run(
+        # Load playbook.run via PlaybookService
+        playbook_run = await self.playbook_service.load_playbook_run(
             playbook_code=playbook_code,
-            locale=locale
+            locale=locale or 'zh-TW',
+            workspace_id=workspace_id
         )
 
         if not playbook_run:
@@ -66,6 +83,12 @@ class PlaybookRunExecutor:
 
         if execution_mode == 'workflow' and playbook_run.playbook_json:
             logger.info(f"PlaybookRunExecutor: Executing {playbook_code} using WorkflowOrchestrator (playbook.json found)")
+
+            # Validate workspace_id - must not be None
+            if not workspace_id:
+                error_msg = f"workspace_id is required for playbook execution: {playbook_code}"
+                logger.error(f"PlaybookRunExecutor: {error_msg}")
+                raise ValueError(error_msg)
 
             import uuid
             from datetime import datetime
@@ -83,13 +106,15 @@ class PlaybookRunExecutor:
                 "playbook_name": playbook_run.playbook.metadata.name,
                 "execution_id": execution_id,
                 "total_steps": total_steps,
-                "current_step": 0,
+                "current_step_index": 0,
                 "status": "running"
             }
 
+            logger.info(f"PlaybookRunExecutor: Creating execution task {execution_id} for playbook {playbook_code}, workspace_id={workspace_id}, total_steps={total_steps}")
+
             task = Task(
                 id=execution_id,
-                workspace_id=workspace_id or "default",
+                workspace_id=workspace_id,
                 message_id=str(uuid.uuid4()),
                 execution_id=execution_id,
                 profile_id=profile_id,
@@ -123,12 +148,12 @@ class PlaybookRunExecutor:
                 result = await self.workflow_orchestrator.execute_workflow(
                     handoff_plan,
                     execution_id=execution_id,
-                    workspace_id=workspace_id or "default",
+                    workspace_id=workspace_id,
                     profile_id=profile_id
                 )
 
                 execution_context["status"] = "completed"
-                execution_context["current_step"] = total_steps
+                execution_context["current_step_index"] = total_steps
                 completed_at = datetime.utcnow()
                 tasks_store.update_task(
                     task.id,
@@ -138,15 +163,19 @@ class PlaybookRunExecutor:
                 )
                 logger.info(f"PlaybookRunExecutor: Execution {execution_id} completed successfully")
             except Exception as e:
+                from backend.app.shared.error_handler import parse_api_error
+
+                error_info = parse_api_error(e)
                 execution_context["status"] = "failed"
-                execution_context["error"] = str(e)
+                execution_context["error"] = error_info.user_message
+                execution_context["error_details"] = error_info.to_dict()
                 completed_at = datetime.utcnow()
                 tasks_store.update_task(
                     task.id,
                     execution_context=execution_context,
                     status=TaskStatus.FAILED,
                     completed_at=completed_at,
-                    error=str(e)
+                    error=error_info.user_message
                 )
                 logger.error(f"PlaybookRunExecutor: Execution {execution_id} failed: {e}")
                 raise
@@ -178,7 +207,7 @@ class PlaybookRunExecutor:
                 "has_json": False
             }
 
-    def get_playbook_run(self, playbook_code: str, locale: Optional[str] = None) -> Optional[PlaybookRun]:
+    async def get_playbook_run(self, playbook_code: str, locale: Optional[str] = None) -> Optional[PlaybookRun]:
         """
         Get playbook.run definition without executing
 
@@ -189,8 +218,10 @@ class PlaybookRunExecutor:
         Returns:
             PlaybookRun or None if not found
         """
-        return self.playbook_loader.load_playbook_run(
+        # Load playbook.run via PlaybookService
+        return await self.playbook_service.load_playbook_run(
             playbook_code=playbook_code,
-            locale=locale
+            locale=locale or 'zh-TW',
+            workspace_id=None
         )
 

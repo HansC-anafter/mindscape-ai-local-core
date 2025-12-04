@@ -192,9 +192,43 @@ class PlaybookRunner:
         # Use user-configured keys, fallback to env vars
         openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
         anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-        vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-        vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-        vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+
+        # Get Vertex AI config from system settings first, then user config, then env vars
+        from backend.app.services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore()
+        service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+        vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
+        vertex_location_setting = settings_store.get_setting("vertex_ai_location")
+
+        # Get service account JSON
+        vertex_api_key = None
+        if service_account_setting and service_account_setting.value:
+            val = str(service_account_setting.value).strip()
+            vertex_api_key = val if val else None
+        if not vertex_api_key:
+            vertex_api_key = config.agent_backend.vertex_api_key
+        if not vertex_api_key:
+            vertex_api_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
+
+        # Get project ID
+        vertex_project_id = None
+        if vertex_project_setting and vertex_project_setting.value:
+            val = str(vertex_project_setting.value).strip()
+            vertex_project_id = val if val else None
+        if not vertex_project_id:
+            vertex_project_id = config.agent_backend.vertex_project_id
+        if not vertex_project_id:
+            vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+
+        # Get location
+        vertex_location = None
+        if vertex_location_setting and vertex_location_setting.value:
+            val = str(vertex_location_setting.value).strip()
+            vertex_location = val if val else None
+        if not vertex_location:
+            vertex_location = config.agent_backend.vertex_location
+        if not vertex_location:
+            vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
 
         return LLMProviderManager(
             openai_key=openai_key,
@@ -399,31 +433,44 @@ class PlaybookRunner:
             variant_id: Optional personalized variant ID to use
         """
         try:
-            playbook = self.playbook_loader.get_playbook_by_code(playbook_code)
+            # Use PlaybookService to get playbook
+            locale = inputs.get("locale") if inputs else None
+            if not locale and workspace_id:
+                try:
+                    workspace = self.store.get_workspace(workspace_id)
+                    locale = workspace.default_locale if workspace else None
+                except Exception:
+                    pass
+            if not locale:
+                locale = "zh-TW"
+
+            playbook = await self.playbook_service.get_playbook(
+                playbook_code=playbook_code,
+                locale=locale,
+                workspace_id=workspace_id
+            )
             if not playbook:
                 raise ValueError(f"Playbook not found: {playbook_code}")
 
+            # Get playbook.run to check for playbook.json
+            from backend.app.services.playbook_loaders.json_loader import PlaybookJsonLoader
+            playbook_json = PlaybookJsonLoader.load_playbook_json(playbook_code)
+
+            # Determine total_steps from playbook.json if available
+            total_steps = 1  # Default to 1 for conversation mode
+            if playbook_json and playbook_json.steps:
+                total_steps = len(playbook_json.steps)
+                logger.info(f"PlaybookRunner: Playbook {playbook_code} has JSON with {total_steps} steps")
+            else:
+                logger.info(f"PlaybookRunner: Playbook {playbook_code} using conversation mode (no JSON)")
+
             # Check for personalized variant
+            # TODO: Re-implement variant support using PlaybookService or PlaybookRegistry
+            # PlaybookStore has been removed, variant functionality is temporarily disabled
             variant = None
             if variant_id:
-                from backend.app.services.playbook_store import PlaybookStore
-                store = PlaybookStore()
-                variant = store.get_personalized_variant(variant_id)
-                if variant and variant["profile_id"] == profile_id and variant["base_playbook_code"] == playbook_code:
-                    # Apply variant customizations
-                    if variant.get("personalized_sop_content"):
-                        # Use personalized SOP
-                        playbook.sop_content = variant["personalized_sop_content"]
-                    # Note: skip_steps and custom_checklist will be handled during execution
-            else:
-                # Check for default variant
-                from backend.app.services.playbook_store import PlaybookStore
-                store = PlaybookStore()
-                default_variant = store.get_default_variant(profile_id, playbook_code)
-                if default_variant:
-                    variant = default_variant
-                    if variant.get("personalized_sop_content"):
-                        playbook.sop_content = variant["personalized_sop_content"]
+                logger.warning(f"Variant support is temporarily disabled. variant_id={variant_id} will be ignored.")
+            # Note: skip_steps and custom_checklist will be handled during execution
 
             profile = self.store.get_profile(profile_id)
 
@@ -447,7 +494,7 @@ class PlaybookRunner:
                         "playbook_name": playbook.metadata.name,
                         "trigger_source": inputs.get("trigger_source", "manual") if inputs else "manual",
                         "current_step_index": 0,
-                        "total_steps": 1,  # Will be updated as execution progresses
+                        "total_steps": total_steps,  # Use actual step count from playbook.json
                         "origin_intent_id": inputs.get("origin_intent_id") if inputs else None,
                         "origin_intent_label": inputs.get("origin_intent_label") if inputs else None,
                         "intent_confidence": inputs.get("intent_confidence") if inputs else None,
@@ -514,16 +561,21 @@ class PlaybookRunner:
             provider = self._get_llm_provider(llm_manager)
 
             # Add a user message to start the conversation
+            # Use a minimal message for LLM, but don't show "Starting Playbook execution" in UI
             from backend.app.shared.i18n_loader import load_i18n_string
             start_message = load_i18n_string(
                 "playbook.start_execution",
                 locale=conv_manager.locale,
                 default="Starting Playbook execution."
             )
-            conv_manager.add_user_message(start_message)
+            # Add a minimal message to conversation for LLM context (required for execution)
+            conv_manager.add_user_message("開始執行")  # Minimal message in Chinese
 
             messages = conv_manager.get_messages_for_llm()
-            assistant_response = await provider.chat_completion(messages)
+            # Get model name from system settings
+            from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+            model_name = get_model_name_from_chat_model()
+            assistant_response = await provider.chat_completion(messages, model=model_name if model_name else None)
 
             conv_manager.add_assistant_message(assistant_response)
 
@@ -548,8 +600,8 @@ class PlaybookRunner:
                         "step_type": "agent_action",
                         "agent_type": None,
                         "used_tools": [],
-                        "description": start_message,
-                        "log_summary": f"Starting Playbook execution: {playbook.metadata.name}",
+                        "description": "",  # Empty description to avoid showing "Starting Playbook execution" message
+                        "log_summary": "",  # Empty log_summary to avoid showing "Starting Playbook execution" message
                         "requires_confirmation": False,
                         "confirmation_status": None,
                         "started_at": datetime.utcnow().isoformat(),
@@ -557,7 +609,7 @@ class PlaybookRunner:
                         "playbook_code": playbook_code,
                         "playbook_name": playbook.metadata.name,
                         "step": "start",
-                        "message": start_message[:200]
+                        "message": ""  # Empty message to avoid showing "Starting Playbook execution"
                     },
                     entity_ids=[project_id] if project_id else [],
                     metadata={
@@ -578,7 +630,23 @@ class PlaybookRunner:
             }
 
         except Exception as e:
-            logger.error(f"Failed to start playbook execution: {e}")
+            logger.error(f"Failed to start playbook execution: {e}", exc_info=True)
+            # Update task status to FAILED if task was created
+            if workspace_id:
+                try:
+                    from backend.app.services.stores.tasks_store import TasksStore
+                    from backend.app.models.workspace import TaskStatus
+                    tasks_store = TasksStore(db_path=self.store.db_path)
+                    task = tasks_store.get_task_by_execution_id(execution_id)
+                    if task:
+                        tasks_store.update_task_status(
+                            task_id=task.id,
+                            status=TaskStatus.FAILED,
+                            error=str(e)[:1000]
+                        )
+                        logger.info(f"Updated execution task {execution_id} status to FAILED")
+                except Exception as task_update_error:
+                    logger.warning(f"Failed to update task status: {task_update_error}")
             raise
 
     async def continue_playbook_execution(
@@ -627,7 +695,10 @@ class PlaybookRunner:
             provider = self._get_llm_provider(llm_manager)
 
             messages = conv_manager.get_messages_for_llm()
-            assistant_response = await provider.chat_completion(messages)
+            # Get model name from system settings
+            from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+            model_name = get_model_name_from_chat_model()
+            assistant_response = await provider.chat_completion(messages, model=model_name if model_name else None)
 
             conv_manager.add_assistant_message(assistant_response)
 
