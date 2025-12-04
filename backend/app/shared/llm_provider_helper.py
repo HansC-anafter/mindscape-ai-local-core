@@ -72,11 +72,26 @@ def get_llm_provider_from_settings(llm_manager) -> Optional[object]:
         chat_setting = settings_store.get_setting("chat_model")
         model_name = str(chat_setting.value) if chat_setting else "unknown"
 
-        raise ValueError(
-            f"Selected provider '{provider_name}' (from chat_model '{model_name}') is not available. "
-            f"Available providers: {', '.join(available_providers) if available_providers else 'none'}. "
-            f"Please configure the API key for '{provider_name}' in Settings."
-        )
+        # Provide specific error message based on provider type
+        if provider_name == "vertex-ai":
+            error_msg = (
+                f"Selected provider 'vertex-ai' (from chat_model '{model_name}') is not available. "
+                f"Available providers: {', '.join(available_providers) if available_providers else 'none'}. "
+                f"Please configure the Service Account JSON and Project ID for 'vertex-ai' in Settings."
+            )
+        elif provider_name in ["openai", "anthropic"]:
+            error_msg = (
+                f"Selected provider '{provider_name}' (from chat_model '{model_name}') is not available. "
+                f"Available providers: {', '.join(available_providers) if available_providers else 'none'}. "
+                f"Please configure the API key for '{provider_name}' in Settings."
+            )
+        else:
+            error_msg = (
+                f"Selected provider '{provider_name}' (from chat_model '{model_name}') is not available. "
+                f"Available providers: {', '.join(available_providers) if available_providers else 'none'}. "
+                f"Please configure the credentials for '{provider_name}' in Settings."
+            )
+        raise ValueError(error_msg)
 
     from backend.app.services.system_settings_store import SystemSettingsStore
     settings_store = SystemSettingsStore()
@@ -84,4 +99,21 @@ def get_llm_provider_from_settings(llm_manager) -> Optional[object]:
     model_name = str(chat_setting.value) if chat_setting else "unknown"
     logger.info(f"Using LLM provider '{provider_name}' (from chat_model '{model_name}')")
     return provider
+
+
+def get_model_name_from_chat_model() -> Optional[str]:
+    """
+    Get model name from system chat_model setting
+
+    Returns:
+        Model name (e.g., 'gemini-2.5-pro', 'gpt-4o-mini') or None if not configured
+    """
+    from backend.app.services.system_settings_store import SystemSettingsStore
+    settings_store = SystemSettingsStore()
+    chat_setting = settings_store.get_setting("chat_model")
+
+    if not chat_setting:
+        return None
+
+    return str(chat_setting.value)
 

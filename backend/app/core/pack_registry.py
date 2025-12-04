@@ -49,6 +49,16 @@ def load_router_from_string(import_string: str) -> APIRouter:
     """
     try:
         module_path, attr_name = import_string.split(':')
+
+        # Ensure backend module is in path for absolute imports
+        if module_path.startswith('backend.'):
+            import sys
+            current_file = Path(__file__).resolve()
+            backend_dir = current_file.parent.parent.parent
+            project_root = backend_dir.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+
         module = importlib.import_module(module_path)
         router = getattr(module, attr_name)
 
@@ -107,9 +117,12 @@ def _auto_install_default_packs(pack_metas: List[Dict[str, Any]], default_enable
         from contextlib import contextmanager
         from datetime import datetime
         import json
+        import os
 
         def get_db_path():
-            base_dir = Path(__file__).parent.parent.parent
+            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
+                return '/app/data/mindscape.db'
+            base_dir = Path(__file__).parent.parent.parent.parent
             data_dir = base_dir / "data"
             data_dir.mkdir(parents=True, exist_ok=True)
             return str(data_dir / "mindscape.db")
@@ -175,7 +188,9 @@ def get_enabled_pack_ids() -> set:
         import os
 
         def get_db_path():
-            base_dir = Path(__file__).parent.parent.parent
+            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
+                return '/app/data/mindscape.db'
+            base_dir = Path(__file__).parent.parent.parent.parent
             data_dir = base_dir / "data"
             data_dir.mkdir(parents=True, exist_ok=True)
             return str(data_dir / "mindscape.db")

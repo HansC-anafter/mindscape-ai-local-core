@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from ..services.mindscape_store import MindscapeStore
 from ..services.intent_analyzer import IntentPipeline
 from ..services.playbook_runner import PlaybookRunner
+from ..services.playbook_service import PlaybookService
 from ..services.conversation_orchestrator import ConversationOrchestrator
 from ..services.stores.tasks_store import TasksStore
 from ..services.stores.timeline_items_store import TimelineItemsStore
@@ -40,7 +41,12 @@ def get_intent_pipeline(store: MindscapeStore = Depends(get_store)) -> IntentPip
     """Get IntentPipeline singleton"""
     global _intent_pipeline
     if _intent_pipeline is None:
-        _intent_pipeline = IntentPipeline(store)
+        playbook_service = PlaybookService(store=store)
+        _intent_pipeline = IntentPipeline(
+            llm_provider=None,  # Will use default
+            store=store,
+            playbook_service=playbook_service
+        )
     return _intent_pipeline
 
 
@@ -73,7 +79,16 @@ def get_orchestrator(
     playbook_runner: PlaybookRunner = Depends(get_playbook_runner)
 ) -> ConversationOrchestrator:
     """Get ConversationOrchestrator with workspace locale"""
-    default_locale = workspace.default_locale if workspace else "zh-TW"
+    # Get default_locale from workspace, or fallback to system settings
+    if workspace and workspace.default_locale:
+        default_locale = workspace.default_locale
+    else:
+        from ..services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore(db_path=store.db_path)
+        language_setting = settings_store.get_setting("default_language")
+        default_locale = language_setting.value if language_setting and language_setting.value else "zh-TW"
+        logger.info(f"Workspace {workspace.id if workspace else 'None'} has no default_locale, using system setting: {default_locale}")
+
     return ConversationOrchestrator(
         store=store,
         intent_pipeline=intent_pipeline,

@@ -385,9 +385,26 @@ async def general_exception_handler(request: Request, exc: Exception):
     print(f"ERROR: Unhandled exception: {str(exc)}", file=sys.stderr)
     print(full_traceback, file=sys.stderr)
     origin = request.headers.get("origin", "*")
+    # Validate origin against allowed origins
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+    ]
+    if origin not in allowed_origins:
+        origin = allowed_origins[0] if allowed_origins else "*"
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"}
+        content={"detail": f"Internal server error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD",
+            "Access-Control-Allow-Headers": "*",
+        }
     )
 
 
