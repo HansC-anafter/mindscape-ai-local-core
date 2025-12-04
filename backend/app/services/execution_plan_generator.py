@@ -2,7 +2,7 @@
 Execution Plan Generator
 
 Generates structured ExecutionPlan (Chain-of-Thought) from user requests.
-This is the "先想再做" (think before act) component of Execution Mode.
+This is the "think before act" component of Execution Mode.
 
 The generated plan:
 1. Shows what the LLM decided to do
@@ -17,7 +17,7 @@ import json
 import logging
 import sys
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 
 from backend.app.models.workspace import ExecutionPlan, ExecutionStep, TaskPlan
@@ -61,11 +61,17 @@ Create a JSON execution plan with the following structure:
 
 ## Rules
 1. Break complex requests into clear steps
-2. Identify which playbook/tool best fits each step
-3. List expected artifacts for each step
-4. Mark steps that need user confirmation (soft_write, external_write)
-5. Set realistic confidence (lower if request is ambiguous)
-6. If no playbook matches, still create steps with tool_name or "generic_drafting"
+2. **CRITICAL: playbook_code MUST be one of the playbook codes listed in "Available Playbooks" above, or null if no playbook matches**
+3. **DO NOT invent new playbook codes. Only use playbook codes from the available list.**
+4. If no playbook matches, use tool_name instead (e.g., "generic_drafting") or set playbook_code to null
+5. List expected artifacts for each step
+6. Mark steps that need user confirmation (soft_write, external_write)
+7. Set realistic confidence (lower if request is ambiguous)
+
+## Important Constraints
+- playbook_code must be EXACTLY one of the codes from "Available Playbooks" (case-sensitive)
+- If you cannot find a suitable playbook, set playbook_code to null and use tool_name
+- Never create new playbook codes that are not in the available list
 
 Return ONLY valid JSON, no markdown fences or explanation.
 """
@@ -79,7 +85,8 @@ async def generate_execution_plan(
     expected_artifacts: Optional[List[str]] = None,
     available_playbooks: Optional[List[Dict[str, Any]]] = None,
     llm_provider: Any = None,
-    model_name: Optional[str] = None
+    model_name: Optional[str] = None,
+    progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
 ) -> Optional[ExecutionPlan]:
     """
     Generate a structured ExecutionPlan from user request using LLM
@@ -95,6 +102,7 @@ async def generate_execution_plan(
         available_playbooks: List of available playbooks
         llm_provider: LLM provider instance
         model_name: Model to use
+        progress_callback: Optional callback for progress updates (e.g., re-evaluation status)
 
     Returns:
         ExecutionPlan or None if generation fails
@@ -115,8 +123,9 @@ async def generate_execution_plan(
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    # Format available playbooks for prompt
+    # Format available playbooks for prompt - make it very clear and explicit
     playbooks_str = "None available"
+    playbook_codes_list = []
     if available_playbooks:
         playbooks_list = []
         for pb in available_playbooks:
@@ -125,7 +134,13 @@ async def generate_execution_plan(
             desc = pb.get('description', '')[:100]
             outputs = pb.get('output_types', [])
             playbooks_list.append(f"- {code}: {name} (outputs: {outputs}) - {desc}")
+            if code and code != 'unknown':
+                playbook_codes_list.append(code)
         playbooks_str = "\n".join(playbooks_list) if playbooks_list else "None available"
+
+        # Add explicit list of valid playbook codes for clarity
+        if playbook_codes_list:
+            playbooks_str += f"\n\n## Valid Playbook Codes (use EXACTLY these codes, case-sensitive):\n" + ", ".join(sorted(playbook_codes_list))
 
     # Build prompt
     prompt = EXECUTION_PLAN_PROMPT.format(
@@ -179,17 +194,30 @@ async def generate_execution_plan(
 
         # Parse JSON response
         plan_data = _parse_plan_json(response)
-        if plan_data:
-            return _create_execution_plan(
-                plan_data=plan_data,
-                workspace_id=workspace_id,
-                message_id=message_id,
-                execution_mode=execution_mode
-            )
-        else:
+        if not plan_data:
             error_msg = "Failed to parse execution plan from LLM response"
             logger.error(error_msg)
             raise ValueError(error_msg)
+
+        # Validate and potentially re-evaluate invalid playbook codes
+        plan_data = await _validate_and_reevaluate_plan(
+            plan_data=plan_data,
+            available_playbooks=available_playbooks,
+            user_request=user_request,
+            execution_mode=execution_mode,
+            expected_artifacts=expected_artifacts,
+            llm_provider=llm_provider,
+            model_name=model_name,
+            progress_callback=progress_callback
+        )
+
+        return _create_execution_plan(
+            plan_data=plan_data,
+            workspace_id=workspace_id,
+            message_id=message_id,
+            execution_mode=execution_mode,
+            available_playbooks=available_playbooks
+        )
 
     except Exception as e:
         logger.error(f"[ExecutionPlanGenerator] Failed to generate plan: {e}", exc_info=True)
@@ -237,17 +265,230 @@ def _parse_plan_json(response: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _convert_steps_to_tasks(steps: List[ExecutionStep], plan_confidence: float = 0.7) -> List[TaskPlan]:
+async def _validate_and_reevaluate_plan(
+    plan_data: Dict[str, Any],
+    available_playbooks: Optional[List[Dict[str, Any]]],
+    user_request: str,
+    execution_mode: str,
+    expected_artifacts: Optional[List[str]],
+    llm_provider: Any,
+    model_name: str,
+    progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+) -> Dict[str, Any]:
+    """
+    Validate playbook codes and re-evaluate if invalid codes are found.
+
+    If LLM generated invalid playbook codes, ask it to re-evaluate and choose
+    from available playbooks.
+    """
+    if not available_playbooks:
+        return plan_data
+
+    # Build set of valid playbook codes
+    valid_playbook_codes = set()
+    playbook_code_to_info = {}
+    for pb in available_playbooks:
+        code = pb.get('playbook_code', pb.get('code', ''))
+        if code:
+            valid_playbook_codes.add(code.lower())
+            playbook_code_to_info[code.lower()] = {
+                'code': code,
+                'name': pb.get('name', code),
+                'description': pb.get('description', '')[:100]
+            }
+
+    # Special packs that are always valid
+    special_packs = {"intent_extraction", "semantic_seeds"}
+
+    # Check for invalid playbook codes
+    invalid_steps = []
+    steps = plan_data.get('steps', [])
+
+    for i, step in enumerate(steps):
+        playbook_code = step.get('playbook_code')
+        if playbook_code:
+            playbook_code_lower = playbook_code.lower()
+            is_valid = (
+                playbook_code_lower in valid_playbook_codes or
+                playbook_code_lower in special_packs
+            )
+
+            if not is_valid:
+                invalid_steps.append({
+                    'index': i,
+                    'step_id': step.get('step_id', f'S{i+1}'),
+                    'intent': step.get('intent', ''),
+                    'invalid_playbook_code': playbook_code,
+                    'reasoning': step.get('reasoning', '')
+                })
+
+    # If no invalid codes, return original plan
+    if not invalid_steps:
+        return plan_data
+
+    # Log invalid codes found
+    logger.warning(
+        f"[ExecutionPlanGenerator] Found {len(invalid_steps)} steps with invalid playbook codes. "
+        f"Re-evaluating with LLM..."
+    )
+    print(
+        f"[ExecutionPlanGenerator] WARNING: Found {len(invalid_steps)} invalid playbook codes, re-evaluating...",
+        file=sys.stderr
+    )
+
+    # Notify user about re-evaluation
+    if progress_callback:
+        invalid_codes = [s['invalid_playbook_code'] for s in invalid_steps]
+        progress_callback('reevaluation_started', {
+            'message_key': 'execution_plan.reevaluation_started',
+            'message_params': {
+                'count': len(invalid_steps)
+            },
+            'invalid_codes': invalid_codes,
+            'invalid_steps': [
+                {
+                    'step_id': s['step_id'],
+                    'intent': s['intent'],
+                    'invalid_code': s['invalid_playbook_code']
+                }
+                for s in invalid_steps
+            ],
+            'available_playbook_count': len(available_playbooks) if available_playbooks else 0
+        })
+
+    # Build re-evaluation prompt
+    valid_codes_list = sorted([info['code'] for info in playbook_code_to_info.values()])
+
+    reevaluation_prompt = f"""You previously generated an execution plan, but some steps used invalid playbook codes that are not in the available list.
+
+## Invalid Playbook Codes Found:
+{chr(10).join([f"- Step {s['step_id']} (intent: {s['intent']}): '{s['invalid_playbook_code']}' - {s['reasoning']}" for s in invalid_steps])}
+
+## Available Playbook Codes (you MUST use only these):
+{chr(10).join([f"- {code}: {playbook_code_to_info[code.lower()]['name']} - {playbook_code_to_info[code.lower()]['description']}" for code in valid_codes_list])}
+
+## Original User Request:
+{user_request}
+
+## Your Task:
+Please correct the invalid playbook codes in the following execution plan. For each step with an invalid playbook_code:
+1. Find the most suitable playbook from the available list above
+2. Replace the invalid code with the correct one
+3. If no playbook matches, set playbook_code to null and use tool_name instead
+
+## Current Execution Plan (JSON):
+{json.dumps(plan_data, indent=2)}
+
+Return the CORRECTED execution plan as JSON with the same structure. Only fix the invalid playbook codes, keep everything else the same.
+"""
+
+    try:
+        from backend.app.shared.llm_utils import build_prompt
+        messages = build_prompt(
+            system_prompt="You are an Execution Planning Agent that corrects invalid playbook codes. Output only valid JSON.",
+            user_prompt=reevaluation_prompt
+        )
+
+        # Get provider
+        provider_name = None
+        if "gemini" in model_name.lower():
+            provider_name = "vertex-ai"
+        elif "gpt" in model_name.lower() or "o1" in model_name.lower() or "o3" in model_name.lower():
+            provider_name = "openai"
+        elif "claude" in model_name.lower():
+            provider_name = "anthropic"
+
+        if provider_name:
+            provider = llm_provider.get_provider(provider_name)
+            if provider and hasattr(provider, 'chat_completion'):
+                response = await provider.chat_completion(
+                    messages=messages,
+                    model=model_name,
+                    temperature=0.2,  # Lower temperature for corrections
+                    max_tokens=4000
+                )
+
+                corrected_plan_data = _parse_plan_json(response)
+                if corrected_plan_data:
+                    logger.info(f"[ExecutionPlanGenerator] Successfully re-evaluated plan, corrected {len(invalid_steps)} invalid playbook codes")
+                    print(f"[ExecutionPlanGenerator] Successfully corrected {len(invalid_steps)} invalid playbook codes", file=sys.stderr)
+
+                    # Notify user about successful correction
+                    if progress_callback:
+                        progress_callback('reevaluation_completed', {
+                            'message_key': 'execution_plan.reevaluation_completed',
+                            'message_params': {
+                                'count': len(invalid_steps)
+                            },
+                            'corrected_count': len(invalid_steps)
+                        })
+
+                    return corrected_plan_data
+                else:
+                    logger.warning(f"[ExecutionPlanGenerator] Failed to parse re-evaluation response, using original plan with filtered steps")
+    except Exception as e:
+        logger.warning(f"[ExecutionPlanGenerator] Re-evaluation failed: {e}, using original plan with filtered steps", exc_info=True)
+
+    # Fallback: remove invalid steps from plan
+    logger.info(f"[ExecutionPlanGenerator] Removing {len(invalid_steps)} steps with invalid playbook codes")
+    valid_steps = [step for i, step in enumerate(steps) if i not in [s['index'] for s in invalid_steps]]
+    plan_data['steps'] = valid_steps
+
+    return plan_data
+
+
+def _convert_steps_to_tasks(
+    steps: List[ExecutionStep],
+    plan_confidence: float = 0.7,
+    available_playbooks: Optional[List[Dict[str, Any]]] = None
+) -> List[TaskPlan]:
     """
     Convert ExecutionStep list to TaskPlan list for execution.
 
     Enables the same ExecutionPlan to be used for UI display (steps) and execution (tasks).
+
+    Args:
+        steps: List of ExecutionStep from LLM
+        plan_confidence: Confidence score from plan
+        available_playbooks: List of available playbooks to validate against
     """
+    # Build set of valid playbook codes for validation
+    valid_playbook_codes = set()
+    if available_playbooks:
+        for pb in available_playbooks:
+            code = pb.get('playbook_code', pb.get('code', ''))
+            if code:
+                valid_playbook_codes.add(code.lower())
+
+    # Special packs that are always valid (even if not in playbook list)
+    special_packs = {"intent_extraction", "semantic_seeds"}
+
     tasks = []
     for step in steps:
         # Determine pack_id from playbook_code or tool_name
         pack_id = None
         if step.playbook_code:
+            # Validate playbook_code against available playbooks
+            playbook_code_lower = step.playbook_code.lower()
+            is_valid = (
+                playbook_code_lower in valid_playbook_codes or
+                playbook_code_lower in special_packs
+            )
+
+            if not is_valid:
+                # Skip invalid playbook codes from LLM
+                logger.warning(
+                    f"[ExecutionPlanGenerator] Step {step.step_id} (intent: {step.intent}) "
+                    f"has invalid playbook_code '{step.playbook_code}' not in available playbooks. "
+                    f"Skipping task conversion. This step will appear in UI but won't be executed."
+                )
+                print(
+                    f"[ExecutionPlanGenerator] WARNING: Step {step.step_id} skipped - "
+                    f"invalid playbook_code='{step.playbook_code}' not in playbook list, intent={step.intent}",
+                    file=sys.stderr
+                )
+                continue
+
             # Use playbook_code as pack_id (most playbooks map 1:1 to packs)
             pack_id = step.playbook_code
         elif step.tool_name:
@@ -313,7 +554,8 @@ def _create_execution_plan(
     plan_data: Dict[str, Any],
     workspace_id: str,
     message_id: str,
-    execution_mode: str
+    execution_mode: str,
+    available_playbooks: Optional[List[Dict[str, Any]]] = None
 ) -> ExecutionPlan:
     """Create ExecutionPlan from parsed JSON data"""
     steps = []
@@ -334,7 +576,7 @@ def _create_execution_plan(
 
     # Convert steps to tasks for execution
     plan_confidence = plan_data.get('confidence', 0.7)
-    tasks = _convert_steps_to_tasks(steps, plan_confidence=plan_confidence)
+    tasks = _convert_steps_to_tasks(steps, plan_confidence=plan_confidence, available_playbooks=available_playbooks)
 
     logger.info(
         f"[ExecutionPlanGenerator] Created ExecutionPlan: {len(steps)} steps, {len(tasks)} tasks. "

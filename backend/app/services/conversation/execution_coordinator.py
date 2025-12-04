@@ -114,7 +114,8 @@ class ExecutionCoordinator:
         files: List[str],
         message: str,
         project_id: Optional[str] = None,
-        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        prevent_suggestion_creation: bool = False
     ) -> Dict[str, Any]:
         """
         Execute execution plan based on side_effect_level (using ExecutionContext)
@@ -209,15 +210,32 @@ class ExecutionCoordinator:
                         # Don't create suggestion card to avoid infinite loop
                         results["skipped_tasks"].append(task_plan.pack_id)
                     else:
-                        logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card")
-                        print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card", file=sys.stderr)
-                        suggestion = await self._create_suggestion_card(
-                            task_plan, ctx.workspace_id, message_id
-                        )
-                        if suggestion:
-                            results["suggestion_cards"].append(suggestion)
-                            logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)")
-                            print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)", file=sys.stderr)
+                        # Check if there's already a pending task for this pack_id to avoid infinite loop
+                        pending_tasks = self.tasks_store.list_pending_tasks(ctx.workspace_id, exclude_cancelled=True)
+                        existing_pending = [t for t in pending_tasks if t.pack_id == task_plan.pack_id]
+
+                        if existing_pending:
+                            logger.warning(
+                                f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, "
+                                f"but there's already a pending task ({existing_pending[0].id}). "
+                                f"Skipping suggestion card creation to avoid infinite loop."
+                            )
+                            print(
+                                f"ExecutionCoordinator: WARNING - {task_plan.pack_id} already has pending task, skipping",
+                                file=sys.stderr
+                            )
+                            # Don't create suggestion card to avoid infinite loop
+                            results["skipped_tasks"].append(task_plan.pack_id)
+                        else:
+                            logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card")
+                            print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card", file=sys.stderr)
+                            suggestion = await self._create_suggestion_card(
+                                task_plan, ctx.workspace_id, message_id
+                            )
+                            if suggestion:
+                                results["suggestion_cards"].append(suggestion)
+                                logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)")
+                                print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)", file=sys.stderr)
 
             elif side_effect_level == SideEffectLevel.SOFT_WRITE:
                 # Check if should auto-execute based on workspace config
@@ -309,12 +327,34 @@ class ExecutionCoordinator:
                 f"Check SuggestionActionHandler priority handling logic."
             )
 
-        # Check execution method dynamically
-        from ...capabilities.registry import get_registry
-        registry = get_registry()
-        execution_method = registry.get_execution_method(pack_id)
+        # Check execution method: PlaybookService handles playbooks, CapabilityRegistry handles capability packs
+        execution_method = None
 
-        logger.info(f"ExecutionCoordinator: Pack {pack_id} execution method: {execution_method}")
+        # Check PlaybookService first - it handles all playbooks (system, capability, user)
+        logger.info(f"ExecutionCoordinator: Checking PlaybookService for {pack_id}, playbook_service={self.playbook_service is not None}, default_locale={self.default_locale}, type={type(self.default_locale)}")
+        if self.playbook_service:
+            try:
+                playbook = await self.playbook_service.get_playbook(
+                    playbook_code=pack_id,
+                    locale=self.default_locale,
+                    workspace_id=ctx.workspace_id
+                )
+                if playbook:
+                    execution_method = 'playbook'
+                    logger.info(f"ExecutionCoordinator: Pack {pack_id} found in PlaybookService, execution method: {execution_method}")
+                else:
+                    logger.info(f"ExecutionCoordinator: Pack {pack_id} not found in PlaybookService (returned None)")
+            except Exception as e:
+                logger.warning(f"ExecutionCoordinator: Playbook {pack_id} error in PlaybookService: {type(e).__name__}: {e}", exc_info=True)
+        else:
+            logger.warning(f"ExecutionCoordinator: playbook_service is None, skipping PlaybookService check for {pack_id}")
+
+        # If not a playbook, check CapabilityRegistry for pack_executor
+        if not execution_method:
+            from ...capabilities.registry import get_registry
+            registry = get_registry()
+            execution_method = registry.get_execution_method(pack_id)
+            logger.info(f"ExecutionCoordinator: Pack {pack_id} execution method from CapabilityRegistry: {execution_method}")
 
         # Handle hardcoded pack executors first (for backward compatibility)
         # Note: daily_planning has been migrated to playbook architecture
@@ -775,6 +815,60 @@ class ExecutionCoordinator:
         try:
             from ...services.i18n_service import get_i18n_service
             i18n = get_i18n_service(default_locale=self.default_locale)
+
+            # Validate playbook exists before creating suggestion task
+            # This prevents creating tasks for invalid playbook codes from LLM
+            pack_id = task_plan.pack_id
+            if pack_id:
+                # Check if pack_id is a valid playbook or capability pack
+                is_valid = False
+
+                # Check PlaybookService first
+                if self.playbook_service:
+                    try:
+                        playbook = await self.playbook_service.get_playbook(
+                            playbook_code=pack_id,
+                            locale=self.default_locale,
+                            workspace_id=workspace_id
+                        )
+                        if playbook:
+                            is_valid = True
+                            logger.info(f"ExecutionCoordinator: Pack {pack_id} validated as playbook")
+                    except Exception as e:
+                        logger.debug(f"ExecutionCoordinator: Pack {pack_id} not found in PlaybookService: {e}")
+
+                # If not a playbook, check CapabilityRegistry
+                if not is_valid:
+                    from ...capabilities.registry import get_registry
+                    registry = get_registry()
+                    execution_method = registry.get_execution_method(pack_id)
+                    if execution_method in ['playbook', 'pack_executor']:
+                        is_valid = True
+                        logger.info(f"ExecutionCoordinator: Pack {pack_id} validated as capability pack (execution_method={execution_method})")
+
+                # Special cases: intent_extraction and semantic_seeds are valid even if not in registry
+                pack_id_lower = pack_id.lower()
+                if pack_id_lower in ["intent_extraction", "semantic_seeds"]:
+                    is_valid = True
+                    logger.info(f"ExecutionCoordinator: Pack {pack_id} validated as special pack")
+
+                # If pack_id is invalid, skip creating suggestion task
+                if not is_valid:
+                    logger.warning(
+                        f"ExecutionCoordinator: Skipping suggestion task creation for invalid pack_id: {pack_id}. "
+                        f"This pack is not in the playbook list and cannot be executed."
+                    )
+                    print(
+                        f"ExecutionCoordinator: WARNING - Skipping invalid pack_id: {pack_id}",
+                        file=sys.stderr
+                    )
+                    return {
+                        "task_id": None,
+                        "timeline_item_id": None,
+                        "pack_id": pack_id,
+                        "skipped": True,
+                        "reason": "invalid_playbook_code"
+                    }
 
             # Check user preference for this pack/task_type
             from ...services.stores.task_preference_store import TaskPreferenceStore
