@@ -95,7 +95,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
             setUseOAuth(true);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-purple-500 hover:bg-purple-50 text-left"
+          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
         >
           <div className="font-medium text-gray-900">OAuth 2.0 (Recommended)</div>
           <div className="text-xs text-gray-500 mt-1">
@@ -107,7 +107,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
             setUseOAuth(false);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-purple-500 hover:bg-purple-50 text-left"
+          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
         >
           <div className="font-medium text-gray-900">Personal Access Token</div>
           <div className="text-xs text-gray-500 mt-1">
@@ -205,7 +205,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
       <button
         onClick={step === 1 ? () => {} : handleConnect}
         disabled={connecting || (step === 2 && !form.name && (!useOAuth || !form.access_token))}
-        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
       >
         {connecting
           ? t('connecting')

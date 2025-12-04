@@ -104,7 +104,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
             setUseOAuth(true);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-purple-500 hover:bg-purple-50 text-left"
+          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
         >
           <div className="font-medium text-gray-900">OAuth 2.0 (Recommended)</div>
           <div className="text-xs text-gray-500 mt-1">
@@ -116,7 +116,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
             setUseOAuth(false);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-purple-500 hover:bg-purple-50 text-left"
+          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
         >
           <div className="font-medium text-gray-900">API Key</div>
           <div className="text-xs text-gray-500 mt-1">
@@ -274,7 +274,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
       {step < 2 ? (
         <button
           onClick={() => setStep(step + 1)}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
         >
           {t('next') || 'Next'}
         </button>
@@ -282,7 +282,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
         <button
           onClick={handleConnect}
           disabled={connecting || !form.name || (useOAuth ? (!form.client_id || !form.client_secret) : !form.api_key)}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
         >
           {connecting ? (t('connecting') || 'Connecting...') : (t('connect') || 'Connect')}
         </button>

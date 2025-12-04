@@ -882,13 +882,13 @@ export function LocalFilesystemManager({
                           flex items-center space-x-2 px-3 py-2 rounded-md border text-sm
                           transition-colors
                           ${isSelected
-                            ? 'bg-purple-100 border-purple-500 text-purple-700'
+                            ? 'bg-gray-100 border-gray-500 text-gray-700'
                             : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
                           }
                         `}
                       >
                         <span className="truncate">{commonDir.label}</span>
-                        {isSelected && <span className="text-purple-600">✓</span>}
+                        {isSelected && <span className="text-gray-600">✓</span>}
                       </button>
                     );
                   })}
@@ -912,7 +912,7 @@ export function LocalFilesystemManager({
                   <button
                     onClick={handleAddDirectory}
                     disabled={!newDirectory.trim()}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   >
                     {t('add')}
                   </button>
@@ -1252,7 +1252,7 @@ export function LocalFilesystemManager({
           <button
             onClick={handleSave}
             disabled={saving || directories.length === 0}
-            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
           >
             {saving ? t('saving') : t('save')}
           </button>

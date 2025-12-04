@@ -339,13 +339,13 @@ export function ObsidianConfigWizard({
               {form.include_tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm"
+                  className="inline-flex items-center px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm"
                 >
                   #{tag}
                   <button
                     type="button"
                     onClick={() => removeTag(tag)}
-                    className="ml-2 text-purple-600 hover:text-purple-800"
+                    className="ml-2 text-gray-600 hover:text-gray-800"
                   >
                     ×
                   </button>

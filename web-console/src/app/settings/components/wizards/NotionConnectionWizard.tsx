@@ -59,7 +59,7 @@ export function NotionConnectionWizard({ onClose, onSuccess }: NotionConnectionW
       <button
         onClick={handleDiscover}
         disabled={discovering || !form.connection_id || !form.name || !form.api_key}
-        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
       >
         {discovering ? t('discovering') : t('discoverAndRegister')}
       </button>
@@ -119,7 +119,7 @@ export function NotionConnectionWizard({ onClose, onSuccess }: NotionConnectionW
             href="https://www.notion.so/my-integrations"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-purple-600 hover:underline"
+            className="text-gray-600 hover:underline"
           >
             notion.so/my-integrations
           </a>{' '}

@@ -378,7 +378,7 @@ export function VectorDBConnectionWizard({
           <button
             onClick={handleTest}
             disabled={testing || saving}
-            className="px-4 py-2 text-purple-600 border border-purple-600 rounded-md hover:bg-purple-50 disabled:opacity-50"
+            className="px-4 py-2 text-gray-600 border border-gray-600 rounded-md hover:bg-gray-50 disabled:opacity-50"
           >
             {testing ? t('testing') : t('testConnection')}
           </button>
@@ -396,7 +396,7 @@ export function VectorDBConnectionWizard({
                 testing ||
                 (form.mode === 'custom' && (!form.host || !form.username))
               }
-              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
             >
               {saving ? t('saving') : t('save')}
             </button>

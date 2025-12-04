@@ -153,7 +153,7 @@ export function GoogleDriveConnectionWizard({
         <button
           onClick={handleDiscover}
           disabled={discovering || !form.connection_id || !form.name || !form.api_key}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
         >
           {discovering ? t('discovering') : t('discoverAndRegister')}
         </button>
@@ -204,7 +204,7 @@ export function GoogleDriveConnectionWizard({
               type="radio"
               checked={useOAuth}
               onChange={() => setUseOAuth(true)}
-              className="form-radio h-4 w-4 text-purple-600"
+              className="form-radio h-4 w-4 text-gray-600"
             />
             <span className="ml-2 text-sm font-medium text-gray-700">
               Use OAuth 2.0 (Recommended)
@@ -215,7 +215,7 @@ export function GoogleDriveConnectionWizard({
               type="radio"
               checked={!useOAuth}
               onChange={() => setUseOAuth(false)}
-              className="form-radio h-4 w-4 text-purple-600"
+              className="form-radio h-4 w-4 text-gray-600"
             />
             <span className="ml-2 text-sm font-medium text-gray-700">
               Manual Token Input
