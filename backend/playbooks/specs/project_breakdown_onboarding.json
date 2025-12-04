@@ -1,0 +1,148 @@
+{
+  "version": "1.0",
+  "playbook_code": "project_breakdown_onboarding",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "understand_project_core",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.self_description}}\n\nUnderstand project core. Ask user to describe the project in detail and ask what state they hope to achieve.",
+        "schema_description": "A JSON object with the following properties: 1) project_description: object with detailed_description (string), key_points (array of strings), and context (string). 2) desired_state: object with expected_outcome (string), success_criteria (array of strings), and vision (string). 3) project_summary: string (concise summary of the project)."
+      },
+      "outputs": {
+        "project_description": "extracted_data.project_description",
+        "desired_state": "extracted_data.desired_state",
+        "project_summary": "extracted_data.project_summary"
+      }
+    },
+    {
+      "id": "quick_breakdown",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Project Description: {{step.understand_project_core.project_description}}\n\nDesired State: {{step.understand_project_core.desired_state}}\n\nQuick breakdown. AI proactively suggests 3-4 key steps based on user's description.",
+        "schema_description": "A JSON object with the following properties: 1) key_steps: array of objects, each with step_number (integer), step_name (string), description (string), what_to_do (string), why_first (string), dependencies (array of step numbers), and status (string: 'pending', 'confirmed'). 2) breakdown_rationale: string (explanation of the breakdown approach)."
+      },
+      "outputs": {
+        "key_steps": "extracted_data.key_steps",
+        "breakdown_rationale": "extracted_data.breakdown_rationale"
+      },
+      "depends_on": ["understand_project_core"]
+    },
+    {
+      "id": "identify_next_action",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Key Steps: {{step.quick_breakdown.key_steps}}\n\nIdentify next action. Identify which step can be started fastest and mark it as 'next action'.",
+        "schema_description": "A JSON object with the following properties: 1) next_action: object with step_number (integer), step_name (string), description (string), and readiness (string: 'ready', 'needs_preparation'). 2) action_plan: array of objects, each with step_number (integer), step_name (string), status (string: 'next', 'pending'), and estimated_start_time (string)."
+      },
+      "outputs": {
+        "next_action": "extracted_data.next_action",
+        "action_plan": "extracted_data.action_plan"
+      },
+      "depends_on": ["quick_breakdown"]
+    },
+    {
+      "id": "create_project_summary",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Project Summary: {{step.understand_project_core.project_summary}}\n\nKey Steps: {{step.quick_breakdown.key_steps}}\n\nNext Action: {{step.identify_next_action.next_action}}\n\nCreate project summary. Generate final summary and create first long-term task card.",
+        "schema_description": "A JSON object with the following properties: 1) project_title: string (project title). 2) project_goal: string (project goal). 3) project_steps: array of step objects with status indicators. 4) onboarding_task: string (task2). 5) project_data: object with title, description, goal, steps, next_action, and estimated_duration. 6) extracted_insights: object with user_working_style (string), potential_blockers (array of strings), and confidence_level (string)."
+      },
+      "outputs": {
+        "project_title": "extracted_data.project_title",
+        "project_goal": "extracted_data.project_goal",
+        "project_steps": "extracted_data.project_steps",
+        "onboarding_task": "extracted_data.onboarding_task",
+        "project_data": "extracted_data.project_data",
+        "extracted_insights": "extracted_data.extracted_insights"
+      },
+      "depends_on": ["identify_next_action"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for project breakdown"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context"
+    },
+    "self_description": {
+      "type": "string",
+      "default": "",
+      "description": "User's self description from task 1"
+    }
+  },
+  "outputs": {
+    "project_description": {
+      "type": "object",
+      "description": "Project description",
+      "source": "step.understand_project_core.project_description"
+    },
+    "desired_state": {
+      "type": "object",
+      "description": "Desired state after completion",
+      "source": "step.understand_project_core.desired_state"
+    },
+    "project_summary": {
+      "type": "string",
+      "description": "Project summary",
+      "source": "step.understand_project_core.project_summary"
+    },
+    "key_steps": {
+      "type": "list[object]",
+      "description": "Key steps breakdown",
+      "source": "step.quick_breakdown.key_steps"
+    },
+    "breakdown_rationale": {
+      "type": "string",
+      "description": "Breakdown rationale",
+      "source": "step.quick_breakdown.breakdown_rationale"
+    },
+    "next_action": {
+      "type": "object",
+      "description": "Next action to take",
+      "source": "step.identify_next_action.next_action"
+    },
+    "action_plan": {
+      "type": "list[object]",
+      "description": "Action plan with status",
+      "source": "step.identify_next_action.action_plan"
+    },
+    "project_title": {
+      "type": "string",
+      "description": "Project title",
+      "source": "step.create_project_summary.project_title"
+    },
+    "project_goal": {
+      "type": "string",
+      "description": "Project goal",
+      "source": "step.create_project_summary.project_goal"
+    },
+    "project_steps": {
+      "type": "list[object]",
+      "description": "Project steps with status",
+      "source": "step.create_project_summary.project_steps"
+    },
+    "onboarding_task": {
+      "type": "string",
+      "description": "Onboarding task identifier",
+      "source": "step.create_project_summary.onboarding_task"
+    },
+    "project_data": {
+      "type": "object",
+      "description": "Complete project data",
+      "source": "step.create_project_summary.project_data"
+    },
+    "extracted_insights": {
+      "type": "object",
+      "description": "Extracted insights about user",
+      "source": "step.create_project_summary.extracted_insights"
+    }
+  }
+}
+

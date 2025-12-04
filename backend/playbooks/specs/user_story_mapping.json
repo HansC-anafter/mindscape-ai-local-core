@@ -1,0 +1,195 @@
+{
+  "version": "1.0",
+  "playbook_code": "user_story_mapping",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_user_roles_scenarios",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\nCollect user roles and scenarios. Ask user about the different user roles or personas for the product, identify key scenarios and use cases for each role, understand user goals and motivations, and collect any existing user research or persona documentation.",
+        "schema_description": "A JSON object with the following properties: 1) user_roles: array of objects, each with role_name (string), persona_description (string), demographics (object), goals (array of strings), motivations (array of strings), and pain_points (array of strings). 2) scenarios: array of objects, each with scenario_name (string), user_role (string), description (string), context (string), and use_cases (array of use case objects). 3) user_goals: array of objects, each with goal (string), user_role (string), priority (string: 'high', 'medium', 'low'), and description (string). 4) existing_research: array of objects, each with research_type (string), content_summary (string), and relevance (string)."
+      },
+      "outputs": {
+        "user_roles": "extracted_data.user_roles",
+        "scenarios": "extracted_data.scenarios",
+        "user_goals": "extracted_data.user_goals",
+        "existing_research": "extracted_data.existing_research"
+      }
+    },
+    {
+      "id": "generate_user_stories",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "User Roles: {{step.collect_user_roles_scenarios.user_roles}}\n\nScenarios: {{step.collect_user_roles_scenarios.scenarios}}\n\nUser Goals: {{step.collect_user_roles_scenarios.user_goals}}\n\nGenerate user stories. Create user stories in the standard format: 'As a [role], I want [action] so that [benefit]', generate stories for each identified user role, cover different scenarios and use cases, and ensure stories are specific, measurable, and user-focused.",
+        "schema_description": "A JSON object with the following properties: 1) user_stories: array of objects, each with story_id (string), story_format (string: 'As a [role], I want [action] so that [benefit]'), role (string), action (string), benefit (string), scenario (string), acceptance_criteria (array of strings), and priority_initial (string: 'high', 'medium', 'low'). 2) stories_by_role: object with role_names as keys and arrays of story objects as values. 3) stories_by_scenario: object with scenario_names as keys and arrays of story objects as values."
+      },
+      "outputs": {
+        "user_stories": "extracted_data.user_stories",
+        "stories_by_role": "extracted_data.stories_by_role",
+        "stories_by_scenario": "extracted_data.stories_by_scenario"
+      },
+      "depends_on": ["collect_user_roles_scenarios"]
+    },
+    {
+      "id": "map_features_to_stories",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "User Stories: {{step.generate_user_stories.user_stories}}\n\nProduct Features: {{input.product_features}}\n\nMap features to stories. Identify product features or functionality, map each feature to relevant user stories, create relationships between features and stories, identify features that serve multiple stories, and highlight stories that require multiple features.",
+        "schema_description": "A JSON object with the following properties: 1) feature_story_mapping: array of objects, each with feature_name (string), feature_description (string), related_stories (array of story IDs), story_coverage (string: 'full', 'partial'), and mapping_notes (string). 2) story_feature_mapping: array of objects, each with story_id (string), required_features (array of feature names), feature_dependencies (array of dependency objects), and completeness (string: 'complete', 'partial', 'incomplete'). 3) multi_story_features: array of objects, each with feature_name (string), stories_served (array of story IDs), and value_proposition (string). 4) multi_feature_stories: array of objects, each with story_id (string), required_features (array of feature names), complexity (string: 'high', 'medium', 'low'), and implementation_notes (string)."
+      },
+      "outputs": {
+        "feature_story_mapping": "extracted_data.feature_story_mapping",
+        "story_feature_mapping": "extracted_data.story_feature_mapping",
+        "multi_story_features": "extracted_data.multi_story_features",
+        "multi_feature_stories": "extracted_data.multi_feature_stories"
+      },
+      "depends_on": ["generate_user_stories"]
+    },
+    {
+      "id": "prioritize_stories",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "User Stories: {{step.generate_user_stories.user_stories}}\n\nFeature Mapping: {{step.map_features_to_stories.story_feature_mapping}}\n\nPrioritize stories. Evaluate stories based on user value and business impact, consider dependencies between stories, apply prioritization frameworks (e.g., MoSCoW, Value vs. Effort), organize stories into priority tiers (Must Have, Should Have, Could Have, Won't Have), and consider user journey and story sequencing.",
+        "schema_description": "A JSON object with the following properties: 1) prioritized_stories: array of objects, each with story_id (string), priority_tier (string: 'Must Have', 'Should Have', 'Could Have', 'Won't Have'), user_value (string: 'high', 'medium', 'low'), business_impact (string: 'high', 'medium', 'low'), effort_estimate (string: 'high', 'medium', 'low'), and rationale (string). 2) story_dependencies: array of objects, each with story1 (string), story2 (string), dependency_type (string: 'blocks', 'enhances', 'requires'), and description (string). 3) priority_matrix: object with must_have (array of story IDs), should_have (array of story IDs), could_have (array of story IDs), and won_t_have (array of story IDs). 4) user_journey_sequence: array of objects, each with journey_stage (string), stories (array of story IDs), and sequence_order (integer)."
+      },
+      "outputs": {
+        "prioritized_stories": "extracted_data.prioritized_stories",
+        "story_dependencies": "extracted_data.story_dependencies",
+        "priority_matrix": "extracted_data.priority_matrix",
+        "user_journey_sequence": "extracted_data.user_journey_sequence"
+      },
+      "depends_on": ["map_features_to_stories"]
+    },
+    {
+      "id": "generate_story_map",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Prioritized Stories: {{step.prioritize_stories.prioritized_stories}}\n\nUser Journey Sequence: {{step.prioritize_stories.user_journey_sequence}}\n\nFeature Mapping: {{step.map_features_to_stories.feature_story_mapping}}\n\nGenerate story map. Organize stories into a structured story map, group stories by user activities or themes, arrange stories horizontally by user journey flow, arrange stories vertically by priority or release planning, create a visual representation of the story map, and document story dependencies and relationships.",
+        "schema_description": "A JSON object with the following properties: 1) story_map_structure: object with horizontal_axis (string: 'user_journey'), vertical_axis (string: 'priority'), and organization_method (string). 2) story_groups: array of objects, each with group_name (string), theme (string), stories (array of story objects), horizontal_position (integer), vertical_position (integer), and group_description (string). 3) story_map_visualization: object with map_layout (string), groups (array of group objects), relationships (array of relationship objects), and navigation_structure (array of nav items). 4) story_dependencies_documentation: array of objects, each with dependency_type (string), stories_involved (array of story IDs), description (string), and impact (string)."
+      },
+      "outputs": {
+        "story_map_structure": "extracted_data.story_map_structure",
+        "story_groups": "extracted_data.story_groups",
+        "story_map_visualization": "extracted_data.story_map_visualization",
+        "story_dependencies_documentation": "extracted_data.story_dependencies_documentation"
+      },
+      "depends_on": ["prioritize_stories"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for user story mapping"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the product or user stories"
+    },
+    "product_features": {
+      "type": "string",
+      "default": "",
+      "description": "Product features to map to stories"
+    }
+  },
+  "outputs": {
+    "user_roles": {
+      "type": "list[object]",
+      "description": "User roles and personas",
+      "source": "step.collect_user_roles_scenarios.user_roles"
+    },
+    "scenarios": {
+      "type": "list[object]",
+      "description": "User scenarios and use cases",
+      "source": "step.collect_user_roles_scenarios.scenarios"
+    },
+    "user_goals": {
+      "type": "list[object]",
+      "description": "User goals and motivations",
+      "source": "step.collect_user_roles_scenarios.user_goals"
+    },
+    "existing_research": {
+      "type": "list[object]",
+      "description": "Existing user research",
+      "source": "step.collect_user_roles_scenarios.existing_research"
+    },
+    "user_stories": {
+      "type": "list[object]",
+      "description": "Generated user stories",
+      "source": "step.generate_user_stories.user_stories"
+    },
+    "stories_by_role": {
+      "type": "object",
+      "description": "Stories organized by user role",
+      "source": "step.generate_user_stories.stories_by_role"
+    },
+    "stories_by_scenario": {
+      "type": "object",
+      "description": "Stories organized by scenario",
+      "source": "step.generate_user_stories.stories_by_scenario"
+    },
+    "feature_story_mapping": {
+      "type": "list[object]",
+      "description": "Feature to story mapping",
+      "source": "step.map_features_to_stories.feature_story_mapping"
+    },
+    "story_feature_mapping": {
+      "type": "list[object]",
+      "description": "Story to feature mapping",
+      "source": "step.map_features_to_stories.story_feature_mapping"
+    },
+    "multi_story_features": {
+      "type": "list[object]",
+      "description": "Features serving multiple stories",
+      "source": "step.map_features_to_stories.multi_story_features"
+    },
+    "multi_feature_stories": {
+      "type": "list[object]",
+      "description": "Stories requiring multiple features",
+      "source": "step.map_features_to_stories.multi_feature_stories"
+    },
+    "prioritized_stories": {
+      "type": "list[object]",
+      "description": "Prioritized user stories",
+      "source": "step.prioritize_stories.prioritized_stories"
+    },
+    "story_dependencies": {
+      "type": "list[object]",
+      "description": "Dependencies between stories",
+      "source": "step.prioritize_stories.story_dependencies"
+    },
+    "priority_matrix": {
+      "type": "object",
+      "description": "Story priority matrix",
+      "source": "step.prioritize_stories.priority_matrix"
+    },
+    "user_journey_sequence": {
+      "type": "list[object]",
+      "description": "User journey sequence",
+      "source": "step.prioritize_stories.user_journey_sequence"
+    },
+    "story_map_structure": {
+      "type": "object",
+      "description": "Story map structure",
+      "source": "step.generate_story_map.story_map_structure"
+    },
+    "story_groups": {
+      "type": "list[object]",
+      "description": "Story groups by theme or activity",
+      "source": "step.generate_story_map.story_groups"
+    },
+    "story_map_visualization": {
+      "type": "object",
+      "description": "Story map visualization",
+      "source": "step.generate_story_map.story_map_visualization"
+    },
+    "story_dependencies_documentation": {
+      "type": "list[object]",
+      "description": "Story dependencies documentation",
+      "source": "step.generate_story_map.story_dependencies_documentation"
+    }
+  }
+}
+

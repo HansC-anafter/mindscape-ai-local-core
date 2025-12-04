@@ -1,0 +1,190 @@
+{
+  "version": "1.0",
+  "playbook_code": "learning_plan",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_learning_goals",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\nCollect learning goals and existing knowledge. Ask user about their learning objectives, identify current knowledge level and skills, understand time constraints and availability, and collect any relevant background information.",
+        "schema_description": "A JSON object with the following properties: 1) learning_objectives: array of objects, each with objective (string), priority (string: 'high', 'medium', 'low'), and description (string). 2) current_knowledge: object with knowledge_level (string: 'beginner', 'intermediate', 'advanced'), existing_skills (array of strings), and knowledge_gaps (array of strings). 3) time_constraints: object with available_hours_per_week (number), preferred_schedule (array of strings), and deadline (string if available). 4) background_information: array of objects, each with info_type (string), content (string), and relevance (string)."
+      },
+      "outputs": {
+        "learning_objectives": "extracted_data.learning_objectives",
+        "current_knowledge": "extracted_data.current_knowledge",
+        "time_constraints": "extracted_data.time_constraints",
+        "background_information": "extracted_data.background_information"
+      }
+    },
+    {
+      "id": "break_down_learning_content",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Learning Objectives: {{step.collect_learning_goals.learning_objectives}}\n\nCurrent Knowledge: {{step.collect_learning_goals.current_knowledge}}\n\nBreak down learning content. Decompose learning goals into manageable topics, identify prerequisite knowledge, organize content into logical modules, and determine the scope and depth for each topic.",
+        "schema_description": "A JSON object with the following properties: 1) learning_topics: array of objects, each with topic_name (string), description (string), scope (string), depth_level (string: 'basic', 'intermediate', 'advanced'), estimated_time (string), and prerequisites (array of topic names). 2) prerequisite_knowledge: array of objects, each with prerequisite (string), topic (string), importance (string: 'required', 'recommended', 'optional'), and resources (array of strings). 3) content_modules: array of objects, each with module_name (string), topics (array of topic names), order (integer), description (string), and estimated_duration (string)."
+      },
+      "outputs": {
+        "learning_topics": "extracted_data.learning_topics",
+        "prerequisite_knowledge": "extracted_data.prerequisite_knowledge",
+        "content_modules": "extracted_data.content_modules"
+      },
+      "depends_on": ["collect_learning_goals"]
+    },
+    {
+      "id": "design_learning_path",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Content Modules: {{step.break_down_learning_content.content_modules}}\n\nPrerequisites: {{step.break_down_learning_content.prerequisite_knowledge}}\n\nDesign learning path. Create a structured learning sequence, identify dependencies between topics, plan the progression from basic to advanced, and consider different learning styles and preferences.",
+        "schema_description": "A JSON object with the following properties: 1) learning_sequence: array of objects, each with step_number (integer), module_name (string), topics (array of topic names), order (integer), and rationale (string). 2) topic_dependencies: array of objects, each with topic1 (string), topic2 (string), dependency_type (string: 'required', 'recommended'), and description (string). 3) progression_path: object with beginner_path (array of module names), intermediate_path (array of module names), advanced_path (array of module names), and estimated_timeline (string). 4) learning_style_adaptations: array of objects, each with learning_style (string), adaptation (string), and resources (array of strings)."
+      },
+      "outputs": {
+        "learning_sequence": "extracted_data.learning_sequence",
+        "topic_dependencies": "extracted_data.topic_dependencies",
+        "progression_path": "extracted_data.progression_path",
+        "learning_style_adaptations": "extracted_data.learning_style_adaptations"
+      },
+      "depends_on": ["break_down_learning_content"]
+    },
+    {
+      "id": "plan_practice_methods",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Learning Sequence: {{step.design_learning_path.learning_sequence}}\n\nContent Modules: {{step.break_down_learning_content.content_modules}}\n\nPlan practice methods. Design practice exercises and activities, recommend hands-on projects or assignments, suggest review and reinforcement strategies, and plan assessment and self-evaluation methods.",
+        "schema_description": "A JSON object with the following properties: 1) practice_exercises: array of objects, each with exercise_name (string), module (string), type (string: 'exercise', 'project', 'quiz', 'assignment'), description (string), difficulty (string: 'easy', 'medium', 'hard'), and estimated_time (string). 2) hands_on_projects: array of objects, each with project_name (string), description (string), modules_covered (array of module names), deliverables (array of strings), and estimated_duration (string). 3) review_strategies: array of objects, each with strategy (string), frequency (string), method (string), and effectiveness (string). 4) assessment_methods: array of objects, each with method_name (string), type (string: 'self_evaluation', 'quiz', 'project_review'), description (string), and timing (string)."
+      },
+      "outputs": {
+        "practice_exercises": "extracted_data.practice_exercises",
+        "hands_on_projects": "extracted_data.hands_on_projects",
+        "review_strategies": "extracted_data.review_strategies",
+        "assessment_methods": "extracted_data.assessment_methods"
+      },
+      "depends_on": ["design_learning_path"]
+    },
+    {
+      "id": "set_milestones_checkpoints",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Learning Path: {{step.design_learning_path.progression_path}}\n\nPractice Methods: {{step.plan_practice_methods.practice_exercises}}\n\nTime Constraints: {{step.collect_learning_goals.time_constraints}}\n\nSet milestones and checkpoints. Define key milestones in the learning journey, set up checkpoints for progress evaluation, create a timeline with realistic deadlines, and plan for adjustments and course corrections.",
+        "schema_description": "A JSON object with the following properties: 1) learning_milestones: array of objects, each with milestone_name (string), description (string), target_date (string), completion_criteria (array of strings), and modules_covered (array of module names). 2) checkpoints: array of objects, each with checkpoint_name (string), timing (string), evaluation_method (string), success_criteria (array of strings), and action_if_not_met (string). 3) learning_timeline: object with start_date (string), end_date (string), total_duration (string), weekly_schedule (array of schedule objects), and milestones (array of milestone objects). 4) adjustment_plan: array of objects, each with trigger (string), adjustment_type (string), action (string), and timing (string)."
+      },
+      "outputs": {
+        "learning_milestones": "extracted_data.learning_milestones",
+        "checkpoints": "extracted_data.checkpoints",
+        "learning_timeline": "extracted_data.learning_timeline",
+        "adjustment_plan": "extracted_data.adjustment_plan"
+      },
+      "depends_on": ["plan_practice_methods"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for learning plan"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about learning goals"
+    }
+  },
+  "outputs": {
+    "learning_objectives": {
+      "type": "list[object]",
+      "description": "Learning objectives",
+      "source": "step.collect_learning_goals.learning_objectives"
+    },
+    "current_knowledge": {
+      "type": "object",
+      "description": "Current knowledge level and skills",
+      "source": "step.collect_learning_goals.current_knowledge"
+    },
+    "time_constraints": {
+      "type": "object",
+      "description": "Time constraints and availability",
+      "source": "step.collect_learning_goals.time_constraints"
+    },
+    "background_information": {
+      "type": "list[object]",
+      "description": "Relevant background information",
+      "source": "step.collect_learning_goals.background_information"
+    },
+    "learning_topics": {
+      "type": "list[object]",
+      "description": "Learning topics breakdown",
+      "source": "step.break_down_learning_content.learning_topics"
+    },
+    "prerequisite_knowledge": {
+      "type": "list[object]",
+      "description": "Prerequisite knowledge",
+      "source": "step.break_down_learning_content.prerequisite_knowledge"
+    },
+    "content_modules": {
+      "type": "list[object]",
+      "description": "Content modules",
+      "source": "step.break_down_learning_content.content_modules"
+    },
+    "learning_sequence": {
+      "type": "list[object]",
+      "description": "Structured learning sequence",
+      "source": "step.design_learning_path.learning_sequence"
+    },
+    "topic_dependencies": {
+      "type": "list[object]",
+      "description": "Dependencies between topics",
+      "source": "step.design_learning_path.topic_dependencies"
+    },
+    "progression_path": {
+      "type": "object",
+      "description": "Learning progression path",
+      "source": "step.design_learning_path.progression_path"
+    },
+    "learning_style_adaptations": {
+      "type": "list[object]",
+      "description": "Learning style adaptations",
+      "source": "step.design_learning_path.learning_style_adaptations"
+    },
+    "practice_exercises": {
+      "type": "list[object]",
+      "description": "Practice exercises and activities",
+      "source": "step.plan_practice_methods.practice_exercises"
+    },
+    "hands_on_projects": {
+      "type": "list[object]",
+      "description": "Hands-on projects and assignments",
+      "source": "step.plan_practice_methods.hands_on_projects"
+    },
+    "review_strategies": {
+      "type": "list[object]",
+      "description": "Review and reinforcement strategies",
+      "source": "step.plan_practice_methods.review_strategies"
+    },
+    "assessment_methods": {
+      "type": "list[object]",
+      "description": "Assessment and self-evaluation methods",
+      "source": "step.plan_practice_methods.assessment_methods"
+    },
+    "learning_milestones": {
+      "type": "list[object]",
+      "description": "Key learning milestones",
+      "source": "step.set_milestones_checkpoints.learning_milestones"
+    },
+    "checkpoints": {
+      "type": "list[object]",
+      "description": "Progress evaluation checkpoints",
+      "source": "step.set_milestones_checkpoints.checkpoints"
+    },
+    "learning_timeline": {
+      "type": "object",
+      "description": "Learning timeline with deadlines",
+      "source": "step.set_milestones_checkpoints.learning_timeline"
+    },
+    "adjustment_plan": {
+      "type": "list[object]",
+      "description": "Plan for adjustments and course corrections",
+      "source": "step.set_milestones_checkpoints.adjustment_plan"
+    }
+  }
+}
+

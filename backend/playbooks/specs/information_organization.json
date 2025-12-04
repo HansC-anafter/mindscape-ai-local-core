@@ -1,0 +1,225 @@
+{
+  "version": "1.0",
+  "playbook_code": "information_organization",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_scattered_info",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.information_sources}}\n\nCollect scattered information. Ask user to provide research information (files, URLs, or text), collect information from different sources, understand the research domain and context, identify information types and formats, and organize raw information by source.",
+        "schema_description": "A JSON object with the following properties: 1) information_sources: array of objects, each with source_name (string), source_type (string: 'file', 'url', 'text'), content_preview (string), format (string), and metadata (object). 2) research_domain: string (the research domain or field). 3) information_types: array of objects, each with type (string), description (string), and examples (array of strings). 4) organized_by_source: object with source_names as keys and arrays of information items as values."
+      },
+      "outputs": {
+        "information_sources": "extracted_data.information_sources",
+        "research_domain": "extracted_data.research_domain",
+        "information_types": "extracted_data.information_types",
+        "organized_by_source": "extracted_data.organized_by_source"
+      }
+    },
+    {
+      "id": "identify_topics_categories",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Information Sources: {{step.collect_scattered_info.information_sources}}\n\nResearch Domain: {{step.collect_scattered_info.research_domain}}\n\nIdentify topics and categories. Analyze information to identify main topics, extract key themes and subject areas, recognize sub-topics and related concepts, group similar information together, and create initial category structure.",
+        "schema_description": "A JSON object with the following properties: 1) main_topics: array of objects, each with topic_name (string), description (string), frequency (integer), and related_sources (array of strings). 2) key_themes: array of objects, each with theme_name (string), description (string), sub_themes (array of strings), and related_topics (array of strings). 3) subject_areas: array of objects, each with area_name (string), scope (string), and related_concepts (array of strings). 4) sub_topics: array of objects, each with sub_topic_name (string), parent_topic (string), and description (string). 5) initial_categories: array of objects, each with category_name (string), description (string), and items_count (integer)."
+      },
+      "outputs": {
+        "main_topics": "extracted_data.main_topics",
+        "key_themes": "extracted_data.key_themes",
+        "subject_areas": "extracted_data.subject_areas",
+        "sub_topics": "extracted_data.sub_topics",
+        "initial_categories": "extracted_data.initial_categories"
+      },
+      "depends_on": ["collect_scattered_info"]
+    },
+    {
+      "id": "build_knowledge_architecture",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Main Topics: {{step.identify_topics_categories.main_topics}}\n\nKey Themes: {{step.identify_topics_categories.key_themes}}\n\nSubject Areas: {{step.identify_topics_categories.subject_areas}}\n\nBuild knowledge architecture. Design hierarchical knowledge structure, create categories and subcategories, establish relationships between topics, define taxonomy and classification system, and organize information by domain or field.",
+        "schema_description": "A JSON object with the following properties: 1) hierarchical_structure: array of objects, each with level (integer), category_name (string), parent_category (string or null), description (string), and subcategories (array of strings). 2) categories: array of objects, each with category_name (string), level (integer), description (string), subcategories (array of category objects), and items_count (integer). 3) topic_relationships: array of objects, each with topic1 (string), topic2 (string), relationship_type (string: 'related', 'subcategory', 'parent', 'similar'), and description (string). 4) taxonomy: object with classification_system (string), categories (array of category objects), and rules (array of strings). 5) domain_organization: object with domains (array of domain objects, each with domain_name, categories, and items_count)."
+      },
+      "outputs": {
+        "hierarchical_structure": "extracted_data.hierarchical_structure",
+        "categories": "extracted_data.categories",
+        "topic_relationships": "extracted_data.topic_relationships",
+        "taxonomy": "extracted_data.taxonomy",
+        "domain_organization": "extracted_data.domain_organization"
+      },
+      "depends_on": ["identify_topics_categories"]
+    },
+    {
+      "id": "categorize_and_tag",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Information Sources: {{step.collect_scattered_info.information_sources}}\n\nKnowledge Architecture: {{step.build_knowledge_architecture.hierarchical_structure}}\n\nCategories: {{step.build_knowledge_architecture.categories}}\n\nCategorize and tag. Assign information to appropriate categories, add relevant tags and keywords, create cross-references between related items, apply consistent tagging conventions, and ensure proper classification.",
+        "schema_description": "A JSON object with the following properties: 1) categorized_items: array of objects, each with item_name (string), source (string), category (string), subcategory (string if applicable), tags (array of strings), keywords (array of strings), and classification_confidence (string: 'high', 'medium', 'low'). 2) tags: array of objects, each with tag_name (string), frequency (integer), related_categories (array of strings), and usage_notes (string). 3) cross_references: array of objects, each with item1 (string), item2 (string), relationship_type (string), and description (string). 4) tagging_conventions: object with conventions (array of strings), tag_categories (array of strings), and guidelines (array of strings). 5) classification_summary: object with total_items (integer), categorized_items (integer), uncategorized_items (integer), and category_distribution (object with category names as keys and counts as values)."
+      },
+      "outputs": {
+        "categorized_items": "extracted_data.categorized_items",
+        "tags": "extracted_data.tags",
+        "cross_references": "extracted_data.cross_references",
+        "tagging_conventions": "extracted_data.tagging_conventions",
+        "classification_summary": "extracted_data.classification_summary"
+      },
+      "depends_on": ["build_knowledge_architecture"]
+    },
+    {
+      "id": "generate_knowledge_base",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Knowledge Architecture: {{step.build_knowledge_architecture.hierarchical_structure}}\n\nCategorized Items: {{step.categorize_and_tag.categorized_items}}\n\nTags: {{step.categorize_and_tag.tags}}\n\nCross References: {{step.categorize_and_tag.cross_references}}\n\nGenerate knowledge base. Create structured knowledge base document, organize information by categories, include metadata (tags, categories, sources), generate index and navigation structure, and provide searchable knowledge repository.",
+        "schema_description": "A JSON object with the following properties: 1) knowledge_base_structure: object with document_structure (array of section objects), navigation_hierarchy (array of navigation items), and index (array of index entries). 2) organized_by_category: object with category_names as keys and arrays of categorized items as values. 3) metadata_index: array of objects, each with item_name (string), category (string), tags (array of strings), keywords (array of strings), source (string), and cross_references (array of strings). 4) searchable_repository: object with search_terms (array of strings), category_index (object), tag_index (object), and keyword_index (object). 5) knowledge_base_summary: object with total_items (integer), total_categories (integer), total_tags (integer), and organization_completeness (string: 'high', 'medium', 'low')."
+      },
+      "outputs": {
+        "knowledge_base_structure": "extracted_data.knowledge_base_structure",
+        "organized_by_category": "extracted_data.organized_by_category",
+        "metadata_index": "extracted_data.metadata_index",
+        "searchable_repository": "extracted_data.searchable_repository",
+        "knowledge_base_summary": "extracted_data.knowledge_base_summary"
+      },
+      "depends_on": ["categorize_and_tag"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for information organization"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the research domain or organization needs"
+    },
+    "information_sources": {
+      "type": "string",
+      "default": "",
+      "description": "Information sources to organize (files, URLs, or text)"
+    }
+  },
+  "outputs": {
+    "information_sources": {
+      "type": "list[object]",
+      "description": "Collected information sources",
+      "source": "step.collect_scattered_info.information_sources"
+    },
+    "research_domain": {
+      "type": "string",
+      "description": "Research domain or field",
+      "source": "step.collect_scattered_info.research_domain"
+    },
+    "information_types": {
+      "type": "list[object]",
+      "description": "Information types identified",
+      "source": "step.collect_scattered_info.information_types"
+    },
+    "organized_by_source": {
+      "type": "object",
+      "description": "Information organized by source",
+      "source": "step.collect_scattered_info.organized_by_source"
+    },
+    "main_topics": {
+      "type": "list[object]",
+      "description": "Main topics identified",
+      "source": "step.identify_topics_categories.main_topics"
+    },
+    "key_themes": {
+      "type": "list[object]",
+      "description": "Key themes extracted",
+      "source": "step.identify_topics_categories.key_themes"
+    },
+    "subject_areas": {
+      "type": "list[object]",
+      "description": "Subject areas identified",
+      "source": "step.identify_topics_categories.subject_areas"
+    },
+    "sub_topics": {
+      "type": "list[object]",
+      "description": "Sub-topics identified",
+      "source": "step.identify_topics_categories.sub_topics"
+    },
+    "initial_categories": {
+      "type": "list[object]",
+      "description": "Initial category structure",
+      "source": "step.identify_topics_categories.initial_categories"
+    },
+    "hierarchical_structure": {
+      "type": "list[object]",
+      "description": "Hierarchical knowledge structure",
+      "source": "step.build_knowledge_architecture.hierarchical_structure"
+    },
+    "categories": {
+      "type": "list[object]",
+      "description": "Categories and subcategories",
+      "source": "step.build_knowledge_architecture.categories"
+    },
+    "topic_relationships": {
+      "type": "list[object]",
+      "description": "Relationships between topics",
+      "source": "step.build_knowledge_architecture.topic_relationships"
+    },
+    "taxonomy": {
+      "type": "object",
+      "description": "Taxonomy and classification system",
+      "source": "step.build_knowledge_architecture.taxonomy"
+    },
+    "domain_organization": {
+      "type": "object",
+      "description": "Domain organization",
+      "source": "step.build_knowledge_architecture.domain_organization"
+    },
+    "categorized_items": {
+      "type": "list[object]",
+      "description": "Categorized information items",
+      "source": "step.categorize_and_tag.categorized_items"
+    },
+    "tags": {
+      "type": "list[object]",
+      "description": "Tags and keywords",
+      "source": "step.categorize_and_tag.tags"
+    },
+    "cross_references": {
+      "type": "list[object]",
+      "description": "Cross-references between items",
+      "source": "step.categorize_and_tag.cross_references"
+    },
+    "tagging_conventions": {
+      "type": "object",
+      "description": "Tagging conventions",
+      "source": "step.categorize_and_tag.tagging_conventions"
+    },
+    "classification_summary": {
+      "type": "object",
+      "description": "Classification summary",
+      "source": "step.categorize_and_tag.classification_summary"
+    },
+    "knowledge_base_structure": {
+      "type": "object",
+      "description": "Knowledge base document structure",
+      "source": "step.generate_knowledge_base.knowledge_base_structure"
+    },
+    "organized_by_category": {
+      "type": "object",
+      "description": "Information organized by category",
+      "source": "step.generate_knowledge_base.organized_by_category"
+    },
+    "metadata_index": {
+      "type": "list[object]",
+      "description": "Metadata index",
+      "source": "step.generate_knowledge_base.metadata_index"
+    },
+    "searchable_repository": {
+      "type": "object",
+      "description": "Searchable knowledge repository",
+      "source": "step.generate_knowledge_base.searchable_repository"
+    },
+    "knowledge_base_summary": {
+      "type": "object",
+      "description": "Knowledge base summary",
+      "source": "step.generate_knowledge_base.knowledge_base_summary"
+    }
+  }
+}
+

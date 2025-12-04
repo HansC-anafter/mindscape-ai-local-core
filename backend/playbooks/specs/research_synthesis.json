@@ -1,0 +1,207 @@
+{
+  "version": "1.0",
+  "playbook_code": "research_synthesis",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_research_materials",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.research_materials}}\n\nCollect research materials and literature. Ask user to provide research materials (files, URLs, or text), extract text from research documents (PDF, DOCX, or plain text), collect literature references and citations, organize materials by source and type, and verify completeness of research collection.",
+        "schema_description": "A JSON object with the following properties: 1) research_sources: array of objects, each with source_name (string), source_type (string: 'file', 'url', 'text'), content_preview (string), and metadata (object with author, date, title if available). 2) literature_references: array of objects, each with citation (string), source (string), and type (string: 'article', 'book', 'report', 'other'). 3) organized_materials: object with by_source (array of source objects), by_type (object with file_types as keys), and completeness (string: 'high', 'medium', 'low')."
+      },
+      "outputs": {
+        "research_sources": "extracted_data.research_sources",
+        "literature_references": "extracted_data.literature_references",
+        "organized_materials": "extracted_data.organized_materials"
+      }
+    },
+    {
+      "id": "extract_core_viewpoints",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Research Sources: {{step.collect_research_materials.research_sources}}\n\nOrganized Materials: {{step.collect_research_materials.organized_materials}}\n\nExtract core viewpoints. Analyze each research source individually, extract key viewpoints, arguments, and findings, identify main claims and supporting evidence, note methodology and data sources, and document author perspectives and biases.",
+        "schema_description": "A JSON object with the following properties: 1) core_viewpoints: array of objects, each with source (string), viewpoint (string), main_claim (string), supporting_evidence (array of strings), methodology (string if available), data_sources (array of strings if available), and author_perspective (string). 2) key_arguments: array of objects, each with argument (string), source (string), evidence (array of strings), and strength (string: 'strong', 'moderate', 'weak'). 3) findings: array of objects, each with finding (string), source (string), category (string), and significance (string: 'high', 'medium', 'low')."
+      },
+      "outputs": {
+        "core_viewpoints": "extracted_data.core_viewpoints",
+        "key_arguments": "extracted_data.key_arguments",
+        "findings": "extracted_data.findings"
+      },
+      "depends_on": ["collect_research_materials"]
+    },
+    {
+      "id": "identify_common_themes",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Core Viewpoints: {{step.extract_core_viewpoints.core_viewpoints}}\n\nKey Arguments: {{step.extract_core_viewpoints.key_arguments}}\n\nFindings: {{step.extract_core_viewpoints.findings}}\n\nIdentify common themes. Compare viewpoints across different sources, identify recurring themes and patterns, recognize convergent and divergent findings, map relationships between different research areas, and categorize themes by topic or domain.",
+        "schema_description": "A JSON object with the following properties: 1) common_themes: array of objects, each with theme_name (string), description (string), supporting_sources (array of strings), frequency (integer), and category (string). 2) convergent_findings: array of objects, each with finding (string), sources (array of strings), agreement_level (string: 'high', 'medium', 'low'), and consensus_description (string). 3) divergent_findings: array of objects, each with finding (string), conflicting_sources (array of strings), disagreement_type (string), and resolution_notes (string). 4) theme_relationships: array of objects, each with theme1 (string), theme2 (string), relationship_type (string), and description (string)."
+      },
+      "outputs": {
+        "common_themes": "extracted_data.common_themes",
+        "convergent_findings": "extracted_data.convergent_findings",
+        "divergent_findings": "extracted_data.divergent_findings",
+        "theme_relationships": "extracted_data.theme_relationships"
+      },
+      "depends_on": ["extract_core_viewpoints"]
+    },
+    {
+      "id": "synthesize_findings",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Common Themes: {{step.identify_common_themes.common_themes}}\n\nConvergent Findings: {{step.identify_common_themes.convergent_findings}}\n\nDivergent Findings: {{step.identify_common_themes.divergent_findings}}\n\nSynthesize findings and conclusions. Integrate findings from multiple sources, resolve contradictions or conflicting evidence, build coherent narrative from diverse sources, identify gaps in research coverage, and formulate synthesized conclusions.",
+        "schema_description": "A JSON object with the following properties: 1) synthesized_findings: array of objects, each with finding (string), supporting_evidence (array of strings), sources (array of strings), confidence_level (string: 'high', 'medium', 'low'), and implications (string). 2) resolved_contradictions: array of objects, each with contradiction (string), resolution (string), reasoning (string), and confidence (string). 3) coherent_narrative: string (integrated narrative from all sources). 4) research_gaps: array of objects, each with gap (string), description (string), and potential_sources (array of strings if available). 5) synthesized_conclusions: array of objects, each with conclusion (string), supporting_evidence (array of strings), and strength (string: 'strong', 'moderate', 'weak')."
+      },
+      "outputs": {
+        "synthesized_findings": "extracted_data.synthesized_findings",
+        "resolved_contradictions": "extracted_data.resolved_contradictions",
+        "coherent_narrative": "extracted_data.coherent_narrative",
+        "research_gaps": "extracted_data.research_gaps",
+        "synthesized_conclusions": "extracted_data.synthesized_conclusions"
+      },
+      "depends_on": ["identify_common_themes"]
+    },
+    {
+      "id": "generate_research_report",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Synthesized Findings: {{step.synthesize_findings.synthesized_findings}}\n\nSynthesized Conclusions: {{step.synthesize_findings.synthesized_conclusions}}\n\nResearch Gaps: {{step.synthesize_findings.research_gaps}}\n\nCoherent Narrative: {{step.synthesize_findings.coherent_narrative}}\n\nGenerate research report. Create structured research report with executive summary, research methodology and sources, key findings by theme, synthesized conclusions, research gaps and future directions, and references and citations.",
+        "schema_description": "A JSON object with the following properties: 1) executive_summary: string (key findings and conclusions). 2) research_methodology: object with sources_summary (string), methodology_description (string), and data_collection_approach (string). 3) key_findings_by_theme: array of objects, each with theme (string), findings (array of finding objects), and significance (string). 4) synthesized_conclusions_summary: object with main_conclusions (array of conclusion objects), confidence_levels (object), and implications (string). 5) research_gaps_and_future_directions: object with identified_gaps (array of gap objects), future_research_priorities (array of strings), and recommendations (array of strings). 6) references: array of objects, each with citation (string), source (string), and type (string)."
+      },
+      "outputs": {
+        "executive_summary": "extracted_data.executive_summary",
+        "research_methodology": "extracted_data.research_methodology",
+        "key_findings_by_theme": "extracted_data.key_findings_by_theme",
+        "synthesized_conclusions_summary": "extracted_data.synthesized_conclusions_summary",
+        "research_gaps_and_future_directions": "extracted_data.research_gaps_and_future_directions",
+        "references": "extracted_data.references"
+      },
+      "depends_on": ["synthesize_findings"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for research synthesis"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the research topic"
+    },
+    "research_materials": {
+      "type": "string",
+      "default": "",
+      "description": "Research materials (files, URLs, or text)"
+    }
+  },
+  "outputs": {
+    "research_sources": {
+      "type": "list[object]",
+      "description": "Collected research sources",
+      "source": "step.collect_research_materials.research_sources"
+    },
+    "literature_references": {
+      "type": "list[object]",
+      "description": "Literature references and citations",
+      "source": "step.collect_research_materials.literature_references"
+    },
+    "organized_materials": {
+      "type": "object",
+      "description": "Organized research materials",
+      "source": "step.collect_research_materials.organized_materials"
+    },
+    "core_viewpoints": {
+      "type": "list[object]",
+      "description": "Core viewpoints extracted from sources",
+      "source": "step.extract_core_viewpoints.core_viewpoints"
+    },
+    "key_arguments": {
+      "type": "list[object]",
+      "description": "Key arguments and claims",
+      "source": "step.extract_core_viewpoints.key_arguments"
+    },
+    "findings": {
+      "type": "list[object]",
+      "description": "Key findings from sources",
+      "source": "step.extract_core_viewpoints.findings"
+    },
+    "common_themes": {
+      "type": "list[object]",
+      "description": "Common themes across sources",
+      "source": "step.identify_common_themes.common_themes"
+    },
+    "convergent_findings": {
+      "type": "list[object]",
+      "description": "Convergent findings across sources",
+      "source": "step.identify_common_themes.convergent_findings"
+    },
+    "divergent_findings": {
+      "type": "list[object]",
+      "description": "Divergent findings across sources",
+      "source": "step.identify_common_themes.divergent_findings"
+    },
+    "theme_relationships": {
+      "type": "list[object]",
+      "description": "Relationships between themes",
+      "source": "step.identify_common_themes.theme_relationships"
+    },
+    "synthesized_findings": {
+      "type": "list[object]",
+      "description": "Synthesized findings from all sources",
+      "source": "step.synthesize_findings.synthesized_findings"
+    },
+    "resolved_contradictions": {
+      "type": "list[object]",
+      "description": "Resolved contradictions",
+      "source": "step.synthesize_findings.resolved_contradictions"
+    },
+    "coherent_narrative": {
+      "type": "string",
+      "description": "Coherent narrative from all sources",
+      "source": "step.synthesize_findings.coherent_narrative"
+    },
+    "research_gaps": {
+      "type": "list[object]",
+      "description": "Identified research gaps",
+      "source": "step.synthesize_findings.research_gaps"
+    },
+    "synthesized_conclusions": {
+      "type": "list[object]",
+      "description": "Synthesized conclusions",
+      "source": "step.synthesize_findings.synthesized_conclusions"
+    },
+    "executive_summary": {
+      "type": "string",
+      "description": "Executive summary of research report",
+      "source": "step.generate_research_report.executive_summary"
+    },
+    "research_methodology": {
+      "type": "object",
+      "description": "Research methodology and sources",
+      "source": "step.generate_research_report.research_methodology"
+    },
+    "key_findings_by_theme": {
+      "type": "list[object]",
+      "description": "Key findings organized by theme",
+      "source": "step.generate_research_report.key_findings_by_theme"
+    },
+    "synthesized_conclusions_summary": {
+      "type": "object",
+      "description": "Synthesized conclusions summary",
+      "source": "step.generate_research_report.synthesized_conclusions_summary"
+    },
+    "research_gaps_and_future_directions": {
+      "type": "object",
+      "description": "Research gaps and future directions",
+      "source": "step.generate_research_report.research_gaps_and_future_directions"
+    },
+    "references": {
+      "type": "list[object]",
+      "description": "References and citations",
+      "source": "step.generate_research_report.references"
+    }
+  }
+}
+

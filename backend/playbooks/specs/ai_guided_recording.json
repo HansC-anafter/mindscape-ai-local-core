@@ -1,0 +1,219 @@
+{
+  "version": "1.0",
+  "playbook_code": "ai_guided_recording",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "prepare_course_outline_script",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.course_outline}}\n\nPrepare course outline and script. Collect course outline and learning objectives, review or generate course script, break down script into recording units (lines or segments), identify key points and emphasis areas, and prepare recording structure and flow.",
+        "schema_description": "A JSON object with the following properties: 1) course_outline: object with title (string), learning_objectives (array of strings), duration (string), and structure (array of section objects). 2) course_script: object with script_content (string), total_lines (integer), segments (array of segment objects, each with segment_number, text, duration_estimate, and emphasis_points), and key_points (array of strings). 3) recording_units: array of objects, each with unit_id (string), text (string), type (string: 'line', 'segment'), order (integer), and estimated_duration (string). 4) recording_structure: object with total_units (integer), flow_description (string), and emphasis_areas (array of emphasis objects)."
+      },
+      "outputs": {
+        "course_outline": "extracted_data.course_outline",
+        "course_script": "extracted_data.course_script",
+        "recording_units": "extracted_data.recording_units",
+        "recording_structure": "extracted_data.recording_structure"
+      }
+    },
+    {
+      "id": "set_recording_parameters",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Course Script: {{step.prepare_course_outline_script.course_script}}\n\nRecording Units: {{step.prepare_course_outline_script.recording_units}}\n\nSet recording parameters and prompts. Configure recording settings (sample rate, format, quality), set up tone and style guidelines, generate tone suggestions for each line/segment, prepare prompts and guidance for recording, and set up quality check criteria.",
+        "schema_description": "A JSON object with the following properties: 1) recording_settings: object with sample_rate (string), format (string: 'wav', 'mp3', 'm4a'), quality (string: 'high', 'medium', 'low'), and bitrate (string if applicable). 2) tone_style_guidelines: object with overall_tone (string), style_characteristics (array of strings), pacing (string: 'slow', 'moderate', 'fast'), and emphasis_style (string). 3) tone_suggestions: array of objects, each with unit_id (string), tone_suggestion (string), style_notes (string), and emphasis_points (array of strings). 4) recording_prompts: array of objects, each with unit_id (string), prompt_text (string), guidance (string), and example_audio_available (boolean). 5) quality_criteria: object with audio_quality_standards (array of strings), content_accuracy_requirements (array of strings), and consistency_checks (array of strings)."
+      },
+      "outputs": {
+        "recording_settings": "extracted_data.recording_settings",
+        "tone_style_guidelines": "extracted_data.tone_style_guidelines",
+        "tone_suggestions": "extracted_data.tone_suggestions",
+        "recording_prompts": "extracted_data.recording_prompts",
+        "quality_criteria": "extracted_data.quality_criteria"
+      },
+      "depends_on": ["prepare_course_outline_script"]
+    },
+    {
+      "id": "guide_recording_process",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Recording Units: {{step.prepare_course_outline_script.recording_units}}\n\nTone Suggestions: {{step.set_recording_parameters.tone_suggestions}}\n\nRecording Prompts: {{step.set_recording_parameters.recording_prompts}}\n\nGuide recording process. Provide tone and style guidance for each segment, use voice_recording.play_demo to play example audio (if available), guide user through recording each line using voice_recording.record_line, provide real-time feedback and suggestions, and track recording progress and completion.",
+        "schema_description": "A JSON object with the following properties: 1) recording_sessions: array of objects, each with session_id (string), unit_id (string), guidance_provided (string), demo_played (boolean), recording_status (string: 'pending', 'in_progress', 'completed', 'needs_retake'), feedback (string), and audio_file_path (string if available). 2) recording_progress: object with total_units (integer), completed_units (integer), in_progress_units (integer), pending_units (integer), and completion_percentage (number). 3) real_time_feedback: array of objects, each with unit_id (string), feedback_type (string: 'tone', 'pacing', 'clarity', 'content'), feedback_text (string), and suggestion (string)."
+      },
+      "outputs": {
+        "recording_sessions": "extracted_data.recording_sessions",
+        "recording_progress": "extracted_data.recording_progress",
+        "real_time_feedback": "extracted_data.real_time_feedback"
+      },
+      "depends_on": ["set_recording_parameters"]
+    },
+    {
+      "id": "check_recording_quality",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Recording Sessions: {{step.guide_recording_process.recording_sessions}}\n\nQuality Criteria: {{step.set_recording_parameters.quality_criteria}}\n\nCheck recording quality. Review recorded audio quality, use voice_recording.transcribe to verify content accuracy, check tone and pacing consistency, identify segments that need re-recording, and validate audio meets quality standards.",
+        "schema_description": "A JSON object with the following properties: 1) quality_assessment: array of objects, each with unit_id (string), audio_quality_score (string: 'high', 'medium', 'low'), content_accuracy (string: 'high', 'medium', 'low'), tone_consistency (string: 'high', 'medium', 'low'), pacing_consistency (string: 'high', 'medium', 'low'), and overall_score (string). 2) transcription_verification: array of objects, each with unit_id (string), transcribed_text (string), accuracy_match (string: 'high', 'medium', 'low'), discrepancies (array of strings), and verification_status (string). 3) segments_needing_retake: array of objects, each with unit_id (string), reason (string), priority (string: 'high', 'medium', 'low'), and recommendation (string). 4) quality_validation: object with overall_quality (string: 'pass', 'needs_improvement', 'fail'), issues_identified (array of strings), and recommendations (array of strings)."
+      },
+      "outputs": {
+        "quality_assessment": "extracted_data.quality_assessment",
+        "transcription_verification": "extracted_data.transcription_verification",
+        "segments_needing_retake": "extracted_data.segments_needing_retake",
+        "quality_validation": "extracted_data.quality_validation"
+      },
+      "depends_on": ["guide_recording_process"]
+    },
+    {
+      "id": "generate_recording_report",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Recording Progress: {{step.guide_recording_process.recording_progress}}\n\nQuality Assessment: {{step.check_recording_quality.quality_assessment}}\n\nQuality Validation: {{step.check_recording_quality.quality_validation}}\n\nGenerate recording report. Compile all recording information, use voice_recording.merge_recordings to combine segments if needed, and generate recording report with recording summary and statistics, quality assessment, completion status, recommendations for improvements, and next steps and follow-up actions.",
+        "schema_description": "A JSON object with the following properties: 1) recording_summary: object with total_units (integer), completed_units (integer), total_duration (string), average_quality_score (string), and completion_status (string: 'complete', 'in_progress', 'needs_retake'). 2) statistics: object with total_recordings (integer), retakes_required (integer), average_recording_time (string), and success_rate (number). 3) quality_assessment_summary: object with overall_quality (string), audio_quality_distribution (object), content_accuracy_distribution (object), and consistency_scores (object). 4) recommendations: array of objects, each with recommendation (string), priority (string: 'high', 'medium', 'low'), and action (string). 5) next_steps: array of objects, each with step (string), description (string), and priority (string). 6) final_audio_files: array of objects, each with file_name (string), file_path (string), duration (string), and format (string). 7) transcripts: array of objects, each with unit_id (string), transcript_text (string), and file_path (string)."
+      },
+      "outputs": {
+        "recording_summary": "extracted_data.recording_summary",
+        "statistics": "extracted_data.statistics",
+        "quality_assessment_summary": "extracted_data.quality_assessment_summary",
+        "recommendations": "extracted_data.recommendations",
+        "next_steps": "extracted_data.next_steps",
+        "final_audio_files": "extracted_data.final_audio_files",
+        "transcripts": "extracted_data.transcripts"
+      },
+      "depends_on": ["check_recording_quality"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for AI-guided recording"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the course or recording"
+    },
+    "course_outline": {
+      "type": "string",
+      "default": "",
+      "description": "Course outline and learning objectives"
+    }
+  },
+  "outputs": {
+    "course_outline": {
+      "type": "object",
+      "description": "Course outline and structure",
+      "source": "step.prepare_course_outline_script.course_outline"
+    },
+    "course_script": {
+      "type": "object",
+      "description": "Course script with segments",
+      "source": "step.prepare_course_outline_script.course_script"
+    },
+    "recording_units": {
+      "type": "list[object]",
+      "description": "Recording units (lines or segments)",
+      "source": "step.prepare_course_outline_script.recording_units"
+    },
+    "recording_structure": {
+      "type": "object",
+      "description": "Recording structure and flow",
+      "source": "step.prepare_course_outline_script.recording_structure"
+    },
+    "recording_settings": {
+      "type": "object",
+      "description": "Recording settings and parameters",
+      "source": "step.set_recording_parameters.recording_settings"
+    },
+    "tone_style_guidelines": {
+      "type": "object",
+      "description": "Tone and style guidelines",
+      "source": "step.set_recording_parameters.tone_style_guidelines"
+    },
+    "tone_suggestions": {
+      "type": "list[object]",
+      "description": "Tone suggestions for each unit",
+      "source": "step.set_recording_parameters.tone_suggestions"
+    },
+    "recording_prompts": {
+      "type": "list[object]",
+      "description": "Recording prompts and guidance",
+      "source": "step.set_recording_parameters.recording_prompts"
+    },
+    "quality_criteria": {
+      "type": "object",
+      "description": "Quality check criteria",
+      "source": "step.set_recording_parameters.quality_criteria"
+    },
+    "recording_sessions": {
+      "type": "list[object]",
+      "description": "Recording sessions",
+      "source": "step.guide_recording_process.recording_sessions"
+    },
+    "recording_progress": {
+      "type": "object",
+      "description": "Recording progress tracking",
+      "source": "step.guide_recording_process.recording_progress"
+    },
+    "real_time_feedback": {
+      "type": "list[object]",
+      "description": "Real-time feedback during recording",
+      "source": "step.guide_recording_process.real_time_feedback"
+    },
+    "quality_assessment": {
+      "type": "list[object]",
+      "description": "Quality assessment for each unit",
+      "source": "step.check_recording_quality.quality_assessment"
+    },
+    "transcription_verification": {
+      "type": "list[object]",
+      "description": "Transcription verification results",
+      "source": "step.check_recording_quality.transcription_verification"
+    },
+    "segments_needing_retake": {
+      "type": "list[object]",
+      "description": "Segments that need re-recording",
+      "source": "step.check_recording_quality.segments_needing_retake"
+    },
+    "quality_validation": {
+      "type": "object",
+      "description": "Overall quality validation",
+      "source": "step.check_recording_quality.quality_validation"
+    },
+    "recording_summary": {
+      "type": "object",
+      "description": "Recording summary and statistics",
+      "source": "step.generate_recording_report.recording_summary"
+    },
+    "statistics": {
+      "type": "object",
+      "description": "Recording statistics",
+      "source": "step.generate_recording_report.statistics"
+    },
+    "quality_assessment_summary": {
+      "type": "object",
+      "description": "Quality assessment summary",
+      "source": "step.generate_recording_report.quality_assessment_summary"
+    },
+    "recommendations": {
+      "type": "list[object]",
+      "description": "Recommendations for improvements",
+      "source": "step.generate_recording_report.recommendations"
+    },
+    "next_steps": {
+      "type": "list[object]",
+      "description": "Next steps and follow-up actions",
+      "source": "step.generate_recording_report.next_steps"
+    },
+    "final_audio_files": {
+      "type": "list[object]",
+      "description": "Final audio files",
+      "source": "step.generate_recording_report.final_audio_files"
+    },
+    "transcripts": {
+      "type": "list[object]",
+      "description": "Transcripts of recordings",
+      "source": "step.generate_recording_report.transcripts"
+    }
+  }
+}
+

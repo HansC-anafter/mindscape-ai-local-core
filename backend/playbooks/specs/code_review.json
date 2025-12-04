@@ -1,0 +1,249 @@
+{
+  "version": "1.0",
+  "playbook_code": "code_review",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "analyze_code_structure",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.code}}\n\nAnalyze code structure. Extract code from files or receive code input, analyze overall code architecture and organization, check module and function organization, evaluate code structure and design patterns, and identify structural issues or anti-patterns.",
+        "schema_description": "A JSON object with the following properties: 1) code_architecture: object with overall_structure (string), organization_type (string), and architecture_patterns (array of strings). 2) module_organization: array of objects, each with module_name (string), functions (array of strings), dependencies (array of strings), and organization_score (string: 'high', 'medium', 'low'). 3) function_organization: array of objects, each with function_name (string), module (string), complexity (string: 'high', 'medium', 'low'), and organization_notes (string). 4) design_patterns: array of objects, each with pattern_name (string), usage_location (string), and appropriateness (string: 'appropriate', 'questionable', 'inappropriate'). 5) structural_issues: array of objects, each with issue_type (string: 'anti_pattern', 'poor_organization', 'tight_coupling', 'other'), description (string), location (string), and severity (string: 'high', 'medium', 'low')."
+      },
+      "outputs": {
+        "code_architecture": "extracted_data.code_architecture",
+        "module_organization": "extracted_data.module_organization",
+        "function_organization": "extracted_data.function_organization",
+        "design_patterns": "extracted_data.design_patterns",
+        "structural_issues": "extracted_data.structural_issues"
+      }
+    },
+    {
+      "id": "check_code_quality",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Code: {{input.code}}\n\nCode Architecture: {{step.analyze_code_structure.code_architecture}}\n\nCheck code quality. Analyze code readability and maintainability, check naming conventions and consistency, evaluate code complexity and cyclomatic complexity, review error handling and exception management, and assess code documentation and comments.",
+        "schema_description": "A JSON object with the following properties: 1) readability: object with readability_score (string: 'high', 'medium', 'low'), factors (array of strings), and issues (array of strings). 2) maintainability: object with maintainability_score (string: 'high', 'medium', 'low'), factors (array of strings), and concerns (array of strings). 3) naming_conventions: object with consistency_score (string: 'high', 'medium', 'low'), violations (array of objects, each with location, violation_type, and recommended_name), and conventions_used (array of strings). 4) complexity_analysis: object with overall_complexity (string: 'high', 'medium', 'low'), cyclomatic_complexity (object with function_name as key and complexity as value), complex_functions (array of function names), and recommendations (array of strings). 5) error_handling: object with error_handling_score (string: 'high', 'medium', 'low'), issues (array of objects, each with location, issue_type, and description), and recommendations (array of strings). 6) documentation: object with documentation_coverage (string: 'high', 'medium', 'low'), missing_docs (array of function/module names), quality_assessment (string), and recommendations (array of strings)."
+      },
+      "outputs": {
+        "readability": "extracted_data.readability",
+        "maintainability": "extracted_data.maintainability",
+        "naming_conventions": "extracted_data.naming_conventions",
+        "complexity_analysis": "extracted_data.complexity_analysis",
+        "error_handling": "extracted_data.error_handling",
+        "documentation": "extracted_data.documentation"
+      },
+      "depends_on": ["analyze_code_structure"]
+    },
+    {
+      "id": "identify_potential_issues",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Code: {{input.code}}\n\nCode Quality: {{step.check_code_quality.complexity_analysis}}\n\nIdentify potential issues. Detect potential bugs and logic errors, identify security vulnerabilities, check for performance issues, find code smells and technical debt, and highlight areas requiring refactoring.",
+        "schema_description": "A JSON object with the following properties: 1) potential_bugs: array of objects, each with bug_type (string), location (string), description (string), severity (string: 'high', 'medium', 'low'), and suggested_fix (string). 2) logic_errors: array of objects, each with error_type (string), location (string), description (string), and impact (string). 3) security_vulnerabilities: array of objects, each with vulnerability_type (string), location (string), description (string), severity (string: 'critical', 'high', 'medium', 'low'), and remediation (string). 4) performance_issues: array of objects, each with issue_type (string), location (string), description (string), impact (string: 'high', 'medium', 'low'), and optimization_suggestion (string). 5) code_smells: array of objects, each with smell_type (string), location (string), description (string), and refactoring_suggestion (string). 6) technical_debt: array of objects, each with debt_type (string), location (string), description (string), priority (string: 'high', 'medium', 'low'), and estimated_effort (string)."
+      },
+      "outputs": {
+        "potential_bugs": "extracted_data.potential_bugs",
+        "logic_errors": "extracted_data.logic_errors",
+        "security_vulnerabilities": "extracted_data.security_vulnerabilities",
+        "performance_issues": "extracted_data.performance_issues",
+        "code_smells": "extracted_data.code_smells",
+        "technical_debt": "extracted_data.technical_debt"
+      },
+      "depends_on": ["check_code_quality"]
+    },
+    {
+      "id": "check_best_practices",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Code: {{input.code}}\n\nCode Structure: {{step.analyze_code_structure.code_architecture}}\n\nCode Quality: {{step.check_code_quality.naming_conventions}}\n\nCheck best practices. Verify adherence to coding standards, check language-specific best practices, review design patterns usage, evaluate testing coverage (if test files available), and assess dependency management.",
+        "schema_description": "A JSON object with the following properties: 1) coding_standards: object with adherence_score (string: 'high', 'medium', 'low'), violations (array of objects, each with standard, location, and description), and compliance_percentage (number). 2) language_best_practices: array of objects, each with practice (string), status (string: 'followed', 'partially_followed', 'not_followed'), location (string), and recommendation (string). 3) design_patterns_review: object with patterns_used (array of pattern objects), appropriateness (string: 'high', 'medium', 'low'), and recommendations (array of strings). 4) testing_coverage: object with coverage_level (string: 'high', 'medium', 'low', 'unknown'), test_files_found (boolean), coverage_areas (array of strings), and recommendations (array of strings). 5) dependency_management: object with dependency_analysis (string), outdated_dependencies (array of strings if available), security_concerns (array of strings), and recommendations (array of strings)."
+      },
+      "outputs": {
+        "coding_standards": "extracted_data.coding_standards",
+        "language_best_practices": "extracted_data.language_best_practices",
+        "design_patterns_review": "extracted_data.design_patterns_review",
+        "testing_coverage": "extracted_data.testing_coverage",
+        "dependency_management": "extracted_data.dependency_management"
+      },
+      "depends_on": ["analyze_code_structure", "check_code_quality"]
+    },
+    {
+      "id": "generate_review_report",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Code Structure: {{step.analyze_code_structure.code_architecture}}\n\nCode Quality: {{step.check_code_quality.readability}}\n\nPotential Issues: {{step.identify_potential_issues.potential_bugs}}\n\nBest Practices: {{step.check_best_practices.coding_standards}}\n\nGenerate review report. Compile all review findings and create structured review report with code structure analysis, quality assessment, issues and recommendations, best practices compliance, and prioritized action items.",
+        "schema_description": "A JSON object with the following properties: 1) executive_summary: string (overall code review assessment and key findings). 2) code_structure_analysis: object with architecture_assessment (string), organization_score (string), structural_issues (array of issue objects), and recommendations (array of strings). 3) quality_assessment: object with overall_quality_score (string: 'high', 'medium', 'low'), readability_score (string), maintainability_score (string), complexity_assessment (string), and quality_improvements (array of strings). 4) issues_and_recommendations: object with critical_issues (array of issue objects), high_priority_issues (array of issue objects), medium_priority_issues (array of issue objects), low_priority_issues (array of issue objects), and security_concerns (array of vulnerability objects). 5) best_practices_compliance: object with overall_compliance (string: 'high', 'medium', 'low'), standards_adherence (string), best_practices_followed (array of strings), best_practices_missing (array of strings), and improvement_areas (array of strings). 6) prioritized_action_items: array of objects, each with action (string), category (string: 'structure', 'quality', 'security', 'performance', 'best_practices'), priority (string: 'critical', 'high', 'medium', 'low'), effort (string: 'high', 'medium', 'low'), and expected_impact (string)."
+      },
+      "outputs": {
+        "executive_summary": "extracted_data.executive_summary",
+        "code_structure_analysis": "extracted_data.code_structure_analysis",
+        "quality_assessment": "extracted_data.quality_assessment",
+        "issues_and_recommendations": "extracted_data.issues_and_recommendations",
+        "best_practices_compliance": "extracted_data.best_practices_compliance",
+        "prioritized_action_items": "extracted_data.prioritized_action_items"
+      },
+      "depends_on": ["check_best_practices", "identify_potential_issues"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for code review"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the code or review requirements"
+    },
+    "code": {
+      "type": "string",
+      "required": true,
+      "description": "Code to review"
+    }
+  },
+  "outputs": {
+    "code_architecture": {
+      "type": "object",
+      "description": "Code architecture analysis",
+      "source": "step.analyze_code_structure.code_architecture"
+    },
+    "module_organization": {
+      "type": "list[object]",
+      "description": "Module organization analysis",
+      "source": "step.analyze_code_structure.module_organization"
+    },
+    "function_organization": {
+      "type": "list[object]",
+      "description": "Function organization analysis",
+      "source": "step.analyze_code_structure.function_organization"
+    },
+    "design_patterns": {
+      "type": "list[object]",
+      "description": "Design patterns identified",
+      "source": "step.analyze_code_structure.design_patterns"
+    },
+    "structural_issues": {
+      "type": "list[object]",
+      "description": "Structural issues identified",
+      "source": "step.analyze_code_structure.structural_issues"
+    },
+    "readability": {
+      "type": "object",
+      "description": "Code readability assessment",
+      "source": "step.check_code_quality.readability"
+    },
+    "maintainability": {
+      "type": "object",
+      "description": "Code maintainability assessment",
+      "source": "step.check_code_quality.maintainability"
+    },
+    "naming_conventions": {
+      "type": "object",
+      "description": "Naming conventions check",
+      "source": "step.check_code_quality.naming_conventions"
+    },
+    "complexity_analysis": {
+      "type": "object",
+      "description": "Code complexity analysis",
+      "source": "step.check_code_quality.complexity_analysis"
+    },
+    "error_handling": {
+      "type": "object",
+      "description": "Error handling assessment",
+      "source": "step.check_code_quality.error_handling"
+    },
+    "documentation": {
+      "type": "object",
+      "description": "Code documentation assessment",
+      "source": "step.check_code_quality.documentation"
+    },
+    "potential_bugs": {
+      "type": "list[object]",
+      "description": "Potential bugs identified",
+      "source": "step.identify_potential_issues.potential_bugs"
+    },
+    "logic_errors": {
+      "type": "list[object]",
+      "description": "Logic errors identified",
+      "source": "step.identify_potential_issues.logic_errors"
+    },
+    "security_vulnerabilities": {
+      "type": "list[object]",
+      "description": "Security vulnerabilities identified",
+      "source": "step.identify_potential_issues.security_vulnerabilities"
+    },
+    "performance_issues": {
+      "type": "list[object]",
+      "description": "Performance issues identified",
+      "source": "step.identify_potential_issues.performance_issues"
+    },
+    "code_smells": {
+      "type": "list[object]",
+      "description": "Code smells identified",
+      "source": "step.identify_potential_issues.code_smells"
+    },
+    "technical_debt": {
+      "type": "list[object]",
+      "description": "Technical debt identified",
+      "source": "step.identify_potential_issues.technical_debt"
+    },
+    "coding_standards": {
+      "type": "object",
+      "description": "Coding standards compliance",
+      "source": "step.check_best_practices.coding_standards"
+    },
+    "language_best_practices": {
+      "type": "list[object]",
+      "description": "Language-specific best practices check",
+      "source": "step.check_best_practices.language_best_practices"
+    },
+    "design_patterns_review": {
+      "type": "object",
+      "description": "Design patterns review",
+      "source": "step.check_best_practices.design_patterns_review"
+    },
+    "testing_coverage": {
+      "type": "object",
+      "description": "Testing coverage assessment",
+      "source": "step.check_best_practices.testing_coverage"
+    },
+    "dependency_management": {
+      "type": "object",
+      "description": "Dependency management assessment",
+      "source": "step.check_best_practices.dependency_management"
+    },
+    "executive_summary": {
+      "type": "string",
+      "description": "Executive summary of code review",
+      "source": "step.generate_review_report.executive_summary"
+    },
+    "code_structure_analysis": {
+      "type": "object",
+      "description": "Code structure analysis summary",
+      "source": "step.generate_review_report.code_structure_analysis"
+    },
+    "quality_assessment": {
+      "type": "object",
+      "description": "Quality assessment summary",
+      "source": "step.generate_review_report.quality_assessment"
+    },
+    "issues_and_recommendations": {
+      "type": "object",
+      "description": "Issues and recommendations summary",
+      "source": "step.generate_review_report.issues_and_recommendations"
+    },
+    "best_practices_compliance": {
+      "type": "object",
+      "description": "Best practices compliance summary",
+      "source": "step.generate_review_report.best_practices_compliance"
+    },
+    "prioritized_action_items": {
+      "type": "list[object]",
+      "description": "Prioritized action items",
+      "source": "step.generate_review_report.prioritized_action_items"
+    }
+  }
+}
+

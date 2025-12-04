@@ -1,0 +1,160 @@
+{
+  "version": "1.0",
+  "playbook_code": "weekly_review_onboarding",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_weekly_tasks",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.self_description}}\n\nCollect weekly tasks. Ask user about 3 things they plan to do this week, and optionally ask which one is most important.",
+        "schema_description": "A JSON object with the following properties: 1) weekly_tasks: array of objects, each with task (string), type (string: 'development', 'content_creation', 'meeting', 'learning', 'other'), priority (string: 'high', 'medium', 'low'), and estimated_hours (number if available). 2) priority_pattern: string (user's priority judgment pattern). 3) task_granularity: string (user's task granularity preference: 'large_project', 'small_tasks', 'mixed')."
+      },
+      "outputs": {
+        "weekly_tasks": "extracted_data.weekly_tasks",
+        "priority_pattern": "extracted_data.priority_pattern",
+        "task_granularity": "extracted_data.task_granularity"
+      }
+    },
+    {
+      "id": "collect_tools",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Weekly Tasks: {{step.collect_weekly_tasks.weekly_tasks}}\n\nCollect tools. Ask user about tools they commonly use for work.",
+        "schema_description": "A JSON object with the following properties: 1) tools: array of objects, each with name (string), category (string: 'cms', 'notes', 'code', 'design', 'project_management', 'other'), usage_frequency (string: 'daily', 'weekly', 'occasionally'), and workflow_role (string). 2) tool_categories: array of strings (categories of tools used). 3) tool_combinations: array of strings (tool combinations indicating workflow). 4) cloud_vs_local_preference: string (user's preference: 'cloud', 'local', 'mixed')."
+      },
+      "outputs": {
+        "tools": "extracted_data.tools",
+        "tool_categories": "extracted_data.tool_categories",
+        "tool_combinations": "extracted_data.tool_combinations",
+        "cloud_vs_local_preference": "extracted_data.cloud_vs_local_preference"
+      },
+      "depends_on": ["collect_weekly_tasks"]
+    },
+    {
+      "id": "collect_work_rhythm",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Weekly Tasks: {{step.collect_weekly_tasks.weekly_tasks}}\n\nCollect work rhythm preferences. Ask user about their preferred work rhythm (morning focus, evening inspiration, focused single-task, multi-tasking, or other), and optionally ask about specific work hours.",
+        "schema_description": "A JSON object with the following properties: 1) time_preference: string (user's time preference: 'morning', 'evening', 'flexible', 'other'). 2) work_start_time: string (typical work start time if available). 3) peak_hours: string (peak productivity hours). 4) task_processing_mode: string (user's task processing mode: 'focused', 'multitasking', 'mixed'). 5) work_mode: object with style (string: 'focused', 'multitasking'), multitasking (boolean), break_frequency (string), and context_switching_tolerance (string: 'high', 'medium', 'low')."
+      },
+      "outputs": {
+        "time_preference": "extracted_data.time_preference",
+        "work_start_time": "extracted_data.work_start_time",
+        "peak_hours": "extracted_data.peak_hours",
+        "task_processing_mode": "extracted_data.task_processing_mode",
+        "work_mode": "extracted_data.work_mode"
+      },
+      "depends_on": ["collect_tools"]
+    },
+    {
+      "id": "generate_summary",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Weekly Tasks: {{step.collect_weekly_tasks.weekly_tasks}}\n\nTools: {{step.collect_tools.tools}}\n\nWork Rhythm: {{step.collect_work_rhythm.work_mode}}\n\nGenerate summary. Generate final summary of work rhythm data and extract seeds for mindscape.",
+        "schema_description": "A JSON object with the following properties: 1) work_rhythm_summary: object with weekly_tasks (array of task summaries), tools (array of tool summaries), time_preferences (object), and work_mode (object). 2) extracted_seeds: array of objects, each with seed_type (string: 'preference', 'entity'), seed_text (string), metadata (object if applicable), and confidence (number). 3) onboarding_task: string (task3)."
+      },
+      "outputs": {
+        "work_rhythm_summary": "extracted_data.work_rhythm_summary",
+        "extracted_seeds": "extracted_data.extracted_seeds",
+        "onboarding_task": "extracted_data.onboarding_task"
+      },
+      "depends_on": ["collect_work_rhythm"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for weekly review onboarding"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context"
+    },
+    "self_description": {
+      "type": "string",
+      "default": "",
+      "description": "User's self description from task 1"
+    }
+  },
+  "outputs": {
+    "weekly_tasks": {
+      "type": "list[object]",
+      "description": "Weekly tasks planned",
+      "source": "step.collect_weekly_tasks.weekly_tasks"
+    },
+    "priority_pattern": {
+      "type": "string",
+      "description": "User's priority judgment pattern",
+      "source": "step.collect_weekly_tasks.priority_pattern"
+    },
+    "task_granularity": {
+      "type": "string",
+      "description": "Task granularity preference",
+      "source": "step.collect_weekly_tasks.task_granularity"
+    },
+    "tools": {
+      "type": "list[object]",
+      "description": "Commonly used tools",
+      "source": "step.collect_tools.tools"
+    },
+    "tool_categories": {
+      "type": "list[string]",
+      "description": "Tool categories used",
+      "source": "step.collect_tools.tool_categories"
+    },
+    "tool_combinations": {
+      "type": "list[string]",
+      "description": "Tool combinations indicating workflow",
+      "source": "step.collect_tools.tool_combinations"
+    },
+    "cloud_vs_local_preference": {
+      "type": "string",
+      "description": "Cloud vs local preference",
+      "source": "step.collect_tools.cloud_vs_local_preference"
+    },
+    "time_preference": {
+      "type": "string",
+      "description": "Time preference for work",
+      "source": "step.collect_work_rhythm.time_preference"
+    },
+    "work_start_time": {
+      "type": "string",
+      "description": "Typical work start time",
+      "source": "step.collect_work_rhythm.work_start_time"
+    },
+    "peak_hours": {
+      "type": "string",
+      "description": "Peak productivity hours",
+      "source": "step.collect_work_rhythm.peak_hours"
+    },
+    "task_processing_mode": {
+      "type": "string",
+      "description": "Task processing mode",
+      "source": "step.collect_work_rhythm.task_processing_mode"
+    },
+    "work_mode": {
+      "type": "object",
+      "description": "Work mode details",
+      "source": "step.collect_work_rhythm.work_mode"
+    },
+    "work_rhythm_summary": {
+      "type": "object",
+      "description": "Work rhythm summary",
+      "source": "step.generate_summary.work_rhythm_summary"
+    },
+    "extracted_seeds": {
+      "type": "list[object]",
+      "description": "Extracted seeds for mindscape",
+      "source": "step.generate_summary.extracted_seeds"
+    },
+    "onboarding_task": {
+      "type": "string",
+      "description": "Onboarding task identifier",
+      "source": "step.generate_summary.onboarding_task"
+    }
+  }
+}
+

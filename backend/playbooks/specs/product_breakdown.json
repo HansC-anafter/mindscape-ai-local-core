@@ -1,0 +1,190 @@
+{
+  "version": "1.0",
+  "playbook_code": "product_breakdown",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_product_ideas_target_users",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\nCollect product ideas and target users. Ask user about their product idea or concept, identify target user groups and personas, understand the problem the product aims to solve, and collect any existing documentation or notes.",
+        "schema_description": "A JSON object with the following properties: 1) product_idea: object with concept (string), description (string), problem_statement (string), and vision (string). 2) target_users: array of objects, each with user_group (string), persona_description (string), demographics (object), pain_points (array of strings), and goals (array of strings). 3) problem_analysis: object with problem_description (string), current_solutions (array of strings), problem_severity (string: 'high', 'medium', 'low'), and target_impact (string). 4) existing_documentation: array of objects, each with doc_type (string), content_summary (string), and relevance (string)."
+      },
+      "outputs": {
+        "product_idea": "extracted_data.product_idea",
+        "target_users": "extracted_data.target_users",
+        "problem_analysis": "extracted_data.problem_analysis",
+        "existing_documentation": "extracted_data.existing_documentation"
+      }
+    },
+    {
+      "id": "identify_core_value_proposition",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Product Idea: {{step.collect_product_ideas_target_users.product_idea}}\n\nProblem Analysis: {{step.collect_product_ideas_target_users.problem_analysis}}\n\nIdentify core value proposition. Analyze the unique value the product provides, compare with existing solutions (if any), define the key differentiators, and articulate the value proposition clearly.",
+        "schema_description": "A JSON object with the following properties: 1) unique_value: object with value_description (string), unique_aspects (array of strings), and competitive_advantage (string). 2) competitive_analysis: array of objects, each with solution_name (string), comparison (string), our_advantage (string), and their_limitations (array of strings). 3) differentiators: array of objects, each with differentiator (string), description (string), and impact (string: 'high', 'medium', 'low'). 4) value_proposition: object with statement (string), target_audience (string), benefits (array of strings), and proof_points (array of strings)."
+      },
+      "outputs": {
+        "unique_value": "extracted_data.unique_value",
+        "competitive_analysis": "extracted_data.competitive_analysis",
+        "differentiators": "extracted_data.differentiators",
+        "value_proposition": "extracted_data.value_proposition"
+      },
+      "depends_on": ["collect_product_ideas_target_users"]
+    },
+    {
+      "id": "break_down_feature_modules",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Product Idea: {{step.collect_product_ideas_target_users.product_idea}}\n\nValue Proposition: {{step.identify_core_value_proposition.value_proposition}}\n\nBreak down feature modules. Decompose the product into major feature modules, identify dependencies between modules, prioritize features based on value and feasibility, and define the scope for each module.",
+        "schema_description": "A JSON object with the following properties: 1) feature_modules: array of objects, each with module_name (string), description (string), features (array of feature objects), priority (string: 'high', 'medium', 'low'), feasibility (string: 'high', 'medium', 'low'), value_score (string: 'high', 'medium', 'low'), and scope (string). 2) module_dependencies: array of objects, each with module1 (string), module2 (string), dependency_type (string: 'required', 'optional', 'sequential'), and description (string). 3) feature_prioritization: object with must_have (array of feature names), should_have (array of feature names), could_have (array of feature names), and won_t_have (array of feature names)."
+      },
+      "outputs": {
+        "feature_modules": "extracted_data.feature_modules",
+        "module_dependencies": "extracted_data.module_dependencies",
+        "feature_prioritization": "extracted_data.feature_prioritization"
+      },
+      "depends_on": ["identify_core_value_proposition"]
+    },
+    {
+      "id": "define_user_flows",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Target Users: {{step.collect_product_ideas_target_users.target_users}}\n\nFeature Modules: {{step.break_down_feature_modules.feature_modules}}\n\nDefine user flows. Map user journeys for key scenarios, identify entry points and user actions, define the flow between features, and consider edge cases and error handling.",
+        "schema_description": "A JSON object with the following properties: 1) user_journeys: array of objects, each with journey_name (string), user_role (string), scenario (string), steps (array of step objects, each with step_number, action, feature_used, and outcome), and success_criteria (string). 2) entry_points: array of objects, each with entry_point (string), user_type (string), initial_action (string), and flow_destination (string). 3) feature_flows: array of objects, each with flow_name (string), starting_feature (string), ending_feature (string), intermediate_features (array of strings), and flow_description (string). 4) edge_cases: array of objects, each with case_name (string), scenario (string), handling_approach (string), and affected_features (array of strings)."
+      },
+      "outputs": {
+        "user_journeys": "extracted_data.user_journeys",
+        "entry_points": "extracted_data.entry_points",
+        "feature_flows": "extracted_data.feature_flows",
+        "edge_cases": "extracted_data.edge_cases"
+      },
+      "depends_on": ["break_down_feature_modules"]
+    },
+    {
+      "id": "generate_feature_specification",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Feature Modules: {{step.break_down_feature_modules.feature_modules}}\n\nUser Flows: {{step.define_user_flows.user_journeys}}\n\nGenerate feature specification. Create structured feature specifications, document functional requirements, define acceptance criteria, and generate a comprehensive product specification document.",
+        "schema_description": "A JSON object with the following properties: 1) feature_specifications: array of objects, each with feature_name (string), module (string), description (string), functional_requirements (array of requirement objects), acceptance_criteria (array of criterion objects), user_stories (array of strings), and priority (string). 2) functional_requirements: array of objects, each with requirement_id (string), feature (string), requirement (string), type (string: 'functional', 'non_functional'), and priority (string). 3) acceptance_criteria: array of objects, each with criterion_id (string), feature (string), criterion (string), test_scenario (string), and pass_condition (string). 4) product_specification: object with overview (string), feature_summary (array of feature summaries), user_flows_summary (string), technical_considerations (array of strings), and next_steps (array of strings)."
+      },
+      "outputs": {
+        "feature_specifications": "extracted_data.feature_specifications",
+        "functional_requirements": "extracted_data.functional_requirements",
+        "acceptance_criteria": "extracted_data.acceptance_criteria",
+        "product_specification": "extracted_data.product_specification"
+      },
+      "depends_on": ["define_user_flows"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for product breakdown"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the product idea"
+    }
+  },
+  "outputs": {
+    "product_idea": {
+      "type": "object",
+      "description": "Product idea and concept",
+      "source": "step.collect_product_ideas_target_users.product_idea"
+    },
+    "target_users": {
+      "type": "list[object]",
+      "description": "Target user groups and personas",
+      "source": "step.collect_product_ideas_target_users.target_users"
+    },
+    "problem_analysis": {
+      "type": "object",
+      "description": "Problem analysis",
+      "source": "step.collect_product_ideas_target_users.problem_analysis"
+    },
+    "existing_documentation": {
+      "type": "list[object]",
+      "description": "Existing documentation",
+      "source": "step.collect_product_ideas_target_users.existing_documentation"
+    },
+    "unique_value": {
+      "type": "object",
+      "description": "Unique value analysis",
+      "source": "step.identify_core_value_proposition.unique_value"
+    },
+    "competitive_analysis": {
+      "type": "list[object]",
+      "description": "Competitive analysis",
+      "source": "step.identify_core_value_proposition.competitive_analysis"
+    },
+    "differentiators": {
+      "type": "list[object]",
+      "description": "Key differentiators",
+      "source": "step.identify_core_value_proposition.differentiators"
+    },
+    "value_proposition": {
+      "type": "object",
+      "description": "Core value proposition",
+      "source": "step.identify_core_value_proposition.value_proposition"
+    },
+    "feature_modules": {
+      "type": "list[object]",
+      "description": "Feature modules breakdown",
+      "source": "step.break_down_feature_modules.feature_modules"
+    },
+    "module_dependencies": {
+      "type": "list[object]",
+      "description": "Dependencies between modules",
+      "source": "step.break_down_feature_modules.module_dependencies"
+    },
+    "feature_prioritization": {
+      "type": "object",
+      "description": "Feature prioritization",
+      "source": "step.break_down_feature_modules.feature_prioritization"
+    },
+    "user_journeys": {
+      "type": "list[object]",
+      "description": "User journeys mapped",
+      "source": "step.define_user_flows.user_journeys"
+    },
+    "entry_points": {
+      "type": "list[object]",
+      "description": "User entry points",
+      "source": "step.define_user_flows.entry_points"
+    },
+    "feature_flows": {
+      "type": "list[object]",
+      "description": "Feature flows",
+      "source": "step.define_user_flows.feature_flows"
+    },
+    "edge_cases": {
+      "type": "list[object]",
+      "description": "Edge cases and error handling",
+      "source": "step.define_user_flows.edge_cases"
+    },
+    "feature_specifications": {
+      "type": "list[object]",
+      "description": "Structured feature specifications",
+      "source": "step.generate_feature_specification.feature_specifications"
+    },
+    "functional_requirements": {
+      "type": "list[object]",
+      "description": "Functional requirements",
+      "source": "step.generate_feature_specification.functional_requirements"
+    },
+    "acceptance_criteria": {
+      "type": "list[object]",
+      "description": "Acceptance criteria",
+      "source": "step.generate_feature_specification.acceptance_criteria"
+    },
+    "product_specification": {
+      "type": "object",
+      "description": "Comprehensive product specification document",
+      "source": "step.generate_feature_specification.product_specification"
+    }
+  }
+}
+

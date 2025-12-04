@@ -1,0 +1,247 @@
+{
+  "version": "1.0",
+  "playbook_code": "seo_optimization",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_target_keywords",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.keyword_research}}\n\nCollect target keywords. Ask user about target keywords or topics, identify primary and secondary keywords, understand search intent for each keyword, and collect any existing keyword research or data.",
+        "schema_description": "A JSON object with the following properties: 1) primary_keywords: array of objects, each with keyword (string), search_volume (string if available), difficulty (string: 'high', 'medium', 'low'), search_intent (string: 'informational', 'navigational', 'transactional', 'commercial'), and relevance (string: 'high', 'medium', 'low'). 2) secondary_keywords: array of objects, each with keyword (string), search_intent (string), and relevance (string). 3) keyword_groups: array of objects, each with group_name (string), keywords (array of strings), and theme (string). 4) search_intent_analysis: object with informational_keywords (array of strings), transactional_keywords (array of strings), and intent_distribution (object)."
+      },
+      "outputs": {
+        "primary_keywords": "extracted_data.primary_keywords",
+        "secondary_keywords": "extracted_data.secondary_keywords",
+        "keyword_groups": "extracted_data.keyword_groups",
+        "search_intent_analysis": "extracted_data.search_intent_analysis"
+      }
+    },
+    {
+      "id": "analyze_competitors",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Target Keywords: {{step.collect_target_keywords.primary_keywords}}\n\nKeyword Groups: {{step.collect_target_keywords.keyword_groups}}\n\nAnalyze competitors. Identify competitor content for target keywords, analyze competitor SEO strategies, compare content structure and keyword usage, identify opportunities and gaps, and understand ranking factors.",
+        "schema_description": "A JSON object with the following properties: 1) competitor_content: array of objects, each with competitor_name (string), url (string), target_keyword (string), title (string), meta_description (string), content_structure (object), and ranking_position (string if available). 2) competitor_strategies: array of objects, each with competitor (string), strategy_elements (array of strings), keyword_density (string), content_length (string), and backlink_strategy (string if available). 3) content_comparison: object with structure_comparison (array of comparison objects), keyword_usage_comparison (array of comparison objects), and strengths_weaknesses (object). 4) opportunities: array of objects, each with opportunity (string), description (string), and priority (string: 'high', 'medium', 'low'). 5) ranking_factors: array of objects, each with factor (string), importance (string: 'high', 'medium', 'low'), and competitor_performance (string)."
+      },
+      "outputs": {
+        "competitor_content": "extracted_data.competitor_content",
+        "competitor_strategies": "extracted_data.competitor_strategies",
+        "content_comparison": "extracted_data.content_comparison",
+        "opportunities": "extracted_data.opportunities",
+        "ranking_factors": "extracted_data.ranking_factors"
+      },
+      "depends_on": ["collect_target_keywords"]
+    },
+    {
+      "id": "optimize_titles_descriptions",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Primary Keywords: {{step.collect_target_keywords.primary_keywords}}\n\nCompetitor Analysis: {{step.analyze_competitors.competitor_content}}\n\nContent: {{input.content}}\n\nOptimize titles and descriptions. Create SEO-optimized titles (50-60 characters), write compelling meta descriptions (150-160 characters), include target keywords naturally, ensure titles and descriptions are unique and relevant, and optimize for click-through rates.",
+        "schema_description": "A JSON object with the following properties: 1) optimized_titles: array of objects, each with original (string if available), optimized (string), character_count (integer), primary_keyword (string), click_through_potential (string: 'high', 'medium', 'low'), and rationale (string). 2) optimized_meta_descriptions: array of objects, each with original (string if available), optimized (string), character_count (integer), keywords_included (array of strings), call_to_action (string), and click_through_potential (string). 3) title_optimization: object with best_practices_applied (array of strings), keyword_placement (string), and uniqueness_check (string: 'unique', 'similar', 'duplicate'). 4) description_optimization: object with best_practices_applied (array of strings), keyword_integration (string), and cta_inclusion (boolean)."
+      },
+      "outputs": {
+        "optimized_titles": "extracted_data.optimized_titles",
+        "optimized_meta_descriptions": "extracted_data.optimized_meta_descriptions",
+        "title_optimization": "extracted_data.title_optimization",
+        "description_optimization": "extracted_data.description_optimization"
+      },
+      "depends_on": ["analyze_competitors"]
+    },
+    {
+      "id": "improve_content_structure",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Content: {{input.content}}\n\nTarget Keywords: {{step.collect_target_keywords.primary_keywords}}\n\nCurrent Structure: {{input.current_structure}}\n\nImprove content structure. Analyze current content structure, optimize headings (H1, H2, H3) hierarchy, ensure proper keyword distribution, improve content flow and readability, add internal linking opportunities, and optimize image alt texts and file names.",
+        "schema_description": "A JSON object with the following properties: 1) structure_analysis: object with current_structure (object), issues_identified (array of strings), and improvement_areas (array of strings). 2) optimized_headings: array of objects, each with level (string: 'H1', 'H2', 'H3'), original (string), optimized (string), keyword_inclusion (boolean), and rationale (string). 3) keyword_distribution: object with primary_keywords_distribution (object with keyword as key and count as value), secondary_keywords_distribution (object), and distribution_assessment (string: 'optimal', 'needs_improvement'). 4) content_flow_improvements: array of objects, each with section (string), current_issue (string), recommended_change (string), and expected_impact (string). 5) internal_linking_opportunities: array of objects, each with anchor_text (string), target_page (string), relevance (string: 'high', 'medium', 'low'), and placement_suggestion (string). 6) image_optimization: array of objects, each with image_name (string), current_alt_text (string), optimized_alt_text (string), optimized_filename (string), and keyword_relevance (string)."
+      },
+      "outputs": {
+        "structure_analysis": "extracted_data.structure_analysis",
+        "optimized_headings": "extracted_data.optimized_headings",
+        "keyword_distribution": "extracted_data.keyword_distribution",
+        "content_flow_improvements": "extracted_data.content_flow_improvements",
+        "internal_linking_opportunities": "extracted_data.internal_linking_opportunities",
+        "image_optimization": "extracted_data.image_optimization"
+      },
+      "depends_on": ["optimize_titles_descriptions"]
+    },
+    {
+      "id": "generate_seo_report",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Keyword Analysis: {{step.collect_target_keywords.primary_keywords}}\n\nCompetitor Insights: {{step.analyze_competitors.opportunities}}\n\nTitle Optimizations: {{step.optimize_titles_descriptions.optimized_titles}}\n\nContent Structure: {{step.improve_content_structure.structure_analysis}}\n\nGenerate SEO report. Compile all optimization recommendations and create structured SEO report with keyword analysis, competitor insights, title and description optimizations, content structure improvements, action items and priorities, and implementation checklist.",
+        "schema_description": "A JSON object with the following properties: 1) executive_summary: string (overall SEO assessment and key recommendations). 2) keyword_analysis: object with primary_keywords_summary (array of keyword objects), secondary_keywords_summary (array of keyword objects), search_intent_distribution (object), and keyword_opportunities (array of strings). 3) competitor_insights: object with top_competitors (array of competitor names), competitor_strategies_summary (array of strategy objects), opportunities (array of opportunity objects), and gaps_identified (array of strings). 4) title_description_optimizations: object with optimized_titles (array of title objects), optimized_descriptions (array of description objects), and optimization_impact (string). 5) content_structure_improvements: object with heading_optimizations (array of heading objects), keyword_distribution_improvements (array of improvement objects), flow_improvements (array of flow objects), and internal_linking_plan (array of linking objects). 6) action_items: array of objects, each with action (string), category (string: 'title', 'description', 'content', 'technical'), priority (string: 'high', 'medium', 'low'), effort (string: 'high', 'medium', 'low'), and expected_impact (string). 7) implementation_checklist: array of objects, each with task (string), status (string: 'pending', 'in_progress', 'completed'), and notes (string)."
+      },
+      "outputs": {
+        "executive_summary": "extracted_data.executive_summary",
+        "keyword_analysis": "extracted_data.keyword_analysis",
+        "competitor_insights": "extracted_data.competitor_insights",
+        "title_description_optimizations": "extracted_data.title_description_optimizations",
+        "content_structure_improvements": "extracted_data.content_structure_improvements",
+        "action_items": "extracted_data.action_items",
+        "implementation_checklist": "extracted_data.implementation_checklist"
+      },
+      "depends_on": ["improve_content_structure"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for SEO optimization"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the content or SEO goals"
+    },
+    "keyword_research": {
+      "type": "string",
+      "default": "",
+      "description": "Existing keyword research or data"
+    },
+    "content": {
+      "type": "string",
+      "default": "",
+      "description": "Content to optimize"
+    },
+    "current_structure": {
+      "type": "string",
+      "default": "",
+      "description": "Current content structure"
+    }
+  },
+  "outputs": {
+    "primary_keywords": {
+      "type": "list[object]",
+      "description": "Primary target keywords",
+      "source": "step.collect_target_keywords.primary_keywords"
+    },
+    "secondary_keywords": {
+      "type": "list[object]",
+      "description": "Secondary target keywords",
+      "source": "step.collect_target_keywords.secondary_keywords"
+    },
+    "keyword_groups": {
+      "type": "list[object]",
+      "description": "Keyword groups and themes",
+      "source": "step.collect_target_keywords.keyword_groups"
+    },
+    "search_intent_analysis": {
+      "type": "object",
+      "description": "Search intent analysis",
+      "source": "step.collect_target_keywords.search_intent_analysis"
+    },
+    "competitor_content": {
+      "type": "list[object]",
+      "description": "Competitor content analysis",
+      "source": "step.analyze_competitors.competitor_content"
+    },
+    "competitor_strategies": {
+      "type": "list[object]",
+      "description": "Competitor SEO strategies",
+      "source": "step.analyze_competitors.competitor_strategies"
+    },
+    "content_comparison": {
+      "type": "object",
+      "description": "Content comparison with competitors",
+      "source": "step.analyze_competitors.content_comparison"
+    },
+    "opportunities": {
+      "type": "list[object]",
+      "description": "SEO opportunities identified",
+      "source": "step.analyze_competitors.opportunities"
+    },
+    "ranking_factors": {
+      "type": "list[object]",
+      "description": "Ranking factors analysis",
+      "source": "step.analyze_competitors.ranking_factors"
+    },
+    "optimized_titles": {
+      "type": "list[object]",
+      "description": "SEO-optimized titles",
+      "source": "step.optimize_titles_descriptions.optimized_titles"
+    },
+    "optimized_meta_descriptions": {
+      "type": "list[object]",
+      "description": "SEO-optimized meta descriptions",
+      "source": "step.optimize_titles_descriptions.optimized_meta_descriptions"
+    },
+    "title_optimization": {
+      "type": "object",
+      "description": "Title optimization analysis",
+      "source": "step.optimize_titles_descriptions.title_optimization"
+    },
+    "description_optimization": {
+      "type": "object",
+      "description": "Description optimization analysis",
+      "source": "step.optimize_titles_descriptions.description_optimization"
+    },
+    "structure_analysis": {
+      "type": "object",
+      "description": "Content structure analysis",
+      "source": "step.improve_content_structure.structure_analysis"
+    },
+    "optimized_headings": {
+      "type": "list[object]",
+      "description": "Optimized heading hierarchy",
+      "source": "step.improve_content_structure.optimized_headings"
+    },
+    "keyword_distribution": {
+      "type": "object",
+      "description": "Keyword distribution analysis",
+      "source": "step.improve_content_structure.keyword_distribution"
+    },
+    "content_flow_improvements": {
+      "type": "list[object]",
+      "description": "Content flow improvements",
+      "source": "step.improve_content_structure.content_flow_improvements"
+    },
+    "internal_linking_opportunities": {
+      "type": "list[object]",
+      "description": "Internal linking opportunities",
+      "source": "step.improve_content_structure.internal_linking_opportunities"
+    },
+    "image_optimization": {
+      "type": "list[object]",
+      "description": "Image optimization recommendations",
+      "source": "step.improve_content_structure.image_optimization"
+    },
+    "executive_summary": {
+      "type": "string",
+      "description": "Executive summary of SEO report",
+      "source": "step.generate_seo_report.executive_summary"
+    },
+    "keyword_analysis": {
+      "type": "object",
+      "description": "Keyword analysis summary",
+      "source": "step.generate_seo_report.keyword_analysis"
+    },
+    "competitor_insights": {
+      "type": "object",
+      "description": "Competitor insights summary",
+      "source": "step.generate_seo_report.competitor_insights"
+    },
+    "title_description_optimizations": {
+      "type": "object",
+      "description": "Title and description optimizations summary",
+      "source": "step.generate_seo_report.title_description_optimizations"
+    },
+    "content_structure_improvements": {
+      "type": "object",
+      "description": "Content structure improvements summary",
+      "source": "step.generate_seo_report.content_structure_improvements"
+    },
+    "action_items": {
+      "type": "list[object]",
+      "description": "Prioritized action items",
+      "source": "step.generate_seo_report.action_items"
+    },
+    "implementation_checklist": {
+      "type": "list[object]",
+      "description": "Implementation checklist",
+      "source": "step.generate_seo_report.implementation_checklist"
+    }
+  }
+}
+

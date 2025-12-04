@@ -1,0 +1,225 @@
+{
+  "version": "1.0",
+  "playbook_code": "content_analysis",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "analyze_content_structure",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\n{{input.content_files}}\n\nAnalyze content structure. Extract text from content files (PDF, DOCX, or plain text), analyze heading hierarchy (H1, H2, H3), check paragraph structure and length, identify content sections and organization, and evaluate overall content flow.",
+        "schema_description": "A JSON object with the following properties: 1) content_structure: object with heading_hierarchy (array of objects, each with level (string: 'H1', 'H2', 'H3'), text (string), and position (integer)), sections (array of objects, each with section_name (string), start_position (integer), end_position (integer), and content_type (string)), and paragraph_analysis (object with total_paragraphs (integer), avg_length (number), and length_distribution (array of objects)). 2) content_organization: object with structure_type (string), flow_assessment (string: 'good', 'fair', 'poor'), and organization_score (string: 'high', 'medium', 'low'). 3) content_sections: array of objects, each with section_name (string), purpose (string), and characteristics (array of strings)."
+      },
+      "outputs": {
+        "content_structure": "extracted_data.content_structure",
+        "content_organization": "extracted_data.content_organization",
+        "content_sections": "extracted_data.content_sections"
+      }
+    },
+    {
+      "id": "check_keyword_density",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Content Structure: {{step.analyze_content_structure.content_structure}}\n\nContent: {{input.content_files}}\n\nCheck keyword density. Identify target keywords in the content, calculate keyword density for primary and secondary keywords, check keyword distribution across content, analyze keyword placement (title, headings, body), and identify keyword stuffing or under-optimization.",
+        "schema_description": "A JSON object with the following properties: 1) keyword_analysis: array of objects, each with keyword (string), frequency (integer), density (number), placement (array of strings: 'title', 'H1', 'H2', 'H3', 'body', 'meta'), and optimization_status (string: 'optimal', 'under-optimized', 'over-optimized'). 2) primary_keywords: array of objects, each with keyword (string), density (number), and status (string). 3) secondary_keywords: array of objects, each with keyword (string), density (number), and status (string). 4) keyword_distribution: object with in_title (integer), in_headings (integer), in_body (integer), and distribution_assessment (string). 5) optimization_issues: array of objects, each with issue_type (string: 'stuffing', 'under-optimization', 'poor_placement'), description (string), and recommendation (string)."
+      },
+      "outputs": {
+        "keyword_analysis": "extracted_data.keyword_analysis",
+        "primary_keywords": "extracted_data.primary_keywords",
+        "secondary_keywords": "extracted_data.secondary_keywords",
+        "keyword_distribution": "extracted_data.keyword_distribution",
+        "optimization_issues": "extracted_data.optimization_issues"
+      },
+      "depends_on": ["analyze_content_structure"]
+    },
+    {
+      "id": "evaluate_readability",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Content Structure: {{step.analyze_content_structure.content_structure}}\n\nContent: {{input.content_files}}\n\nEvaluate readability. Analyze sentence length and complexity, check paragraph length and structure, evaluate vocabulary level and accessibility, assess content clarity and coherence, and calculate readability scores (if applicable).",
+        "schema_description": "A JSON object with the following properties: 1) sentence_analysis: object with avg_sentence_length (number), sentence_complexity (string: 'high', 'medium', 'low'), complex_sentences_count (integer), and readability_impact (string). 2) paragraph_analysis: object with avg_paragraph_length (number), paragraph_structure (string: 'good', 'fair', 'poor'), and structure_issues (array of strings). 3) vocabulary_assessment: object with vocabulary_level (string: 'high', 'medium', 'low'), accessibility (string: 'high', 'medium', 'low'), and technical_terms_count (integer). 4) clarity_assessment: object with clarity_score (string: 'high', 'medium', 'low'), coherence_score (string: 'high', 'medium', 'low'), and issues (array of strings). 5) readability_scores: object with overall_score (string), grade_level (string if applicable), and interpretation (string)."
+      },
+      "outputs": {
+        "sentence_analysis": "extracted_data.sentence_analysis",
+        "paragraph_analysis": "extracted_data.paragraph_analysis",
+        "vocabulary_assessment": "extracted_data.vocabulary_assessment",
+        "clarity_assessment": "extracted_data.clarity_assessment",
+        "readability_scores": "extracted_data.readability_scores"
+      },
+      "depends_on": ["analyze_content_structure"]
+    },
+    {
+      "id": "identify_improvement_opportunities",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Content Structure: {{step.analyze_content_structure.content_structure}}\n\nKeyword Analysis: {{step.check_keyword_density.keyword_analysis}}\n\nReadability: {{step.evaluate_readability.readability_scores}}\n\nIdentify improvement opportunities. Compare content against SEO best practices, identify missing SEO elements (meta descriptions, alt texts, etc.), find opportunities for keyword optimization, suggest content structure improvements, and recommend readability enhancements.",
+        "schema_description": "A JSON object with the following properties: 1) seo_improvements: array of objects, each with element (string: 'meta_description', 'alt_text', 'title_tag', 'header_tags', 'internal_links', 'external_links'), status (string: 'present', 'missing', 'needs_improvement'), and recommendation (string). 2) keyword_optimization_opportunities: array of objects, each with opportunity (string), current_state (string), recommended_action (string), and priority (string: 'high', 'medium', 'low'). 3) structure_improvements: array of objects, each with improvement (string), current_issue (string), recommended_change (string), and expected_impact (string). 4) readability_enhancements: array of objects, each with enhancement (string), current_state (string), recommended_action (string), and priority (string). 5) prioritized_actions: array of objects, each with action (string), category (string), priority (string: 'high', 'medium', 'low'), and expected_impact (string)."
+      },
+      "outputs": {
+        "seo_improvements": "extracted_data.seo_improvements",
+        "keyword_optimization_opportunities": "extracted_data.keyword_optimization_opportunities",
+        "structure_improvements": "extracted_data.structure_improvements",
+        "readability_enhancements": "extracted_data.readability_enhancements",
+        "prioritized_actions": "extracted_data.prioritized_actions"
+      },
+      "depends_on": ["check_keyword_density", "evaluate_readability"]
+    },
+    {
+      "id": "generate_analysis_report",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Content Structure: {{step.analyze_content_structure.content_structure}}\n\nKeyword Analysis: {{step.check_keyword_density.keyword_analysis}}\n\nReadability: {{step.evaluate_readability.readability_scores}}\n\nImprovement Opportunities: {{step.identify_improvement_opportunities.prioritized_actions}}\n\nGenerate analysis report. Compile all analysis findings and create structured report with content structure analysis, keyword density analysis, readability assessment, improvement opportunities, and prioritized action items.",
+        "schema_description": "A JSON object with the following properties: 1) executive_summary: string (overall assessment and key findings). 2) content_structure_analysis: object with structure_assessment (string), organization_score (string), and key_findings (array of strings). 3) keyword_density_analysis: object with primary_keywords_summary (array of keyword objects), secondary_keywords_summary (array of keyword objects), optimization_status (string), and recommendations (array of strings). 4) readability_assessment: object with overall_readability (string), scores (object), strengths (array of strings), and weaknesses (array of strings). 5) improvement_opportunities: object with seo_improvements (array of improvement objects), structure_improvements (array of improvement objects), readability_enhancements (array of enhancement objects), and keyword_optimization (array of opportunity objects). 6) prioritized_action_items: array of objects, each with action (string), category (string), priority (string: 'high', 'medium', 'low'), effort (string: 'high', 'medium', 'low'), and expected_impact (string)."
+      },
+      "outputs": {
+        "executive_summary": "extracted_data.executive_summary",
+        "content_structure_analysis": "extracted_data.content_structure_analysis",
+        "keyword_density_analysis": "extracted_data.keyword_density_analysis",
+        "readability_assessment": "extracted_data.readability_assessment",
+        "improvement_opportunities": "extracted_data.improvement_opportunities",
+        "prioritized_action_items": "extracted_data.prioritized_action_items"
+      },
+      "depends_on": ["identify_improvement_opportunities"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for content analysis"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the content or analysis requirements"
+    },
+    "content_files": {
+      "type": "string",
+      "default": "",
+      "description": "Content files to analyze (PDF, DOCX, or plain text)"
+    }
+  },
+  "outputs": {
+    "content_structure": {
+      "type": "object",
+      "description": "Content structure analysis",
+      "source": "step.analyze_content_structure.content_structure"
+    },
+    "content_organization": {
+      "type": "object",
+      "description": "Content organization assessment",
+      "source": "step.analyze_content_structure.content_organization"
+    },
+    "content_sections": {
+      "type": "list[object]",
+      "description": "Content sections identified",
+      "source": "step.analyze_content_structure.content_sections"
+    },
+    "keyword_analysis": {
+      "type": "list[object]",
+      "description": "Keyword analysis results",
+      "source": "step.check_keyword_density.keyword_analysis"
+    },
+    "primary_keywords": {
+      "type": "list[object]",
+      "description": "Primary keywords analysis",
+      "source": "step.check_keyword_density.primary_keywords"
+    },
+    "secondary_keywords": {
+      "type": "list[object]",
+      "description": "Secondary keywords analysis",
+      "source": "step.check_keyword_density.secondary_keywords"
+    },
+    "keyword_distribution": {
+      "type": "object",
+      "description": "Keyword distribution across content",
+      "source": "step.check_keyword_density.keyword_distribution"
+    },
+    "optimization_issues": {
+      "type": "list[object]",
+      "description": "Keyword optimization issues",
+      "source": "step.check_keyword_density.optimization_issues"
+    },
+    "sentence_analysis": {
+      "type": "object",
+      "description": "Sentence length and complexity analysis",
+      "source": "step.evaluate_readability.sentence_analysis"
+    },
+    "paragraph_analysis": {
+      "type": "object",
+      "description": "Paragraph structure analysis",
+      "source": "step.evaluate_readability.paragraph_analysis"
+    },
+    "vocabulary_assessment": {
+      "type": "object",
+      "description": "Vocabulary level and accessibility",
+      "source": "step.evaluate_readability.vocabulary_assessment"
+    },
+    "clarity_assessment": {
+      "type": "object",
+      "description": "Content clarity and coherence",
+      "source": "step.evaluate_readability.clarity_assessment"
+    },
+    "readability_scores": {
+      "type": "object",
+      "description": "Readability scores",
+      "source": "step.evaluate_readability.readability_scores"
+    },
+    "seo_improvements": {
+      "type": "list[object]",
+      "description": "SEO element improvements",
+      "source": "step.identify_improvement_opportunities.seo_improvements"
+    },
+    "keyword_optimization_opportunities": {
+      "type": "list[object]",
+      "description": "Keyword optimization opportunities",
+      "source": "step.identify_improvement_opportunities.keyword_optimization_opportunities"
+    },
+    "structure_improvements": {
+      "type": "list[object]",
+      "description": "Content structure improvements",
+      "source": "step.identify_improvement_opportunities.structure_improvements"
+    },
+    "readability_enhancements": {
+      "type": "list[object]",
+      "description": "Readability enhancement recommendations",
+      "source": "step.identify_improvement_opportunities.readability_enhancements"
+    },
+    "prioritized_actions": {
+      "type": "list[object]",
+      "description": "Prioritized improvement actions",
+      "source": "step.identify_improvement_opportunities.prioritized_actions"
+    },
+    "executive_summary": {
+      "type": "string",
+      "description": "Executive summary of analysis",
+      "source": "step.generate_analysis_report.executive_summary"
+    },
+    "content_structure_analysis": {
+      "type": "object",
+      "description": "Content structure analysis summary",
+      "source": "step.generate_analysis_report.content_structure_analysis"
+    },
+    "keyword_density_analysis": {
+      "type": "object",
+      "description": "Keyword density analysis summary",
+      "source": "step.generate_analysis_report.keyword_density_analysis"
+    },
+    "readability_assessment": {
+      "type": "object",
+      "description": "Readability assessment summary",
+      "source": "step.generate_analysis_report.readability_assessment"
+    },
+    "improvement_opportunities": {
+      "type": "object",
+      "description": "Improvement opportunities summary",
+      "source": "step.generate_analysis_report.improvement_opportunities"
+    },
+    "prioritized_action_items": {
+      "type": "list[object]",
+      "description": "Prioritized action items",
+      "source": "step.generate_analysis_report.prioritized_action_items"
+    }
+  }
+}
+

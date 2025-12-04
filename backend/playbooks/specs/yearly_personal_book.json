@@ -1,0 +1,124 @@
+{
+  "version": "1.0",
+  "playbook_code": "yearly_personal_book",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_annual_data",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\nYear: {{input.year}}\n\nCollect annual data. Collect all conversations and notes from local Mindscape database for the specified year.",
+        "schema_description": "A JSON object with the following properties: 1) annual_data: array of objects, each with date (string), type (string: 'conversation', 'note'), content_preview (string), and metadata (object). 2) data_summary: object with total_conversations (integer), total_notes (integer), date_range (object with start_date and end_date), and data_completeness (string: 'high', 'medium', 'low')."
+      },
+      "outputs": {
+        "annual_data": "extracted_data.annual_data",
+        "data_summary": "extracted_data.data_summary"
+      }
+    },
+    {
+      "id": "group_by_month",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Annual Data: {{step.collect_annual_data.annual_data}}\n\nGroup by month. Group data by month and generate a small chapter for each month.",
+        "schema_description": "A JSON object with the following properties: 1) monthly_groups: array of objects, each with month (string: '01', '02', ..., '12'), month_name (string), data_items (array of data objects), theme (string), and key_events (array of strings). 2) monthly_themes: array of objects, each with month (string), theme (string), description (string), and significance (string)."
+      },
+      "outputs": {
+        "monthly_groups": "extracted_data.monthly_groups",
+        "monthly_themes": "extracted_data.monthly_themes"
+      },
+      "depends_on": ["collect_annual_data"]
+    },
+    {
+      "id": "generate_monthly_chapters",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Monthly Groups: {{step.group_by_month.monthly_groups}}\n\nMonthly Themes: {{step.group_by_month.monthly_themes}}\n\nGenerate monthly chapters. Generate a small chapter for each month from the grouped data.",
+        "schema_description": "A JSON object with the following properties: 1) monthly_chapters: array of objects, each with month (string), chapter_title (string), chapter_content (string in markdown), key_highlights (array of strings), and word_count (integer). 2) chapter_previews: array of objects, each with month (string), preview (string), and length (string)."
+      },
+      "outputs": {
+        "monthly_chapters": "extracted_data.monthly_chapters",
+        "chapter_previews": "extracted_data.chapter_previews"
+      },
+      "depends_on": ["group_by_month"]
+    },
+    {
+      "id": "integrate_annual_book",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Monthly Chapters: {{step.generate_monthly_chapters.monthly_chapters}}\n\nData Summary: {{step.collect_annual_data.data_summary}}\n\nIntegrate annual book. Integrate 12 monthly chapters into a complete annual book.",
+        "schema_description": "A JSON object with the following properties: 1) annual_markdown: string (complete annual book in markdown format). 2) book_structure: object with title (string), year (string), table_of_contents (array of chapter titles), chapters (array of chapter objects), and summary (string). 3) monthly_chapters_list: array of strings (12 monthly chapter markdown files)."
+      },
+      "outputs": {
+        "annual_markdown": "extracted_data.annual_markdown",
+        "book_structure": "extracted_data.book_structure",
+        "monthly_chapters_list": "extracted_data.monthly_chapters_list"
+      },
+      "depends_on": ["generate_monthly_chapters"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for annual book"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context"
+    },
+    "year": {
+      "type": "string",
+      "default": "",
+      "description": "Year to organize (defaults to current year)"
+    }
+  },
+  "outputs": {
+    "annual_data": {
+      "type": "list[object]",
+      "description": "Collected annual data",
+      "source": "step.collect_annual_data.annual_data"
+    },
+    "data_summary": {
+      "type": "object",
+      "description": "Data collection summary",
+      "source": "step.collect_annual_data.data_summary"
+    },
+    "monthly_groups": {
+      "type": "list[object]",
+      "description": "Data grouped by month",
+      "source": "step.group_by_month.monthly_groups"
+    },
+    "monthly_themes": {
+      "type": "list[object]",
+      "description": "Monthly themes identified",
+      "source": "step.group_by_month.monthly_themes"
+    },
+    "monthly_chapters": {
+      "type": "list[object]",
+      "description": "Monthly chapters generated",
+      "source": "step.generate_monthly_chapters.monthly_chapters"
+    },
+    "chapter_previews": {
+      "type": "list[object]",
+      "description": "Chapter previews",
+      "source": "step.generate_monthly_chapters.chapter_previews"
+    },
+    "annual_markdown": {
+      "type": "string",
+      "description": "Complete annual book in markdown",
+      "source": "step.integrate_annual_book.annual_markdown"
+    },
+    "book_structure": {
+      "type": "object",
+      "description": "Book structure",
+      "source": "step.integrate_annual_book.book_structure"
+    },
+    "monthly_chapters_list": {
+      "type": "list[string]",
+      "description": "List of 12 monthly chapter markdown files",
+      "source": "step.integrate_annual_book.monthly_chapters_list"
+    }
+  }
+}
+

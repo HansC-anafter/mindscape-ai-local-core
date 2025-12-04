@@ -1,0 +1,196 @@
+{
+  "version": "1.0",
+  "playbook_code": "milestone_planning",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "collect_project_goals_scope",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.user_request}}\n\n{{input.context}}\n\nCollect project goals and scope. Ask user about project objectives and expected outcomes, understand project scope and boundaries, identify key stakeholders and their expectations, and collect any existing project documentation.",
+        "schema_description": "A JSON object with the following properties: 1) project_objectives: array of objects, each with objective (string), priority (string: 'high', 'medium', 'low'), and description (string). 2) expected_outcomes: array of objects, each with outcome (string), success_criteria (string), and importance (string: 'high', 'medium', 'low'). 3) project_scope: object with scope_description (string), boundaries (array of strings), in_scope (array of strings), out_of_scope (array of strings), and assumptions (array of strings). 4) stakeholders: array of objects, each with stakeholder_name (string), role (string), expectations (array of strings), and involvement_level (string: 'high', 'medium', 'low'). 5) existing_documentation: array of objects, each with doc_type (string), content_summary (string), and relevance (string)."
+      },
+      "outputs": {
+        "project_objectives": "extracted_data.project_objectives",
+        "expected_outcomes": "extracted_data.expected_outcomes",
+        "project_scope": "extracted_data.project_scope",
+        "stakeholders": "extracted_data.stakeholders",
+        "existing_documentation": "extracted_data.existing_documentation"
+      }
+    },
+    {
+      "id": "identify_critical_nodes",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Project Objectives: {{step.collect_project_goals_scope.project_objectives}}\n\nProject Scope: {{step.collect_project_goals_scope.project_scope}}\n\nIdentify critical nodes. Analyze project structure to find critical decision points, identify key deliverables and checkpoints, recognize dependencies between tasks, and map out the project flow.",
+        "schema_description": "A JSON object with the following properties: 1) critical_decision_points: array of objects, each with decision_point (string), description (string), impact (string: 'high', 'medium', 'low'), timing (string), and stakeholders_involved (array of strings). 2) key_deliverables: array of objects, each with deliverable_name (string), description (string), type (string), priority (string: 'high', 'medium', 'low'), and dependencies (array of strings). 3) checkpoints: array of objects, each with checkpoint_name (string), purpose (string), timing (string), and validation_criteria (array of strings). 4) task_dependencies: array of objects, each with task1 (string), task2 (string), dependency_type (string: 'finish_to_start', 'start_to_start', 'finish_to_finish', 'start_to_finish'), and description (string). 5) project_flow: object with flow_description (string), phases (array of phase objects), and critical_path (array of task names)."
+      },
+      "outputs": {
+        "critical_decision_points": "extracted_data.critical_decision_points",
+        "key_deliverables": "extracted_data.key_deliverables",
+        "checkpoints": "extracted_data.checkpoints",
+        "task_dependencies": "extracted_data.task_dependencies",
+        "project_flow": "extracted_data.project_flow"
+      },
+      "depends_on": ["collect_project_goals_scope"]
+    },
+    {
+      "id": "define_milestone_criteria",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Critical Nodes: {{step.identify_critical_nodes.critical_decision_points}}\n\nKey Deliverables: {{step.identify_critical_nodes.key_deliverables}}\n\nDefine milestone criteria. Establish clear criteria for each milestone, define success metrics and acceptance criteria, set quality standards and requirements, and create measurable checkpoints.",
+        "schema_description": "A JSON object with the following properties: 1) milestone_criteria: array of objects, each with milestone_name (string), criteria (array of criterion objects, each with criterion, description, and measurement_method), success_metrics (array of metric objects, each with metric_name, target_value, and measurement_method), acceptance_criteria (array of acceptance objects, each with criterion and pass_condition), and quality_standards (array of standard objects). 2) measurable_checkpoints: array of objects, each with checkpoint_name (string), milestone (string), measurement_method (string), target_value (string), and validation_process (string)."
+      },
+      "outputs": {
+        "milestone_criteria": "extracted_data.milestone_criteria",
+        "measurable_checkpoints": "extracted_data.measurable_checkpoints"
+      },
+      "depends_on": ["identify_critical_nodes"]
+    },
+    {
+      "id": "set_timeline",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Milestone Criteria: {{step.define_milestone_criteria.milestone_criteria}}\n\nTask Dependencies: {{step.identify_critical_nodes.task_dependencies}}\n\nSet timeline. Estimate duration for each milestone, create a realistic timeline with buffer time, identify critical path and dependencies, and set target dates for each milestone.",
+        "schema_description": "A JSON object with the following properties: 1) milestone_timeline: array of objects, each with milestone_name (string), estimated_duration (string), start_date (string if available), target_date (string), buffer_time (string), and dependencies (array of milestone names). 2) project_timeline: object with start_date (string), end_date (string), total_duration (string), phases (array of phase timeline objects), and critical_path (array of milestone names). 3) timeline_assumptions: array of objects, each with assumption (string), impact (string), and mitigation (string)."
+      },
+      "outputs": {
+        "milestone_timeline": "extracted_data.milestone_timeline",
+        "project_timeline": "extracted_data.project_timeline",
+        "timeline_assumptions": "extracted_data.timeline_assumptions"
+      },
+      "depends_on": ["define_milestone_criteria"]
+    },
+    {
+      "id": "identify_risks_dependencies",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "Milestone Timeline: {{step.set_timeline.milestone_timeline}}\n\nProject Flow: {{step.identify_critical_nodes.project_flow}}\n\nIdentify risks and dependencies. Analyze potential risks for each milestone, identify external dependencies, assess resource requirements, plan mitigation strategies, and document assumptions and constraints.",
+        "schema_description": "A JSON object with the following properties: 1) milestone_risks: array of objects, each with milestone_name (string), risks (array of risk objects, each with risk_name, description, probability, impact, and mitigation_strategy). 2) external_dependencies: array of objects, each with dependency_name (string), type (string: 'vendor', 'stakeholder', 'resource', 'external_system'), milestone (string), description (string), and contingency_plan (string). 3) resource_requirements: array of objects, each with milestone (string), resources (array of resource objects, each with resource_type, quantity, duration, and availability), and constraints (array of strings). 4) mitigation_strategies: array of objects, each with risk_or_dependency (string), strategy (string), owner (string if available), and timeline (string). 5) assumptions_constraints: array of objects, each with item (string), type (string: 'assumption', 'constraint'), description (string), and impact (string)."
+      },
+      "outputs": {
+        "milestone_risks": "extracted_data.milestone_risks",
+        "external_dependencies": "extracted_data.external_dependencies",
+        "resource_requirements": "extracted_data.resource_requirements",
+        "mitigation_strategies": "extracted_data.mitigation_strategies",
+        "assumptions_constraints": "extracted_data.assumptions_constraints"
+      },
+      "depends_on": ["set_timeline"]
+    }
+  ],
+  "inputs": {
+    "user_request": {
+      "type": "string",
+      "required": true,
+      "description": "User's request for milestone planning"
+    },
+    "context": {
+      "type": "string",
+      "default": "",
+      "description": "Additional context about the project"
+    }
+  },
+  "outputs": {
+    "project_objectives": {
+      "type": "list[object]",
+      "description": "Project objectives",
+      "source": "step.collect_project_goals_scope.project_objectives"
+    },
+    "expected_outcomes": {
+      "type": "list[object]",
+      "description": "Expected project outcomes",
+      "source": "step.collect_project_goals_scope.expected_outcomes"
+    },
+    "project_scope": {
+      "type": "object",
+      "description": "Project scope and boundaries",
+      "source": "step.collect_project_goals_scope.project_scope"
+    },
+    "stakeholders": {
+      "type": "list[object]",
+      "description": "Key stakeholders",
+      "source": "step.collect_project_goals_scope.stakeholders"
+    },
+    "existing_documentation": {
+      "type": "list[object]",
+      "description": "Existing project documentation",
+      "source": "step.collect_project_goals_scope.existing_documentation"
+    },
+    "critical_decision_points": {
+      "type": "list[object]",
+      "description": "Critical decision points",
+      "source": "step.identify_critical_nodes.critical_decision_points"
+    },
+    "key_deliverables": {
+      "type": "list[object]",
+      "description": "Key deliverables and checkpoints",
+      "source": "step.identify_critical_nodes.key_deliverables"
+    },
+    "checkpoints": {
+      "type": "list[object]",
+      "description": "Project checkpoints",
+      "source": "step.identify_critical_nodes.checkpoints"
+    },
+    "task_dependencies": {
+      "type": "list[object]",
+      "description": "Dependencies between tasks",
+      "source": "step.identify_critical_nodes.task_dependencies"
+    },
+    "project_flow": {
+      "type": "object",
+      "description": "Project flow mapping",
+      "source": "step.identify_critical_nodes.project_flow"
+    },
+    "milestone_criteria": {
+      "type": "list[object]",
+      "description": "Milestone criteria and standards",
+      "source": "step.define_milestone_criteria.milestone_criteria"
+    },
+    "measurable_checkpoints": {
+      "type": "list[object]",
+      "description": "Measurable checkpoints",
+      "source": "step.define_milestone_criteria.measurable_checkpoints"
+    },
+    "milestone_timeline": {
+      "type": "list[object]",
+      "description": "Milestone timeline with dates",
+      "source": "step.set_timeline.milestone_timeline"
+    },
+    "project_timeline": {
+      "type": "object",
+      "description": "Overall project timeline",
+      "source": "step.set_timeline.project_timeline"
+    },
+    "timeline_assumptions": {
+      "type": "list[object]",
+      "description": "Timeline assumptions",
+      "source": "step.set_timeline.timeline_assumptions"
+    },
+    "milestone_risks": {
+      "type": "list[object]",
+      "description": "Risks for each milestone",
+      "source": "step.identify_risks_dependencies.milestone_risks"
+    },
+    "external_dependencies": {
+      "type": "list[object]",
+      "description": "External dependencies",
+      "source": "step.identify_risks_dependencies.external_dependencies"
+    },
+    "resource_requirements": {
+      "type": "list[object]",
+      "description": "Resource requirements",
+      "source": "step.identify_risks_dependencies.resource_requirements"
+    },
+    "mitigation_strategies": {
+      "type": "list[object]",
+      "description": "Risk mitigation strategies",
+      "source": "step.identify_risks_dependencies.mitigation_strategies"
+    },
+    "assumptions_constraints": {
+      "type": "list[object]",
+      "description": "Assumptions and constraints",
+      "source": "step.identify_risks_dependencies.assumptions_constraints"
+    }
+  }
+}
+
