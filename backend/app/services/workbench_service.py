@@ -509,8 +509,8 @@ class WorkbenchService:
 
                 # Research related - REMOVED: Generic keyword-based suggestions are too vague
                 # Only suggest research if there's actual context (files, timeline items, etc.)
-                # This prevents generic "研究主題" suggestions without context
-                # elif any(keyword in latest_message for keyword in ["研究", "分析", "資料", "research", "analyze", "資料"]):
+                # This prevents generic research topic suggestions without context
+                # elif any(keyword in latest_message for keyword in ["research", "analyze", "data"]):
                 #     suggestions.append({
                 #         "type": "research",
                 #         "title_key": "researchTopic",
