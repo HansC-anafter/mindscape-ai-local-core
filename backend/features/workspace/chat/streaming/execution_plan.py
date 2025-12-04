@@ -123,7 +123,7 @@ async def generate_and_execute_plan(
         )
         print(
             f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps, "
-            f"created {len(created_execution_tasks)} execution tasks",
+            f"{len(execution_plan.tasks)} tasks",
             file=sys.stderr
         )
 
@@ -165,17 +165,17 @@ async def execute_plan_and_send_events(
 
     try:
         run_id = execution_plan.id if hasattr(execution_plan, 'id') and execution_plan.id else message_id
-        
+
         workspace = orchestrator.store.get_workspace(workspace_id)
         profile = orchestrator.store.get_profile(profile_id) if profile_id else None
         locale = get_locale_from_context(profile=profile, workspace=workspace)
-        
+
         execution_start_message = load_i18n_string(
             'workspace.pipeline_stage.execution_start',
             locale=locale,
             default='開始執行任務，AI 團隊正在協作處理中...'
         )
-        
+
         pipeline_stage_event = {
             'type': 'pipeline_stage',
             'run_id': run_id,
