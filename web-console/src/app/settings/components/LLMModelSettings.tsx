@@ -173,7 +173,7 @@ export function LLMModelSettings() {
               updateChatModel(selected.model_name, selected.provider);
             }
           }}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
         >
           {settings.available_chat_models.map((model) => (
             <option key={model.model_name} value={model.model_name}>
@@ -220,7 +220,7 @@ export function LLMModelSettings() {
               updateEmbeddingModel(selected.model_name, selected.provider);
             }
           }}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
         >
           {settings.available_embedding_models.map((model) => (
             <option key={model.model_name} value={model.model_name}>

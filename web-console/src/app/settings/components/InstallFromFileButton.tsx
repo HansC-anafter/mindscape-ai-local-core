@@ -112,7 +112,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           type="checkbox"
           checked={allowOverwrite}
           onChange={(e) => setAllowOverwrite(e.target.checked)}
-          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+          className="rounded border-gray-300 text-gray-600 focus:ring-gray-500 w-3.5 h-3.5"
         />
         <span className="text-xs text-gray-700">
           {t('allowOverwrite')}
@@ -136,7 +136,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
       />
       <label
         htmlFor="mindpack-file-input"
-        className="inline-block px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 cursor-pointer disabled:opacity-50"
+        className="inline-block px-3 py-1.5 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 cursor-pointer disabled:opacity-50"
         style={{
           opacity: (phase === 'installing' || phase === 'mapping_roles') ? 0.5 : 1,
           cursor: (phase === 'installing' || phase === 'mapping_roles') ? 'not-allowed' : 'pointer',
@@ -154,7 +154,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
       {phase === 'installing' && (
         <div className="mt-3">
           <div className="flex items-center space-x-2 text-sm text-gray-600">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
             <span>{t('installingCapabilityPack')}</span>
           </div>
         </div>
@@ -163,7 +163,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
       {phase === 'mapping_roles' && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center space-x-2 text-sm text-gray-600">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
             <span>{t('analyzingRoleCapabilities')}</span>
           </div>
         </div>

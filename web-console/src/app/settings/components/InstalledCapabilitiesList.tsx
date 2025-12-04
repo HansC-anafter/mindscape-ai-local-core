@@ -59,22 +59,22 @@ export function InstalledCapabilitiesList({ refreshTrigger }: InstalledCapabilit
       <h3 className="text-lg font-semibold text-gray-900">{t('installedCapabilityPacks')}</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {installed.map((cap) => (
-          <Card key={cap.id || cap.code}>
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <h4 className="font-semibold text-gray-900">{cap.display_name || cap.code}</h4>
-                <p className="text-xs text-gray-500 mt-1">
+          <Card key={cap.id || cap.code} className="flex flex-col h-full">
+            <div className="flex items-start justify-between mb-2 flex-shrink-0">
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-gray-900 mb-1">{cap.display_name || cap.code}</h4>
+                <p className="text-xs text-gray-500">
                   {cap.id || cap.code} v{cap.version}
                 </p>
               </div>
               {cap.scope === 'system' && (
-                <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
+                <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded flex-shrink-0 ml-2 whitespace-nowrap">
                   Official
                 </span>
               )}
             </div>
             {cap.description && (
-              <p className="text-sm text-gray-600 mt-2">{cap.description}</p>
+              <p className="text-sm text-gray-600 mt-auto flex-1">{cap.description}</p>
             )}
           </Card>
         ))}

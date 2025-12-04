@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { t } from '../../../lib/i18n';
 import { useBasicSettings } from '../hooks/useBasicSettings';
 import { Card } from './Card';
-import { InlineAlert } from './InlineAlert';
+import { showNotification } from '../hooks/useSettingsNotification';
 import { LLMModelSettings } from './LLMModelSettings';
 import { GoogleOAuthSettings } from './GoogleOAuthSettings';
 import { BackendModeSettings } from './panels/BackendModeSettings';
@@ -13,6 +13,7 @@ import { APIAndQuotaSettings } from './panels/APIAndQuotaSettings';
 import { EmbeddingSettings } from './panels/EmbeddingSettings';
 import { LLMChatSettings } from './panels/LLMChatSettings';
 import { BackendStatusSection } from './panels/BackendStatusSection';
+import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
@@ -39,6 +40,20 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
     clearError,
     clearSuccess,
   } = useBasicSettings();
+
+  useEffect(() => {
+    if (error) {
+      showNotification('error', error);
+      clearError();
+    }
+  }, [error, clearError]);
+
+  useEffect(() => {
+    if (success) {
+      showNotification('success', success);
+      clearSuccess();
+    }
+  }, [success, clearSuccess]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +88,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
                         value={remoteUrl}
                         onChange={(e) => setRemoteUrl(e.target.value)}
                         placeholder="https://your-agent-service.example.com"
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                         required
                       />
                     </div>
@@ -91,7 +106,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
                             ? t('tokenPlaceholderConfigured')
                             : t('tokenPlaceholder')
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                         required
                       />
                     </div>
@@ -163,6 +178,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
           </div>
         );
 
+      case 'language-preference':
+        return (
+          <div className="space-y-6">
+            <LanguagePreferencesSettings />
+          </div>
+        );
+
       default:
         return null;
     }
@@ -172,11 +194,6 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
 
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('basicSettings')}</h2>
-
-      {error && <InlineAlert type="error" message={error} onDismiss={clearError} />}
-      {success && <InlineAlert type="success" message={success} onDismiss={clearSuccess} />}
-
       <form onSubmit={handleSubmit}>
         {sectionContent}
 
@@ -184,7 +201,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-purple-600 dark:bg-purple-700 text-white rounded-md hover:bg-purple-700 dark:hover:bg-purple-600 disabled:opacity-50"
+              className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
             >
               {saving ? t('saving') : t('save')}
             </button>
