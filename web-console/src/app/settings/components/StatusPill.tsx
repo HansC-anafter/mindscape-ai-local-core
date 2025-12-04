@@ -9,14 +9,14 @@ interface StatusPillProps {
 }
 
 const statusStyles: Record<StatusPillProps['status'], string> = {
-  connected: 'bg-green-100 text-green-800',
-  enabled: 'bg-green-100 text-green-800',
-  not_configured: 'bg-gray-100 text-gray-600',
-  inactive: 'bg-gray-100 text-gray-600',
-  local: 'bg-blue-100 text-blue-800',
-  disabled: 'bg-gray-100 text-gray-600',
-  unavailable: 'bg-red-100 text-red-800',
-  registered_but_not_connected: 'bg-yellow-100 text-yellow-800',
+  connected: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+  enabled: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+  not_configured: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  inactive: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  local: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
+  disabled: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  unavailable: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300',
+  registered_but_not_connected: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300',
 };
 
 export function StatusPill({ status, label, icon }: StatusPillProps) {

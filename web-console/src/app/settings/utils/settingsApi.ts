@@ -114,4 +114,20 @@ export const settingsApi = {
 
     return response.json();
   },
+
+  delete: async <T>(endpoint: string): Promise<T> => {
+    const apiUrl = getApiUrl();
+    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      const errorMessage = await parseError(response);
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  },
 };

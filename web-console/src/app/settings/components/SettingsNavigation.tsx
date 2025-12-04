@@ -54,6 +54,12 @@ const navigationItems: NavigationItem[] = [
         section: 'backend-mode',
       },
       {
+        id: 'language-preference',
+        label: 'languagePreference',
+        tab: 'basic',
+        section: 'language-preference',
+      },
+      {
         id: 'models-and-quota',
         label: 'modelsAndQuota',
         tab: 'basic',

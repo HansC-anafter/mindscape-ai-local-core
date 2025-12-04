@@ -108,14 +108,14 @@ export function ToolCard({
             <button
               onClick={onTest}
               disabled={testing}
-              className="text-sm px-3 py-1 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 disabled:opacity-50 whitespace-nowrap"
+              className="text-sm px-3 py-1 text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50 whitespace-nowrap"
             >
               {testing ? t('testing') : t('testConnection')}
             </button>
           )}
           <button
             onClick={onConfigure}
-            className="text-sm px-3 py-1 bg-purple-600 dark:bg-purple-700 text-white rounded hover:bg-purple-700 dark:hover:bg-purple-600 whitespace-nowrap"
+            className="text-sm px-3 py-1 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap"
           >
             {status.status === 'not_configured' ? t('configure') : t('manage')}
           </button>
