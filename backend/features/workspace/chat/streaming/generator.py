@@ -71,11 +71,13 @@ async def generate_streaming_response(
         execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
 
         if execution_mode in ("execution", "hybrid"):
+            user_message_preview = request.message[:50] + ('...' if len(request.message) > 50 else '')
+            intent_message = f'分析中：理解你的需求「{user_message_preview}」，尋找適合的 Playbook。'
             pipeline_stage_event = {
                 'type': 'pipeline_stage',
                 'run_id': user_event.id,
                 'stage': 'intent_extraction',
-                'message': '我先幫你釐清這次的核心目標，看看適合用哪一套多平台內容 Playbook。',
+                'message': intent_message,
                 'streaming': True
             }
             yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
@@ -85,9 +87,13 @@ async def generate_streaming_response(
         logger.info(f"WorkspaceChat: Calling intent extractor in streaming path")
         print(f"WorkspaceChat: Calling intent extractor in streaming path", file=sys.stderr)
         try:
-            timeline_item = await orchestrator.intent_extractor.extract_and_create_timeline_item(
+            from backend.app.core.execution_context import ExecutionContext
+            ctx = ExecutionContext(
                 workspace_id=workspace_id,
-                profile_id=profile_id,
+                actor_id=profile_id
+            )
+            timeline_item = await orchestrator.intent_extractor.extract_and_create_timeline_item(
+                ctx=ctx,
                 message=request.message,
                 message_id=user_event.id,
                 locale=workspace.default_locale or "zh-TW"
@@ -195,11 +201,17 @@ async def generate_streaming_response(
                         if not execution_plan.tasks or len(execution_plan.tasks) == 0:
                             # No tasks - this is a no_action_needed scenario
                             if execution_mode in ("execution", "hybrid"):
+                                plan_summary = execution_plan.plan_summary or execution_plan.user_request_summary
+                                if plan_summary:
+                                    plan_preview = plan_summary[:40] + ('...' if len(plan_summary) > 40 else '')
+                                    no_action_message = f'這輪主要是釐清「{plan_preview}」的想法，暫時不需要啟動 Playbook。'
+                                else:
+                                    no_action_message = '這輪主要是釐清想法，暫時不需要啟動 Playbook。'
                                 pipeline_stage_event = {
                                     'type': 'pipeline_stage',
                                     'run_id': execution_plan.id or user_event.id,
                                     'stage': 'no_action_needed',
-                                    'message': '這輪主要是幫你釐清想法，暫時不需要叫出內容團隊。',
+                                    'message': no_action_message,
                                     'streaming': True
                                 }
                                 yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
@@ -228,11 +240,19 @@ async def generate_streaming_response(
 
                             playbook_name = playbook_code or "Playbook"
                             task_count = len(execution_plan.tasks)
+
+                            plan_summary = execution_plan.plan_summary or execution_plan.user_request_summary
+                            if plan_summary:
+                                plan_preview = plan_summary[:40] + ('...' if len(plan_summary) > 40 else '')
+                                playbook_message = f'已選擇「{playbook_name}」 Playbook 處理「{plan_preview}」，計劃拆成 {task_count} 個任務。'
+                            else:
+                                playbook_message = f'已選擇「{playbook_name}」 Playbook，計劃拆成 {task_count} 個任務交給 AI 團隊處理。'
+
                             pipeline_stage_event = {
                                 'type': 'pipeline_stage',
                                 'run_id': execution_plan.id or user_event.id,
                                 'stage': 'playbook_selection',
-                                'message': f'已選擇「{playbook_name}」 Playbook，準備拆成 {task_count} 個任務交給內容團隊。',
+                                'message': playbook_message,
                                 'streaming': True,
                                 'metadata': {
                                     'playbook_code': playbook_code,
@@ -259,7 +279,7 @@ async def generate_streaming_response(
                                 'type': 'pipeline_stage',
                                 'run_id': user_event.id,
                                 'stage': 'no_playbook_found',
-                                'message': '目前內建的 Playbook 還不太適合這個需求，我先用一般方式幫你思考。',
+                                'message': '尋找可用資源：目前內建的 Playbook 還不太適合這個需求，改用一般方式思考。',
                                 'streaming': True
                             }
                             yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
@@ -271,7 +291,7 @@ async def generate_streaming_response(
                         'type': 'pipeline_stage',
                         'run_id': user_event.id,
                         'stage': 'execution_error',
-                        'message': f'執行過程中遇到問題：{str(e)}',
+                        'message': f'執行過程中遇到問題：{str(e)}，正在處理中。',
                         'streaming': True,
                         'metadata': {
                             'error_type': type(e).__name__,

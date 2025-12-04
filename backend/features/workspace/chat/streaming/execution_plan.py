@@ -110,8 +110,7 @@ async def generate_and_execute_plan(
 
         logger.info(
             f"[ExecutionPlan] Generated ExecutionPlan with {len(execution_plan.steps)} steps, "
-            f"{len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}, "
-            f"created {len(created_execution_tasks)} execution tasks"
+            f"{len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}"
         )
         logger.info(
             f"[ExecutionPlan] Plan payload keys: {list(execution_plan.to_event_payload().keys())}, "
@@ -180,14 +179,31 @@ async def execute_plan_and_send_events(
             agent_members = [task.pack_id for task in execution_plan.tasks if hasattr(task, 'pack_id') and task.pack_id]
 
             if len(agent_members) > 0:
-                first_agent = agent_members[0]
+                try:
+                    from backend.app.services.ai_team_service import get_member_info
+                    first_agent_info = get_member_info(agent_members[0])
+                    first_agent_name = first_agent_info.get('name_zh') or first_agent_info.get('name') or agent_members[0] if first_agent_info else agent_members[0]
+                except Exception:
+                    first_agent_name = agent_members[0]
+
                 if len(agent_members) > 1:
-                    other_agents = "、".join(agent_members[1:])
-                    message = f'{first_agent} AI 會先處理，之後再交給 {other_agents} 分別處理。'
+                    try:
+                        from backend.app.services.ai_team_service import get_member_info
+                        other_agent_names = []
+                        for agent_id in agent_members[1:]:
+                            agent_info = get_member_info(agent_id)
+                            if agent_info:
+                                other_agent_names.append(agent_info.get('name_zh') or agent_info.get('name') or agent_id)
+                            else:
+                                other_agent_names.append(agent_id)
+                        other_agents = "、".join(other_agent_names)
+                    except Exception:
+                        other_agents = "、".join(agent_members[1:])
+                    message = f'計劃下一步：交給 {first_agent_name} 先處理，之後再交給 {other_agents} 分別處理。'
                 else:
-                    message = f'{first_agent} AI 正在處理中...'
+                    message = f'計劃下一步：交給 {first_agent_name} 處理。'
             else:
-                message = f'開始執行 {len(execution_plan.tasks)} 個任務。'
+                message = f'計劃下一步：執行 {len(execution_plan.tasks)} 個任務。'
 
             task_assignment_event = {
                 'type': 'pipeline_stage',
@@ -270,7 +286,7 @@ async def execute_plan_and_send_events(
             'type': 'pipeline_stage',
             'run_id': run_id,
             'stage': 'execution_error',
-            'message': f'執行過程中遇到問題：{str(exec_error)}',
+            'message': f'執行過程中遇到問題：{str(exec_error)}，正在處理中。',
             'streaming': True,
             'metadata': {
                 'error_type': type(exec_error).__name__,
