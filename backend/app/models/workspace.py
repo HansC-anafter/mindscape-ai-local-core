@@ -359,6 +359,9 @@ class ExecutionPlan(BaseModel):
 
     def to_event_payload(self) -> Dict[str, Any]:
         """Convert to payload for EXECUTION_PLAN MindEvent"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         payload = {
             "id": self.id,
             "plan_id": self.id,
@@ -393,8 +396,6 @@ class ExecutionPlan(BaseModel):
                 else:
                     logger.warning(f"[ExecutionPlan] No AI team members extracted from tasks")
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to extract AI team members: {e}", exc_info=True)
 
         return payload
