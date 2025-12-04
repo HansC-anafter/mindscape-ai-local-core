@@ -626,7 +626,7 @@ class ContextBuilder:
             profile_id: Profile ID (optional)
         """
         try:
-            from backend.app.agent_runner import LLMProviderManager
+            from backend.app.services.agent_runner import LLMProviderManager
             from ...models.mindscape import MindEvent, EventType, EventActor
             from datetime import datetime
             import uuid

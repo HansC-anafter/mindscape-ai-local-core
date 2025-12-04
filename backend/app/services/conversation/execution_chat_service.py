@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from ...core.execution_context import ExecutionContext
-from ...models.workspace import ExecutionSession, ExecutionStep, ExecutionChatMessage
+from ...models.workspace import ExecutionSession, PlaybookExecutionStep, ExecutionChatMessage
 from ...models.playbook import PlaybookMetadata
 from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
@@ -97,7 +97,7 @@ async def build_execution_chat_context(
         steps = []
         for event in events:
             try:
-                step = ExecutionStep.from_mind_event(event)
+                step = PlaybookExecutionStep.from_mind_event(event)
                 steps.append(step)
             except Exception as e:
                 logger.warning(f"Failed to create ExecutionStep from event {event.id}: {e}")

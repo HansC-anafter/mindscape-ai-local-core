@@ -129,16 +129,57 @@ class ConversationOrchestrator:
         )
 
         from backend.app.services.agent_runner import LLMProviderManager
+        from backend.app.services.system_settings_store import SystemSettingsStore
         import os
         openai_key = os.getenv("OPENAI_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+
+        # Get Vertex AI configuration from system settings
+        settings_store = SystemSettingsStore()
+        service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+        vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
+        vertex_location_setting = settings_store.get_setting("vertex_ai_location")
+
+        # Get Vertex AI config - handle empty strings as None
+        vertex_service_account_json = None
+        if service_account_setting and service_account_setting.value:
+            val = str(service_account_setting.value).strip()
+            vertex_service_account_json = val if val else None
+        if not vertex_service_account_json:
+            vertex_service_account_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        vertex_project_id = None
+        if vertex_project_setting and vertex_project_setting.value:
+            val = str(vertex_project_setting.value).strip()
+            vertex_project_id = val if val else None
+        if not vertex_project_id:
+            vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+        vertex_location = None
+        if vertex_location_setting and vertex_location_setting.value:
+            val = str(vertex_location_setting.value).strip()
+            vertex_location = val if val else None
+        if not vertex_location:
+            vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
+
+        logger.info(f"ConversationOrchestrator: Vertex AI config: service_account={'set' if vertex_service_account_json else 'not set'}, project_id={vertex_project_id}, location={vertex_location}")
+
+        llm_manager = LLMProviderManager(
+            openai_key=openai_key,
+            anthropic_key=anthropic_key,
+            vertex_api_key=vertex_service_account_json,
+            vertex_project_id=vertex_project_id,
+            vertex_location=vertex_location
+        )
         llm_provider = get_llm_provider_from_settings(llm_manager)
 
         message_generator = MessageGenerator(
             llm_provider=llm_provider,
             default_locale=default_locale
         )
+
+        from backend.app.services.playbook_service import PlaybookService
+        playbook_service = PlaybookService(store=store)
 
         self.execution_coordinator = ExecutionCoordinator(
             store=store,
@@ -148,7 +189,8 @@ class ConversationOrchestrator:
             plan_builder=self.plan_builder,
             playbook_runner=playbook_runner,
             message_generator=message_generator,
-            default_locale=default_locale
+            default_locale=default_locale,
+            playbook_service=playbook_service
         )
 
         # Update SuggestionActionHandler with ExecutionCoordinator reference
@@ -581,7 +623,42 @@ class ConversationOrchestrator:
 
         openai_key = os.getenv("OPENAI_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+        # Get Vertex AI configuration from system settings
+        from backend.app.services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore()
+        service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+        vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
+        vertex_location_setting = settings_store.get_setting("vertex_ai_location")
+
+        # Get Vertex AI config - handle empty strings as None
+        vertex_service_account_json = None
+        if service_account_setting and service_account_setting.value:
+            val = str(service_account_setting.value).strip()
+            vertex_service_account_json = val if val else None
+        if not vertex_service_account_json:
+            vertex_service_account_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        vertex_project_id = None
+        if vertex_project_setting and vertex_project_setting.value:
+            val = str(vertex_project_setting.value).strip()
+            vertex_project_id = val if val else None
+        if not vertex_project_id:
+            vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+        vertex_location = None
+        if vertex_location_setting and vertex_location_setting.value:
+            val = str(vertex_location_setting.value).strip()
+            vertex_location = val if val else None
+        if not vertex_location:
+            vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
+
+        llm_manager = LLMProviderManager(
+            openai_key=openai_key,
+            anthropic_key=anthropic_key,
+            vertex_api_key=vertex_service_account_json,
+            vertex_project_id=vertex_project_id,
+            vertex_location=vertex_location
+        )
         llm_provider = get_llm_provider_from_settings(llm_manager)
 
         message_generator = MessageGenerator(

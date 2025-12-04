@@ -37,7 +37,7 @@ from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.intent_analyzer import IntentPipeline
 from backend.app.services.playbook_runner import PlaybookRunner
-from backend.app.services.playbook_run_executor import PlaybookRunExecutor
+from backend.app.services.playbook_service import PlaybookService, ExecutionMode as PlaybookExecutionMode
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
@@ -79,7 +79,7 @@ class ConversationOrchestrator:
         self.store = store
         self.intent_pipeline = intent_pipeline
         self.playbook_runner = playbook_runner
-        self.playbook_run_executor = PlaybookRunExecutor()
+        self.playbook_service = PlaybookService(store=store)
         self.i18n = get_i18n_service(default_locale=default_locale)
         self.default_locale = default_locale
 
@@ -377,13 +377,20 @@ class ConversationOrchestrator:
                         f"HandoffPlan is required for execution. Please create playbook.json for structured workflow execution."
                     )
 
-                execution_result = await self.playbook_run_executor.execute_playbook_run(
+                execution_result_obj = await self.playbook_service.execute_playbook(
                     playbook_code=intent_result.selected_playbook_code,
+                    workspace_id=workspace_id,
                     profile_id=profile_id,
                     inputs=intent_result.playbook_context,
-                    workspace_id=workspace_id,
+                    execution_mode=PlaybookExecutionMode.ASYNC,
                     locale=intent_result.playbook_context.get("locale")
                 )
+                # Convert ExecutionResult to dict format for backward compatibility
+                execution_result = {
+                    "execution_id": execution_result_obj.execution_id,
+                    "execution_mode": "workflow" if execution_result_obj.status == "running" else "conversation",
+                    "result": execution_result_obj.result or {},
+                }
 
                 if execution_result.get("execution_mode") == "workflow":
                     triggered_playbook = {

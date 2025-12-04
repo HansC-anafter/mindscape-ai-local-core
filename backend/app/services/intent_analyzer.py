@@ -16,8 +16,6 @@ from datetime import datetime
 from backend.app.models.mindscape import MindscapeProfile, IntentCard, IntentLog
 from backend.app.models.playbook import HandoffPlan, WorkflowStep, PlaybookKind, InteractionMode
 from backend.app.shared.llm_utils import call_llm, build_prompt
-from backend.app.services.playbook_loader import PlaybookLoader
-from backend.app.services.playbook_store import PlaybookStore
 from backend.app.services.mindscape_store import MindscapeStore
 
 logger = logging.getLogger(__name__)
@@ -382,19 +380,35 @@ Return in JSON format:
 class PlaybookSelector:
     """Layer 3: Playbook selection and context preparation"""
 
-    def __init__(self):
-        self.playbook_loader = PlaybookLoader()
-        self.playbook_store = PlaybookStore()
+    def __init__(self, playbook_service=None):
+        """
+        Initialize PlaybookSelector
 
-    def select_playbook(
+        Args:
+            playbook_service: PlaybookService instance (required, for unified query)
+        """
+        if not playbook_service:
+            raise ValueError("PlaybookService is required. PlaybookLoader has been removed.")
+        self.playbook_service = playbook_service
+        self.use_new_interface = True
+
+    async def select_playbook(
         self,
         task_domain: TaskDomain,
         user_input: str,
         profile: Optional[MindscapeProfile] = None,
-        locale: Optional[str] = None
+        locale: Optional[str] = None,
+        workspace_id: Optional[str] = None
     ) -> tuple[Optional[str], float, Optional[HandoffPlan]]:
         """
         Select appropriate playbook based on task domain and generate HandoffPlan if playbook.json exists
+
+        Args:
+            task_domain: Task domain
+            user_input: User input text
+            profile: User profile (optional)
+            locale: Language locale (optional)
+            workspace_id: Workspace ID (optional, for PlaybookService priority)
 
         Returns:
             (playbook_code, confidence, handoff_plan)
@@ -414,10 +428,18 @@ class PlaybookSelector:
         playbook_code = domain_playbook_map.get(task_domain)
 
         if playbook_code:
-            playbook_run = self.playbook_loader.load_playbook_run(
-                playbook_code=playbook_code,
-                locale=locale
-            )
+            # Use PlaybookService if available, otherwise fallback to PlaybookLoader
+            if self.use_new_interface:
+                playbook_run = await self.playbook_service.load_playbook_run(
+                    playbook_code=playbook_code,
+                    locale=locale or "zh-TW",
+                    workspace_id=workspace_id
+                )
+            else:
+                playbook_run = self.playbook_loader.load_playbook_run(
+                    playbook_code=playbook_code,
+                    locale=locale
+                )
 
             if not playbook_run:
                 raise ValueError(f"Playbook {playbook_code} not found")
@@ -577,7 +599,8 @@ class IntentPipeline:
         rule_priority: bool = True,
         config=None,
         store: Optional[MindscapeStore] = None,
-        enable_logging: bool = True
+        enable_logging: bool = True,
+        playbook_service=None
     ):
         """
         Initialize Intent Pipeline
@@ -589,6 +612,7 @@ class IntentPipeline:
             config: UserConfig object (optional, if provided, will use intent_config from it)
             store: MindscapeStore instance for logging (optional)
             enable_logging: Enable intent decision logging (default: True)
+            playbook_service: PlaybookService instance (optional, for unified query)
         """
         # Override with config if provided
         if config and hasattr(config, 'intent_config'):
@@ -597,7 +621,7 @@ class IntentPipeline:
 
         self.rule_matcher = RuleBasedIntentMatcher()
         self.llm_matcher = LLMBasedIntentMatcher(llm_provider)
-        self.playbook_selector = PlaybookSelector()
+        self.playbook_selector = PlaybookSelector(playbook_service=playbook_service)
         self.decision_coordinator = IntentDecisionCoordinator(
             self.rule_matcher,
             self.llm_matcher,
@@ -693,11 +717,12 @@ class IntentPipeline:
                 elif context and "locale" in context:
                     locale = context.get("locale")
 
-                playbook_code, confidence, handoff_plan = self.playbook_selector.select_playbook(
+                playbook_code, confidence, handoff_plan = await self.playbook_selector.select_playbook(
                     task_domain=result.task_domain,
                     user_input=user_input,
                     profile=profile,
-                    locale=locale
+                    locale=locale,
+                    workspace_id=workspace_id
                 )
                 result.selected_playbook_code = playbook_code
                 result.playbook_confidence = confidence
