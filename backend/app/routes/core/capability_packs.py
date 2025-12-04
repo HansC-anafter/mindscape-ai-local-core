@@ -26,7 +26,9 @@ router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
 # Database helper
 def get_db_path():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
+        return '/app/data/mindscape.db'
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
     data_dir = os.path.join(base_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
     return os.path.join(data_dir, "mindscape.db")

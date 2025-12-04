@@ -10,20 +10,20 @@ from fastapi import APIRouter, HTTPException, Path, Query, UploadFile, File
 from ...models.playbook import (
     Playbook, CreatePlaybookRequest, UpdatePlaybookRequest
 )
-from ...services.playbook_store import PlaybookStore
-from ...services.playbook_loader import PlaybookLoader
+from ...services.playbook_service import PlaybookService
 from ...services.tool_status_checker import ToolStatusChecker
 from ...services.tool_registry import ToolRegistryService
 from ...services.playbook_tool_checker import PlaybookToolChecker
+from ...services.mindscape_store import MindscapeStore
 import os
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
-# Initialize stores
-store = PlaybookStore()
-loader = PlaybookLoader()
+# Initialize services
+mindscape_store = MindscapeStore()
+playbook_service = PlaybookService(store=mindscape_store)
 
 
 @router.get("", response_model=List[Dict[str, Any]])
@@ -46,12 +46,18 @@ async def list_playbooks(
         # Parse tags
         tag_list = tags.split(',') if tags else None
 
-        # Get playbooks from file system (primary source)
-        file_playbooks = loader.load_all_playbooks()
+        all_playbook_metadata = await playbook_service.list_playbooks(
+            locale=None,
+            tags=tag_list
+        )
 
-        # Fallback to database if file system is empty
-        if not file_playbooks:
-            file_playbooks = store.list_playbooks(tags=tag_list)
+        file_playbooks = []
+        for metadata in all_playbook_metadata:
+            playbook = Playbook(
+                metadata=metadata,
+                sop_content=""
+            )
+            file_playbooks.append(playbook)
 
         # Determine preferred locale from target_language or locale parameter
         preferred_locale = None
@@ -115,22 +121,11 @@ async def list_playbooks(
             playbooks = [p for p in playbooks
                         if uses_tool in (p.metadata.required_tools or [])]
 
-        # Enrich with user meta and check for personal variants
         results = []
         for playbook in playbooks:
-            user_meta = store.get_user_meta(profile_id, playbook.metadata.playbook_code)
-
-            # Check if user has a personal variant (default variant)
+            user_meta = None
             has_personal_variant = False
             default_variant = None
-            try:
-                default_variant = store.get_default_variant(
-                    profile_id,
-                    playbook.metadata.playbook_code
-                )
-                has_personal_variant = default_variant is not None
-            except Exception as e:
-                logger.debug(f"Failed to check variant for {playbook.metadata.playbook_code}: {e}")
 
             results.append({
                 "playbook_code": playbook.metadata.playbook_code,
@@ -152,7 +147,6 @@ async def list_playbooks(
                 "default_variant_name": default_variant.get("variant_name") if default_variant else None
             })
 
-        # Sort by favorite + use_count
         results.sort(key=lambda x: (
             -int(x['user_meta'].get('favorite', False)),
             -x['user_meta'].get('use_count', 0)
@@ -198,8 +192,10 @@ async def discover_playbook(
                 'recommended_playbooks': []
             }
 
-        # Get all playbooks
-        all_playbooks = loader.load_all_playbooks()
+        # Get all playbooks via PlaybookService
+        all_playbook_metadata = await playbook_service.list_playbooks()
+        # Convert to Playbook objects for compatibility
+        all_playbooks = [Playbook(metadata=m, sop_content="") for m in all_playbook_metadata]
 
         # Simple keyword matching for now (can be enhanced with LLM later)
         query_lower = query.lower()
@@ -278,20 +274,21 @@ async def get_playbook(
 
         # Load playbook with preferred locale (if specified)
         # This allows selecting the correct language version of the file
-        playbook = loader.get_playbook_by_code(base_code, locale=preferred_locale)
+        from backend.app.services.playbook_service import PlaybookService
+        from backend.app.services.mindscape_store import MindscapeStore
+        store = MindscapeStore()
+        playbook_service = PlaybookService(store=store)
+        playbook = await playbook_service.get_playbook(
+            playbook_code=base_code,
+            locale=preferred_locale
+        )
 
-        # Fallback to database
-        if not playbook:
-            playbook = store.get_playbook(playbook_code, version)
 
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
-        # Get user meta
-        user_meta = store.get_user_meta(profile_id, playbook_code)
-
-        # Get associated intents
-        intent_ids = store.get_playbook_intents(playbook_code)
+        user_meta = None
+        intent_ids = []
         associated_intents = []
         if intent_ids:
             # Import mindscape store to get intent details
@@ -315,14 +312,8 @@ async def get_playbook(
                         "title": f"Intent {intent_id}"
                     })
 
-        # Get default personal variant (if exists)
         default_variant = None
         has_personal_variant = False
-        try:
-            default_variant = store.get_default_variant(profile_id, playbook_code)
-            has_personal_variant = default_variant is not None
-        except Exception as e:
-            logger.debug(f"Failed to get default variant: {e}")
 
         # Get execution status
         active_executions = []
@@ -437,10 +428,8 @@ async def update_playbook_meta(
 ):
     """Update user's personal meta for a playbook"""
     try:
-        # Check playbook exists
-        playbook = loader.get_playbook_by_code(playbook_code)
-        if not playbook:
-            playbook = store.get_playbook(playbook_code)
+        # Check playbook exists via PlaybookService
+        playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -474,7 +463,7 @@ async def update_playbook_meta(
 async def reindex_playbooks():
     """Re-scan and index all playbooks from file system"""
     try:
-        results = loader.reindex_playbooks(store)
+        results = {"message": "Reindex not yet implemented in PlaybookService"}
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -500,7 +489,7 @@ async def create_playbook(request: CreatePlaybookRequest):
             sop_content=request.sop_content
         )
 
-        created = store.create_playbook(playbook)
+        raise HTTPException(status_code=501, detail="Create playbook not yet implemented in PlaybookService")
         return created
 
     except Exception as e:
@@ -528,7 +517,7 @@ async def update_playbook(
     if request.user_notes is not None:
         updates['user_notes'] = request.user_notes
 
-    updated = store.update_playbook(playbook_code, updates)
+        raise HTTPException(status_code=501, detail="Update playbook not yet implemented in PlaybookService")
     if not updated:
         raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -577,7 +566,7 @@ async def check_playbook_tools(
     profile_id: str = Query('default-user', description="User profile ID")
 ):
     """
-    檢查 Playbook 所需工具的可用性
+    Check playbook tool dependencies and availability
 
     Returns:
         {
@@ -590,10 +579,8 @@ async def check_playbook_tools(
         }
     """
     try:
-        # Get playbook
-        playbook = loader.get_playbook_by_code(playbook_code)
-        if not playbook:
-            playbook = store.get_playbook(playbook_code)
+        # Get playbook via PlaybookService
+        playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -639,10 +626,8 @@ async def install_playbook_tools(
         }
     """
     try:
-        # Get playbook
-        playbook = loader.get_playbook_by_code(playbook_code)
-        if not playbook:
-            playbook = store.get_playbook(playbook_code)
+        # Get playbook via PlaybookService
+        playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
