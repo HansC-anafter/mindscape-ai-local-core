@@ -236,7 +236,7 @@ def _parse_plan_json(response: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _convert_steps_to_tasks(steps: List[ExecutionStep]) -> List[TaskPlan]:
+def _convert_steps_to_tasks(steps: List[ExecutionStep], plan_confidence: float = 0.7) -> List[TaskPlan]:
     """
     Convert ExecutionStep list to TaskPlan list for execution.
 
@@ -293,7 +293,10 @@ def _convert_steps_to_tasks(steps: List[ExecutionStep]) -> List[TaskPlan]:
                 "reasoning": step.reasoning,
                 "artifacts": step.artifacts,
                 "step_id": step.step_id,
-                "depends_on": step.depends_on
+                "depends_on": step.depends_on,
+                "llm_analysis": {
+                    "confidence": plan_confidence
+                }
             },
             side_effect_level=step.side_effect_level or "readonly",
             auto_execute=not step.requires_confirmation,
@@ -329,8 +332,9 @@ def _create_execution_plan(
         steps.append(step)
 
     # Convert steps to tasks for execution
-    tasks = _convert_steps_to_tasks(steps)
-    
+    plan_confidence = plan_data.get('confidence', 0.7)
+    tasks = _convert_steps_to_tasks(steps, plan_confidence=plan_confidence)
+
     logger.info(
         f"[ExecutionPlanGenerator] Created ExecutionPlan: {len(steps)} steps, {len(tasks)} tasks. "
         f"Steps with playbook_code: {sum(1 for s in steps if s.playbook_code)}, "
@@ -378,7 +382,7 @@ def _create_minimal_plan(
     )
 
     # Convert step to task
-    tasks = _convert_steps_to_tasks([step])
+    tasks = _convert_steps_to_tasks([step], plan_confidence=0.5)
 
     return ExecutionPlan(
         id=str(uuid.uuid4()),
