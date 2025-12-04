@@ -119,25 +119,184 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                     console.log('[useSendMessage] Received execution_results event:', data.executed_tasks?.length || 0, 'executed tasks,', data.suggestion_cards?.length || 0, 'suggestions');
                   }
                   window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+                } else if (data.type === 'playbook_triggered') {
+                  // Notify frontend about playbook trigger result
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received playbook_triggered event:', data.status, data.playbook_code);
+                  }
+                  if (data.status === 'error') {
+                    // Show error message to user
+                    console.error('[useSendMessage] Playbook trigger failed:', data.message);
+                    // Dispatch error event for UI to display
+                    window.dispatchEvent(new CustomEvent('playbook-trigger-error', {
+                      detail: {
+                        playbook_code: data.playbook_code,
+                        message: data.message
+                      }
+                    }));
+                  } else if (data.status === 'triggered') {
+                    // Successfully triggered playbook
+                    window.dispatchEvent(new CustomEvent('playbook-triggered', {
+                      detail: {
+                        playbook_code: data.playbook_code,
+                        playbook_name: data.playbook_name,
+                        execution_id: data.execution_id
+                      }
+                    }));
+                  }
+                } else if (data.type === 'pipeline_stage') {
+                  // Notify frontend about pipeline stage (for thinking context streaming)
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received pipeline_stage event:', data.stage, data.message);
+                  }
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: {
+                      type: 'pipeline_stage',
+                      run_id: data.run_id,
+                      stage: data.stage,
+                      message: data.message,
+                      metadata: data.metadata
+                    }
+                  }));
+                } else if (data.type === 'execution_plan') {
+                  // Notify frontend about execution plan (Chain-of-Thought)
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received execution_plan event:', data.plan?.step_count || 0, 'steps');
+                    console.log('[useSendMessage] Plan data:', {
+                      plan_id: data.plan?.id,
+                      plan_summary: data.plan?.plan_summary,
+                      step_count: data.plan?.step_count,
+                      steps: data.plan?.steps,
+                      raw_steps: JSON.stringify(data.plan?.steps, null, 2)
+                    });
+                  }
+                  const mappedSteps = (data.plan?.steps || []).map((s: any) => {
+                    const step = {
+                      id: s.step_id || s.id || `step-${Math.random().toString(36).substr(2, 9)}`,
+                      name: s.intent || s.name || 'Unknown Step',
+                      icon: s.artifacts?.[0] === 'pptx' ? '📊' :
+                            s.artifacts?.[0] === 'xlsx' ? '📊' :
+                            s.artifacts?.[0] === 'docx' ? '📝' : '📋',
+                      status: 'pending' as const
+                    };
+                    if (process.env.NODE_ENV === 'development') {
+                      console.log('[useSendMessage] Mapped step:', step, 'from raw:', s);
+                    }
+                    return step;
+                  });
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Dispatching execution-event with', mappedSteps.length, 'mapped steps');
+                  }
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: {
+                      type: 'execution_plan',
+                      plan: {
+                        id: data.plan?.id,
+                        summary: data.plan?.plan_summary,
+                        steps: mappedSteps,
+                        ai_team_members: data.plan?.ai_team_members || []
+                      }
+                    }
+                  }));
+                } else if (data.type === 'thinking_start') {
+                  // Notify frontend that AI is starting to think
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: { type: 'thinking_start' }
+                  }));
+                } else if (data.type === 'thinking_step') {
+                  // Notify frontend about a thinking step
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: { type: 'thinking_step', step: data.step }
+                  }));
+                } else if (data.type === 'task_update') {
+                  // Forward task_update events to execution state
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: {
+                      type: 'task_update',
+                      event_type: data.event_type,
+                      task: data.task
+                    }
+                  }));
+                } else if (data.type === 'step_start' || data.type === 'step_progress' ||
+                           data.type === 'step_complete' || data.type === 'step_error') {
+                  // Forward step events to execution state
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: data
+                  }));
+                } else if (data.type === 'artifact_created') {
+                  // Notify frontend about artifact creation
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: {
+                      type: 'artifact_created',
+                      artifact: data.artifact
+                    }
+                  }));
+                } else if (data.type === 'execution_complete') {
+                  // Notify frontend about execution completion
+                  window.dispatchEvent(new CustomEvent('execution-event', {
+                    detail: {
+                      type: 'execution_complete',
+                      summary: data.summary
+                    }
+                  }));
+                } else if (data.type === 'agent_mode_parsed') {
+                  // Agent Mode: Two-part response parsed result
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received agent_mode_parsed event:', {
+                      part1_length: data.part1?.length || 0,
+                      part2_length: data.part2?.length || 0,
+                      executable_tasks_count: data.executable_tasks?.length || 0
+                    });
+                  }
+                  window.dispatchEvent(new CustomEvent('agent-mode-parsed', {
+                    detail: {
+                      part1: data.part1 || '',
+                      part2: data.part2 || '',
+                      executable_tasks: data.executable_tasks || []
+                    }
+                  }));
+                } else if (data.type === 'execution_mode_playbook_executed') {
+                  // Execution Mode: Direct playbook.run execution result
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] Received execution_mode_playbook_executed event:', {
+                      status: data.status,
+                      playbook_code: data.playbook_code,
+                      execution_id: data.execution_id
+                    });
+                  }
+                  if (data.status === 'executed') {
+                    window.dispatchEvent(new CustomEvent('execution-mode-playbook-executed', {
+                      detail: {
+                        status: data.status,
+                        playbook_code: data.playbook_code,
+                        execution_id: data.execution_id,
+                        execution_mode: data.execution_mode || 'direct_playbook_run'
+                      }
+                    }));
+                  }
                 } else if (data.type === 'error') {
-                  // Parse error message to extract detailed information
-                  let errorMessage = data.message || 'Streaming error';
+                  // Parse error message - support both structured and legacy formats
+                  let errorMessage = 'Streaming error';
 
-                  // Try to parse error details from message
-                  try {
-                    // Check if message contains error code (e.g., "Error code: 429")
-                    if (errorMessage.includes('Error code: 429')) {
-                      // Extract error details from the message
+                  if (data.error && typeof data.error === 'object') {
+                    // Structured error format (new)
+                    errorMessage = data.error.user_message || data.error.message || 'An error occurred';
+                  } else if (data.message) {
+                    // Legacy format - try to extract user-friendly message
+                    errorMessage = data.message;
+
+                    // Remove hardcoded error code patterns
+                    errorMessage = errorMessage.replace(/Error code: \d+\s*-\s*/, '');
+
+                    // Try to extract user-friendly message from error object if present
+                    try {
                       const errorMatch = errorMessage.match(/'error':\s*\{'message':\s*'([^']+)'/);
                       if (errorMatch) {
                         errorMessage = errorMatch[1];
-                      } else {
-                        // Fallback: use a user-friendly message for quota errors
-                        errorMessage = 'API quota exceeded. Please check your plan and billing details.';
                       }
+                    } catch (parseErr) {
+                      // If parsing fails, use cleaned message
                     }
-                  } catch (parseErr) {
-                    // If parsing fails, use original message
                   }
 
                   // Throw error with parsed message

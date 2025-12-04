@@ -15,8 +15,8 @@ from pathlib import Path
 from backend.app.models.mindscape import MindscapeProfile, MindEvent, EventType, EventActor
 from backend.app.models.playbook import Playbook
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.playbook_loader import PlaybookLoader
-from backend.app.services.agent_runner import LLMProviderManager
+from backend.app.services.playbook_service import PlaybookService
+from backend.app.services.agent_runner import LLMProviderManager, LLMProvider
 from backend.app.services.stores.tool_calls_store import ToolCallsStore, ToolCall
 from backend.app.services.stores.stage_results_store import StageResultsStore, StageResult
 from backend.app.services.conversation.workflow_tracker import WorkflowTracker
@@ -171,7 +171,8 @@ class PlaybookRunner:
 
     def __init__(self, config_store=None):
         self.store = MindscapeStore()
-        self.playbook_loader = PlaybookLoader()
+        # Use PlaybookService instead of PlaybookLoader
+        self.playbook_service = PlaybookService(store=config_store)
         # Import here to avoid circular dependency
         if config_store is None:
             from backend.app.services.config_store import ConfigStore
@@ -202,6 +203,22 @@ class PlaybookRunner:
             vertex_project_id=vertex_project_id,
             vertex_location=vertex_location
         )
+
+    def _get_llm_provider(self, llm_manager: LLMProviderManager) -> LLMProvider:
+        """
+        Get LLM provider based on user's chat_model setting
+
+        Args:
+            llm_manager: LLMProviderManager instance
+
+        Returns:
+            LLMProvider instance
+
+        Raises:
+            ValueError: If chat_model is not configured or specified provider is not available
+        """
+        from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+        return get_llm_provider_from_settings(llm_manager)
 
     async def _run_tool(
         self,
@@ -415,6 +432,51 @@ class PlaybookRunner:
                 pass
 
             execution_id = str(uuid.uuid4())
+
+            # Create Task record for execution session (required for ExecutionSession view model)
+            if workspace_id:
+                try:
+                    from backend.app.services.stores.tasks_store import TasksStore
+                    from backend.app.models.workspace import Task, TaskStatus
+
+                    tasks_store = TasksStore(db_path=self.store.db_path)
+
+                    # Build execution_context for ExecutionSession
+                    execution_context = {
+                        "playbook_code": playbook_code,
+                        "playbook_name": playbook.metadata.name,
+                        "trigger_source": inputs.get("trigger_source", "manual") if inputs else "manual",
+                        "current_step_index": 0,
+                        "total_steps": 1,  # Will be updated as execution progresses
+                        "origin_intent_id": inputs.get("origin_intent_id") if inputs else None,
+                        "origin_intent_label": inputs.get("origin_intent_label") if inputs else None,
+                        "intent_confidence": inputs.get("intent_confidence") if inputs else None,
+                        "origin_suggestion_id": inputs.get("origin_suggestion_id") if inputs else None,
+                    }
+
+                    # Create Task record with execution_id
+                    task = Task(
+                        id=execution_id,
+                        workspace_id=workspace_id,
+                        message_id=inputs.get("message_id", str(uuid.uuid4())) if inputs else str(uuid.uuid4()),
+                        execution_id=execution_id,
+                        profile_id=profile_id,
+                        pack_id=playbook_code,
+                        task_type="playbook_execution",
+                        status=TaskStatus.RUNNING,
+                        execution_context=execution_context,
+                        params=inputs or {},
+                        created_at=datetime.utcnow(),
+                        started_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+
+                    tasks_store.create_task(task)
+                    logger.info(f"PlaybookRunner: Created execution task {execution_id} for playbook {playbook_code}, workspace_id={workspace_id}")
+                except Exception as task_error:
+                    logger.warning(f"PlaybookRunner: Failed to create execution task for {playbook_code}: {task_error}", exc_info=True)
+                    # Continue execution even if task creation fails
+
             final_target_language = (
                 target_language or
                 (inputs.get("target_language") if inputs else None) or
@@ -449,9 +511,7 @@ class PlaybookRunner:
 
             # Get LLM provider with profile-specific keys
             llm_manager = self._get_llm_manager(profile_id)
-            provider = llm_manager.get_provider()
-            if not provider:
-                raise ValueError("No LLM provider available. Please configure OpenAI or Anthropic API key in Settings.")
+            provider = self._get_llm_provider(llm_manager)
 
             # Add a user message to start the conversation
             from backend.app.shared.i18n_loader import load_i18n_string
@@ -564,9 +624,7 @@ class PlaybookRunner:
 
             # Get LLM provider with profile-specific keys
             llm_manager = self._get_llm_manager(profile_id)
-            provider = llm_manager.get_provider()
-            if not provider:
-                raise ValueError("No LLM provider available. Please configure OpenAI or Anthropic API key in Settings.")
+            provider = self._get_llm_provider(llm_manager)
 
             messages = conv_manager.get_messages_for_llm()
             assistant_response = await provider.chat_completion(messages)

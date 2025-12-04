@@ -359,7 +359,8 @@ class ExecutionPlan(BaseModel):
 
     def to_event_payload(self) -> Dict[str, Any]:
         """Convert to payload for EXECUTION_PLAN MindEvent"""
-        return {
+        payload = {
+            "id": self.id,
             "plan_id": self.id,
             "user_request_summary": self.user_request_summary,
             "reasoning": self.reasoning,
@@ -370,6 +371,29 @@ class ExecutionPlan(BaseModel):
             "step_count": len(self.steps),
             "artifact_count": sum(len(s.artifacts) for s in self.steps)
         }
+
+        if self.tasks:
+            try:
+                from backend.app.services.ai_team_service import get_members_from_tasks
+                playbook_code = None
+                if self.steps and len(self.steps) > 0:
+                    playbook_code = getattr(self.steps[0], 'playbook_code', None)
+                elif self.tasks and len(self.tasks) > 0:
+                    first_task = self.tasks[0]
+                    if hasattr(first_task, 'playbook_code') and first_task.playbook_code:
+                        playbook_code = first_task.playbook_code
+                    elif hasattr(first_task, 'params') and isinstance(first_task.params, dict):
+                        playbook_code = first_task.params.get('playbook_code')
+
+                ai_team_members = get_members_from_tasks(self.tasks, playbook_code)
+                if ai_team_members:
+                    payload["ai_team_members"] = ai_team_members
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to extract AI team members: {e}", exc_info=True)
+
+        return payload
 
 
 # ==================== Task Models ====================

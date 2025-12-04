@@ -110,7 +110,8 @@ async def generate_and_execute_plan(
 
         logger.info(
             f"[ExecutionPlan] Generated ExecutionPlan with {len(execution_plan.steps)} steps, "
-            f"{len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}"
+            f"{len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}, "
+            f"created {len(created_execution_tasks)} execution tasks"
         )
         logger.info(
             f"[ExecutionPlan] Plan payload keys: {list(execution_plan.to_event_payload().keys())}, "
@@ -121,7 +122,8 @@ async def generate_and_execute_plan(
             f"{[s.get('step_id', 'unknown') for s in execution_plan.to_event_payload().get('steps', [])]}"
         )
         print(
-            f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps",
+            f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps, "
+            f"created {len(created_execution_tasks)} execution tasks",
             file=sys.stderr
         )
 
@@ -162,7 +164,45 @@ async def execute_plan_and_send_events(
         return
 
     try:
-        # Collect task updates for SSE notification
+        run_id = execution_plan.id if hasattr(execution_plan, 'id') and execution_plan.id else message_id
+
+        pipeline_stage_event = {
+            'type': 'pipeline_stage',
+            'run_id': run_id,
+            'stage': 'execution_start',
+            'message': '開始執行任務，AI 團隊正在協作處理中...',
+            'streaming': True
+        }
+        yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+        logger.info(f"[PipelineStage] Sent execution_start stage event, run_id={run_id}")
+
+        if execution_plan.tasks:
+            agent_members = [task.pack_id for task in execution_plan.tasks if hasattr(task, 'pack_id') and task.pack_id]
+
+            if len(agent_members) > 0:
+                first_agent = agent_members[0]
+                if len(agent_members) > 1:
+                    other_agents = "、".join(agent_members[1:])
+                    message = f'{first_agent} AI 會先處理，之後再交給 {other_agents} 分別處理。'
+                else:
+                    message = f'{first_agent} AI 正在處理中...'
+            else:
+                message = f'開始執行 {len(execution_plan.tasks)} 個任務。'
+
+            task_assignment_event = {
+                'type': 'pipeline_stage',
+                'run_id': run_id,
+                'stage': 'task_assignment',
+                'message': message,
+                'streaming': True,
+                'metadata': {
+                    'agent_members': agent_members,
+                    'task_count': len(execution_plan.tasks)
+                }
+            }
+            yield f"data: {json.dumps(task_assignment_event)}\n\n"
+            logger.info(f"[PipelineStage] Sent task_assignment stage event, run_id={run_id}, agents={agent_members}")
+
         task_updates = []
 
         def task_event_callback(event_type: str, task_data: Dict[str, Any]):
@@ -172,7 +212,6 @@ async def execute_plan_and_send_events(
                 'task_data': task_data
             })
 
-        # Execute plan asynchronously (don't block streaming)
         execution_results = await orchestrator.execution_coordinator.execute_plan(
             execution_plan=execution_plan,
             workspace_id=workspace_id,
@@ -196,7 +235,6 @@ async def execute_plan_and_send_events(
             file=sys.stderr
         )
 
-        # Send task updates via SSE immediately when tasks are created
         for update in task_updates:
             logger.info(
                 f"[ExecutionPlan] Sending task_update event via SSE: "
@@ -209,7 +247,6 @@ async def execute_plan_and_send_events(
             )
             yield f"data: {json.dumps({'type': 'task_update', 'event_type': update['event_type'], 'task': update['task_data']})}\n\n"
 
-        # Also send execution results summary
         if execution_results.get('executed_tasks') or execution_results.get('suggestion_cards'):
             logger.info(
                 f"[ExecutionPlan] Sending execution_results summary via SSE: "
@@ -227,4 +264,19 @@ async def execute_plan_and_send_events(
     except Exception as exec_error:
         logger.warning(f"[ExecutionPlan] Execution failed: {exec_error}", exc_info=True)
         print(f"[ExecutionPlan] Execution failed: {exec_error}", file=sys.stderr)
+
+        run_id = execution_plan.id if hasattr(execution_plan, 'id') and execution_plan.id else message_id
+        pipeline_stage_event = {
+            'type': 'pipeline_stage',
+            'run_id': run_id,
+            'stage': 'execution_error',
+            'message': f'執行過程中遇到問題：{str(exec_error)}',
+            'streaming': True,
+            'metadata': {
+                'error_type': type(exec_error).__name__,
+                'error_message': str(exec_error)
+            }
+        }
+        yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+        logger.info(f"[PipelineStage] Sent execution_error stage event, run_id={run_id}")
 

@@ -68,6 +68,19 @@ async def generate_streaming_response(
         logger.info(f"WorkspaceChat: Created user_event {user_event.id} in streaming path")
         print(f"WorkspaceChat: Created user_event {user_event.id} in streaming path", file=sys.stderr)
 
+        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
+
+        if execution_mode in ("execution", "hybrid"):
+            pipeline_stage_event = {
+                'type': 'pipeline_stage',
+                'run_id': user_event.id,
+                'stage': 'intent_extraction',
+                'message': '我先幫你釐清這次的核心目標，看看適合用哪一套多平台內容 Playbook。',
+                'streaming': True
+            }
+            yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+            logger.info(f"[PipelineStage] Sent intent_extraction stage event, run_id={user_event.id}")
+
         # Call intent extractor
         logger.info(f"WorkspaceChat: Calling intent extractor in streaming path")
         print(f"WorkspaceChat: Calling intent extractor in streaming path", file=sys.stderr)
@@ -178,20 +191,57 @@ async def generate_streaming_response(
                     )
 
                     if execution_plan:
-                        # Send plan via SSE
-                        plan_payload = execution_plan.to_event_payload()
+                        # Check if execution_plan has tasks
+                        if not execution_plan.tasks or len(execution_plan.tasks) == 0:
+                            # No tasks - this is a no_action_needed scenario
+                            if execution_mode in ("execution", "hybrid"):
+                                pipeline_stage_event = {
+                                    'type': 'pipeline_stage',
+                                    'run_id': execution_plan.id or user_event.id,
+                                    'stage': 'no_action_needed',
+                                    'message': '這輪主要是幫你釐清想法，暫時不需要叫出內容團隊。',
+                                    'streaming': True
+                                }
+                                yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+                                logger.info(f"[PipelineStage] Sent no_action_needed stage event, run_id={execution_plan.id or user_event.id}")
+                        else:
+                            plan_payload = execution_plan.to_event_payload()
                         logger.info(
                             f"[ExecutionPlan] Generated ExecutionPlan with {len(execution_plan.steps)} steps, "
-                            f"{len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}"
+                            f"{len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}, "
+                            f"ai_team_members={len(plan_payload.get('ai_team_members', []))}"
                         )
                         print(
-                            f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps",
+                            f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps, "
+                            f"ai_team_members={len(plan_payload.get('ai_team_members', []))}",
                             file=sys.stderr
                         )
                         yield f"data: {json.dumps({'type': 'execution_plan', 'plan': plan_payload})}\n\n"
                         logger.info(f"[ExecutionPlan] ExecutionPlan SSE event sent successfully")
 
-                        # Execute plan and send task updates
+                        if execution_mode in ("execution", "hybrid") and execution_plan.tasks:
+                            playbook_code = None
+                            if hasattr(execution_plan, 'playbook_code') and execution_plan.playbook_code:
+                                playbook_code = execution_plan.playbook_code
+                            elif execution_plan.tasks and execution_plan.tasks[0].pack_id:
+                                playbook_code = execution_plan.tasks[0].pack_id
+
+                            playbook_name = playbook_code or "Playbook"
+                            task_count = len(execution_plan.tasks)
+                            pipeline_stage_event = {
+                                'type': 'pipeline_stage',
+                                'run_id': execution_plan.id or user_event.id,
+                                'stage': 'playbook_selection',
+                                'message': f'已選擇「{playbook_name}」 Playbook，準備拆成 {task_count} 個任務交給內容團隊。',
+                                'streaming': True,
+                                'metadata': {
+                                    'playbook_code': playbook_code,
+                                    'task_count': task_count
+                                }
+                            }
+                            yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+                            logger.info(f"[PipelineStage] Sent playbook_selection stage event, run_id={execution_plan.id or user_event.id}")
+
                         async for event in execute_plan_and_send_events(
                             execution_plan=execution_plan,
                             workspace_id=workspace_id,
@@ -203,8 +253,33 @@ async def generate_streaming_response(
                             orchestrator=orchestrator
                         ):
                             yield event
+                    else:
+                        if execution_mode in ("execution", "hybrid"):
+                            pipeline_stage_event = {
+                                'type': 'pipeline_stage',
+                                'run_id': user_event.id,
+                                'stage': 'no_playbook_found',
+                                'message': '目前內建的 Playbook 還不太適合這個需求，我先用一般方式幫你思考。',
+                                'streaming': True
+                            }
+                            yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+                            logger.info(f"[PipelineStage] Sent no_playbook_found stage event, run_id={user_event.id}")
             except Exception as e:
                 logger.warning(f"Failed to generate ExecutionPlan: {e}", exc_info=True)
+                if execution_mode in ("execution", "hybrid"):
+                    pipeline_stage_event = {
+                        'type': 'pipeline_stage',
+                        'run_id': user_event.id,
+                        'stage': 'execution_error',
+                        'message': f'執行過程中遇到問題：{str(e)}',
+                        'streaming': True,
+                        'metadata': {
+                            'error_type': type(e).__name__,
+                            'error_message': str(e)
+                        }
+                    }
+                    yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
+                    logger.info(f"[PipelineStage] Sent execution_error stage event, run_id={user_event.id}")
 
         # For execution mode: Try direct playbook execution
         execution_playbook_result = None

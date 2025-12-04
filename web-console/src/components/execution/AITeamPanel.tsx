@@ -1,0 +1,109 @@
+'use client';
+
+import React from 'react';
+
+export interface AITeamMember {
+  id: string;
+  name: string;
+  name_zh?: string;
+  role: string;
+  icon: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'error';
+}
+
+interface AITeamPanelProps {
+  members: AITeamMember[];
+  isLoading?: boolean;
+}
+
+export default function AITeamPanel({
+  members,
+  isLoading = false,
+}: AITeamPanelProps) {
+  if (members.length === 0 && !isLoading) {
+    return null;
+  }
+
+  const getStatusColor = (status: AITeamMember['status']) => {
+    switch (status) {
+      case 'in_progress':
+        return 'bg-blue-500';
+      case 'completed':
+        return 'bg-green-500';
+      case 'error':
+        return 'bg-red-500';
+      case 'pending':
+      default:
+        return 'bg-gray-400';
+    }
+  };
+
+  const getStatusLabel = (status: AITeamMember['status']) => {
+    switch (status) {
+      case 'in_progress':
+        return '執行中';
+      case 'completed':
+        return '已完成';
+      case 'error':
+        return '錯誤';
+      case 'pending':
+      default:
+        return '等待中';
+    }
+  };
+
+  return (
+    <div className="ai-team-panel mt-3">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 flex items-center gap-1">
+          <span>👥</span>
+          <span>本次協作角色</span>
+        </h4>
+      </div>
+
+      <div className="space-y-2">
+        {isLoading && members.length === 0 ? (
+          <div className="text-xs text-gray-500 dark:text-gray-400 italic">
+            <span className="inline-flex items-center gap-1">
+              <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+            <span className="ml-2">載入 AI 團隊成員...</span>
+          </div>
+        ) : (
+          members.map((member) => (
+            <div
+              key={member.id}
+              className="flex items-start gap-2 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+            >
+              <div className="flex-shrink-0 text-lg">{member.icon}</div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {member.name_zh || member.name}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${getStatusColor(member.status)} ${
+                        member.status === 'in_progress' ? 'animate-pulse' : ''
+                      }`}
+                    />
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                      {getStatusLabel(member.status)}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 line-clamp-1">
+                  {member.role}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+

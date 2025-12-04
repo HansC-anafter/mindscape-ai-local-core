@@ -1,0 +1,69 @@
+{
+  "content_planner": {
+    "default": {
+      "name": "Content Planner",
+      "name_zh": "內容規劃師",
+      "role": "負責幫你把抽象想法轉成具體大綱",
+      "icon": "📝",
+      "visible": true,
+      "order": 1
+    },
+    "content_drafting": {
+      "name": "Content Planner",
+      "name_zh": "內容規劃師",
+      "role": "負責幫你把抽象想法轉成具體大綱",
+      "icon": "📝",
+      "visible": true,
+      "order": 1
+    },
+    "daily_planning": {
+      "name": "Daily Planner",
+      "name_zh": "日程規劃師",
+      "role": "負責規劃每日工作安排",
+      "icon": "📅",
+      "visible": true,
+      "order": 1
+    }
+  },
+  "ig_post_generation": {
+    "default": {
+      "name": "IG Post Generator",
+      "name_zh": "IG 貼文生成器",
+      "role": "負責分析目標受眾與平台語氣",
+      "icon": "📸",
+      "visible": true,
+      "order": 2
+    }
+  },
+  "yt_script_generation": {
+    "default": {
+      "name": "YouTube Script Generator",
+      "name_zh": "YouTube 腳本生成器",
+      "role": "負責生成 YouTube 影片腳本",
+      "icon": "🎬",
+      "visible": true,
+      "order": 3
+    }
+  },
+  "market_researcher": {
+    "default": {
+      "name": "Market Researcher",
+      "name_zh": "市場研究員",
+      "role": "負責分析市場趨勢與內容機會點",
+      "icon": "🔍",
+      "visible": true,
+      "order": 1
+    }
+  },
+  "semantic_seeds": {
+    "default": {
+      "name": "Semantic Seeds Extractor",
+      "name_zh": "語意種子提取器",
+      "role": "負責從訊息中提取意圖與主題",
+      "icon": "🌱",
+      "visible": true,
+      "order": 1
+    }
+  }
+}
+

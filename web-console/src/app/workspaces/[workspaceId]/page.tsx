@@ -10,7 +10,6 @@ import ResearchModePanel from '../../../components/ResearchModePanel';
 import PublishingModePanel from '../../../components/PublishingModePanel';
 import PlanningModePanel from '../../../components/PlanningModePanel';
 import IntegratedSystemStatusCard from '../../../components/IntegratedSystemStatusCard';
-import WorkspaceHeader from '../components/WorkspaceHeader';
 import WorkspaceScopePanel from '../components/WorkspaceScopePanel';
 import TimelinePanel from '../components/TimelinePanel';
 import PendingTasksPanel from '../components/PendingTasksPanel';
@@ -25,6 +24,16 @@ import HelpIcon from '../../../components/HelpIcon';
 import ExecutionInspector from '../components/ExecutionInspector';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
 import { WorkspaceDataProvider, useWorkspaceData } from '@/contexts/WorkspaceDataContext';
+import {
+  TrainHeader,
+  ExecutionModeSelector,
+  ThinkingContext,
+  ArtifactsList,
+  ThinkingTimeline,
+  ExecutionTree,
+} from '../../../components/execution';
+import AITeamPanel from '../../../components/execution/AITeamPanel';
+import { useExecutionState } from '@/hooks/useExecutionState';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -43,6 +52,9 @@ interface AssociatedIntent {
   priority?: string;
 }
 
+type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
+type ExecutionPriority = 'low' | 'medium' | 'high' | null;
+
 interface Workspace {
   id: string;
   title: string;
@@ -51,6 +63,9 @@ interface Workspace {
   default_playbook_id?: string;
   default_locale?: string;
   mode?: WorkspaceMode;
+  execution_mode?: ExecutionMode;
+  expected_artifacts?: string[];
+  execution_priority?: ExecutionPriority;
   data_sources?: DataSource | null;
   associated_intent?: AssociatedIntent | null;
   storage_base_path?: string;
@@ -80,7 +95,14 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [focusExecutionId, setFocusExecutionId] = useState<string | null>(null);
   const [focusedExecution, setFocusedExecution] = useState<any>(null);
   const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
-  const [showSystemTools, setShowSystemTools] = useState(false);
+const [showSystemTools, setShowSystemTools] = useState(false);
+
+  // Execution state from hook (SSE-driven)
+  const executionState = useExecutionState(workspaceId, API_URL);
+
+  // Workspace name editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
 
   // Removed: fetchWithRetry and related refs - workspace loading is now handled by WorkspaceDataContext
 
@@ -273,17 +295,17 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
       <Header />
 
       <div className="flex flex-col h-[calc(100vh-48px)]">
-        {/* Workspace Header - Middle Top with Mode Selector */}
+        {/* Train Header - Progress Bar with Workspace Name */}
         {workspace && (
-          <WorkspaceHeader
+          <TrainHeader
             workspaceName={workspace.title}
-            mode={(workspace.mode as WorkspaceMode) || null}
-            associatedIntent={workspace.associated_intent}
-            workspaceId={workspaceId}
-            onModeChange={handleModeChange}
-            updatingMode={updatingMode}
-            onWorkspaceUpdate={loadWorkspace}
-            apiUrl={API_URL}
+            steps={executionState.trainSteps}
+            progress={executionState.overallProgress}
+            isExecuting={executionState.isExecuting}
+            onWorkspaceNameEdit={() => {
+              setEditedName(workspace.title);
+              setIsEditingName(true);
+            }}
           />
         )}
 
@@ -296,19 +318,45 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 activeTab={leftSidebarTab}
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
-                  <TimelinePanel
-                    workspaceId={workspaceId}
-                    apiUrl={API_URL}
-                    isInSettingsPage={false}
-                    focusExecutionId={focusExecutionId}
-                    onClearFocus={() => {
-                      setFocusExecutionId(null);
-                      setSelectedExecutionId(null);
-                      // Also dispatch event to ensure all components are notified
-                      window.dispatchEvent(new CustomEvent('clear-execution-focus'));
-                    }}
-                    onArtifactClick={setSelectedArtifact}
-                  />
+                  <div className="flex flex-col h-full">
+                    {/* Execution Tree - Chain of Thought steps (at top) */}
+                    {executionState.executionTree.length > 0 && (
+                      <div className="border-b dark:border-gray-700 flex-shrink-0">
+                        <ExecutionTree
+                          steps={executionState.executionTree}
+                          isCollapsed={false}
+                        />
+                      </div>
+                    )}
+
+                    {/* Thinking Timeline - Recent execution history (above TimelinePanel) */}
+                    {executionState.thinkingTimeline.length > 0 && (
+                      <div className="border-b dark:border-gray-700 flex-shrink-0">
+                        <ThinkingTimeline
+                          entries={executionState.thinkingTimeline}
+                          maxEntries={3}
+                          isCollapsed={false}
+                        />
+                      </div>
+                    )}
+
+                    {/* Timeline Panel - Main content (has its own scroll) */}
+                    <div className="flex-1 min-h-0">
+                      <TimelinePanel
+                        workspaceId={workspaceId}
+                        apiUrl={API_URL}
+                        isInSettingsPage={false}
+                        focusExecutionId={focusExecutionId}
+                        onClearFocus={() => {
+                          setFocusExecutionId(null);
+                          setSelectedExecutionId(null);
+                          // Also dispatch event to ensure all components are notified
+                          window.dispatchEvent(new CustomEvent('clear-execution-focus'));
+                        }}
+                        onArtifactClick={setSelectedArtifact}
+                      />
+                    </div>
+                  </div>
                 }
                 outcomesContent={
                   <TimelinePanel
@@ -333,15 +381,63 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
               />
             </div>
 
-            {/* Workspace Scope Panel - Bottom (Data Sources only, compact layout) */}
+            {/* Workspace Settings - Collapsible at bottom */}
             {workspace && (
               <div className="border-t dark:border-gray-700 bg-orange-50/30 dark:bg-orange-900/10 mt-auto">
-                <WorkspaceScopePanel
-                  dataSources={workspace.data_sources}
-                  workspaceId={workspaceId}
-                  apiUrl={API_URL}
-                  workspace={workspace}
-                />
+                {/* Settings Entry - Collapsible in left sidebar */}
+                <div className="border-t dark:border-gray-700">
+                  <div
+                    className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    onClick={() => setShowSystemTools(!showSystemTools)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <div>
+                        <div className="text-xs font-medium text-gray-700 dark:text-gray-300">工作區設定</div>
+                        <div className="text-[10px] text-gray-400">模式 · 產物 · 偏好 · 資料來源</div>
+                      </div>
+                    </div>
+                    <span className="text-gray-400 text-xs">{showSystemTools ? '▲' : '▼'}</span>
+                  </div>
+
+                  {/* Collapsible Settings Panel */}
+                  <div
+                    className={`border-t dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
+                      showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
+                    }`}
+                  >
+                    {showSystemTools && (
+                      <div className="overflow-y-auto max-h-[400px]">
+                        {/* Data Sources Section */}
+                        <div className="p-3 border-b dark:border-gray-700">
+                          <WorkspaceScopePanel
+                            dataSources={workspace.data_sources}
+                            workspaceId={workspaceId}
+                            apiUrl={API_URL}
+                            workspace={workspace}
+                          />
+                        </div>
+
+                        {/* System Status Section */}
+                        <div className="p-3">
+                          {systemStatus ? (
+                            <IntegratedSystemStatusCard
+                              systemStatus={systemStatus}
+                              workspace={workspace || {}}
+                              workspaceId={workspaceId}
+                              onRefresh={() => contextData.refreshAll()}
+                            />
+                          ) : (
+                            <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -368,41 +464,47 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   // Refresh workbench when file is analyzed
                   setWorkbenchRefreshTrigger(prev => prev + 1);
                 }}
+                executionMode={workspace?.execution_mode || 'qa'}
+                expectedArtifacts={workspace?.expected_artifacts}
               />
             )}
           </div>
 
           {/* Right Sidebar - Execution Chat (when focused) or Workspace Tools (default) */}
           <div className="w-80 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
-            {/* Header - Title with AI Team Collaborating and settings icon */}
+            {/* Header - Title with AI Team Mode Selector */}
             <div className="flex items-center justify-between border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5">
-              <div className="flex items-center gap-2 flex-1">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
                 <h3 className="text-xs font-bold bg-gradient-to-r from-blue-500 to-gray-600 text-white px-2 py-0.5 rounded-lg shadow-md border border-blue-300 dark:border-blue-700 flex-shrink-0">
                   {t('mindscapeAIWorkbench')}
                 </h3>
-                <div className="h-3 w-px bg-gray-300 dark:bg-gray-600"></div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                    {focusExecutionId
-                      ? (focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation'))
-                      : t('aiTeamCollaborating')
-                    }
-                  </h3>
-                  {!focusExecutionId && <HelpIcon helpKey="aiTeamCollaboratingHelp" />}
-                </div>
+                <div className="h-3 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"></div>
+                {focusExecutionId ? (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                      {focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation')}
+                    </h3>
+                  </div>
+                ) : (
+                  /* AI Team + Execution Mode integrated */
+                  workspace && (
+                    <ExecutionModeSelector
+                      mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid') || 'qa'}
+                      priority={(workspace.execution_priority as 'low' | 'medium' | 'high') || 'medium'}
+                      onChange={async (update) => {
+                        try {
+                          await contextData.updateWorkspace({
+                            execution_mode: update.mode,
+                            execution_priority: update.priority,
+                          });
+                        } catch (err) {
+                          console.error('Failed to update execution mode:', err);
+                        }
+                      }}
+                    />
+                  )
+                )}
               </div>
-              {!focusExecutionId && (
-                <button
-                  onClick={() => setShowSystemTools(!showSystemTools)}
-                  className="ml-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex-shrink-0"
-                  title={t('systemStatusAndTools') || 'System Status & Tools'}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
-              )}
             </div>
 
             {/* Content Area */}
@@ -419,27 +521,45 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             ) : (
               // Mode A (Workspace Overview): Show Workspace Tools
               <div className="flex-1 flex flex-col overflow-hidden">
-                {showSystemTools ? (
-                  // Show System Tools Panel
-                  <div className="flex-1 overflow-y-auto min-h-0">
-                    <div className="p-3">
-                      {systemStatus ? (
-                        <IntegratedSystemStatusCard
-                          systemStatus={systemStatus}
-                          workspace={workspace || {}}
-                          workspaceId={workspaceId}
-                          onRefresh={() => contextData.refreshAll()}
+                {/* AI Team Collaboration Panel - Top */}
+                <div className="flex-1 border-b dark:border-gray-700 bg-blue-50/30 dark:bg-blue-900/10 overflow-y-auto min-h-0">
+                  <div className="p-3">
+                    {/* Thinking Context - AI's thought process */}
+                    {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') &&
+                     executionState.isExecuting && (
+                      <>
+                        <ThinkingContext
+                          summary={executionState.thinkingSummary}
+                          pipelineStage={executionState.pipelineStage}
+                          isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
                         />
-                      ) : (
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {/* AI Team Collaboration Panel - Top */}
-                    <div className="flex-1 border-b dark:border-gray-700 bg-blue-50/30 dark:bg-blue-900/10 overflow-y-auto min-h-0">
-                      <div className="p-3">
+
+                        {/* AI Team Panel - Only show if there are members and not in no_action_needed/no_playbook_found stage */}
+                        {executionState.aiTeamMembers.length > 0 &&
+                         executionState.pipelineStage?.stage !== 'no_action_needed' &&
+                         executionState.pipelineStage?.stage !== 'no_playbook_found' && (
+                          <AITeamPanel
+                            members={executionState.aiTeamMembers}
+                            isLoading={executionState.isExecuting}
+                          />
+                        )}
+                      </>
+                    )}
+
+                        {/* Produced Artifacts */}
+                        <ArtifactsList
+                          artifacts={executionState.producedArtifacts}
+                          onView={(artifact) => {
+                            setSelectedArtifact({
+                              id: artifact.id,
+                              name: artifact.name,
+                              type: artifact.type,
+                              file_type: artifact.type,
+                            } as Artifact);
+                          }}
+                        />
+
+                        {/* Pending Tasks Panel */}
                         <PendingTasksPanel
                           workspaceId={workspaceId}
                           apiUrl={API_URL}
@@ -472,10 +592,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                             refreshTrigger={workbenchRefreshTrigger}
                           />
                         )}
-                      </div>
-                    </div>
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

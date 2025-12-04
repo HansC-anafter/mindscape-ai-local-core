@@ -192,6 +192,17 @@ class ExecutionCoordinator:
                     results["executed_tasks"].append(result)
                     logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} completed")
                     print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} completed", file=sys.stderr)
+                else:
+                    # If execution failed (e.g., unknown execution method), create suggestion card instead
+                    logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card")
+                    print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card", file=sys.stderr)
+                    suggestion = await self._create_suggestion_card(
+                        task_plan, ctx.workspace_id, message_id
+                    )
+                    if suggestion:
+                        results["suggestion_cards"].append(suggestion)
+                        logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)")
+                        print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)", file=sys.stderr)
 
             elif side_effect_level == SideEffectLevel.SOFT_WRITE:
                 # Check if should auto-execute based on workspace config
@@ -377,7 +388,7 @@ class ExecutionCoordinator:
                 return None
 
             # Execute playbook
-            logger.info(f"ExecutionCoordinator: Starting playbook execution for pack {pack_id}, playbook_code={playbook_code}, workspace_id={ctx.workspace_id}")
+            logger.info(f"ExecutionCoordinator: Starting playbook execution for pack {pack_id}, playbook_code={playbook_code}, workspace_id={ctx.workspace_id}, message_id={message_id}")
             try:
                 execution_result = await self.playbook_runner.start_playbook_execution(
                     playbook_code=playbook_code,
@@ -385,7 +396,8 @@ class ExecutionCoordinator:
                     inputs={
                         **(task_plan.params if task_plan.params else {}),
                         "files": files,
-                        "message": message
+                        "message": message,
+                        "message_id": message_id
                     },
                     workspace_id=ctx.workspace_id
                 )
@@ -396,12 +408,8 @@ class ExecutionCoordinator:
                 else:
                     logger.warning(f"ExecutionCoordinator: Playbook {playbook_code} started but no execution_id returned. Result: {execution_result}")
 
-                # Notify about task creation if callback provided
-                # Note: The task is created by playbook_runner, but we need to notify about it
-                # Try to get the task from tasks_store to send notification
                 if hasattr(self, 'task_event_callback') and self.task_event_callback:
                     try:
-                        # Find the task by execution_id
                         task = self.tasks_store.get_task_by_execution_id(execution_id) if execution_id else None
                         if task:
                             self.task_event_callback('created', {
@@ -414,7 +422,6 @@ class ExecutionCoordinator:
                                 'execution_id': execution_id
                             })
                         elif execution_id:
-                            # If task not found but we have execution_id, send notification anyway
                             self.task_event_callback('created', {
                                 'id': execution_id,
                                 'pack_id': pack_id,
@@ -1017,13 +1024,32 @@ class ExecutionCoordinator:
             playbook_inputs = playbook_context.copy()
             playbook_inputs["workspace_id"] = ctx.workspace_id
 
-            execution_result = await self.playbook_run_executor.execute_playbook_run(
-                playbook_code=playbook_code,
-                profile_id=ctx.actor_id,
-                inputs=playbook_inputs,
-                workspace_id=ctx.workspace_id,
-                locale=self.default_locale
-            )
+            # Use PlaybookService if available, otherwise fallback to PlaybookRunExecutor
+            if self.playbook_service:
+                from ...services.playbook_service import ExecutionMode as PlaybookExecutionMode
+                execution_result_obj = await self.playbook_service.execute_playbook(
+                    playbook_code=playbook_code,
+                    workspace_id=ctx.workspace_id,
+                    profile_id=ctx.actor_id,
+                    inputs=playbook_inputs,
+                    execution_mode=PlaybookExecutionMode.ASYNC,
+                    locale=self.default_locale
+                )
+                # Convert ExecutionResult to dict format
+                execution_result = {
+                    "execution_id": execution_result_obj.execution_id,
+                    "execution_mode": "workflow" if execution_result_obj.status == "running" else "conversation",
+                    "result": execution_result_obj.result or {},
+                }
+            else:
+                # Fallback to PlaybookRunExecutor (backward compatibility)
+                execution_result = await self.playbook_run_executor.execute_playbook_run(
+                    playbook_code=playbook_code,
+                    profile_id=ctx.actor_id,
+                    inputs=playbook_inputs,
+                    workspace_id=ctx.workspace_id,
+                    locale=self.default_locale
+                )
 
             from ...services.i18n_service import get_i18n_service
             i18n = get_i18n_service(default_locale=self.default_locale)
@@ -1095,11 +1121,23 @@ class ExecutionCoordinator:
                 # Fallback: Try to get steps count from playbook.json
                 if total_steps == 0:
                     try:
-                        from ...services.playbook_loader import PlaybookLoader
-                        playbook_loader = PlaybookLoader()
-                        playbook_run = playbook_loader.load_playbook_run(playbook_code=playbook_code, locale=self.default_locale)
-                        if playbook_run and playbook_run.playbook_json and playbook_run.playbook_json.steps:
-                            total_steps = len(playbook_run.playbook_json.steps)
+                        if self.playbook_service:
+                            # Use PlaybookService to load playbook
+                            playbook = await self.playbook_service.get_playbook(
+                                playbook_code=playbook_code,
+                                locale=self.default_locale,
+                                workspace_id=ctx.workspace_id
+                            )
+                            # Try to load playbook.json via PlaybookService's internal loader
+                            if playbook and hasattr(playbook, 'playbook_json') and playbook.playbook_json and playbook.playbook_json.steps:
+                                total_steps = len(playbook.playbook_json.steps)
+                        else:
+                            # Fallback to PlaybookLoader (backward compatibility)
+                            from ...services.playbook_loader import PlaybookLoader
+                            playbook_loader = PlaybookLoader()
+                            playbook_run = playbook_loader.load_playbook_run(playbook_code=playbook_code, locale=self.default_locale)
+                            if playbook_run and playbook_run.playbook_json and playbook_run.playbook_json.steps:
+                                total_steps = len(playbook_run.playbook_json.steps)
                     except Exception:
                         pass
 
@@ -1116,6 +1154,7 @@ class ExecutionCoordinator:
                                 workspace_id=ctx.workspace_id
                             )
                         else:
+                            # Fallback to PlaybookLoader (backward compatibility)
                             from ...services.playbook_loader import PlaybookLoader
                             playbook_loader = PlaybookLoader()
                             playbook = playbook_loader.get_playbook_by_code(playbook_code)
