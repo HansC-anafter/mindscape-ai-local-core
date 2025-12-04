@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Path, Depends, Query, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.app.models.workspace import ExecutionSession, ExecutionStep, Task, ExecutionChatMessage
+from backend.app.models.workspace import ExecutionSession, PlaybookExecutionStep, Task, ExecutionChatMessage
 from backend.app.models.mindscape import MindEvent, EventType
 from backend.app.models.playbook import PlaybookMetadata
 from backend.app.services.mindscape_store import MindscapeStore
@@ -48,7 +48,7 @@ class ExecutionStreamEvent:
         }
 
     @staticmethod
-    def step_update(step: ExecutionStep, current_step_index: int) -> Dict[str, Any]:
+    def step_update(step: PlaybookExecutionStep, current_step_index: int) -> Dict[str, Any]:
         """Create step_update event"""
         if hasattr(step, 'model_dump'):
             step_dict = step.model_dump(mode='json')
@@ -184,6 +184,8 @@ async def stream_execution_updates(
                         final_status = "completed" if task.status.value == "succeeded" else "failed"
                         event = ExecutionStreamEvent.execution_completed(execution_id, final_status)
                         yield f"data: {json.dumps(event)}\n\n"
+                        # Send final event and close connection properly
+                        yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
                         break
 
                     # Get latest events (PLAYBOOK_STEP and EXECUTION_CHAT)
@@ -207,7 +209,7 @@ async def stream_execution_updates(
                         event_timestamp = event.timestamp if hasattr(event.timestamp, '__gt__') else datetime.fromisoformat(str(event.timestamp)) if isinstance(event.timestamp, str) else event.timestamp
                         if last_step_timestamp is None or (hasattr(event_timestamp, '__gt__') and event_timestamp > last_step_timestamp):
                             try:
-                                step = ExecutionStep.from_mind_event(event)
+                                step = PlaybookExecutionStep.from_mind_event(event)
                                 step_index = event.payload.get("step_index", 0) if isinstance(event.payload, dict) else 0
                                 sse_event = ExecutionStreamEvent.step_update(step, step_index)
                                 yield f"data: {json.dumps(sse_event, default=str)}\n\n"
@@ -264,9 +266,17 @@ async def stream_execution_updates(
 
         except asyncio.CancelledError:
             logger.info(f"SSE stream cancelled for execution {execution_id}")
+            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
         except Exception as e:
             logger.error(f"SSE stream error: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+        finally:
+            # Ensure stream is properly closed
+            try:
+                yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+            except Exception:
+                pass
 
     return StreamingResponse(
         generate_events(),
@@ -482,10 +492,10 @@ async def list_execution_steps(
         steps = []
         for event in playbook_step_events:
             try:
-                step = ExecutionStep.from_mind_event(event)
+                step = PlaybookExecutionStep.from_mind_event(event)
                 steps.append(step.model_dump() if hasattr(step, 'model_dump') else step)
             except Exception as e:
-                logger.warning(f"Failed to create ExecutionStep from event {event.id}: {e}")
+                logger.warning(f"Failed to create PlaybookExecutionStep from event {event.id}: {e}")
 
         return {"steps": steps, "count": len(steps)}
 
@@ -680,7 +690,7 @@ async def list_executions_with_steps(
                         steps = []
                         for event in steps_by_execution[exec_id]:
                             try:
-                                step = ExecutionStep.from_mind_event(event)
+                                step = PlaybookExecutionStep.from_mind_event(event)
                                 steps.append(step.model_dump() if hasattr(step, 'model_dump') else step)
                             except Exception as e:
                                 logger.warning(f"Failed to create ExecutionStep: {e}")
@@ -814,7 +824,6 @@ async def post_execution_chat(
     try:
         from backend.app.models.workspace import ExecutionChatMessageType
         from backend.app.models.mindscape import EventActor
-        from backend.app.services.playbook_loader import PlaybookLoader
         import uuid
 
         store = MindscapeStore()
@@ -865,13 +874,18 @@ async def post_execution_chat(
         playbook_metadata = None
         try:
             from backend.app.services.stores.tasks_store import TasksStore
+            from backend.app.services.playbook_service import PlaybookService
             tasks_store = TasksStore(db_path=store.db_path)
             task = tasks_store.get_task_by_execution_id(execution_id)
             if task and task.execution_context:
                 playbook_code = task.execution_context.get("playbook_code")
                 if playbook_code:
-                    loader = PlaybookLoader()
-                    playbook = loader.get_playbook_by_code(playbook_code)
+                    playbook_service = PlaybookService(store=store)
+                    playbook = await playbook_service.get_playbook(
+                        playbook_code=playbook_code,
+                        locale=ctx.workspace.default_locale if hasattr(ctx, 'workspace') and ctx.workspace else "zh-TW",
+                        workspace_id=ctx.workspace_id
+                    )
                     if playbook:
                         playbook_metadata = playbook.metadata
         except Exception as e:

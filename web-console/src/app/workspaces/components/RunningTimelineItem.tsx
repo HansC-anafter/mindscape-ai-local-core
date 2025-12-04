@@ -102,6 +102,14 @@ export default function RunningTimelineItem({
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        // Handle stream_end event to close connection gracefully
+        if (data.type === 'stream_end') {
+          if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+            eventSourceRef.current = null;
+          }
+          return;
+        }
         handleSSEEvent(data);
       } catch (err) {
         console.error('Failed to parse SSE event:', err);
@@ -109,11 +117,22 @@ export default function RunningTimelineItem({
     };
 
     eventSource.onerror = (error) => {
-      console.error('SSE error:', error);
+      // Only log error if connection was not intentionally closed
+      if (eventSourceRef.current?.readyState === EventSource.CLOSED) {
+        // Connection was closed, this is normal
+        return;
+      }
+      // Check if it's a network error (ERR_INCOMPLETE_CHUNKED_ENCODING is expected when stream ends)
+      const target = error.target as EventSource;
+      if (target?.readyState === EventSource.CLOSED) {
+        // Stream ended normally, don't treat as error
+        return;
+      }
+      console.warn('SSE connection issue (may be normal if execution completed):', error);
       setIsConnecting(true);
-      // Try to reconnect after delay
+      // Try to reconnect after delay only if connection is not closed
       setTimeout(() => {
-        if (eventSourceRef.current) {
+        if (eventSourceRef.current && eventSourceRef.current.readyState !== EventSource.CLOSED) {
           eventSourceRef.current.close();
         }
         // Will reconnect on next render
@@ -223,39 +242,39 @@ export default function RunningTimelineItem({
 
   return (
     <div
-      className="bg-blue-50 border border-blue-200 rounded p-2 shadow-sm cursor-pointer hover:bg-blue-100 transition-colors"
+      className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-2 shadow-sm cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
       onClick={onClick}
     >
       {/* Intent Breadcrumb */}
       {currentExecution.origin_intent_label && (
-        <div className="text-[10px] text-gray-500 mb-1.5 font-light">
-          <span className="text-gray-400">Intent：</span>
-          <span className="text-gray-600">{currentExecution.origin_intent_label}</span>
+        <div className="text-[10px] text-gray-500 dark:text-gray-300 mb-1.5 font-light">
+          <span className="text-gray-400 dark:text-gray-400">Intent：</span>
+          <span className="text-gray-600 dark:text-gray-200">{currentExecution.origin_intent_label}</span>
           {intentStatus === 'confirmed' && (
-            <span className="text-gray-400 ml-1">（由你確認）</span>
+            <span className="text-gray-400 dark:text-gray-400 ml-1">（由你確認）</span>
           )}
           {(intentStatus === 'candidate' || intentStatus === null) && (
-            <span className="text-gray-400 ml-1">（AI 推測，執行中仍可更改）</span>
+            <span className="text-gray-400 dark:text-gray-400 ml-1">（AI 推測，執行中仍可更改）</span>
           )}
         </div>
       )}
 
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-blue-900">
+          <span className="text-xs font-medium text-blue-900 dark:text-blue-200">
             {currentExecution.playbook_code || 'Playbook Execution'}
           </span>
           {currentExecution.trigger_source && (
-            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 text-blue-700 border-blue-300">
+            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
               {currentExecution.trigger_source}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
           {isConnecting && (
-            <span className="text-xs text-gray-500">Connecting...</span>
+            <span className="text-xs text-gray-500 dark:text-gray-300">Connecting...</span>
           )}
-          <span className="text-xs text-blue-600 font-medium">
+          <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
             Step {currentExecution.current_step_index + 1}/{currentExecution.total_steps}
           </span>
         </div>
@@ -263,9 +282,9 @@ export default function RunningTimelineItem({
 
       {/* Progress Bar */}
       <div className="mb-2">
-        <div className="w-full bg-blue-200 rounded-full h-1.5">
+        <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-1.5">
           <div
-            className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+            className="bg-blue-500 dark:bg-blue-600 h-1.5 rounded-full transition-all duration-300"
             style={{ width: `${progressPercentage}%` }}
           ></div>
         </div>
@@ -275,11 +294,11 @@ export default function RunningTimelineItem({
       <div className="flex items-start gap-2">
         <div className="flex-shrink-0 mt-0.5">
           <div className="relative w-4 h-4">
-            <div className="absolute inset-0 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 border-2 border-blue-300 dark:border-blue-500 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
           </div>
         </div>
         <div className="flex-1">
-          <p className="text-xs text-blue-800 leading-relaxed">
+          <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
             {getNarrative()}
           </p>
         </div>

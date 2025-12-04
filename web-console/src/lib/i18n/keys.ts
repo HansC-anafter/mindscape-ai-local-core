@@ -747,6 +747,8 @@ export const keys = {
   serviceUrlDescription: true,
   settings: true,
   settingsHint: true,
+  languagePreference: true,
+  languagePreferenceDescription: true,
   setupCompleteAlert: true,
   setupGuide: true,
   showDetails: true,
