@@ -1,7 +1,7 @@
 # Playbook Runtime 配置擴展實作任務
 
-**日期**: 2025-12-05  
-**任務範圍**: 擴展 Playbook 模型以支援 Cloud Runtime 配置  
+**日期**: 2025-12-05
+**任務範圍**: 擴展 Playbook 模型以支援 Cloud Runtime 配置
 **相關評估**: `playbook-design-evaluation-2025-12-05.md`
 
 ---
@@ -27,7 +27,7 @@
   - 值：`local` | `cloud_recommended` | `cloud_only`
   - 預設：`None`
   - 描述：Runtime tier 標示此 playbook 建議的執行環境
-  
+
 - [ ] 添加 `runtime` 配置塊（Optional[Dict[str, Any]]）
   - 結構：
     ```python
@@ -61,7 +61,7 @@
 - [ ] 在 `load_playbook_from_file()` 中解析 `runtime_tier` 欄位
   - 從 YAML frontmatter 讀取 `runtime_tier`
   - 設定到 `PlaybookMetadata.runtime_tier`
-  
+
 - [ ] 在 `load_playbook_from_file()` 中解析 `runtime` 配置塊
   - 從 YAML frontmatter 讀取 `runtime` 字典
   - 驗證結構（backend, requires, supports_schedule 等）
@@ -141,7 +141,7 @@ runtime:
 **實作內容**:
 - [ ] 在 `get_playbook()` 中檢查 `runtime_tier`
   - 如果 `runtime_tier == "cloud_only"`，在 Local Workspace 中標示為僅 Cloud 可用
-  
+
 - [ ] 在 `list_playbooks()` 中支援過濾
   - 支援 `runtime_tier` 參數過濾
   - 支援 `runtime.backend` 參數過濾
@@ -156,7 +156,7 @@ runtime:
 
 ### 任務 6: 更新 API 文件與 Schema
 
-**檔案**: 
+**檔案**:
 - `backend/app/routes/core/playbook.py` (API 端點)
 - API 文件（如有）
 
@@ -241,7 +241,7 @@ runtime:
 
 ---
 
-**建立日期**: 2025-12-05  
-**最後更新**: 2025-12-05  
+**建立日期**: 2025-12-05
+**最後更新**: 2025-12-05
 **狀態**: 待實作
 
