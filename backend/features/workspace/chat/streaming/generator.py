@@ -50,6 +50,14 @@ async def generate_streaming_response(
         SSE event strings
     """
     try:
+        # Get profile early for use throughout the function
+        profile = None
+        try:
+            if profile_id:
+                profile = orchestrator.store.get_profile(profile_id)
+        except Exception:
+            pass
+
         # Create user event first
         user_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -116,13 +124,7 @@ async def generate_streaming_response(
         # Initialize services
         timeline_items_store = TimelineItemsStore(orchestrator.store.db_path)
 
-        # Get locale
-        profile = None
-        try:
-            if profile_id:
-                profile = orchestrator.store.get_profile(profile_id)
-        except Exception:
-            pass
+        # Get locale (profile already loaded above)
         locale = get_locale_from_context(profile=profile, workspace=workspace) or "zh-TW"
 
         # Get model name
