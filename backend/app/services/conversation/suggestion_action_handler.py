@@ -12,8 +12,8 @@ import uuid
 from ...models.workspace import ExecutionPlan, TaskPlan
 from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
-from ...services.playbook_run_executor import PlaybookRunExecutor
-from ...services.playbook_loader import PlaybookLoader
+from ...services.playbook_service import PlaybookService, ExecutionMode as PlaybookExecutionMode
+from ...services.intent_infra import IntentInfraService
 from ...capabilities.registry import get_registry
 from ...core.execution_context import ExecutionContext
 
@@ -29,7 +29,9 @@ class SuggestionActionHandler:
         playbook_runner,
         task_manager,
         execution_coordinator=None,
-        default_locale: str = "en"
+        default_locale: str = "en",
+        playbook_service: Optional[PlaybookService] = None,
+        intent_infra: Optional[IntentInfraService] = None
     ):
         """
         Initialize SuggestionActionHandler
@@ -40,13 +42,15 @@ class SuggestionActionHandler:
             task_manager: TaskManager instance
             execution_coordinator: ExecutionCoordinator instance (optional, for execute_pack)
             default_locale: Default locale for i18n
+            playbook_service: PlaybookService instance (optional, for unified query/execution)
+            intent_infra: IntentInfraService instance (optional, for intent_extraction tasks)
         """
         self.store = store
         self.playbook_runner = playbook_runner
         self.task_manager = task_manager
         self.execution_coordinator = execution_coordinator
-        self.playbook_run_executor = PlaybookRunExecutor()
-        self.playbook_loader = PlaybookLoader()
+        self.playbook_service = playbook_service or PlaybookService(store=store)
+        self.intent_infra = intent_infra or IntentInfraService(store=store, default_locale=default_locale)
         self.default_locale = default_locale
 
     async def handle_action(
@@ -176,32 +180,46 @@ class SuggestionActionHandler:
 
         locale = playbook_context.get("locale") or self.default_locale
 
-        logger.info(f"_handle_execute_playbook: Loading playbook_run for {playbook_code}, locale={locale}")
-        playbook_run = self.playbook_loader.load_playbook_run(
+        logger.info(f"_handle_execute_playbook: Loading playbook for {playbook_code}, locale={locale}")
+        # Use PlaybookService to get playbook
+        playbook = await self.playbook_service.get_playbook(
             playbook_code=playbook_code,
-            locale=locale
+            locale=locale,
+            workspace_id=ctx.workspace_id
         )
 
-        if not playbook_run:
+        if not playbook:
             logger.error(f"_handle_execute_playbook: Playbook {playbook_code} not found")
             raise ValueError(f"Playbook {playbook_code} not found")
 
-        if not playbook_run.has_json():
+        # Verify playbook has JSON structure required for execution
+        playbook_run = self.playbook_service.playbook_loader.load_playbook_run(
+            playbook_code=playbook_code,
+            locale=locale
+        )
+        if not playbook_run or not playbook_run.has_json():
             logger.error(f"_handle_execute_playbook: Playbook {playbook_code} does not have playbook.json")
             raise ValueError(
                 f"Playbook {playbook_code} does not have playbook.json. "
                 f"HandoffPlan is required for execution. Please create playbook.json for structured workflow execution."
             )
 
-        logger.info(f"_handle_execute_playbook: Calling execute_playbook_run for {playbook_code}")
-        execution_result = await self.playbook_run_executor.execute_playbook_run(
+        logger.info(f"_handle_execute_playbook: Calling execute_playbook for {playbook_code}")
+        execution_result_obj = await self.playbook_service.execute_playbook(
             playbook_code=playbook_code,
+            workspace_id=ctx.workspace_id,
             profile_id=ctx.actor_id,
             inputs=playbook_context,
-            workspace_id=ctx.workspace_id,
+            execution_mode=PlaybookExecutionMode.ASYNC,
             locale=locale
         )
-        logger.info(f"_handle_execute_playbook: Execution completed for {playbook_code}, result keys: {list(execution_result.keys())}")
+        # Convert ExecutionResult to dict format for backward compatibility
+        execution_result = {
+            "execution_id": execution_result_obj.execution_id,
+            "execution_mode": "workflow" if execution_result_obj.status == "running" else "conversation",
+            "result": execution_result_obj.result or {},
+        }
+        logger.info(f"_handle_execute_playbook: Execution completed for {playbook_code}, execution_id={execution_result_obj.execution_id}")
 
         self._create_user_event(
             ctx.workspace_id, ctx.actor_id, project_id,
@@ -264,11 +282,8 @@ class SuggestionActionHandler:
             ]
         )
 
-        # Use execution_coordinator to execute the plan instead of task_manager
-        # task_manager doesn't have execute_task_plan method
+        # Create tasks from execution plan
         from ...services.conversation_orchestrator import ConversationOrchestrator
-        # Get execution_coordinator from orchestrator if available
-        # For now, create tasks directly from the plan
         task_results = []
         for task_plan in plan.tasks:
             from ...models.workspace import Task, TaskStatus
@@ -455,195 +470,120 @@ class SuggestionActionHandler:
         message_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Handle execute_pack action - execute a pack from pending task"""
-        if not action_params:
-            logger.error("action_params is None for execute_pack action")
-            raise ValueError("action_params is required for execute_pack action")
+        try:
+            if not action_params:
+                logger.error("action_params is None for execute_pack action")
+                raise ValueError("action_params is required for execute_pack action")
 
-        logger.info(f"_handle_execute_pack called with action_params: {action_params}")
+            logger.info(f"_handle_execute_pack called with action_params: {action_params}")
 
-        pack_id = action_params.get('pack_id')
-        task_id = action_params.get('task_id')
+            pack_id = action_params.get('pack_id')
+            task_id = action_params.get('task_id')
 
-        if not pack_id:
-            raise ValueError("pack_id is required for execute_pack action")
+            if not pack_id:
+                raise ValueError("pack_id is required for execute_pack action")
 
-        if not self.execution_coordinator:
-            raise ValueError("execution_coordinator is required for execute_pack action")
+            if not self.execution_coordinator:
+                raise ValueError("execution_coordinator is required for execute_pack action")
 
-        # Get the original task to retrieve context (message_id, files, message)
-        task = self.task_manager.tasks_store.get_task(task_id) if task_id else None
+            task = self.task_manager.tasks_store.get_task(task_id) if task_id else None
 
-        # If task exists, use its context
-        if task:
-            original_message_id = task.message_id or message_id or str(uuid.uuid4())
-            files = task.params.get('files', []) if task.params else []
-            message = task.params.get('message', '') if task.params else ''
+            if task:
+                original_message_id = task.message_id or message_id or str(uuid.uuid4())
+                files = task.params.get('files', []) if task.params else []
+                message = task.params.get('message', '') if task.params else ''
 
-            # Mark suggestion task as succeeded (user accepted the suggestion)
-            # The pack executor or playbook will create a new RUNNING task for actual execution
-            from ...models.workspace import TaskStatus
-            try:
+                from ...models.workspace import TaskStatus
+                try:
+                    self.task_manager.tasks_store.update_task_status(
+                        task_id=task.id,
+                        status=TaskStatus.SUCCEEDED,
+                        result={"action": "executed", "pack_id": pack_id},
+                        completed_at=datetime.utcnow()
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update suggestion task status: {e}")
+            else:
+                original_message_id = message_id or str(uuid.uuid4())
+                files = action_params.get('files', [])
+                message = action_params.get('message', '')
+
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+            execute_message = i18n.t("conversation_orchestrator", "error.execute_pack", pack_id=pack_id)
+            self._create_user_event(
+                ctx.workspace_id, ctx.actor_id, project_id,
+                execute_message,
+                'execute_pack', action_params
+            )
+
+            result = None
+            pack_id_lower = pack_id.lower() if pack_id else ""
+
+            if pack_id_lower == "intent_extraction" and task:
+                from ...models.workspace import TaskStatus
+                result = await self.intent_infra.handle_extraction_task(
+                    ctx=ctx,
+                    task=task,
+                    original_message_id=original_message_id
+                )
                 self.task_manager.tasks_store.update_task_status(
                     task_id=task.id,
                     status=TaskStatus.SUCCEEDED,
-                    result={"action": "executed", "pack_id": pack_id},
+                    error=None,
                     completed_at=datetime.utcnow()
                 )
-            except Exception as e:
-                logger.warning(f"Failed to update suggestion task status: {e}")
-        else:
-            # Create new message_id if task not found
-            original_message_id = message_id or str(uuid.uuid4())
-            files = action_params.get('files', [])
-            message = action_params.get('message', '')
-
-        # Create user event for action (use i18n)
-        from ...services.i18n_service import get_i18n_service
-        i18n = get_i18n_service(default_locale=self.default_locale)
-        execute_message = i18n.t("conversation_orchestrator", "error.execute_pack", pack_id=pack_id)
-        self._create_user_event(
-            ctx.workspace_id, ctx.actor_id, project_id,
-            execute_message,
-            'execute_pack', action_params
-        )
-
-        # Execute the pack using Registry to determine execution method
-        try:
-            registry = get_registry()
-            execution_method = registry.get_execution_method(pack_id)
-
-            logger.info(f"Pack {pack_id} execution method: {execution_method}")
-
-            result = None
-
-            if execution_method == 'pack_executor':
-                # Pack has a direct executor (like daily_planning, content_drafting)
-                # Use ExecutionCoordinator's internal methods
-                pack_id_lower = pack_id.lower()
-                if pack_id_lower == "daily_planning":
-                    result = await self.execution_coordinator._execute_daily_planning(
-                        workspace_id=ctx.workspace_id,
-                        profile_id=ctx.actor_id,
-                        message_id=original_message_id,
-                        files=files,
-                        message=message,
-                        task_event_callback=None
+                try:
+                    self.task_manager.tasks_store.db.execute(
+                        "UPDATE tasks SET execution_id = NULL WHERE id = ?",
+                        (task.id,)
                     )
-                elif pack_id_lower == "semantic_seeds" or "intent" in pack_id_lower or pack_id_lower == "intent_extraction":
-                    # Handle intent_extraction tasks - directly add intents and create completed TimelineItem
-                    if pack_id_lower == "intent_extraction" and task:
-                        # Extract intents from task params
-                        intents = task.params.get("intents", []) if task.params else []
-                        themes = task.params.get("themes", []) if task.params else []
+                    self.task_manager.tasks_store.db.commit()
+                    logger.info(f"Cleared execution_id for intent_extraction task {task.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to clear execution_id for intent_extraction task: {e}")
 
-                        if intents:
-                            from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
-                            from ...models.workspace import TaskStatus, TimelineItem, TimelineItemType
-                            from ...services.stores.timeline_items_store import TimelineItemsStore
-                            from ...services.i18n_service import get_i18n_service
+                logger.info(f"Intent extraction task {task.id} completed via IntentInfraService")
+            else:
+                # Determine execution method: check PlaybookService first (handles all playbooks),
+                # then CapabilityRegistry (handles capability packs with pack_executor)
+                execution_method = None
+                registry = get_registry()
 
-                            i18n = get_i18n_service(default_locale=self.default_locale)
-                            timeline_items_store = TimelineItemsStore(self.store.db_path)
-                            intents_added = 0
-
-                            # Add intents directly
-                            for intent_item in intents[:3]:
-                                if isinstance(intent_item, dict):
-                                    intent_text = intent_item.get("title") or intent_item.get("text") or str(intent_item)
-                                else:
-                                    intent_text = str(intent_item) if intent_item else None
-
-                                if intent_text and isinstance(intent_text, str) and len(intent_text.strip()) > 0:
-                                    try:
-                                        existing_intents = self.store.list_intents(
-                                            profile_id=ctx.actor_id,
-                                            status=None,
-                                            priority=None
-                                        )
-                                        intent_exists = any(
-                                            intent.title == intent_text.strip() or
-                                            intent_text.strip() in intent.title
-                                            for intent in existing_intents
-                                        )
-                                        if not intent_exists:
-                                            new_intent = IntentCard(
-                                                id=str(uuid.uuid4()),
-                                                profile_id=ctx.actor_id,
-                                                title=intent_text.strip(),
-                                                description=f"Added from intent extraction task",
-                                                status=IntentStatus.ACTIVE,
-                                                priority=PriorityLevel.MEDIUM,
-                                                tags=[],
-                                                category="intent_extraction",
-                                                progress_percentage=0.0,
-                                                created_at=datetime.utcnow(),
-                                                updated_at=datetime.utcnow(),
-                                                started_at=None,
-                                                completed_at=None,
-                                                due_date=None,
-                                                parent_intent_id=None,
-                                                child_intent_ids=[],
-                                                metadata={
-                                                    "source": "intent_extraction_task",
-                                                    "workspace_id": ctx.workspace_id,
-                                                    "task_id": task.id
-                                                }
-                                            )
-                                            self.store.create_intent(new_intent)
-                                            intents_added += 1
-                                            logger.info(f"Added intent from task: {intent_text[:50]}")
-                                    except Exception as e:
-                                        logger.warning(f"Failed to add intent from task: {e}")
-
-                            # Update task status to SUCCEEDED
-                            self.task_manager.tasks_store.update_task_status(
-                                task_id=task.id,
-                                status=TaskStatus.SUCCEEDED,
-                                error=None
-                            )
-
-                            # Create completed TimelineItem (no CTA, already executed)
-                            timeline_item = TimelineItem(
-                                id=str(uuid.uuid4()),
-                                workspace_id=ctx.workspace_id,
-                                message_id=original_message_id,
-                                task_id=task.id,
-                                type=TimelineItemType.INTENT_SEEDS,
-                                title=i18n.t(
-                                    "conversation_orchestrator",
-                                    "timeline.intents_added_title" if intents_added > 0 else "timeline.no_intents_added_title",
-                                    count=intents_added,
-                                    default=f"Added {intents_added} intent(s) to Mindscape" if intents_added > 0 else "No new intents"
-                                ),
-                                summary=i18n.t(
-                                    "conversation_orchestrator",
-                                    "timeline.intents_added_summary" if intents_added > 0 else "timeline.all_intents_exist_summary",
-                                    count=intents_added,
-                                    default=f"Added {intents_added} intent(s) from message" if intents_added > 0 else "All intents already exist"
-                                ),
-                                data={
-                                    "intents": intents,
-                                    "themes": themes,
-                                    "source": "intent_extraction_task",
-                                    "intents_added": intents_added
-                                },
-                                cta=None,  # No CTA - already completed
-                                created_at=datetime.utcnow()
-                            )
-                            timeline_items_store.create_timeline_item(timeline_item)
-                            logger.info(f"Created completed TimelineItem for intent_extraction task {task.id}")
-
-                            result = {"pack_id": pack_id, "intents_added": intents_added}
-                        else:
-                            # No intents to add
-                            self.task_manager.tasks_store.update_task_status(
-                                task_id=task.id,
-                                status=TaskStatus.SUCCEEDED,
-                                error=None
-                            )
-                            result = {"pack_id": pack_id, "intents_added": 0}
+                # Check PlaybookService first - it handles all playbooks (system, capability, user)
+                logger.info(f"SuggestionActionHandler: Checking PlaybookService for {pack_id}, default_locale={self.default_locale}, type={type(self.default_locale)}")
+                playbook_found = None
+                try:
+                    playbook = await self.playbook_service.get_playbook(
+                        playbook_code=pack_id,
+                        locale=self.default_locale,
+                        workspace_id=ctx.workspace_id
+                    )
+                    if playbook:
+                        execution_method = 'playbook'
+                        playbook_found = playbook.metadata.playbook_code
+                        logger.info(f"Pack {pack_id} found in PlaybookService, execution method: {execution_method}, playbook_code: {playbook_found}")
                     else:
-                        # Use semantic_seeds executor for other intent-related packs
+                        logger.debug(f"Pack {pack_id} not found in PlaybookService (returned None)")
+                except Exception as e:
+                    logger.warning(f"Pack {pack_id} error checking PlaybookService: {type(e).__name__}: {e}")
+
+                # If not a playbook, check CapabilityRegistry for pack_executor
+                if not execution_method:
+                    execution_method = registry.get_execution_method(pack_id)
+                    logger.info(f"Pack {pack_id} execution method from CapabilityRegistry: {execution_method}")
+
+                if execution_method == 'pack_executor':
+                    if pack_id_lower == "daily_planning":
+                        result = await self.execution_coordinator._execute_daily_planning(
+                            workspace_id=ctx.workspace_id,
+                            profile_id=ctx.actor_id,
+                            message_id=original_message_id,
+                            files=files,
+                            message=message,
+                            task_event_callback=None
+                        )
+                    elif pack_id_lower == "semantic_seeds" or "intent" in pack_id_lower:
                         result = await self.execution_coordinator._execute_semantic_seeds(
                             workspace_id=ctx.workspace_id,
                             profile_id=ctx.actor_id,
@@ -652,127 +592,193 @@ class SuggestionActionHandler:
                             message=message,
                             task_event_callback=None
                         )
-                elif pack_id_lower == "content_drafting":
-                    output_type = action_params.get('output_type', 'summary')
-                    result = await self.execution_coordinator._execute_content_drafting(
-                        workspace_id=ctx.workspace_id,
-                        profile_id=ctx.actor_id,
-                        message_id=original_message_id,
-                        files=files,
-                        message=message,
-                        output_type=output_type,
-                        task_event_callback=None
-                    )
-                else:
-                    # Generic pack executor - try to use ExecutionPlan
-                    logger.warning(f"Pack {pack_id} has pack_executor but no specific handler, using ExecutionPlan")
-                    result = await self._execute_via_plan(
-                        pack_id, ctx, original_message_id,
-                        files, message, project_id, task, action_params
-                    )
+                    elif pack_id_lower == "content_drafting":
+                        output_type = action_params.get('output_type', 'summary')
+                        result = await self.execution_coordinator._execute_content_drafting(
+                            workspace_id=ctx.workspace_id,
+                            profile_id=ctx.actor_id,
+                            message_id=original_message_id,
+                            files=files,
+                            message=message,
+                            output_type=output_type,
+                            task_event_callback=None
+                        )
+                    else:
+                        logger.warning(f"Pack {pack_id} has pack_executor but no specific handler, using ExecutionPlan")
+                        result = await self._execute_via_plan(
+                            pack_id, ctx, original_message_id,
+                            files, message, project_id, task, action_params
+                        )
 
-            elif execution_method == 'playbook':
-                # Pack has playbooks - find and execute the first/default one
-                playbooks = registry.get_capability_playbooks(pack_id)
-                if not playbooks:
-                    raise ValueError(f"Pack {pack_id} marked as playbook but no playbooks found")
+                if execution_method == 'playbook':
+                    # If PlaybookService already found the playbook, use it directly
+                    if playbook_found:
+                        logger.info(f"Executing pack {pack_id} via playbook {playbook_found} (found by PlaybookService)")
+                        execution_result = await self.playbook_runner.start_playbook_execution(
+                            playbook_code=playbook_found,
+                            profile_id=ctx.actor_id,
+                            inputs={
+                                **(task.params if task and task.params else {}),
+                                **(action_params if action_params else {}),
+                                "files": files,
+                                "message": message
+                            },
+                            workspace_id=ctx.workspace_id
+                        )
+                        result = {"pack_id": pack_id, "playbook_code": playbook_found, "execution_id": execution_result.get("execution_id")}
+                    else:
+                        # Fallback: try to find playbook via capability registry (for capability playbooks)
+                        playbooks = registry.get_capability_playbooks(pack_id)
+                        if not playbooks:
+                            raise ValueError(f"Pack {pack_id} marked as playbook but no playbooks found in PlaybookService or CapabilityRegistry")
 
-                # Try to find playbook by common naming patterns
-                from backend.app.playbook_loader import PlaybookLoader
-                playbook_loader = PlaybookLoader()
+                        from backend.app.playbook_loader import PlaybookLoader
+                        playbook_loader = PlaybookLoader()
 
-                playbook_found = None
-                # Extract playbook codes from manifest playbooks list
-                # playbooks in manifest are filenames like "storyboard_from_outline.yaml"
-                # playbook_code in yaml file is "storyboard_from_outline"
-                playbook_codes_to_try = []
+                        playbook_found = None
+                        playbook_codes_to_try = []
 
-                # Try exact pack_id first (in case pack_id itself is a playbook)
-                playbook_codes_to_try.append(pack_id)
+                        playbook_codes_to_try.append(pack_id)
 
-                # Extract playbook_code from filenames (remove .yaml/.yml extension)
-                for playbook_filename in playbooks:
-                    # Remove extension to get base name
-                    base_name = playbook_filename.replace('.yaml', '').replace('.yml', '')
-                    playbook_codes_to_try.append(base_name)
+                        for playbook_filename in playbooks:
+                            base_name = playbook_filename.replace('.yaml', '').replace('.yml', '')
+                            playbook_codes_to_try.append(base_name)
 
-                logger.info(f"Looking for playbook for pack {pack_id}, trying codes: {playbook_codes_to_try}")
+                        logger.info(f"Looking for playbook for pack {pack_id}, trying codes: {playbook_codes_to_try}")
 
-                for playbook_code in playbook_codes_to_try:
-                    try:
-                        playbook = playbook_loader.get_playbook_by_code(playbook_code)
-                        if playbook:
-                            # Use the actual playbook_code from the loaded playbook (may differ from filename)
-                            playbook_found = playbook.metadata.playbook_code
-                            logger.info(f"Found playbook {playbook_found} for pack {pack_id} (searched with: {playbook_code})")
-                            break
-                    except Exception as e:
-                        logger.debug(f"Playbook {playbook_code} not found: {e}")
-                        continue
+                        for playbook_code in playbook_codes_to_try:
+                            try:
+                                playbook = await self.playbook_service.get_playbook(
+                                    playbook_code=playbook_code,
+                                    locale=self.default_locale,
+                                    workspace_id=ctx.workspace_id
+                                )
+                                if playbook:
+                                    playbook_found = playbook.metadata.playbook_code
+                                    logger.info(f"Found playbook {playbook_found} for pack {pack_id} (searched with: {playbook_code})")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"Playbook {playbook_code} not found: {e}")
+                                continue
 
-                # If still not found, try loading all playbooks and matching by code
-                if not playbook_found:
-                    logger.info(f"Trying to load all playbooks to find match for pack {pack_id}")
-                    try:
-                        all_playbooks = playbook_loader.load_all_playbooks()
-                        logger.info(f"Loaded {len(all_playbooks)} total playbooks, searching for pack {pack_id}")
-                        for playbook in all_playbooks:
-                            pb_code = playbook.metadata.playbook_code
-                            # Try matching by playbook_code
-                            if pb_code in playbook_codes_to_try:
-                                playbook_found = pb_code
-                                logger.info(f"Found playbook {playbook_found} for pack {pack_id} via full search (exact match)")
-                                break
-                            # Try matching by pack_id in playbook_code
-                            if pack_id.lower() in pb_code.lower():
-                                playbook_found = pb_code
-                                logger.info(f"Found playbook {playbook_found} for pack {pack_id} via full search (partial match)")
-                                break
                         if not playbook_found:
-                            logger.warning(f"Available playbook codes: {[p.metadata.playbook_code for p in all_playbooks[:10]]}")
-                    except Exception as e:
-                        logger.error(f"Failed to load all playbooks: {e}", exc_info=True)
+                            logger.info(f"Trying to load all playbooks to find match for pack {pack_id}")
+                            try:
+                                all_playbooks_metadata = await self.playbook_service.list_playbooks(
+                                    workspace_id=ctx.workspace_id,
+                                    locale=self.default_locale
+                                )
+                                logger.info(f"Loaded {len(all_playbooks_metadata)} total playbooks, searching for pack {pack_id}")
+                                for pb_meta in all_playbooks_metadata:
+                                    pb_code = pb_meta.playbook_code
+                                    if pb_code in playbook_codes_to_try:
+                                        playbook_found = pb_code
+                                        logger.info(f"Found playbook {playbook_found} for pack {pack_id} via full search (exact match)")
+                                        break
+                                    if pack_id.lower() in pb_code.lower():
+                                        playbook_found = pb_code
+                                        logger.info(f"Found playbook {playbook_found} for pack {pack_id} via full search (partial match)")
+                                        break
+                                if not playbook_found:
+                                    logger.warning(f"Available playbook codes: {[p.playbook_code for p in all_playbooks_metadata[:10]]}")
+                            except Exception as e:
+                                logger.error(f"Failed to load all playbooks: {e}", exc_info=True)
 
-                if playbook_found:
-                    logger.info(f"Executing pack {pack_id} via playbook {playbook_found}")
-                    execution_result = await self.playbook_runner.start_playbook_execution(
-                        playbook_code=playbook_found,
-                        profile_id=ctx.actor_id,
-                        inputs={
-                            **(task.params if task and task.params else {}),
-                            **(action_params if action_params else {}),
-                            "files": files,
-                            "message": message
-                        },
-                        workspace_id=ctx.workspace_id
-                    )
-                    result = {"pack_id": pack_id, "playbook_code": playbook_found, "execution_id": execution_result.get("execution_id")}
+                        if playbook_found:
+                            logger.info(f"Executing pack {pack_id} via playbook {playbook_found}")
+                            execution_result = await self.playbook_runner.start_playbook_execution(
+                                playbook_code=playbook_found,
+                                profile_id=ctx.actor_id,
+                                inputs={
+                                    **(task.params if task and task.params else {}),
+                                    **(action_params if action_params else {}),
+                                    "files": files,
+                                    "message": message
+                                },
+                                workspace_id=ctx.workspace_id
+                            )
+                            result = {"pack_id": pack_id, "playbook_code": playbook_found, "execution_id": execution_result.get("execution_id")}
+                        else:
+                            from ...services.i18n_service import get_i18n_service
+                            i18n = get_i18n_service(default_locale=self.default_locale)
+                            logger.error(
+                                f"Could not find playbook for pack {pack_id}. "
+                                f"Tried codes: {playbook_codes_to_try}."
+                            )
+                            error_msg = i18n.t(
+                                "conversation_orchestrator",
+                                "error.could_not_find_playbook",
+                                pack_id=pack_id,
+                                tried=str(playbook_codes_to_try)
+                            )
+                            raise ValueError(error_msg)
+
                 else:
-                    from ...services.i18n_service import get_i18n_service
-                    i18n = get_i18n_service(default_locale=self.default_locale)
-                    # Log detailed information for debugging
-                    logger.error(
-                        f"Could not find playbook for pack {pack_id}. "
-                        f"Tried codes: {playbook_codes_to_try}. "
-                        f"Available playbooks in manifest: {playbooks}"
-                    )
-                    error_msg = i18n.t(
-                        "conversation_orchestrator",
-                        "error.could_not_find_playbook",
-                        pack_id=pack_id,
-                        tried=str(playbook_codes_to_try)
-                    )
-                    raise ValueError(error_msg)
+                    # If execution_method is explicitly 'unknown', fail immediately - do NOT attempt any execution
+                    if execution_method == 'unknown':
+                        error_msg = (
+                            f"Pack {pack_id} has unknown execution method and cannot be executed. "
+                            f"This pack is not a playbook, does not have a pack_executor, and cannot be executed."
+                        )
+                        logger.error(error_msg)
+                        raise ValueError(error_msg)
 
+                    if pack_id_lower == "intent_extraction":
+                        error_msg = (
+                            f"SuggestionActionHandler: intent_extraction reached fallback logic. "
+                            f"This should have been handled by IntentInfraService priority logic above. "
+                            f"Check that priority handling is working correctly."
+                        )
+                        logger.error(error_msg)
+                        raise ValueError(error_msg)
+
+                    logger.info(f"Pack {pack_id} has unknown execution method, trying to find playbook directly")
+                    playbook_found = None
+                    try:
+                        playbook = await self.playbook_service.get_playbook(
+                            playbook_code=pack_id,
+                            locale=self.default_locale,
+                            workspace_id=ctx.workspace_id
+                        )
+                        if playbook:
+                            playbook_found = playbook.metadata.playbook_code
+                            logger.info(f"Found playbook {playbook_found} for pack {pack_id} (direct lookup)")
+                    except Exception as e:
+                        logger.debug(f"Playbook {pack_id} not found via direct lookup: {e}")
+
+                    if playbook_found:
+                        logger.info(f"Executing pack {pack_id} via playbook {playbook_found}")
+                        execution_result = await self.playbook_runner.start_playbook_execution(
+                            playbook_code=playbook_found,
+                            profile_id=ctx.actor_id,
+                            inputs={
+                                **(task.params if task and task.params else {}),
+                                **(action_params if action_params else {}),
+                                "files": files,
+                                "message": message
+                            },
+                            workspace_id=ctx.workspace_id
+                        )
+                        result = {"pack_id": pack_id, "playbook_code": playbook_found, "execution_id": execution_result.get("execution_id")}
+                    else:
+                        logger.warning(f"Pack {pack_id} has unknown execution method and no playbook found, trying ExecutionPlan as fallback")
+                        result = await self._execute_via_plan(
+                            pack_id, ctx, original_message_id,
+                            files, message, project_id, task, action_params
+                        )
+
+                        # Check if execution actually succeeded - if ExecutionPlan created suggestion cards, it failed
+                        if result and result.get("suggestion_cards"):
+                            # Execution failed and created suggestion cards - this will cause infinite loop
+                            logger.error(f"Pack {pack_id} execution failed - created suggestion cards, preventing infinite loop by raising error")
+                            raise ValueError(f"Pack {pack_id} cannot be executed: no playbook found and execution failed")
+
+            # Only log success if we have a valid result (execution_id or executed_tasks, but NOT suggestion_cards)
+            if result and (result.get("execution_id") or (result.get("executed_tasks") and not result.get("suggestion_cards"))):
+                logger.info(f"Successfully executed pack {pack_id} from pending task")
             else:
-                # Unknown execution method - try ExecutionPlan as fallback
-                logger.warning(f"Pack {pack_id} has unknown execution method, trying ExecutionPlan as fallback")
-                result = await self._execute_via_plan(
-                    pack_id, ctx, original_message_id,
-                    files, message, project_id, task, action_params
-                )
-
-            logger.info(f"Successfully executed pack {pack_id} from pending task")
+                logger.error(f"Pack {pack_id} execution failed - no valid result or only suggestion cards returned")
+                raise ValueError(f"Pack {pack_id} execution failed: no valid result")
 
             return {
                 "workspace_id": ctx.workspace_id,
@@ -786,7 +792,6 @@ class SuggestionActionHandler:
             error_type = type(e).__name__
             logger.error(error_message, exc_info=True)
 
-            # Update task status to FAILED if task exists
             if task:
                 from ...models.workspace import TaskStatus
                 try:
@@ -873,7 +878,7 @@ class SuggestionActionHandler:
                         "message": message
                     },
                     side_effect_level=None,
-                    auto_execute=True,
+                    auto_execute=False,
                     requires_cta=False
                 )
             ]
