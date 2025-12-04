@@ -386,8 +386,12 @@ class ExecutionPlan(BaseModel):
                         playbook_code = first_task.params.get('playbook_code')
 
                 ai_team_members = get_members_from_tasks(self.tasks, playbook_code)
+                logger.info(f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.tasks)} tasks, playbook_code={playbook_code}")
                 if ai_team_members:
                     payload["ai_team_members"] = ai_team_members
+                    logger.info(f"[ExecutionPlan] Added ai_team_members to payload: {[m.get('name_zh') or m.get('name') for m in ai_team_members]}")
+                else:
+                    logger.warning(f"[ExecutionPlan] No AI team members extracted from tasks")
             except Exception as e:
                 import logging
                 logger = logging.getLogger(__name__)

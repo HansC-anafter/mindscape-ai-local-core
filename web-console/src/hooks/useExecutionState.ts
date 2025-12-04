@@ -215,6 +215,10 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             status: 'pending' as const
           }));
 
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[useExecutionState] Received ai_team_members:', event.plan.ai_team_members, 'mapped to:', aiTeamMembers);
+          }
+
           const newState = {
             ...prev,
             currentRunId: newRunId,

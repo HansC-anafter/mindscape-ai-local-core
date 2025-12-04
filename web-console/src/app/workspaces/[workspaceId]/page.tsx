@@ -319,28 +319,7 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
-                    {/* Execution Tree - Chain of Thought steps (at top) */}
-                    {executionState.executionTree.length > 0 && (
-                      <div className="border-b dark:border-gray-700 flex-shrink-0">
-                        <ExecutionTree
-                          steps={executionState.executionTree}
-                          isCollapsed={false}
-                        />
-                      </div>
-                    )}
-
-                    {/* Thinking Timeline - Recent execution history (above TimelinePanel) */}
-                    {executionState.thinkingTimeline.length > 0 && (
-                      <div className="border-b dark:border-gray-700 flex-shrink-0">
-                        <ThinkingTimeline
-                          entries={executionState.thinkingTimeline}
-                          maxEntries={3}
-                          isCollapsed={false}
-                        />
-                      </div>
-                    )}
-
-                    {/* Timeline Panel - Main content (has its own scroll) */}
+                    {/* Timeline Panel - Main content with "執行中" section at top (has its own scroll) */}
                     <div className="flex-1 min-h-0">
                       <TimelinePanel
                         workspaceId={workspaceId}
@@ -356,6 +335,17 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                         onArtifactClick={setSelectedArtifact}
                       />
                     </div>
+
+                    {/* Thinking Timeline - Recent execution history (below TimelinePanel) */}
+                    {executionState.thinkingTimeline.length > 0 && (
+                      <div className="border-t dark:border-gray-700 flex-shrink-0">
+                        <ThinkingTimeline
+                          entries={executionState.thinkingTimeline}
+                          maxEntries={3}
+                          isCollapsed={false}
+                        />
+                      </div>
+                    )}
                   </div>
                 }
                 outcomesContent={
@@ -538,10 +528,20 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                         {executionState.aiTeamMembers.length > 0 &&
                          executionState.pipelineStage?.stage !== 'no_action_needed' &&
                          executionState.pipelineStage?.stage !== 'no_playbook_found' && (
-                          <AITeamPanel
-                            members={executionState.aiTeamMembers}
-                            isLoading={executionState.isExecuting}
-                          />
+                          <div className="mt-3">
+                            <AITeamPanel
+                              members={executionState.aiTeamMembers}
+                              isLoading={executionState.isExecuting}
+                            />
+                          </div>
+                        )}
+                        {/* Debug: Show AI Team status in development */}
+                        {process.env.NODE_ENV === 'development' && (
+                          <div className="mt-2 text-xs text-gray-400">
+                            Debug: aiTeamMembers={executionState.aiTeamMembers.length},
+                            pipelineStage={executionState.pipelineStage?.stage || 'null'},
+                            isExecuting={executionState.isExecuting ? 'true' : 'false'}
+                          </div>
                         )}
                       </>
                     )}
