@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
 
-from backend.app.services.playbook_store import PlaybookStore
+from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.playbook_optimization_service import PlaybookOptimizationService
 from backend.app.models.personalized_playbook import (
     CreateVariantRequest,
@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["playbook-personalization"])
 
 # Initialize services
-playbook_store = PlaybookStore()
+from backend.app.services.mindscape_store import MindscapeStore
+store = MindscapeStore()
+playbook_service = PlaybookService(store=store)
 optimization_service = PlaybookOptimizationService()
 
 
@@ -95,7 +97,7 @@ async def get_variant(
 ):
     """Get a specific variant"""
     try:
-        variant = playbook_store.get_personalized_variant(variant_id)
+        variant = playbook_service.playbook_store.get_personalized_variant(variant_id)
         if not variant:
             raise HTTPException(status_code=404, detail="Variant not found")
 
@@ -163,9 +165,10 @@ async def create_variant(
     """Create a new personalized variant"""
     try:
         # Get base Playbook to get version
-        from backend.app.services.playbook_loader import PlaybookLoader
-        loader = PlaybookLoader()
-        playbook = loader.get_playbook_by_code(playbook_code)
+        playbook = await playbook_service.get_playbook(
+            playbook_code=playbook_code,
+            locale="zh-TW"  # Default locale, can be made configurable
+        )
 
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")

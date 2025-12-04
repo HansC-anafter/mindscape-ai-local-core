@@ -38,6 +38,7 @@ async def get_workspace_artifacts(
     Artifacts represent playbook execution outputs displayed in the Outcomes panel.
     """
     try:
+        logger.info(f"Getting artifacts for workspace {workspace_id} (limit={limit}, offset={offset})")
         artifacts = artifacts_store.list_artifacts_by_workspace(
             workspace_id=workspace_id,
             limit=limit,
@@ -76,7 +77,17 @@ async def get_workspace_artifacts(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get workspace artifacts: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Failed to get workspace artifacts for {workspace_id}: {str(e)}\n{traceback.format_exc()}")
+        # Return empty list instead of 500 error if table doesn't exist or other recoverable errors
+        import sys
+        error_str = str(e).lower()
+        if "no such table" in error_str or "table.*does not exist" in error_str:
+            logger.warning(f"Artifacts table may not exist yet, returning empty list")
+            return ArtifactsListResponse(
+                workspace_id=workspace_id,
+                total=0,
+                artifacts=[]
+            )
         raise HTTPException(status_code=500, detail=f"Failed to get workspace artifacts: {str(e)}")
 
 

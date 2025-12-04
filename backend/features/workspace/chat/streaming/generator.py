@@ -218,11 +218,11 @@ Keep it concise and friendly. Respond in {locale}."""
                                 if chunk_content:
                                     quick_response_text += chunk_content
                                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'message_id': user_event.id, 'is_final': False})}\n\n"
-                            
+
                             # Send completion event
                             yield f"data: {json.dumps({'type': 'chunk', 'content': '', 'message_id': user_event.id, 'is_final': True})}\n\n"
                             yield f"data: {json.dumps({'type': 'complete', 'message_id': user_event.id})}\n\n"
-                            
+
                             logger.info(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars")
                             print(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars", file=sys.stderr)
                         except Exception as stream_error:

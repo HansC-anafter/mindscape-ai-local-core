@@ -180,8 +180,13 @@ async def stream_execution_updates(
                         last_execution_update = execution_key
 
                     # Check for execution completion
-                    if task.status.value in ["succeeded", "failed"]:
-                        final_status = "completed" if task.status.value == "succeeded" else "failed"
+                    if task.status.value in ["succeeded", "failed", "cancelled_by_user"]:
+                        if task.status.value == "succeeded":
+                            final_status = "completed"
+                        elif task.status.value == "cancelled_by_user":
+                            final_status = "cancelled"
+                        else:
+                            final_status = "failed"
                         event = ExecutionStreamEvent.execution_completed(execution_id, final_status)
                         yield f"data: {json.dumps(event)}\n\n"
                         # Send final event and close connection properly
@@ -406,11 +411,11 @@ async def cancel_execution(
         if not task:
             raise HTTPException(status_code=404, detail="Execution not found")
 
-        # Update task status
+        # Update task status to CANCELLED_BY_USER
         from backend.app.models.workspace import TaskStatus
         tasks_store.update_task_status(
             task_id=task.id,
-            status=TaskStatus.FAILED,
+            status=TaskStatus.CANCELLED_BY_USER,
             error="Cancelled by user"
         )
 
@@ -419,6 +424,9 @@ async def cancel_execution(
             task.execution_context["failure_type"] = "cancelled_by_user"
             task.execution_context["failure_reason"] = "Execution cancelled by user"
             tasks_store.update_task(task.id, execution_context=task.execution_context)
+
+        # Reload task to get updated status
+        task = tasks_store.get_task_by_execution_id(execution_id)
 
 
         return {
