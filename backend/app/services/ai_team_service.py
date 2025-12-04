@@ -110,6 +110,8 @@ def get_members_from_tasks(tasks: List[Any], playbook_code: Optional[str] = None
     members = []
     seen_pack_ids = set()
 
+    logger.info(f"[AITeamService] get_members_from_tasks: {len(tasks)} tasks, playbook_code={playbook_code}")
+
     for task in tasks:
         pack_id = None
         if hasattr(task, 'pack_id'):
@@ -117,18 +119,27 @@ def get_members_from_tasks(tasks: List[Any], playbook_code: Optional[str] = None
         elif isinstance(task, dict):
             pack_id = task.get('pack_id')
 
+        logger.debug(f"[AITeamService] Task type: {type(task)}, has pack_id attr: {hasattr(task, 'pack_id')}, pack_id={pack_id}")
+
         if not pack_id or pack_id in seen_pack_ids:
+            if not pack_id:
+                logger.warning(f"[AITeamService] Task has no pack_id: {task}")
             continue
 
         seen_pack_ids.add(pack_id)
         member_info = get_member_info(pack_id, playbook_code)
+        logger.info(f"[AITeamService] Looking up pack_id={pack_id}, playbook_code={playbook_code}, found: {member_info is not None}")
 
         if member_info and member_info.get("visible", True):
             members.append(member_info)
+            logger.info(f"[AITeamService] Added member: {member_info.get('name_zh') or member_info.get('name')}")
+        elif member_info:
+            logger.warning(f"[AITeamService] Member {pack_id} is not visible")
 
     # Sort by order
     members.sort(key=lambda m: m.get("order", 999))
 
+    logger.info(f"[AITeamService] Extracted {len(members)} members from {len(tasks)} tasks")
     return members
 
 
