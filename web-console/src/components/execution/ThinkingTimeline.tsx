@@ -196,13 +196,6 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
                   {expanded ? '收起' : `查看更多 (${olderEntries.length}) →`}
                 </button>
               )}
-
-              {/* Show more for entries beyond maxEntries */}
-              {hasMore && (
-                <button className="w-full text-center text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 py-1">
-                  查看更多 →
-                </button>
-              )}
             </div>
           ) : (
             <p className="text-xs text-gray-400 dark:text-gray-500 italic py-2">
