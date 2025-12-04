@@ -12,6 +12,17 @@ echo ""
 echo "🚀 Starting new repo Docker services..."
 cd /Users/shock/Projects_local/workspace/mindscape-ai-local-core
 
+# Ensure PLAYBOOK_DISABLE_LEGACY is set in .env
+if [ -f .env ]; then
+    if ! grep -q "PLAYBOOK_DISABLE_LEGACY" .env; then
+        echo "PLAYBOOK_DISABLE_LEGACY=1" >> .env
+        echo "✅ Added PLAYBOOK_DISABLE_LEGACY=1 to .env"
+    fi
+else
+    echo "PLAYBOOK_DISABLE_LEGACY=1" > .env
+    echo "✅ Created .env with PLAYBOOK_DISABLE_LEGACY=1"
+fi
+
 # Check if .env exists
 if [ ! -f .env ]; then
     echo "⚠️  .env file not found. Creating from template..."
