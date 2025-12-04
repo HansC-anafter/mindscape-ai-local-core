@@ -139,18 +139,34 @@ class ExecutionCoordinator:
         workspace = self.store.workspaces.get_workspace(ctx.workspace_id)
         auto_exec_config = workspace.playbook_auto_execution_config if workspace else None
 
+        # Get execution mode settings for threshold adjustment
+        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
+        execution_priority = getattr(workspace, 'execution_priority', None) or "medium"
+
+        # Import threshold utilities
+        from backend.app.shared.execution_thresholds import get_threshold, should_auto_execute_readonly
+
         for task_plan in execution_plan.tasks:
             side_effect_level = self.plan_builder.determine_side_effect_level(task_plan.pack_id)
 
             # Check if playbook has custom auto-execution config
             should_auto_execute = task_plan.auto_execute
-            if auto_exec_config and task_plan.pack_id in auto_exec_config:
-                playbook_config = auto_exec_config[task_plan.pack_id]
-                confidence_threshold = playbook_config.get('confidence_threshold', 0.8)
-                auto_execute_enabled = playbook_config.get('auto_execute', False)
 
-                # Get confidence from task_plan params (from LLM analysis)
-                llm_confidence = task_plan.params.get('llm_analysis', {}).get('confidence', 0.0) if task_plan.params else 0.0
+            # Get confidence from task_plan params (from LLM analysis)
+            llm_confidence = task_plan.params.get('llm_analysis', {}).get('confidence', 0.0) if task_plan.params else 0.0
+
+            # For execution/hybrid mode with READONLY tasks, use workspace's execution_priority
+            if execution_mode in ("execution", "hybrid") and side_effect_level == SideEffectLevel.READONLY:
+                should_auto_execute = should_auto_execute_readonly(execution_priority, llm_confidence)
+                logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} auto-execute={should_auto_execute} (execution_mode={execution_mode}, priority={execution_priority}, confidence={llm_confidence:.2f})")
+
+            # Check playbook-specific config (can override workspace settings)
+            elif auto_exec_config and task_plan.pack_id in auto_exec_config:
+                playbook_config = auto_exec_config[task_plan.pack_id]
+                # Use workspace execution_priority to adjust default threshold
+                default_threshold = get_threshold(execution_priority)
+                confidence_threshold = playbook_config.get('confidence_threshold', default_threshold)
+                auto_execute_enabled = playbook_config.get('auto_execute', False)
 
                 if auto_execute_enabled and llm_confidence >= confidence_threshold:
                     should_auto_execute = True
@@ -708,15 +724,40 @@ class ExecutionCoordinator:
         try:
             from ...capabilities.content_drafting.services.pack_executor import ContentDraftingPackExecutor
             from ...services.agent_runner import LLMProviderManager
+            from ...services.system_settings_store import SystemSettingsStore
             import os
 
-            # Get LLM API keys from user config (stored in settings), fallback to env vars
+            # Get model name from system settings first to determine provider
+            settings_store = SystemSettingsStore()
+            provider_name = None
+            model_name = None
+            try:
+                chat_setting = settings_store.get_setting("chat_model")
+                if chat_setting and chat_setting.value:
+                    model_name = str(chat_setting.value)
+                    if "gemini" in model_name.lower():
+                        provider_name = "vertex-ai"
+                    elif "gpt" in model_name.lower() or "o1" in model_name.lower() or "o3" in model_name.lower():
+                        provider_name = "openai"
+                    elif "claude" in model_name.lower():
+                        provider_name = "anthropic"
+            except Exception as e:
+                logger.warning(f"Failed to get model from settings: {e}")
+
+            # Get LLM API keys from system settings first, then fallback to config/env vars
             config = self.config_store.get_or_create_config(profile_id)
             openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-            vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-            vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-            vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+
+            # Get Vertex AI configuration from system settings
+            service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+            vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
+            vertex_location_setting = settings_store.get_setting("vertex_ai_location")
+
+            vertex_api_key = (service_account_setting.value if service_account_setting and service_account_setting.value else None) or config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
+            vertex_project_id = (vertex_project_setting.value if vertex_project_setting and vertex_project_setting.value else None) or config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+            vertex_location = (vertex_location_setting.value if vertex_location_setting and vertex_location_setting.value else None) or config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
+
             llm_manager = LLMProviderManager(
                 openai_key=openai_key,
                 anthropic_key=anthropic_key,
@@ -724,7 +765,18 @@ class ExecutionCoordinator:
                 vertex_project_id=vertex_project_id,
                 vertex_location=vertex_location
             )
-            llm_provider = llm_manager.get_provider()
+
+            # Get provider based on user's selected model - no fallback
+            if provider_name:
+                llm_provider = llm_manager.get_provider(provider_name)
+                if not llm_provider:
+                    error_msg = f"Provider '{provider_name}' not available for model '{model_name}'. Please check your API configuration."
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+            else:
+                error_msg = f"Cannot determine LLM provider: model not specified or unknown model name. Please configure chat_model in system settings."
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
             executor = ContentDraftingPackExecutor(
                 store=self.store,

@@ -8,7 +8,8 @@ import logging
 import traceback
 import sys
 import json
-from typing import Dict, Any
+import re
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Path, Body, Depends, Request
 from fastapi.responses import StreamingResponse
 
@@ -21,6 +22,110 @@ from backend.app.services.conversation_orchestrator import ConversationOrchestra
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-chat"])
 logger = logging.getLogger(__name__)
+
+
+# Playbook trigger pattern: [EXECUTE_PLAYBOOK: playbook_code]
+PLAYBOOK_TRIGGER_PATTERN = re.compile(r'\[EXECUTE_PLAYBOOK:\s*([a-zA-Z0-9_-]+)\]')
+
+
+async def _check_and_trigger_playbook(
+    full_text: str,
+    workspace: Workspace,
+    workspace_id: str,
+    profile_id: str,
+    execution_mode: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Check if LLM response contains playbook trigger marker and execute if found
+
+    Args:
+        full_text: Full LLM response text
+        workspace: Workspace object
+        workspace_id: Workspace ID
+        profile_id: User profile ID
+        execution_mode: Current execution mode
+
+    Returns:
+        Dict with execution info if triggered, None otherwise
+    """
+    logger.info(f"[PlaybookTrigger] Checking for playbook trigger. execution_mode={execution_mode}, text_length={len(full_text)}")
+
+    # Only process triggers in execution or hybrid mode
+    if execution_mode not in ("execution", "hybrid"):
+        logger.info(f"[PlaybookTrigger] Skipping trigger check: execution_mode='{execution_mode}' is not 'execution' or 'hybrid'")
+        return None
+
+    # Find playbook trigger marker
+    match = PLAYBOOK_TRIGGER_PATTERN.search(full_text)
+    if not match:
+        logger.info(f"[PlaybookTrigger] No playbook trigger marker found in response text")
+        # Log a sample of the text for debugging
+        sample_text = full_text[:200] + "..." if len(full_text) > 200 else full_text
+        logger.debug(f"[PlaybookTrigger] Response text sample: {sample_text}")
+        return None
+
+    playbook_code = match.group(1)
+    logger.info(f"[PlaybookTrigger] Found trigger for playbook: {playbook_code}")
+
+    try:
+        from backend.app.services.playbook_run_executor import PlaybookRunExecutor
+        from backend.app.services.playbook_loader import PlaybookLoader
+
+        # Verify playbook exists
+        loader = PlaybookLoader()
+        playbook_run = loader.load_playbook_run(playbook_code=playbook_code)
+        if not playbook_run:
+            logger.warning(f"[PlaybookTrigger] Playbook not found: {playbook_code}, using fallback")
+
+            # MVP Fallback: Use generic drafting when playbook not found
+            expected_artifacts = getattr(workspace, 'expected_artifacts', None)
+            if execution_mode in ("execution", "hybrid"):
+                from backend.app.services.execution_fallback_service import generate_fallback_artifact
+                fallback_result = await generate_fallback_artifact(
+                    user_request=f"Execute playbook: {playbook_code}",
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    expected_artifacts=expected_artifacts
+                )
+                return {
+                    "status": "fallback",
+                    "playbook_code": playbook_code,
+                    "message": f"Playbook '{playbook_code}' not found, using generic drafting",
+                    "fallback_result": fallback_result
+                }
+
+            return {
+                "status": "error",
+                "playbook_code": playbook_code,
+                "message": f"Playbook '{playbook_code}' not found"
+            }
+
+        # Execute playbook
+        executor = PlaybookRunExecutor()
+        result = await executor.execute_playbook_run(
+            playbook_code=playbook_code,
+            profile_id=profile_id,
+            workspace_id=workspace_id,
+            inputs=None,
+            target_language=workspace.default_locale
+        )
+
+        logger.info(f"[PlaybookTrigger] Playbook {playbook_code} executed successfully")
+        return {
+            "status": "triggered",
+            "playbook_code": playbook_code,
+            "playbook_name": playbook_run.playbook.metadata.name if playbook_run.playbook else playbook_code,
+            "execution_mode": result.get("execution_mode", "workflow"),
+            "execution_id": result.get("execution_id") or result.get("result", {}).get("execution_id")
+        }
+
+    except Exception as e:
+        logger.error(f"[PlaybookTrigger] Failed to execute playbook {playbook_code}: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "playbook_code": playbook_code,
+            "message": str(e)
+        }
 
 
 @router.post("/{workspace_id}/chat", response_model=WorkspaceChatResponse)
@@ -126,66 +231,9 @@ async def workspace_chat(
                         logger.warning(f"WorkspaceChat: Intent extractor failed in streaming path: {e}", exc_info=True)
                         print(f"WorkspaceChat: Intent extractor failed in streaming path: {e}", file=sys.stderr)
 
-                    # Generate execution plan and execute (non-blocking for streaming)
-                    logger.info(f"WorkspaceChat: Generating execution plan in streaming path")
-                    print(f"WorkspaceChat: Generating execution plan in streaming path", file=sys.stderr)
-                    try:
-                        # Use LLM-based planning as primary, fallback to rule-based if LLM fails
-                        execution_plan = await orchestrator.plan_builder.generate_execution_plan(
-                            message=request.message,
-                            files=request.files,
-                            workspace_id=workspace_id,
-                            profile_id=profile_id,
-                            message_id=user_event.id,
-                            use_llm=True  # Priority: LLM-based analysis, fallback to rule-based
-                        )
-                        logger.info(f"WorkspaceChat: Generated execution plan with {len(execution_plan.tasks)} tasks in streaming path")
-                        print(f"WorkspaceChat: Generated execution plan with {len(execution_plan.tasks)} tasks in streaming path", file=sys.stderr)
-
-                        if execution_plan.tasks:
-                            # Collect task updates for SSE notification
-                            task_updates = []
-
-                            def task_event_callback(event_type: str, task_data: Dict[str, Any]):
-                                """Callback to collect task updates for SSE notification"""
-                                task_updates.append({
-                                    'event_type': event_type,
-                                    'task_data': task_data
-                                })
-
-                            # Execute plan asynchronously (don't block streaming)
-                            execution_results = await orchestrator.execution_coordinator.execute_plan(
-                                execution_plan=execution_plan,
-                                workspace_id=workspace_id,
-                                profile_id=profile_id,
-                                message_id=user_event.id,
-                                files=request.files,
-                                message=request.message,
-                                project_id=workspace.primary_project_id,
-                                task_event_callback=task_event_callback
-                            )
-                            logger.info(f"WorkspaceChat: Execution plan completed in streaming path - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}")
-                            print(f"WorkspaceChat: Execution plan completed in streaming path - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}", file=sys.stderr)
-
-                            # Send task updates via SSE immediately when tasks are created
-                            for update in task_updates:
-                                logger.info(f"WorkspaceChat: Sending task_update event via SSE: {update['event_type']}, task_id={update['task_data'].get('id')}")
-                                print(f"WorkspaceChat: Sending task_update event via SSE: {update['event_type']}, task_id={update['task_data'].get('id')}", file=sys.stderr)
-                                yield f"data: {json.dumps({'type': 'task_update', 'event_type': update['event_type'], 'task': update['task_data']})}\n\n"
-
-                            # Also send execution results summary
-                            if execution_results.get('executed_tasks') or execution_results.get('suggestion_cards'):
-                                logger.info(f"WorkspaceChat: Sending execution_results summary via SSE: {len(execution_results.get('executed_tasks', []))} executed, {len(execution_results.get('suggestion_cards', []))} suggestions")
-                                print(f"WorkspaceChat: Sending execution_results summary via SSE: {len(execution_results.get('executed_tasks', []))} executed, {len(execution_results.get('suggestion_cards', []))} suggestions", file=sys.stderr)
-                                yield f"data: {json.dumps({'type': 'execution_results', 'executed_tasks': execution_results.get('executed_tasks', []), 'suggestion_cards': execution_results.get('suggestion_cards', [])})}\n\n"
-
-                            # Force a task update event to ensure frontend refreshes
-                            if task_updates or execution_results.get('executed_tasks') or execution_results.get('suggestion_cards'):
-                                logger.info(f"WorkspaceChat: Triggering workspace-task-updated event via execution_results")
-                                print(f"WorkspaceChat: Triggering workspace-task-updated event via execution_results", file=sys.stderr)
-                    except Exception as e:
-                        logger.warning(f"WorkspaceChat: Execution plan failed in streaming path: {e}", exc_info=True)
-                        print(f"WorkspaceChat: Execution plan failed in streaming path: {e}", file=sys.stderr)
+                    # Execution plan generation is unified in non-streaming path to avoid duplication
+                    logger.info(f"WorkspaceChat: Execution plan generation moved to non-streaming path to avoid duplication")
+                    print(f"WorkspaceChat: Execution plan generation moved to non-streaming path to avoid duplication", file=sys.stderr)
 
                     # Send initial event
                     yield f"data: {json.dumps({'type': 'user_message', 'event_id': user_event.id})}\n\n"
@@ -338,45 +386,162 @@ async def workspace_chat(
                         logger.warning("Enhanced prompt is None, using empty string")
                         enhanced_prompt = ""
 
-                    # Inject playbook capabilities into system prompt
-                    if available_playbooks:
+                    # Inject playbook capabilities into system prompt based on execution mode
+                    try:
+                        from backend.app.shared.prompt_templates import (
+                            build_workspace_context_prompt,
+                            build_execution_mode_prompt
+                        )
+                        from backend.app.shared.i18n_loader import get_locale_from_context
+
+                        # Get locale for language policy
+                        profile = None
                         try:
-                            from backend.app.shared.prompt_templates import build_workspace_context_prompt
-                            from backend.app.shared.i18n_loader import get_locale_from_context
+                            if profile_id:
+                                profile = orchestrator.store.get_profile(profile_id)
+                        except Exception:
+                            pass
+                        locale = get_locale_from_context(profile=profile, workspace=workspace) or "zh-TW"
 
-                            # Get locale for language policy
-                            profile = None
+                        # Get execution mode settings from workspace
+                        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
+                        expected_artifacts = getattr(workspace, 'expected_artifacts', None)
+                        execution_priority = getattr(workspace, 'execution_priority', None) or "medium"
+
+                        # Generate ExecutionPlan (Chain-of-Thought) for execution/hybrid mode
+                        execution_plan = None
+                        if execution_mode in ("execution", "hybrid"):
                             try:
-                                if profile_id:
-                                    profile = orchestrator.store.get_profile(profile_id)
-                            except Exception:
-                                pass
-                            locale = get_locale_from_context(profile=profile, workspace=workspace) or "zh-TW"
+                                from backend.app.services.execution_plan_generator import (
+                                    generate_execution_plan,
+                                    record_execution_plan_event
+                                )
+                                execution_plan = await generate_execution_plan(
+                                    user_request=request.message,
+                                    workspace_id=workspace_id,
+                                    message_id=user_event.id,
+                                    execution_mode=execution_mode,
+                                    expected_artifacts=expected_artifacts,
+                                    available_playbooks=available_playbooks,
+                                    llm_provider=None,  # Will use fallback for now
+                                    model_name=model_name or "gpt-4o-mini"
+                                )
+                                if execution_plan:
+                                    # Record plan as EXECUTION_PLAN MindEvent
+                                    await record_execution_plan_event(
+                                        plan=execution_plan,
+                                        profile_id=profile_id,
+                                        project_id=workspace.primary_project_id
+                                    )
+                                    # Send plan to frontend via SSE
+                                    plan_payload = execution_plan.to_event_payload()
+                                    logger.info(f"[ExecutionPlan] Generated ExecutionPlan with {len(execution_plan.steps)} steps, {len(execution_plan.tasks)} tasks, plan_id={execution_plan.id}")
+                                    logger.info(f"[ExecutionPlan] Plan payload keys: {list(plan_payload.keys())}, step_count={plan_payload.get('step_count', 0)}")
+                                    logger.info(f"[ExecutionPlan] Steps in payload: {[s.get('step_id', 'unknown') for s in plan_payload.get('steps', [])]}")
+                                    print(f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps", file=sys.stderr)
+                                    yield f"data: {json.dumps({'type': 'execution_plan', 'plan': plan_payload})}\n\n"
+                                    logger.info(f"[ExecutionPlan] ExecutionPlan SSE event sent successfully")
 
-                            # Build workspace context with playbook capabilities
-                            workspace_context_with_playbooks = build_workspace_context_prompt(
+                                    # Execute plan if it has tasks (unified execution path)
+                                    if execution_plan.tasks:
+                                        try:
+                                            # Collect task updates for SSE notification
+                                            task_updates = []
+
+                                            def task_event_callback(event_type: str, task_data: Dict[str, Any]):
+                                                """Callback to collect task updates for SSE notification"""
+                                                task_updates.append({
+                                                    'event_type': event_type,
+                                                    'task_data': task_data
+                                                })
+
+                                            # Execute plan asynchronously (don't block streaming)
+                                            execution_results = await orchestrator.execution_coordinator.execute_plan(
+                                                execution_plan=execution_plan,
+                                                workspace_id=workspace_id,
+                                                profile_id=profile_id,
+                                                message_id=user_event.id,
+                                                files=request.files,
+                                                message=request.message,
+                                                project_id=workspace.primary_project_id,
+                                                task_event_callback=task_event_callback
+                                            )
+                                            logger.info(f"[ExecutionPlan] Execution completed - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}")
+                                            print(f"[ExecutionPlan] Execution completed - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}", file=sys.stderr)
+
+                                            # Send task updates via SSE immediately when tasks are created
+                                            for update in task_updates:
+                                                logger.info(f"[ExecutionPlan] Sending task_update event via SSE: {update['event_type']}, task_id={update['task_data'].get('id')}")
+                                                print(f"[ExecutionPlan] Sending task_update event via SSE: {update['event_type']}, task_id={update['task_data'].get('id')}", file=sys.stderr)
+                                                yield f"data: {json.dumps({'type': 'task_update', 'event_type': update['event_type'], 'task': update['task_data']})}\n\n"
+
+                                            # Also send execution results summary
+                                            if execution_results.get('executed_tasks') or execution_results.get('suggestion_cards'):
+                                                logger.info(f"[ExecutionPlan] Sending execution_results summary via SSE: {len(execution_results.get('executed_tasks', []))} executed, {len(execution_results.get('suggestion_cards', []))} suggestions")
+                                                print(f"[ExecutionPlan] Sending execution_results summary via SSE: {len(execution_results.get('executed_tasks', []))} executed, {len(execution_results.get('suggestion_cards', []))} suggestions", file=sys.stderr)
+                                                yield f"data: {json.dumps({'type': 'execution_results', 'executed_tasks': execution_results.get('executed_tasks', []), 'suggestion_cards': execution_results.get('suggestion_cards', [])})}\n\n"
+                                        except Exception as exec_error:
+                                            logger.warning(f"[ExecutionPlan] Execution failed: {exec_error}", exc_info=True)
+                                            print(f"[ExecutionPlan] Execution failed: {exec_error}", file=sys.stderr)
+                            except Exception as e:
+                                logger.warning(f"Failed to generate ExecutionPlan: {e}", exc_info=True)
+
+                        # Build system prompt based on execution mode
+                        if execution_mode == "execution":
+                            workspace_system_prompt = build_execution_mode_prompt(
+                                preferred_language=locale,
+                                include_language_policy=True,
+                                workspace_id=workspace_id,
+                                available_playbooks=available_playbooks,
+                                expected_artifacts=expected_artifacts,
+                                execution_priority=execution_priority
+                            )
+                            logger.info(f"Using EXECUTION mode prompt (priority={execution_priority})")
+                        elif execution_mode == "hybrid":
+                            qa_prompt = build_workspace_context_prompt(
+                                preferred_language=locale,
+                                include_language_policy=False,
+                                workspace_id=workspace_id,
+                                available_playbooks=available_playbooks
+                            )
+                            execution_prompt = build_execution_mode_prompt(
+                                preferred_language=locale,
+                                include_language_policy=True,
+                                workspace_id=workspace_id,
+                                available_playbooks=available_playbooks,
+                                expected_artifacts=expected_artifacts,
+                                execution_priority=execution_priority
+                            )
+                            workspace_system_prompt = f"""{qa_prompt}
+
+---
+
+**EXECUTION MODE ACTIVE:**
+{execution_prompt}
+"""
+                            logger.info(f"Using HYBRID mode prompt (priority={execution_priority})")
+                        else:
+                            workspace_system_prompt = build_workspace_context_prompt(
                                 preferred_language=locale,
                                 include_language_policy=True,
                                 workspace_id=workspace_id,
                                 available_playbooks=available_playbooks
                             )
+                            logger.info("Using QA mode prompt")
 
-                            # Replace the base system instructions in enhanced_prompt with the enhanced version
-                            # Find where system instructions start
-                            if "You are an intelligent workspace assistant" in enhanced_prompt:
-                                # Find the end of system instructions (before "Context from this workspace")
-                                sys_start = enhanced_prompt.find("You are an intelligent workspace assistant")
-                                ctx_marker = "Context from this workspace:"
-                                if ctx_marker in enhanced_prompt:
-                                    ctx_start = enhanced_prompt.find(ctx_marker)
-                                    # Replace system instructions part with enhanced version
-                                    # Keep everything from context marker onwards
-                                    context_part = enhanced_prompt[ctx_start:]
-                                    # Combine new system instructions with existing context
-                                    enhanced_prompt = workspace_context_with_playbooks + "\n\n" + context_part
-                                    logger.info("Injected playbook capabilities into system prompt")
-                        except Exception as e:
-                            logger.warning(f"Failed to inject playbook capabilities: {e}", exc_info=True)
+                        # Replace the base system instructions in enhanced_prompt
+                        if "You are an intelligent workspace assistant" in enhanced_prompt or "You are an **Execution Agent**" in enhanced_prompt:
+                            ctx_marker = "Context from this workspace:"
+                            if ctx_marker in enhanced_prompt:
+                                ctx_start = enhanced_prompt.find(ctx_marker)
+                                context_part = enhanced_prompt[ctx_start:]
+                            enhanced_prompt = workspace_system_prompt + "\n\n" + context_part
+                            logger.info(f"Injected {execution_mode} mode prompt into system prompt")
+                        else:
+                            enhanced_prompt = workspace_system_prompt + "\n\n" + enhanced_prompt
+                            logger.info(f"Prepended {execution_mode} mode prompt to system prompt")
+                    except Exception as e:
+                        logger.warning(f"Failed to inject execution mode prompt: {e}", exc_info=True)
 
                     # Calculate context token count for display
                     try:
@@ -388,23 +553,214 @@ async def workspace_chat(
                     # Stream from LLM
                     from backend.app.services.agent_runner import LLMProviderManager
                     from backend.app.services.config_store import ConfigStore
+                    from backend.app.services.model_config_store import ModelConfigStore
+                    from backend.app.services.system_settings_store import SystemSettingsStore
                     import os
+
+                    # Get model configuration to determine provider
+                    model_store = ModelConfigStore()
+                    settings_store = SystemSettingsStore()
+                    model_config = None
+                    provider_name = None
+
+                    if model_name:
+                        try:
+                            # Try to find model by name (search in all models)
+                            from backend.app.models.model_provider import ModelType
+                            all_models = model_store.get_all_models(model_type=ModelType.CHAT, enabled=True)
+                            for model in all_models:
+                                if model.model_name == model_name:
+                                    model_config = model
+                                    provider_name = model.provider_name
+                                    break
+
+                            # If not found, check if it's a gemini model
+                            if not model_config and "gemini" in model_name.lower():
+                                provider_name = "vertex-ai"
+                                logger.info(f"Model {model_name} not found in config, but detected as Gemini model, using vertex-ai provider")
+                        except Exception as e:
+                            logger.warning(f"Failed to get model config for {model_name}: {e}")
+                            # Fallback: if model name contains "gemini", use vertex-ai
+                            if "gemini" in model_name.lower():
+                                provider_name = "vertex-ai"
 
                     config_store = ConfigStore()
                     config = config_store.get_or_create_config("default-user")
                     openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
                     anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-                    llm_provider = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
 
-                    provider = llm_provider.get_provider()
-                    if not provider:
-                        yield f"data: {json.dumps({'type': 'error', 'message': 'No LLM provider available'})}\n\n"
+                    # Get Vertex AI configuration from system settings
+                    service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+                    vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
+                    vertex_location_setting = settings_store.get_setting("vertex_ai_location")
+
+                    vertex_service_account_json = (service_account_setting.value if service_account_setting and service_account_setting.value else None) or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    vertex_project_id = (vertex_project_setting.value if vertex_project_setting and vertex_project_setting.value else None) or os.getenv("GOOGLE_CLOUD_PROJECT")
+                    vertex_location = (vertex_location_setting.value if vertex_location_setting and vertex_location_setting.value else None) or os.getenv("VERTEX_LOCATION", "us-central1")
+
+                    llm_provider = LLMProviderManager(
+                        openai_key=openai_key,
+                        anthropic_key=anthropic_key,
+                        vertex_api_key=vertex_service_account_json,
+                        vertex_project_id=vertex_project_id,
+                        vertex_location=vertex_location
+                    )
+
+                    # Get provider based on user's selected model - no fallback
+                    logger.info(f"Selecting provider for model {model_name}, provider_name={provider_name}, available_providers={llm_provider.get_available_providers()}")
+
+                    if provider_name:
+                        provider = llm_provider.get_provider(provider_name)
+                        if not provider:
+                            error_msg = f"Provider '{provider_name}' not available for model '{model_name}'. Please check your API configuration. Available providers: {llm_provider.get_available_providers()}"
+                            logger.error(error_msg)
+                            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                            return
+                    else:
+                        error_msg = f"Cannot determine LLM provider: model '{model_name}' not specified or unknown model name. Please configure chat_model in system settings."
+                        logger.error(error_msg)
+                        yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
                         return
 
                     # For SSE streaming, we need direct access to the stream object to yield chunks
                     # provider.chat_completion(stream=True) collects all chunks and returns full text,
                     # which doesn't work for SSE. So we need provider-specific streaming.
                     provider_type = type(provider).__name__
+                    logger.info(f"Selected provider type: {provider_type} for model {model_name}")
+
+                    # Set model_to_use for all provider types
+                    model_to_use = model_name or "gpt-4o-mini"
+
+                    # Build messages for all provider types (before branching)
+                    # Parse enhanced_prompt to extract system and user parts
+                    if "User question:" in enhanced_prompt:
+                        parts = enhanced_prompt.split("User question:", 1)
+                        system_part = parts[0].strip()
+                        user_part = request.message
+                    else:
+                        # Fallback: use enhanced_prompt as system, message as user
+                        system_part = enhanced_prompt
+                        user_part = request.message
+
+                    # Check token count and truncate if necessary
+                    from backend.app.services.conversation.model_context_presets import get_context_preset
+                    from backend.app.services.conversation.context_builder import ContextBuilder
+
+                    # Get model's context limit
+                    preset = get_context_preset(model_to_use)
+                    model_context_limits = {
+                        "gpt-3.5-turbo": 12000,
+                        "gpt-4": 12000,
+                        "gpt-4-turbo": 12000,
+                        "gpt-4o": 120000,
+                        "gpt-4o-mini": 120000,
+                        "gpt-5.1": 120000,
+                        "gpt-4.1": 120000,
+                    }
+                    max_input_tokens = model_context_limits.get(model_to_use, 12000)
+
+                    # Estimate token count for system prompt
+                    context_builder = ContextBuilder(model_name=model_to_use)
+                    system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
+                    user_tokens = context_builder.estimate_token_count(user_part, model_to_use)
+                    total_tokens = system_tokens + user_tokens
+
+                    logger.info(f"Token count check - System: {system_tokens}, User: {user_tokens}, Total: {total_tokens}, Limit: {max_input_tokens}")
+
+                    # Truncate system prompt if exceeds limit
+                    if total_tokens > max_input_tokens:
+                        excess_tokens = total_tokens - max_input_tokens
+                        logger.warning(f"Context exceeds token limit by {excess_tokens} tokens, truncating system prompt...")
+
+                        # Priority order: keep workspace context, intents, tasks first, then timeline, then conversation history
+                        if "## Recent Conversation:" in system_part:
+                            conv_start = system_part.find("## Recent Conversation:")
+                            system_part = system_part[:conv_start] + "\n## Recent Conversation:\n[Conversation history truncated due to token limit]"
+                            logger.info("Truncated conversation history section")
+
+                        # Re-estimate after truncation
+                        system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
+                        total_tokens = system_tokens + user_tokens
+
+                        # If still too long, truncate timeline
+                        if total_tokens > max_input_tokens and "## Recent Timeline Activity:" in system_part:
+                            timeline_start = system_part.find("## Recent Timeline Activity:")
+                            conv_section = "\n## Recent Conversation:\n[Conversation history truncated due to token limit]"
+                            system_part = system_part[:timeline_start] + "\n## Recent Timeline Activity:\n[Timeline truncated due to token limit]" + conv_section
+                            logger.info("Truncated timeline section")
+
+                        # Final check - if still too long, keep only essential parts
+                        system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
+                        total_tokens = system_tokens + user_tokens
+                        if total_tokens > max_input_tokens:
+                            essential_parts = []
+                            if "## Workspace Context:" in system_part:
+                                ws_start = system_part.find("## Workspace Context:")
+                                ws_end = system_part.find("\n##", ws_start + 1)
+                                if ws_end == -1:
+                                    ws_end = len(system_part)
+                                essential_parts.append(system_part[ws_start:ws_end])
+                            if "## Active Intents" in system_part:
+                                intents_start = system_part.find("## Active Intents")
+                                intents_end = system_part.find("\n##", intents_start + 1)
+                                if intents_end == -1:
+                                    intents_end = len(system_part)
+                                essential_parts.append(system_part[intents_start:intents_end])
+                            if "## Current Tasks:" in system_part:
+                                tasks_start = system_part.find("## Current Tasks:")
+                                tasks_end = system_part.find("\n##", tasks_start + 1)
+                                if tasks_end == -1:
+                                    tasks_end = len(system_part)
+                                essential_parts.append(system_part[tasks_start:tasks_end])
+
+                            # Rebuild system_part with only essential parts
+                            system_instructions_start = system_part.find("You are an intelligent workspace assistant")
+                            if system_instructions_start != -1:
+                                instructions_end = system_part.find("\n## Workspace Context:")
+                                if instructions_end == -1:
+                                    instructions_end = system_part.find("\n## Active Intents")
+                                if instructions_end != -1:
+                                    system_instructions = system_part[system_instructions_start:instructions_end]
+                                    system_part = system_instructions + "\n\n" + "\n\n".join(essential_parts)
+                                    logger.warning("Truncated to essential context only (workspace, intents, tasks)")
+
+                        # Final token count after truncation
+                        system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
+                        total_tokens = system_tokens + user_tokens
+                        logger.info(f"After truncation - System: {system_tokens}, User: {user_tokens}, Total: {total_tokens}, Limit: {max_input_tokens}")
+
+                    # Build messages for all providers
+                    from backend.app.shared.llm_utils import build_prompt
+                    messages = build_prompt(
+                        system_prompt=system_part,
+                        user_prompt=user_part
+                    )
+
+                    # Log final message structure
+                    if messages and len(messages) > 0:
+                        system_msg = messages[0] if messages[0].get('role') == 'system' else None
+                        if system_msg:
+                            system_msg_content = system_msg.get('content', '')
+                            system_msg_len = len(system_msg_content)
+                            logger.info(f"Final messages: {len(messages)} messages, system message length: {system_msg_len} chars")
+                            # Log actual system message content preview
+                            logger.info(f"System message preview (first 500 chars): {system_msg_content[:500]}...")
+                            # Log a sample from the middle to see context content
+                            if len(system_msg_content) > 2000:
+                                mid_start = len(system_msg_content) // 2
+                                logger.info(f"System message middle sample (chars {mid_start}-{mid_start+500}): {system_msg_content[mid_start:mid_start+500]}...")
+                            # Log end sample to see if context is there
+                            if len(system_msg_content) > 1000:
+                                logger.info(f"System message end sample (last 500 chars): ...{system_msg_content[-500:]}")
+                            # Check if context sections are actually in the final message
+                            logger.info(f"Final system message contains - Intents: {'Active Intents' in system_msg_content}, Tasks: {'Current Tasks' in system_msg_content}, History: {'Recent Conversation' in system_msg_content}, Timeline: {'Recent Timeline Activity' in system_msg_content}")
+                            # Check for workspace title in context
+                            if workspace:
+                                logger.info(f"Workspace title in system message: {workspace.title in system_msg_content if workspace.title else 'N/A'}")
+                        else:
+                            logger.warning("No system message found in messages")
+                    else:
+                        logger.warning("Final messages is empty or None")
 
                     if provider_type == 'OpenAIProvider':
                         # Use provider's streaming method for SSE (improved abstraction)
@@ -418,210 +774,7 @@ async def workspace_chat(
                             openai_key_for_streaming = provider.api_key if hasattr(provider, 'api_key') else openai_key
                             client = openai.AsyncOpenAI(api_key=openai_key_for_streaming)
 
-                        # Build messages - enhanced_prompt contains system instructions + context + user question
-                        # enhanced_prompt format:
-                        # {system_instructions}
-                        #
-                        # User question: {message}
-                        #
-                        # Context from this workspace:
-                        # {context}
-                        #
-                        # Please answer...
-                        #
-                        # We need to extract:
-                        # - system_part = system_instructions + context (everything up to and including context)
-                        # - user_part = original user message
-                        from backend.app.shared.llm_utils import build_prompt
-
-                        # Extract system part: everything before "User question:" (system_instructions)
-                        # PLUS everything from "Context from this workspace:" to "Please answer" (context)
-                        if "User question:" in enhanced_prompt and "Context from this workspace:" in enhanced_prompt:
-                            # Split at "User question:" to get system_instructions
-                            parts1 = enhanced_prompt.split("User question:", 1)
-                            system_instructions_part = parts1[0].strip()
-
-                            logger.info(f"system_instructions_part length: {len(system_instructions_part)} chars")
-                            logger.info(f"system_instructions_part preview (first 500 chars): {system_instructions_part[:500]}...")
-                            logger.info(f"system_instructions_part end (last 500 chars): ...{system_instructions_part[-500:]}")
-                            logger.info(f"After split at 'User question:', parts1[1] length: {len(parts1[1])} chars")
-                            logger.info(f"parts1[1] preview: {parts1[1][:200]}...")
-
-                            # Extract context part (between "Context from this workspace:" and "Please answer")
-                            if "Please answer" in parts1[1]:
-                                context_section = parts1[1].split("Please answer", 1)[0]
-                                logger.info(f"Context section length: {len(context_section)} chars")
-                                logger.info(f"Context section preview: {context_section[:300]}...")
-
-                                # Extract just the context content (remove "Context from this workspace:" label)
-                                if "Context from this workspace:" in context_section:
-                                    context_content = context_section.split("Context from this workspace:", 1)[1].strip()
-                                    logger.info(f"Extracted context_content length: {len(context_content)} chars")
-                                    logger.info(f"Context content preview (first 500 chars): {context_content[:500]}...")
-                                    logger.info(f"Context content end (last 500 chars): ...{context_content[-500:]}")
-                                    system_part = f"{system_instructions_part}\n\nContext from this workspace:\n{context_content}"
-                                    logger.info(f"Final system_part length: {len(system_part)} chars")
-                                    logger.info(f"Final system_part end (last 500 chars): ...{system_part[-500:]}")
-                                else:
-                                    logger.warning("'Context from this workspace:' not found in context_section!")
-                                    logger.warning(f"context_section content: {context_section[:500]}...")
-                                    system_part = f"{system_instructions_part}\n\n{context_section.strip()}"
-                            else:
-                                logger.warning("'Please answer' not found in parts1[1]!")
-                                logger.warning(f"parts1[1] content: {parts1[1][:500]}...")
-                                system_part = system_instructions_part
-
-                            user_part = request.message
-                        elif "User question:" in enhanced_prompt:
-                            # Fallback: if no context section, just use system_instructions
-                            parts = enhanced_prompt.split("User question:", 1)
-                            system_part = parts[0].strip()
-                            user_part = request.message
-                        else:
-                            # Fallback: use enhanced_prompt as system, message as user
-                            system_part = enhanced_prompt
-                            user_part = request.message
-
-                        # Log context information for debugging
-                        context_has_intents = "Active Intents" in system_part
-                        context_has_tasks = "Current Tasks" in system_part
-                        context_has_history = "Recent Conversation" in system_part
-                        context_has_timeline = "Recent Timeline Activity" in system_part
-
-                        logger.info(f"Context check - Intents: {context_has_intents}, Tasks: {context_has_tasks}, History: {context_has_history}, Timeline: {context_has_timeline}")
-                        logger.info(f"System prompt length: {len(system_part)} chars, User prompt: {user_part[:100]}...")
-
-                        # Log actual system prompt content (first 500 chars) for debugging
-                        logger.info(f"System prompt preview (first 500 chars): {system_part[:500]}...")
-
-                        # Check token count and truncate if necessary
-                        from backend.app.services.conversation.model_context_presets import get_context_preset
-                        from backend.app.services.conversation.context_builder import ContextBuilder
-
-                        # Get model's context limit
-                        model_to_use = model_name or "gpt-4o-mini"
-                        preset = get_context_preset(model_to_use)
-                        # Most models reserve ~4k tokens for output, so reduce input limit accordingly
-                        # For gpt-3.5-turbo (16k), reserve 4k for output = 12k for input
-                        # For gpt-4o (128k), reserve 8k for output = 120k for input
-                        model_context_limits = {
-                            "gpt-3.5-turbo": 12000,  # 16k - 4k reserve
-                            "gpt-4": 12000,  # 16k - 4k reserve
-                            "gpt-4-turbo": 12000,  # 16k - 4k reserve
-                            "gpt-4o": 120000,  # 128k - 8k reserve
-                            "gpt-4o-mini": 120000,  # 128k - 8k reserve
-                            "gpt-5.1": 120000,  # 128k - 8k reserve
-                            "gpt-4.1": 120000,  # 128k - 8k reserve
-                        }
-                        max_input_tokens = model_context_limits.get(model_to_use, 12000)  # Default to 12k for safety
-
-                        # Estimate token count for system prompt
-                        context_builder = ContextBuilder(model_name=model_to_use)
-                        system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
-                        user_tokens = context_builder.estimate_token_count(user_part, model_to_use)
-                        total_tokens = system_tokens + user_tokens
-
-                        logger.info(f"Token count check - System: {system_tokens}, User: {user_tokens}, Total: {total_tokens}, Limit: {max_input_tokens}")
-
-                        # Truncate system prompt if exceeds limit
-                        if total_tokens > max_input_tokens:
-                            excess_tokens = total_tokens - max_input_tokens
-                            logger.warning(f"Context exceeds token limit by {excess_tokens} tokens, truncating system prompt...")
-
-                            # Priority order: keep workspace context, intents, tasks first, then timeline, then conversation history
-                            # Find sections and truncate from least important (conversation history)
-                            if "## Recent Conversation:" in system_part:
-                                # Truncate conversation history section
-                                conv_start = system_part.find("## Recent Conversation:")
-                                # Keep everything before conversation history, truncate the rest
-                                system_part = system_part[:conv_start] + "\n## Recent Conversation:\n[Conversation history truncated due to token limit]"
-                                logger.info("Truncated conversation history section")
-
-                            # Re-estimate after truncation
-                            system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
-                            total_tokens = system_tokens + user_tokens
-
-                            # If still too long, truncate timeline
-                            if total_tokens > max_input_tokens and "## Recent Timeline Activity:" in system_part:
-                                timeline_start = system_part.find("## Recent Timeline Activity:")
-                                conv_section = "\n## Recent Conversation:\n[Conversation history truncated due to token limit]"
-                                system_part = system_part[:timeline_start] + "\n## Recent Timeline Activity:\n[Timeline truncated due to token limit]" + conv_section
-                                logger.info("Truncated timeline section")
-
-                            # Final check - if still too long, keep only essential parts
-                            system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
-                            total_tokens = system_tokens + user_tokens
-                            if total_tokens > max_input_tokens:
-                                # Keep only workspace context, intents, and tasks
-                                essential_parts = []
-                                if "## Workspace Context:" in system_part:
-                                    ws_start = system_part.find("## Workspace Context:")
-                                    ws_end = system_part.find("\n##", ws_start + 1)
-                                    if ws_end == -1:
-                                        ws_end = len(system_part)
-                                    essential_parts.append(system_part[ws_start:ws_end])
-                                if "## Active Intents" in system_part:
-                                    intents_start = system_part.find("## Active Intents")
-                                    intents_end = system_part.find("\n##", intents_start + 1)
-                                    if intents_end == -1:
-                                        intents_end = len(system_part)
-                                    essential_parts.append(system_part[intents_start:intents_end])
-                                if "## Current Tasks:" in system_part:
-                                    tasks_start = system_part.find("## Current Tasks:")
-                                    tasks_end = system_part.find("\n##", tasks_start + 1)
-                                    if tasks_end == -1:
-                                        tasks_end = len(system_part)
-                                    essential_parts.append(system_part[tasks_start:tasks_end])
-
-                                # Rebuild system_part with only essential parts
-                                system_instructions_start = system_part.find("You are an intelligent workspace assistant")
-                                if system_instructions_start != -1:
-                                    instructions_end = system_part.find("\n## Workspace Context:")
-                                    if instructions_end == -1:
-                                        instructions_end = system_part.find("\n## Active Intents")
-                                    if instructions_end != -1:
-                                        system_instructions = system_part[system_instructions_start:instructions_end]
-                                        system_part = system_instructions + "\n\n" + "\n\n".join(essential_parts)
-                                        logger.warning("Truncated to essential context only (workspace, intents, tasks)")
-
-                            # Final token count after truncation
-                            system_tokens = context_builder.estimate_token_count(system_part, model_to_use)
-                            total_tokens = system_tokens + user_tokens
-                            logger.info(f"After truncation - System: {system_tokens}, User: {user_tokens}, Total: {total_tokens}, Limit: {max_input_tokens}")
-
-                        messages = build_prompt(
-                            system_prompt=system_part,
-                            user_prompt=user_part
-                        )
-
-                        # Log final message structure
-                        if messages and len(messages) > 0:
-                            system_msg = messages[0] if messages[0].get('role') == 'system' else None
-                            if system_msg:
-                                system_msg_content = system_msg.get('content', '')
-                                system_msg_len = len(system_msg_content)
-                                logger.info(f"Final messages: {len(messages)} messages, system message length: {system_msg_len} chars")
-                                # Log actual system message content preview
-                                logger.info(f"System message preview (first 500 chars): {system_msg_content[:500]}...")
-                                # Log a sample from the middle to see context content
-                                if len(system_msg_content) > 2000:
-                                    mid_start = len(system_msg_content) // 2
-                                    logger.info(f"System message middle sample (chars {mid_start}-{mid_start+500}): {system_msg_content[mid_start:mid_start+500]}...")
-                                # Log end sample to see if context is there
-                                if len(system_msg_content) > 1000:
-                                    logger.info(f"System message end sample (last 500 chars): ...{system_msg_content[-500:]}")
-                                # Check if context sections are actually in the final message
-                                logger.info(f"Final system message contains - Intents: {'Active Intents' in system_msg_content}, Tasks: {'Current Tasks' in system_msg_content}, History: {'Recent Conversation' in system_msg_content}, Timeline: {'Recent Timeline Activity' in system_msg_content}")
-                                # Check for workspace title in context
-                                if workspace:
-                                    logger.info(f"Workspace title in system message: {workspace.title in system_msg_content if workspace.title else 'N/A'}")
-                            else:
-                                logger.warning("No system message found in messages")
-                        else:
-                            logger.warning("Final messages is empty or None")
-
                         # Stream response
-                        model_to_use = model_name or "gpt-4o-mini"
                         full_text = ""
 
                         if use_provider_stream:
@@ -677,6 +830,21 @@ async def workspace_chat(
                         )
                         orchestrator.store.create_event(assistant_event)
 
+                        # Check for playbook trigger in execution mode
+                        logger.info(f"[PlaybookTrigger] Checking trigger after OpenAIProvider response. execution_mode={execution_mode}, workspace_id={workspace_id}")
+                        playbook_trigger_result = await _check_and_trigger_playbook(
+                            full_text=full_text,
+                            workspace=workspace,
+                            workspace_id=workspace_id,
+                            profile_id=profile_id,
+                            execution_mode=execution_mode
+                        )
+                        if playbook_trigger_result:
+                            logger.info(f"[PlaybookTrigger] Trigger result: {playbook_trigger_result}")
+                            yield f"data: {json.dumps({'type': 'playbook_triggered', **playbook_trigger_result})}\n\n"
+                        else:
+                            logger.info(f"[PlaybookTrigger] No trigger result returned for OpenAIProvider")
+
                         # Send completion event with context token count
                         yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count})}\n\n"
                     elif provider_type == 'AnthropicProvider':
@@ -684,6 +852,71 @@ async def workspace_chat(
                         # For now, fall back to non-streaming
                         logger.warning(f"AnthropicProvider streaming not yet implemented for SSE")
                         yield f"data: {json.dumps({'type': 'error', 'message': 'Streaming not supported for Anthropic provider yet'})}\n\n"
+                    elif provider_type == 'VertexAIProvider':
+                        # Vertex AI streaming support
+                        logger.info(f"Using VertexAIProvider for model {model_to_use}")
+                        full_text = ""
+
+                        # Use provider's chat_completion_stream if available
+                        if hasattr(provider, 'chat_completion_stream'):
+                            async for chunk_content in provider.chat_completion_stream(
+                                messages=messages,
+                                model=model_to_use,
+                                temperature=0.7,
+                                max_tokens=8000
+                            ):
+                                full_text += chunk_content
+                                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content})}\n\n"
+                        else:
+                            # Fallback: use non-streaming and simulate streaming
+                            logger.warning("VertexAIProvider does not support streaming, using non-streaming mode")
+                            response_text = await provider.chat_completion(
+                                messages=messages,
+                                model=model_to_use,
+                                temperature=0.7,
+                                max_tokens=8000
+                            )
+                            # Simulate streaming by sending chunks
+                            chunk_size = 10
+                            for i in range(0, len(response_text), chunk_size):
+                                chunk = response_text[i:i+chunk_size]
+                                full_text += chunk
+                                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+                        # Create assistant event
+                        from backend.app.models.mindscape import MindEvent, EventType, EventActor
+                        assistant_event = MindEvent(
+                            id=str(uuid.uuid4()),
+                            timestamp=datetime.utcnow(),
+                            actor=EventActor.ASSISTANT,
+                            channel="local_workspace",
+                            profile_id=profile_id,
+                            project_id=workspace.primary_project_id,
+                            workspace_id=workspace_id,
+                            event_type=EventType.MESSAGE,
+                            payload={"message": full_text, "response_to": user_event.id},
+                            entity_ids=[],
+                            metadata={}
+                        )
+                        orchestrator.store.create_event(assistant_event)
+
+                        # Check for playbook trigger in execution mode
+                        logger.info(f"[PlaybookTrigger] Checking trigger after VertexAIProvider response. execution_mode={execution_mode}, workspace_id={workspace_id}")
+                        playbook_trigger_result = await _check_and_trigger_playbook(
+                            full_text=full_text,
+                            workspace=workspace,
+                            workspace_id=workspace_id,
+                            profile_id=profile_id,
+                            execution_mode=execution_mode
+                        )
+                        if playbook_trigger_result:
+                            logger.info(f"[PlaybookTrigger] Trigger result: {playbook_trigger_result}")
+                            yield f"data: {json.dumps({'type': 'playbook_triggered', **playbook_trigger_result})}\n\n"
+                        else:
+                            logger.info(f"[PlaybookTrigger] No trigger result returned for VertexAIProvider")
+
+                        # Send completion event with context token count
+                        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count})}\n\n"
                     else:
                         # Other providers - not yet supported for SSE streaming
                         logger.warning(f"Provider {provider_type} streaming not yet implemented for SSE")
