@@ -29,6 +29,36 @@ from ..utils.token_management import truncate_context_if_needed, estimate_token_
 logger = logging.getLogger(__name__)
 
 
+def _smart_truncate_message(message: str, max_length: int = 60) -> str:
+    """
+    Truncate message intelligently at sentence boundary
+    
+    Args:
+        message: Original message
+        max_length: Maximum length for preview
+        
+    Returns:
+        Truncated message with ellipsis if needed
+    """
+    if len(message) <= max_length:
+        return message
+    
+    # Try to cut at sentence boundary (。！？\n)
+    for delimiter in ['。', '！', '？', '\n', '.', '!', '?']:
+        idx = message.find(delimiter, 0, max_length)
+        if idx > 0:
+            return message[:idx + 1] + '...'
+    
+    # Try to cut at comma or space
+    for delimiter in ['，', ',', ' ']:
+        idx = message.rfind(delimiter, 0, max_length)
+        if idx > max_length * 0.5:  # Only cut if we get at least 50% of max_length
+            return message[:idx] + '...'
+    
+    # Fallback to simple truncation
+    return message[:max_length] + '...'
+
+
 async def generate_streaming_response(
     request: WorkspaceChatRequest,
     workspace: Workspace,
@@ -80,7 +110,8 @@ async def generate_streaming_response(
 
         if execution_mode in ("execution", "hybrid"):
             locale = get_locale_from_context(profile=profile, workspace=workspace)
-            user_message_preview = request.message[:50] + ('...' if len(request.message) > 50 else '')
+            # Smart truncate: try to cut at sentence boundary, max 60 chars
+            user_message_preview = _smart_truncate_message(request.message, max_length=60)
             intent_message = load_i18n_string(
                 'workspace.pipeline_stage.intent_extraction',
                 locale=locale,
