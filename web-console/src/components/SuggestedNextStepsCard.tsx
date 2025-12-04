@@ -187,16 +187,16 @@ export default function SuggestedNextStepsCard({
   }
 
   return (
-    <div className="bg-white border rounded p-2 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-2 shadow-sm">
       <div className="flex items-center justify-between gap-1 mb-2">
         <div className="flex items-center gap-1">
-          <h3 className="font-semibold text-xs text-gray-900">{t('suggestedNextSteps')}</h3>
+          <h3 className="font-semibold text-xs text-gray-900 dark:text-gray-100">{t('suggestedNextSteps')}</h3>
           <HelpIcon helpKey="suggestedNextStepsHelp" />
         </div>
         {suggestionHistory && suggestionHistory.length > 0 && (
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className="text-[10px] text-gray-500 hover:text-gray-700 underline"
+            className="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 underline"
           >
             {showHistory ? t('hideDetails') : `${t('timelineHistory')} (${suggestionHistory.length})`}
           </button>
@@ -205,10 +205,10 @@ export default function SuggestedNextStepsCard({
 
       {/* History section (collapsible) */}
       {showHistory && suggestionHistory && suggestionHistory.length > 0 && (
-        <div className="mb-2 space-y-1.5 border-b border-gray-200 pb-2">
+        <div className="mb-2 space-y-1.5 border-b border-gray-200 dark:border-gray-700 pb-2">
           {suggestionHistory.map((round, roundIdx) => (
-            <div key={round.round_id} className="bg-gray-50 border border-gray-200 rounded p-1.5">
-              <div className="text-[10px] text-gray-500 mb-1">
+            <div key={round.round_id} className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded p-1.5">
+              <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">
                 {new Date(round.timestamp).toLocaleTimeString()}
               </div>
               <div className="space-y-1">
@@ -227,12 +227,12 @@ export default function SuggestedNextStepsCard({
                   .map((step, idx) => (
                     <div
                       key={idx}
-                      className="p-1.5 rounded border border-gray-200 bg-white"
+                      className="p-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
                     >
-                      <div className="font-medium text-gray-700 text-[10px] mb-0.5">
+                      <div className="font-medium text-gray-700 dark:text-gray-300 text-[10px] mb-0.5">
                         {translateText(step.title)}
                       </div>
-                      <div className="text-[9px] text-gray-500">
+                      <div className="text-[9px] text-gray-500 dark:text-gray-400">
                         {translateText(step.description)}
                       </div>
                     </div>
@@ -272,33 +272,33 @@ export default function SuggestedNextStepsCard({
                   isExecuted ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'
                 } ${
                   step.priority === 'high'
-                    ? 'border-blue-300 bg-blue-50'
+                    ? 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20'
                     : step.priority === 'medium'
-                    ? 'border-yellow-300 bg-yellow-50'
-                    : 'border-gray-200 bg-gray-50'
+                    ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20'
+                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
                 } ${isExecuting ? 'animate-pulse' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                      <div className="font-medium text-gray-900 text-xs">
+                      <div className="font-medium text-gray-900 dark:text-gray-100 text-xs">
                         {translateText(step.title)}
                       </div>
                       {/* Confidence score badge if available */}
                       {step.llm_analysis?.confidence !== undefined && (
                         <span
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 flex-shrink-0 whitespace-nowrap"
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-400 dark:border-gray-600 flex-shrink-0 whitespace-nowrap"
                           title={t('llmConfidenceScore', { confidence: step.llm_analysis.confidence.toFixed(2) })}
                         >
                           {t('confidence')}{step.llm_analysis.confidence.toFixed(2)}
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-gray-600">
+                    <div className="text-[10px] text-gray-600 dark:text-gray-400">
                       {translateText(step.description)}
                     </div>
                     {isExecuting && (
-                      <div className="text-[9px] text-blue-600 mt-1">
+                      <div className="text-[9px] text-blue-600 dark:text-blue-400 mt-1">
                         {t('executing')}
                       </div>
                     )}
@@ -312,10 +312,10 @@ export default function SuggestedNextStepsCard({
                         : 'cursor-pointer'
                     } ${
                       step.priority === 'high'
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        ? 'bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
                         : step.priority === 'medium'
-                        ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                        : 'bg-gray-600 text-white hover:bg-gray-700'
+                        ? 'bg-yellow-600 dark:bg-yellow-700 text-white hover:bg-yellow-700 dark:hover:bg-yellow-600'
+                        : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
                     }`}
                   >
                     {isExecuting ? t('executing') : t('execute')}

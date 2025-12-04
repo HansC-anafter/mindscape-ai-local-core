@@ -54,6 +54,61 @@ async def get_workspace_events(
             before_id=before_id
         )
 
+        # Check if workspace has welcome message (cold start check)
+        # Only check if no before_id (initial load) and no event_types filter
+        if not before_id and not event_types:
+            has_welcome = False
+            for event in recent_events:
+                payload = event.payload if isinstance(event.payload, dict) else {}
+                metadata = event.metadata if isinstance(event.metadata, dict) else {}
+                if payload.get("is_welcome") or metadata.get("is_cold_start"):
+                    has_welcome = True
+                    break
+
+            # If no welcome message found, generate one
+            if not has_welcome:
+                try:
+                    from backend.app.services.workspace_welcome_service import WorkspaceWelcomeService
+                    from backend.app.models.mindscape import MindEvent, EventType, EventActor
+                    import uuid
+
+                    locale = workspace.default_locale if hasattr(workspace, 'default_locale') and workspace.default_locale else "zh-TW"
+                    welcome_message, suggestions = await WorkspaceWelcomeService.generate_welcome_message(
+                        workspace, workspace.owner_user_id, store, locale=locale
+                    )
+
+                    if welcome_message:
+                        welcome_event = MindEvent(
+                            id=str(uuid.uuid4()),
+                            timestamp=datetime.utcnow(),
+                            actor=EventActor.ASSISTANT,
+                            channel="local_workspace",
+                            profile_id=workspace.owner_user_id,
+                            project_id=workspace.primary_project_id,
+                            workspace_id=workspace_id,
+                            event_type=EventType.MESSAGE,
+                            payload={
+                                "message": welcome_message,
+                                "is_welcome": True,
+                                "suggestions": suggestions
+                            },
+                            entity_ids=[],
+                            metadata={"is_cold_start": True}
+                        )
+                        store.create_event(welcome_event)
+
+                        # Reload events to include the new welcome message
+                        recent_events = store.get_events_by_workspace(
+                            workspace_id=workspace_id,
+                            start_time=start_dt,
+                            end_time=end_dt,
+                            limit=limit,
+                            before_id=before_id
+                        )
+                        logger.info(f"Generated cold start welcome message for workspace {workspace_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate welcome message for workspace {workspace_id}: {e}")
+
         if event_types:
             type_list = [t.strip() for t in event_types.split(',')]
             recent_events = [

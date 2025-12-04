@@ -8,8 +8,10 @@ import { MessageItem } from './MessageItem';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
+import { useExecutionState } from '@/hooks/useExecutionState';
 import IntentChips from '../app/workspaces/components/IntentChips';
 import { useEnabledModels } from '../app/settings/hooks/useEnabledModels';
+import { ExecutionTree } from './execution';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
 
@@ -80,6 +82,8 @@ export default function WorkspaceChat({
     error: sendError
   } = useSendMessage(workspaceId, apiUrl);
 
+  const executionState = useExecutionState(workspaceId, apiUrl);
+
   const fileUpload = useFileUpload(workspaceId, apiUrl);
   const {
     uploadedFiles,
@@ -95,6 +99,19 @@ export default function WorkspaceChat({
 
   const isLoading = sendLoading || messagesLoading;
   const error = sendError || messagesError;
+
+  const getStageLabel = useCallback((stage: string): string => {
+    const stageLabels: Record<string, string> = {
+      'intent_extraction': '意圖分析中',
+      'playbook_selection': 'Playbook 選擇中',
+      'task_assignment': '任務分配中',
+      'execution_start': '開始執行',
+      'no_action_needed': '無需執行',
+      'no_playbook_found': '未找到 Playbook',
+      'execution_error': '執行錯誤'
+    };
+    return stageLabels[stage] || '處理中';
+  }, []);
 
   // Define scrollToBottom function early so it can be used in other functions
   const scrollToBottom = useCallback((force: boolean = false) => {
@@ -253,8 +270,18 @@ export default function WorkspaceChat({
   // Listen for playbook trigger errors
   useEffect(() => {
     const handlePlaybookTriggerError = (event: CustomEvent) => {
-      const { playbook_code, message } = event.detail;
-      const errorMessage = `Playbook "${playbook_code}" 執行失敗: ${message}`;
+      const { playbook_code, error, message } = event.detail;
+
+      // Use structured error if available, otherwise fallback to message
+      let errorMessage: string;
+      if (error && typeof error === 'object' && error.user_message) {
+        errorMessage = error.user_message;
+      } else if (message) {
+        errorMessage = message;
+      } else {
+        errorMessage = `Playbook "${playbook_code}" execution failed`;
+      }
+
       const errorChatMessage: ChatMessage = {
         id: `playbook-error-${Date.now()}`,
         role: 'assistant',
@@ -268,6 +295,68 @@ export default function WorkspaceChat({
     window.addEventListener('playbook-trigger-error', handlePlaybookTriggerError as EventListener);
     return () => {
       window.removeEventListener('playbook-trigger-error', handlePlaybookTriggerError as EventListener);
+    };
+  }, []);
+
+  // Listen for Agent Mode parsed response (P1.4)
+  useEffect(() => {
+    const handleAgentModeParsed = (event: CustomEvent) => {
+      const { part1, part2, executable_tasks } = event.detail;
+
+      // Create two-part message
+      const agentMessage: ChatMessage = {
+        id: `agent-${Date.now()}`,
+        role: 'assistant',
+        content: part1,  // Part 1: Understanding & Response
+        timestamp: new Date(),
+        agentMode: {
+          part1: part1,
+          part2: part2,
+          executable_tasks: executable_tasks || []
+        }
+      };
+
+      setMessages(prev => [...prev, agentMessage]);
+
+      // Trigger workspace task update to show executable tasks in PendingTasksPanel
+      if (executable_tasks && executable_tasks.length > 0) {
+        window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+      }
+    };
+
+    window.addEventListener('agent-mode-parsed', handleAgentModeParsed as EventListener);
+    return () => {
+      window.removeEventListener('agent-mode-parsed', handleAgentModeParsed as EventListener);
+    };
+  }, []);
+
+  // Listen for Execution Mode direct playbook execution (P2)
+  useEffect(() => {
+    const handleExecutionModePlaybookExecuted = (event: CustomEvent) => {
+      const { playbook_code, execution_id } = event.detail;
+
+      // Show execution success message
+      const execMessage: ChatMessage = {
+        id: `exec-${Date.now()}`,
+        role: 'assistant',
+        content: `已開始執行 playbook "${playbook_code}"，請查看執行面板查看進度。`,
+        timestamp: new Date(),
+        triggered_playbook: {
+          playbook_code: playbook_code,
+          execution_id: execution_id,
+          status: 'executed'
+        }
+      };
+
+      setMessages(prev => [...prev, execMessage]);
+
+      // Trigger workspace task update
+      window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+    };
+
+    window.addEventListener('execution-mode-playbook-executed', handleExecutionModePlaybookExecuted as EventListener);
+    return () => {
+      window.removeEventListener('execution-mode-playbook-executed', handleExecutionModePlaybookExecuted as EventListener);
     };
   }, []);
 
@@ -390,7 +479,8 @@ export default function WorkspaceChat({
         action: action,
         action_params: actionParams,
         files: fileIds,
-        mode: 'auto'
+        mode: 'auto',
+        stream: true  // Enable streaming for execution_plan generation
       });
 
       if (onFileAnalyzed) {
@@ -504,8 +594,9 @@ export default function WorkspaceChat({
       let accumulatedText = '';
       let firstChunkReceived = false;
 
+      const messageText = currentInput || (currentFiles.length > 0 ? `${t('uploadedFile')}：${currentFiles.map(f => f.name).join(', ')}` : '');
       await sendMessage({
-        message: currentInput || (currentFiles.length > 0 ? `${t('uploadedFile')}：${currentFiles.map(f => f.name).join(', ')}` : ''),
+        message: messageText,
         files: fileIds,
         mode: 'auto',
         stream: true,
@@ -985,21 +1076,74 @@ export default function WorkspaceChat({
                   onCopy={handleMessageCopy}
                 />
               ))}
+
+              {/* Execution Tree - Display at the end of conversation */}
+              {executionState.executionTree.length > 0 && (
+                <div className="mt-4 mb-2">
+                  <div className="bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm">
+                    <div className="px-4 py-3">
+                      <ExecutionTree
+                        steps={executionState.executionTree}
+                        isCollapsed={false}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {isLoading && !analyzingFile && !isStreaming && (
             <div className="flex justify-start py-4">
-              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-6 py-4 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-5 h-5 border-2 border-gray-600 dark:border-gray-200 border-t-transparent rounded-full"
-                    style={{
-                      animation: 'spin 1s linear infinite',
-                      borderColor: 'currentColor',
-                      borderTopColor: 'transparent'
-                    }}
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">{t('processingMessage')}</span>
+              <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg px-6 py-4 shadow-sm border border-blue-200 dark:border-blue-800">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <div
+                      className="w-5 h-5 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full"
+                      style={{
+                        animation: 'spin 1s linear infinite'
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                    {executionState.pipelineStage?.message ? (
+                      <>
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                          {executionState.pipelineStage.message}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                            {getStageLabel(executionState.pipelineStage.stage)}
+                          </span>
+                          {executionState.pipelineStage.stage === 'intent_extraction' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                              分析中
+                            </span>
+                          )}
+                          {executionState.pipelineStage.stage === 'playbook_selection' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+                              選擇中
+                            </span>
+                          )}
+                          {executionState.pipelineStage.stage === 'task_assignment' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                              分配中
+                            </span>
+                          )}
+                          {executionState.pipelineStage.stage === 'execution_start' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                              執行中
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-sm text-gray-700 dark:text-gray-300">{t('processingMessage')}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

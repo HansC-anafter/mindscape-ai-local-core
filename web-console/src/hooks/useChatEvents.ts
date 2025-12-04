@@ -16,6 +16,12 @@ export interface ChatMessage {
     status: string;
     message?: string;
   };
+  // Agent Mode support: Two-part response structure
+  agentMode?: {
+    part1: string;  // Understanding & Response
+    part2: string;  // Executable Next Steps
+    executable_tasks: string[];  // Extracted task list
+  };
 }
 
 export function useChatEvents(workspaceId: string, apiUrl: string = '') {
@@ -50,6 +56,12 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
 
       const eventsData = await eventsResponse.json();
 
+      // Store original events for metadata access
+      const eventsMap = new Map();
+      (eventsData.events || []).forEach((e: any) => {
+        eventsMap.set(e.id, e);
+      });
+
       const chatMessages: ChatMessage[] = (eventsData.events || [])
         .slice()
         .reverse()
@@ -73,7 +85,8 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
             execution_id: e.payload.execution_id,
             status: e.payload.status || 'triggered',
             message: e.payload.message
-          } : undefined
+          } : undefined,
+          _originalEvent: e  // Store original event for metadata access
         }));
 
       if (append) {
@@ -84,9 +97,26 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
 
       setHasMore(eventsData.has_more === true);
 
+      // Only show quick start suggestions if:
+      // 1. There's a welcome message with suggestions
+      // 2. There are NO user messages yet (truly cold start - user hasn't interacted)
       const welcomeMessage = chatMessages.find(m => m.is_welcome && m.suggestions && m.suggestions.length > 0);
-      if (welcomeMessage && welcomeMessage.suggestions) {
-        setQuickStartSuggestions(welcomeMessage.suggestions);
+      const hasUserMessages = chatMessages.some(m => m.role === 'user');
+
+      if (welcomeMessage && welcomeMessage.suggestions && !hasUserMessages) {
+        // Check if this is a cold start by looking at the original event metadata
+        const originalEvent = (welcomeMessage as any)._originalEvent;
+        const isColdStart = originalEvent?.metadata?.is_cold_start === true;
+
+        // Only show if it's a cold start and no user messages yet
+        if (isColdStart && !hasUserMessages) {
+          setQuickStartSuggestions(welcomeMessage.suggestions);
+        } else {
+          setQuickStartSuggestions([]);
+        }
+      } else {
+        // Clear suggestions if there are user messages or no welcome message
+        setQuickStartSuggestions([]);
       }
 
       for (const event of eventsData.events || []) {
@@ -120,9 +150,6 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
 
   useEffect(() => {
     loadEvents();
-
-    // Note: workspace-chat-updated event handling is now managed by WorkspaceChat component
-    // to prevent unwanted scroll resets when user is scrolling
   }, [loadEvents]);
 
   return {

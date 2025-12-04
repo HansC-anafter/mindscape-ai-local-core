@@ -21,22 +21,22 @@ const markdownComponents = {
   code: ({ children, className }: any) => {
     const isInline = !className;
     return isInline ? (
-      <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+      <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
     ) : (
-      <code className="block bg-gray-100 p-2 rounded text-xs font-mono overflow-x-auto">{children}</code>
+      <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs font-mono overflow-x-auto">{children}</code>
     );
   },
-  pre: ({ children }: any) => <pre className="bg-gray-100 p-2 rounded text-xs font-mono overflow-x-auto mb-2">{children}</pre>,
+  pre: ({ children }: any) => <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs font-mono overflow-x-auto mb-2">{children}</pre>,
   h1: ({ children }: any) => <h1 className="text-base font-bold mb-2">{children}</h1>,
   h2: ({ children }: any) => <h2 className="text-sm font-bold mb-2">{children}</h2>,
   h3: ({ children }: any) => <h3 className="text-xs font-bold mb-1">{children}</h3>,
-  blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 pl-2 italic mb-2">{children}</blockquote>,
+  blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-2 italic mb-2">{children}</blockquote>,
   a: ({ href, children }: any) => (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-blue-600 hover:text-blue-800 underline break-all"
+      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline break-all"
       onClick={(e) => e.stopPropagation()}
     >
       {children}
@@ -120,12 +120,12 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
           ref={messageContainerRef}
           className={`relative max-w-[80%] min-w-[200px] rounded-lg px-6 py-3 ${
             message.event_type === 'error'
-              ? 'bg-red-50 border-2 border-red-200 text-red-900'
+              ? 'bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-700 text-red-900 dark:text-red-200'
               : message.role === 'user'
-              ? 'bg-blue-600 text-white'
+              ? 'bg-blue-600 dark:bg-blue-700 text-white'
               : message.is_welcome
-              ? 'bg-blue-50 border-2 border-blue-200 text-gray-900'
-              : 'bg-gray-100 text-gray-900'
+              ? 'bg-blue-50 dark:bg-blue-950/50 border-2 border-blue-200 dark:border-blue-800 text-gray-900 dark:text-gray-100'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
           }`}
           style={{
             wordBreak: 'break-word',
@@ -142,11 +142,52 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
             width: '100%'
           }}>
             {isVisible || message.role === 'user' ? (
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  ...markdownComponents,
-                  a: ({ href, children }: any) => (
+              message.agentMode ? (
+                // Agent Mode: Two-part response display
+                <div className="space-y-4">
+                  {/* Part 1: Understanding & Response */}
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border-l-4 border-blue-500">
+                    <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">
+                      理解與回應
+                    </div>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={markdownComponents}
+                    >
+                      {message.agentMode.part1}
+                    </ReactMarkdown>
+                  </div>
+
+                  {/* Part 2: Executable Next Steps */}
+                  {message.agentMode.part2 && (
+                    <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg border-l-4 border-green-500">
+                      <div className="text-xs font-semibold text-green-700 dark:text-green-300 mb-2">
+                        可執行任務
+                      </div>
+                      {message.agentMode.executable_tasks && message.agentMode.executable_tasks.length > 0 ? (
+                        <ul className="list-disc list-inside space-y-1 text-sm">
+                          {message.agentMode.executable_tasks.map((task, idx) => (
+                            <li key={idx} className="text-gray-700 dark:text-gray-300">{task}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={markdownComponents}
+                        >
+                          {message.agentMode.part2}
+                        </ReactMarkdown>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Normal message display
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    ...markdownComponents,
+                    a: ({ href, children }: any) => (
                     <a
                       href={href}
                       target="_blank"
@@ -169,8 +210,9 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
                   ? (t(message.content as any) || message.content)
                   : message.content}
               </ReactMarkdown>
+              )
             ) : (
-              <div className="text-gray-400 text-xs">Loading...</div>
+              <div className="text-gray-400 dark:text-gray-300 text-xs">Loading...</div>
             )}
           </div>
 
@@ -188,7 +230,7 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
 
           {message.event_type && message.event_type !== 'message' && (
             <div className={`mt-1 text-xs ${
-              message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+              message.role === 'user' ? 'text-blue-100' : 'text-gray-500 dark:text-gray-300'
             }`}>
               {message.event_type === 'playbook_step' && '📋 Playbook Step'}
               {message.event_type === 'tool_call' && '🔧 Tool Call'}
@@ -196,7 +238,7 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
           )}
 
           <div className={`flex items-center justify-between mt-1 gap-2 ${
-            message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+            message.role === 'user' ? 'text-blue-100' : 'text-gray-500 dark:text-gray-300'
           }`} style={{ minWidth: 0, width: '100%' }}>
             <div className="flex items-center gap-1 flex-shrink-0 text-xs whitespace-nowrap">
               <span>{formattedDate}</span>

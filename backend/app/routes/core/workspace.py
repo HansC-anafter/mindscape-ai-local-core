@@ -180,6 +180,15 @@ async def create_workspace(
                     workspace_storage_path_str = None
 
         # Create Workspace (with storage configuration)
+        # Get default_locale from request, or fallback to system settings
+        if request.default_locale:
+            default_locale = request.default_locale
+        else:
+            from ...services.system_settings_store import SystemSettingsStore
+            settings_store = SystemSettingsStore(db_path=store.db_path)
+            language_setting = settings_store.get_setting("default_language")
+            default_locale = language_setting.value if language_setting and language_setting.value else "zh-TW"
+
         workspace = Workspace(
             id=str(uuid.uuid4()),
             title=request.title,
@@ -187,7 +196,7 @@ async def create_workspace(
             owner_user_id=owner_user_id,
             primary_project_id=request.primary_project_id,
             default_playbook_id=request.default_playbook_id,
-            default_locale=request.default_locale,
+            default_locale=default_locale,
             storage_base_path=workspace_storage_path_str,
             artifacts_dir=getattr(request, 'artifacts_dir', None) or "artifacts",
             uploads_dir="uploads",
@@ -245,7 +254,7 @@ async def create_workspace(
         )
         store.create_event(event)
 
-        locale = created.locale if hasattr(created, 'locale') and created.locale else "en"
+        locale = created.default_locale if hasattr(created, 'default_locale') and created.default_locale else default_locale
         welcome_message, suggestions = await WorkspaceWelcomeService.generate_welcome_message(created, owner_user_id, store, locale=locale)
         if welcome_message:
             welcome_event = MindEvent(
@@ -459,6 +468,17 @@ async def update_workspace(
                         )
             workspace.playbook_storage_config = request.playbook_storage_config
             logger.info(f"Updated playbook_storage_config for workspace {workspace_id}")
+
+        # Handle execution mode settings
+        if hasattr(request, 'execution_mode') and request.execution_mode is not None:
+            workspace.execution_mode = request.execution_mode
+            logger.info(f"Updated execution_mode for workspace {workspace_id}: {request.execution_mode}")
+        if hasattr(request, 'expected_artifacts') and request.expected_artifacts is not None:
+            workspace.expected_artifacts = request.expected_artifacts
+            logger.info(f"Updated expected_artifacts for workspace {workspace_id}: {request.expected_artifacts}")
+        if hasattr(request, 'execution_priority') and request.execution_priority is not None:
+            workspace.execution_priority = request.execution_priority
+            logger.info(f"Updated execution_priority for workspace {workspace_id}: {request.execution_priority}")
 
         # If path changed, record warning to event system
         if storage_path_changed:

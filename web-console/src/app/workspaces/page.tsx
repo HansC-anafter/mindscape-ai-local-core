@@ -56,12 +56,16 @@ export default function WorkspacesPage() {
       const response = await fetch(
         `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`,
         {
-          signal: abortControllerRef.current.signal
+          signal: abortControllerRef.current.signal,
+          headers: {
+            'Content-Type': 'application/json',
+          }
         }
       );
 
       if (!isMountedRef.current) {
         console.log('[loadWorkspaces] Component unmounted during fetch, aborting');
+        loadingRef.current = false;
         return;
       }
 
@@ -103,6 +107,8 @@ export default function WorkspacesPage() {
     } catch (err: any) {
       if (err.name === 'AbortError') {
         console.log('[loadWorkspaces] Request aborted');
+        // Don't update state if request was aborted (component unmounting or Fast Refresh)
+        loadingRef.current = false;
         return;
       }
       console.error('[loadWorkspaces] Exception:', err);
@@ -110,7 +116,6 @@ export default function WorkspacesPage() {
         setError(`Failed to load workspaces: ${err instanceof Error ? err.message : String(err)}`);
         setLoading(false);
       }
-    } finally {
       loadingRef.current = false;
     }
   }, [ownerUserId]);
@@ -226,42 +231,52 @@ export default function WorkspacesPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500">Loading workspaces...</div>
+          <div className="text-gray-500 dark:text-gray-400">Loading workspaces...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
 
       <div className="max-w-6xl mx-auto p-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Workspaces</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Workspaces</h1>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
           >
             + New Workspace
           </button>
         </div>
 
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-700">{error}</p>
+          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <p className="text-red-700 dark:text-red-300">{error}</p>
+            <button
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                loadWorkspaces();
+              }}
+              className="mt-2 px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 transition-colors"
+            >
+              {t('retryButton') || '重試'}
+            </button>
           </div>
         )}
 
         {workspaces.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500 mb-4">No workspaces yet.</p>
+            <p className="text-gray-500 dark:text-gray-400 mb-4">No workspaces yet.</p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600"
             >
               Create Your First Workspace
             </button>
@@ -271,21 +286,21 @@ export default function WorkspacesPage() {
             {workspaces.map((workspace) => (
               <div
                 key={workspace.id}
-                className="group relative p-6 bg-white rounded-lg border border-gray-200 hover:border-blue-500 hover:shadow-md transition-all"
+                className="group relative p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600 hover:shadow-md transition-all"
               >
                 <Link
                   href={`/workspaces/${workspace.id}`}
                   className="block"
                 >
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
                     {workspace.title}
                   </h3>
                   {workspace.description && (
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">
                       {workspace.description}
                     </p>
                   )}
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     Updated: {new Date(workspace.updated_at).toLocaleDateString()}
                   </div>
                 </Link>
@@ -295,7 +310,7 @@ export default function WorkspacesPage() {
                     e.stopPropagation();
                     setDeleteTarget(workspace);
                   }}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-600 hover:text-red-700 p-1.5 rounded hover:bg-red-50 transition-opacity"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
                   title={t('workspaceDelete')}
                 >
                   🗑️
