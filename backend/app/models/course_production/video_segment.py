@@ -12,21 +12,21 @@ from pydantic import BaseModel, Field
 
 
 class ShotType(str, Enum):
-    """鏡頭類型"""
-    WIDE_FRONT = "wide_front"           # 全身正面
-    WIDE_SIDE = "wide_side"             # 全身側面
-    MEDIUM_FRONT = "medium_front"       # 半身正面
-    MEDIUM_SIDE = "medium_side"         # 半身側面
-    CLOSEUP = "closeup"                 # 特寫
-    DETAIL = "detail"                   # 細節特寫（手、腳等）
+    """Shot type enumeration"""
+    WIDE_FRONT = "wide_front"           # Full body front view
+    WIDE_SIDE = "wide_side"             # Full body side view
+    MEDIUM_FRONT = "medium_front"       # Medium shot front view
+    MEDIUM_SIDE = "medium_side"         # Medium shot side view
+    CLOSEUP = "closeup"                 # Close-up shot
+    DETAIL = "detail"                   # Detail shot (hands, feet, etc.)
 
 
 class SegmentQuality(str, Enum):
-    """片段品質等級"""
-    EXCELLENT = "excellent"     # 優秀（可直接使用）
-    GOOD = "good"               # 良好（可用）
-    FAIR = "fair"               # 一般（需檢查）
-    POOR = "poor"               # 較差（不推薦）
+    """Segment quality level enumeration"""
+    EXCELLENT = "excellent"     # Excellent (ready to use)
+    GOOD = "good"               # Good (usable)
+    FAIR = "fair"               # Fair (needs review)
+    POOR = "poor"               # Poor (not recommended)
 
 
 class VideoSegment(BaseModel):
