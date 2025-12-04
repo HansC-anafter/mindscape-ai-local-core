@@ -32,29 +32,29 @@ logger = logging.getLogger(__name__)
 def _smart_truncate_message(message: str, max_length: int = 60) -> str:
     """
     Truncate message intelligently at sentence boundary
-    
+
     Args:
         message: Original message
         max_length: Maximum length for preview
-        
+
     Returns:
         Truncated message with ellipsis if needed
     """
     if len(message) <= max_length:
         return message
-    
+
     # Try to cut at sentence boundary (。！？\n)
     for delimiter in ['。', '！', '？', '\n', '.', '!', '?']:
         idx = message.find(delimiter, 0, max_length)
         if idx > 0:
             return message[:idx + 1] + '...'
-    
+
     # Try to cut at comma or space
     for delimiter in ['，', ',', ' ']:
         idx = message.rfind(delimiter, 0, max_length)
         if idx > max_length * 0.5:  # Only cut if we get at least 50% of max_length
             return message[:idx] + '...'
-    
+
     # Fallback to simple truncation
     return message[:max_length] + '...'
 
@@ -168,7 +168,63 @@ async def generate_streaming_response(
         except Exception:
             pass
 
-        # Build context
+        # Get execution mode settings
+        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
+        expected_artifacts = getattr(workspace, 'expected_artifacts', None)
+        execution_priority = getattr(workspace, 'execution_priority', None) or "medium"
+
+        # For hybrid/execution mode: Generate quick QA response first for immediate feedback
+        if execution_mode in ("execution", "hybrid") and model_name:
+            try:
+                logger.info(f"[QuickQA] Generating quick understanding response before execution plan")
+                print(f"[QuickQA] Generating quick understanding response before execution plan", file=sys.stderr)
+
+                # Build quick prompt focused on understanding and guidance
+                quick_system_prompt = f"""You are a helpful AI assistant. The user has asked: "{request.message}"
+
+Your task: Provide a brief (2-3 sentences), understanding response that:
+1. Shows you understand their request
+2. Provides initial guidance on what tools/approaches might help
+3. Sets expectation that you're analyzing and will provide a detailed plan
+
+Keep it concise and friendly. Respond in {locale}."""
+
+                # Get LLM provider for quick response
+                provider_name, _ = get_provider_name_from_model_config(model_name)
+                if provider_name:
+                    llm_provider_manager = get_llm_provider_manager(
+                        profile_id=profile_id,
+                        db_path=orchestrator.store.db_path,
+                        use_default_user=True
+                    )
+                    provider = llm_provider_manager.get_provider(provider_name)
+
+                    if provider and hasattr(provider, 'chat_completion_stream'):
+                        from backend.app.shared.llm_utils import build_prompt
+                        quick_messages = build_prompt(
+                            system_prompt=quick_system_prompt,
+                            user_prompt=request.message
+                        )
+
+                        # Stream quick response with limited tokens for speed
+                        quick_response_text = ""
+                        async for chunk_content in provider.chat_completion_stream(
+                            messages=quick_messages,
+                            model=model_name,
+                            temperature=0.7,
+                            max_tokens=300  # Limit tokens for quick response
+                        ):
+                            quick_response_text += chunk_content
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'message_id': user_event.id})}\n\n"
+
+                        logger.info(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars")
+                        print(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars", file=sys.stderr)
+            except Exception as e:
+                logger.warning(f"[QuickQA] Failed to generate quick response: {e}", exc_info=True)
+                print(f"[QuickQA] Failed to generate quick response: {e}", file=sys.stderr)
+                # Continue with execution plan generation even if quick response fails
+
+        # Build full context for execution plan
         context = await build_streaming_context(
             workspace_id=workspace_id,
             message=request.message,
@@ -198,11 +254,6 @@ async def generate_streaming_response(
             context=context or "",
             context_builder=context_builder
         )
-
-        # Get execution mode settings
-        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
-        expected_artifacts = getattr(workspace, 'expected_artifacts', None)
-        execution_priority = getattr(workspace, 'execution_priority', None) or "medium"
 
         # Generate execution plan if needed
         execution_plan = None
