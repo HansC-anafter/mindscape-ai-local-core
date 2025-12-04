@@ -88,6 +88,34 @@ class ExecutionChatMessageType(str, Enum):
     SYSTEM_HINT = "system_hint"
 
 
+class ExecutionMode(str, Enum):
+    """
+    Workspace execution mode
+
+    Determines how the AI agent behaves:
+    - QA: Chat-focused, discuss before acting
+    - EXECUTION: Action-first, produce artifacts immediately
+    - HYBRID: Balanced between chat and execution
+    """
+    QA = "qa"
+    EXECUTION = "execution"
+    HYBRID = "hybrid"
+
+
+class ExecutionPriority(str, Enum):
+    """
+    Execution priority level
+
+    Affects auto-execution confidence threshold:
+    - LOW: Conservative, high confidence required (0.9)
+    - MEDIUM: Balanced, default threshold (0.8)
+    - HIGH: Aggressive, lower threshold (0.6), readonly tasks auto-execute
+    """
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 # ==================== Workspace Models ====================
 
 class Workspace(BaseModel):
@@ -164,6 +192,20 @@ class Workspace(BaseModel):
                     "{playbook_code: {base_path: str, artifacts_dir: str}}"
     )
 
+    # Execution mode configuration
+    execution_mode: Optional[str] = Field(
+        default="qa",
+        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid'"
+    )
+    expected_artifacts: Optional[List[str]] = Field(
+        default=None,
+        description="Expected artifact types for this workspace (e.g., ['pptx', 'xlsx', 'docx'])"
+    )
+    execution_priority: Optional[str] = Field(
+        default="medium",
+        description="Execution priority: 'low' | 'medium' | 'high'"
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
@@ -185,6 +227,9 @@ class CreateWorkspaceRequest(BaseModel):
     default_locale: Optional[str] = Field(None, description="Default locale")
     storage_base_path: Optional[str] = Field(None, description="Storage base path (allows manual specification)")
     artifacts_dir: Optional[str] = Field(None, description="Artifacts directory name (default: 'artifacts')")
+    execution_mode: Optional[str] = Field(None, description="Execution mode: 'qa' | 'execution' | 'hybrid'")
+    expected_artifacts: Optional[List[str]] = Field(None, description="Expected artifact types")
+    execution_priority: Optional[str] = Field(None, description="Execution priority: 'low' | 'medium' | 'high'")
 
 
 class UpdateWorkspaceRequest(BaseModel):
@@ -202,6 +247,9 @@ class UpdateWorkspaceRequest(BaseModel):
         description="Playbook-specific storage configuration: "
                     "{playbook_code: {base_path: str, artifacts_dir: str}}"
     )
+    execution_mode: Optional[str] = Field(None, description="Execution mode: 'qa' | 'execution' | 'hybrid'")
+    expected_artifacts: Optional[List[str]] = Field(None, description="Expected artifact types")
+    execution_priority: Optional[str] = Field(None, description="Execution priority: 'low' | 'medium' | 'high'")
 
 
 class WorkspaceChatRequest(BaseModel):
@@ -212,7 +260,7 @@ class WorkspaceChatRequest(BaseModel):
         default="auto",
         description="Interaction mode: 'auto' | 'qa_only' | 'force_playbook'"
     )
-    stream: bool = Field(default=False, description="Enable streaming response (SSE)")
+    stream: bool = Field(default=True, description="Enable streaming response (SSE)")
     # CTA trigger fields
     timeline_item_id: Optional[str] = Field(None, description="Timeline item ID for CTA action")
     action: Optional[str] = Field(None, description="Action type: 'add_to_intents' | 'add_to_tasks' | 'publish_to_wordpress' | 'execute_playbook' | 'use_tool' | 'create_intent' | 'start_chat' | 'upload_file'")
@@ -239,6 +287,27 @@ class WorkspaceChatResponse(BaseModel):
 
 # ==================== Execution Plan Models (Internal) ====================
 
+class ExecutionStep(BaseModel):
+    """
+    ExecutionStep model - represents a single step in the execution chain-of-thought
+
+    This is the explicit "thinking step" that shows:
+    - What the LLM decided to do
+    - Why it chose this approach
+    - What artifacts will be produced
+    """
+    step_id: str = Field(..., description="Unique step identifier (e.g., 'S1', 'S2')")
+    intent: str = Field(..., description="Intent/purpose of this step")
+    playbook_code: Optional[str] = Field(None, description="Playbook to execute (if applicable)")
+    tool_name: Optional[str] = Field(None, description="Tool to use (if applicable)")
+    artifacts: List[str] = Field(default_factory=list, description="Expected artifact types (e.g., ['pptx', 'docx'])")
+    reasoning: Optional[str] = Field(None, description="Why this step was chosen (CoT reasoning)")
+    depends_on: List[str] = Field(default_factory=list, description="Step IDs this depends on")
+    requires_confirmation: bool = Field(False, description="Whether user confirmation is needed")
+    side_effect_level: Optional[str] = Field(None, description="Side effect level: readonly/soft_write/external_write")
+    estimated_duration: Optional[str] = Field(None, description="Estimated duration (e.g., '30s', '2m')")
+
+
 class TaskPlan(BaseModel):
     """
     TaskPlan model - represents a planned task in an execution plan
@@ -258,17 +327,48 @@ class ExecutionPlan(BaseModel):
     """
     ExecutionPlan model - represents a complete execution plan for a message
 
-    Used internally by ConversationOrchestrator to plan and coordinate
-    task execution based on side_effect_level.
+    This is the "Chain-of-Thought" (思維鏈) for Execution Mode:
+    - Shows what the LLM decided to do BEFORE doing it
+    - Provides structured reasoning for debugging and replay
+    - Can be recorded as EXECUTION_PLAN MindEvent for traceability
+
+    See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
     """
+    id: str = Field(default_factory=lambda: str(__import__('uuid').uuid4()), description="Plan ID")
     message_id: str = Field(..., description="Associated message/event ID")
     workspace_id: str = Field(..., description="Workspace ID")
-    tasks: List[TaskPlan] = Field(default_factory=list, description="Planned tasks")
+
+    # Chain-of-Thought fields
+    user_request_summary: Optional[str] = Field(None, description="Summary of what user asked for")
+    reasoning: Optional[str] = Field(None, description="Overall reasoning for the plan (CoT)")
+    plan_summary: Optional[str] = Field(None, description="Human-readable summary for display")
+    steps: List[ExecutionStep] = Field(default_factory=list, description="Execution steps (CoT)")
+
+    # Legacy compatibility - kept for backward compatibility
+    tasks: List[TaskPlan] = Field(default_factory=list, description="Planned tasks (legacy)")
+
+    # Metadata
+    execution_mode: Optional[str] = Field(None, description="qa/execution/hybrid")
+    confidence: Optional[float] = Field(None, description="LLM confidence in this plan (0-1)")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
 
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
+        }
+
+    def to_event_payload(self) -> Dict[str, Any]:
+        """Convert to payload for EXECUTION_PLAN MindEvent"""
+        return {
+            "plan_id": self.id,
+            "user_request_summary": self.user_request_summary,
+            "reasoning": self.reasoning,
+            "plan_summary": self.plan_summary,
+            "steps": [step.dict() for step in self.steps],
+            "execution_mode": self.execution_mode,
+            "confidence": self.confidence,
+            "step_count": len(self.steps),
+            "artifact_count": sum(len(s.artifacts) for s in self.steps)
         }
 
 
@@ -360,12 +460,14 @@ class ExecutionSession(BaseModel):
         )
 
 
-class ExecutionStep(BaseModel):
+class PlaybookExecutionStep(BaseModel):
     """
-    ExecutionStep view model - represents a single step in a playbook execution
+    PlaybookExecutionStep view model - represents a single step in a playbook execution
 
-    ExecutionStep is a view model based on MindEvent(event_type=PLAYBOOK_STEP).
+    PlaybookExecutionStep is a view model based on MindEvent(event_type=PLAYBOOK_STEP).
     It does not have its own table but is constructed from MindEvent records.
+
+    Note: This is different from ExecutionStep (used in ExecutionPlan for Chain-of-Thought).
     """
     id: str = Field(..., description="Step ID (same as MindEvent.id)")
     execution_id: str = Field(..., description="Associated execution ID")
@@ -389,8 +491,8 @@ class ExecutionStep(BaseModel):
     failure_type: Optional[str] = Field(None, description="Failure type if failed")
 
     @classmethod
-    def from_mind_event(cls, event: Union["MindEvent", Dict[str, Any]]) -> "ExecutionStep":
-        """Create ExecutionStep from MindEvent"""
+    def from_mind_event(cls, event: Union["MindEvent", Dict[str, Any]]) -> "PlaybookExecutionStep":
+        """Create PlaybookExecutionStep from MindEvent"""
         if hasattr(event, "payload"):
             payload = event.payload
             event_id = event.id
