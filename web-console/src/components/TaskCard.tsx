@@ -78,7 +78,7 @@ export default function TaskCard({
             ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             : isBlocked
             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            : 'bg-purple-600 text-white hover:bg-purple-700'
+            : 'bg-gray-600 text-white hover:bg-gray-700'
         }`}
       >
         {buttonText}

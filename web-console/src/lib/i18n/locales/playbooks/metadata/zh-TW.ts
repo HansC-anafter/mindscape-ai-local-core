@@ -129,5 +129,35 @@ export const playbookMetadataZhTW = {
     description: '撰寫行銷文案、標題和 CTA。生成多個版本並針對目標受眾優化語氣和表達',
     tags: ['寫作', '文案', '行銷', '內容'],
   },
+  pdf_ocr_and_index: {
+    name: 'PDF OCR 與索引',
+    description: '處理 PDF 檔案，執行 OCR 提取文字內容，並將結果嵌入向量資料庫建立索引',
+    tags: ['ocr', 'pdf', '文字提取', '文件處理', '向量資料庫', '索引'],
+  },
+  ig_post_generation: {
+    name: 'IG 貼文生成',
+    description: '從內容生成 Instagram 貼文，針對 IG 平台特性優化（字數限制、hashtag、語氣等）',
+    tags: ['社群媒體', 'instagram', '內容創作', '行銷'],
+  },
+  execution_status_query: {
+    name: '執行狀態查詢',
+    description: '查詢任務執行狀態和進度的 playbook。當用戶詢問任務進度時，自動查詢相關 execution 的詳細狀態並生成報告',
+    tags: ['系統', '查詢', '執行'],
+  },
+  major_proposal_writing: {
+    name: '重大申請文件撰寫助手',
+    description: '上傳簡章/範本，自動萃出模板，引導你逐節撰寫申請文件',
+    tags: ['寫作', '提案', '文件', '申請'],
+  },
+  yearly_book_content_save: {
+    name: '年度書籍內容儲存',
+    description: '將外部內容（OCR 結果、生成的貼文、腳本等）儲存到年度書籍中',
+    tags: ['日誌', '內容儲存', '年度書籍', '儲存'],
+  },
+  yt_script_generation: {
+    name: 'YT 影片腳本生成',
+    description: '從內容生成 YouTube 影片腳本，針對 YT 格式優化（時間點、結構、重點標註等）',
+    tags: ['youtube', '影片', '腳本', '內容創作'],
+  },
 } as const;
 

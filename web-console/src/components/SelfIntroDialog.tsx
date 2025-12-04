@@ -76,7 +76,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
                 value={identity}
                 onChange={(e) => setIdentity(e.target.value)}
                 placeholder={t('selfIntroQuestion1Placeholder')}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 disabled={isSubmitting}
               />
             </div>
@@ -91,7 +91,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
                 value={solving}
                 onChange={(e) => setSolving(e.target.value)}
                 placeholder={t('selfIntroQuestion2Placeholder')}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 disabled={isSubmitting}
               />
             </div>
@@ -106,7 +106,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
                 value={thinking}
                 onChange={(e) => setThinking(e.target.value)}
                 placeholder={t('selfIntroQuestion3Placeholder')}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 disabled={isSubmitting}
               />
             </div>
@@ -128,7 +128,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
               </button>
               <button
                 type="submit"
-                className="px-6 py-2 text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 text-white bg-gray-600 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? t('submitting') : t('completeSetup')}

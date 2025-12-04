@@ -167,7 +167,7 @@ export default function HabitSuggestionToast({
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-md">
       <div
-        className="bg-white rounded-lg shadow-xl border-2 border-purple-200 p-6 animate-slide-up"
+        className="bg-white rounded-lg shadow-xl border-2 border-gray-200 p-6 animate-slide-up"
         style={{
           animation: 'slideUp 0.3s ease-out',
         }}
@@ -215,7 +215,7 @@ export default function HabitSuggestionToast({
           <button
             onClick={handleConfirm}
             disabled={loading}
-            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
             {loading ? t('submitting') : t('confirmHabit')}
           </button>
@@ -227,14 +227,14 @@ export default function HabitSuggestionToast({
             <button
               onClick={handlePrevious}
               disabled={currentIndex === 0}
-              className="text-purple-600 hover:text-purple-700 disabled:text-gray-400 disabled:cursor-not-allowed"
+              className="text-gray-600 hover:text-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
             >
               ← 上一個
             </button>
             <button
               onClick={handleNext}
               disabled={currentIndex === candidates.length - 1}
-              className="text-purple-600 hover:text-purple-700 disabled:text-gray-400 disabled:cursor-not-allowed"
+              className="text-gray-600 hover:text-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
             >
               下一個 →
             </button>

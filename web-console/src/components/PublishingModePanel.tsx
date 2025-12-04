@@ -47,14 +47,14 @@ export default function PublishingModePanel({
           </button>
         </div>
 
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <h4 className="text-sm font-medium text-gray-900 mb-2">
             📄 {t('publishingMarkdownExport')}
           </h4>
           <p className="text-xs text-gray-600 mb-2">
             {t('publishingMarkdownExportDescription')}
           </p>
-          <button className="text-xs text-purple-600 hover:text-purple-700 font-medium">
+          <button className="text-xs text-gray-600 hover:text-gray-700 font-medium">
             {t('exportMarkdown')} →
           </button>
         </div>

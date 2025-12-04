@@ -53,7 +53,7 @@ export default function OnboardingBanner({
 
   // Regular onboarding banner with leveled status
   return (
-    <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-6 mb-6">
+    <div className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-gray-200 rounded-lg p-6 mb-6">
       <div className="flex items-start mb-2">
         <span className="text-2xl mr-3">🎯</span>
         <div className="flex-1">

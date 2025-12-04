@@ -25,7 +25,7 @@ export function getPlaybookMetadata(
   field: 'name' | 'description' | 'tags',
   locale: 'zh-TW' | 'en' | 'ja' = 'zh-TW'
 ): string | string[] | undefined {
-  const metadata = 
+  const metadata =
     locale === 'zh-TW' ? playbookMetadataZhTW :
     locale === 'en' ? playbookMetadataEn :
     playbookMetadataJa;

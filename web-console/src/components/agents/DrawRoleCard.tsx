@@ -58,22 +58,22 @@ export default function DrawRoleCard({ task, backendAvailable, onSceneSelected }
       type="button"
       onClick={handleDrawRoleCard}
       disabled={!task.trim() || drawingCard || !backendAvailable}
-      className="p-5 border-2 rounded-lg text-left transition-all hover:border-purple-300 hover:bg-purple-50 border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-purple-200 disabled:hover:bg-gradient-to-br disabled:hover:from-purple-50 disabled:hover:to-blue-50"
+      className="p-5 border-2 rounded-lg text-left transition-all hover:border-gray-400 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/20 border-gray-200 dark:border-gray-600 bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-800/20 dark:to-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-200 dark:disabled:hover:border-gray-600 disabled:hover:bg-gradient-to-br disabled:hover:from-gray-50 disabled:hover:to-blue-50 dark:disabled:hover:from-gray-800/20 dark:disabled:hover:to-blue-900/20"
     >
       <div className="flex items-start mb-3">
         <span className="text-3xl mr-3">🎯</span>
         <div className="flex-1">
-          <h3 className="font-semibold text-gray-900 text-lg mb-1">{t('drawRoleCard')}</h3>
-          <p className="text-sm text-gray-600">{t('drawRoleCardDescription')}</p>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">{t('drawRoleCard')}</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{t('drawRoleCardDescription')}</p>
         </div>
       </div>
       {suggestedScene && (
-        <div className="mt-3 bg-white rounded-lg p-3 border border-purple-200">
+        <div className="mt-3 bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
           <div className="flex items-center mb-2">
             <span className="text-xl mr-2">{suggestedScene.suggested_scene?.icon || '🎯'}</span>
             <div className="flex-1">
-              <h4 className="font-semibold text-gray-900 text-sm">{t('suggestedScene')}: {suggestedScene.suggested_scene?.name}</h4>
-              <p className="text-xs text-gray-500">
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{t('suggestedScene')}: {suggestedScene.suggested_scene?.name}</h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t('confidence')}: {Math.round(suggestedScene.confidence * 100)}%
               </p>
             </div>
@@ -81,10 +81,10 @@ export default function DrawRoleCard({ task, backendAvailable, onSceneSelected }
         </div>
       )}
       {error && (
-        <div className="mt-2 text-xs text-red-600">{error}</div>
+        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</div>
       )}
       {drawingCard && (
-        <div className="mt-2 text-xs text-gray-500">{t('drawRoleCardLoading')}</div>
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('drawRoleCardLoading')}</div>
       )}
     </button>
   );

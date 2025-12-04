@@ -16,13 +16,13 @@ export default function RoleCard({ role, onSelect }: RoleCardProps) {
     <button
       type="button"
       onClick={() => onSelect(role)}
-      className="p-5 border-2 rounded-lg text-left transition-all hover:border-blue-300 hover:bg-blue-50 border-gray-200 bg-white"
+      className="p-5 border-2 rounded-lg text-left transition-all hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
     >
       <div className="flex items-start mb-3">
         <span className="text-3xl mr-3">{role.icon}</span>
         <div className="flex-1">
-          <h3 className="font-semibold text-gray-900 text-lg mb-1">{localized.name}</h3>
-          <p className="text-sm text-gray-600">{localized.description}</p>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">{localized.name}</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{localized.description}</p>
         </div>
       </div>
     </button>

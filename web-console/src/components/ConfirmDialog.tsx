@@ -46,17 +46,17 @@ export default function ConfirmDialog({
       aria-labelledby="dialog-title"
     >
       <div
-        className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
+        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="dialog-title" className="text-xl font-semibold text-gray-900 mb-4">
+        <h2 id="dialog-title" className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
           {title}
         </h2>
-        <p className="text-sm text-gray-600 mb-6">{message}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <div className="flex gap-3 justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+            className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
           >
             {cancelText}
           </button>

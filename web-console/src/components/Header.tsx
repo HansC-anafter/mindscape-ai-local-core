@@ -135,20 +135,6 @@ export default function Header() {
                     {t('navSettings')}
                   </a>
                   <a
-                    href="/settings?tab=tools"
-                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    onClick={() => setSettingsMenuOpen(false)}
-                  >
-                    {t('toolsAndIntegrations')}
-                  </a>
-                  <a
-                    href="/settings?tab=packs"
-                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    onClick={() => setSettingsMenuOpen(false)}
-                  >
-                    {t('capabilityPacks')}
-                  </a>
-                  <a
                     href="/history"
                     className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     onClick={() => setSettingsMenuOpen(false)}

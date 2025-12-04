@@ -70,7 +70,7 @@ export default function RoleCardGrid({
         />
       ))}
       {filteredRoles.length === 0 && (
-        <div className="col-span-full text-center py-12 text-gray-500">
+        <div className="col-span-full text-center py-12 text-gray-500 dark:text-gray-400">
           <p className="text-lg mb-2">{t('noRolesFound')}</p>
           <p className="text-sm">{t('tryDifferentSearch')}</p>
         </div>
