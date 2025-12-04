@@ -14,6 +14,7 @@ from backend.app.models.mindscape import (
 from backend.app.services.agent_runner import (
     LLMProviderManager, AgentPromptBuilder
 )
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class LocalLLMBackend(AgentBackend):
         ]
 
         # Get LLM provider and execute
-        provider = self.llm_manager.get_provider()
+        provider = get_llm_provider_from_settings(self.llm_manager)
         response_text = await provider.chat_completion(messages)
 
         # Build response

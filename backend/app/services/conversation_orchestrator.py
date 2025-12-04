@@ -53,6 +53,7 @@ from backend.app.services.conversation.intent_extractor import IntentExtractor
 from backend.app.core.execution_context import ExecutionContext
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.core.ports.intent_registry_port import IntentRegistryPort
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class ConversationOrchestrator:
         openai_key = os.getenv("OPENAI_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
-        llm_provider = llm_manager.get_provider()
+        llm_provider = get_llm_provider_from_settings(llm_manager)
 
         message_generator = MessageGenerator(
             llm_provider=llm_provider,
@@ -581,7 +582,7 @@ class ConversationOrchestrator:
         openai_key = os.getenv("OPENAI_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
-        llm_provider = llm_manager.get_provider()
+        llm_provider = get_llm_provider_from_settings(llm_manager)
 
         message_generator = MessageGenerator(
             llm_provider=llm_provider,

@@ -12,6 +12,7 @@ from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
 from ...capabilities.registry import get_registry
 from backend.app.services.pack_info_collector import PackInfoCollector
 from backend.app.services.external_backend import load_external_backend, validate_mindscape_boundary, filter_mindscape_results
+from ...shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -264,10 +265,31 @@ class PlanBuilder:
                 vertex_project_id=vertex_project_id,
                 vertex_location=vertex_location
             )
-            llm_provider = llm_manager.get_provider()
 
-            if not llm_provider:
-                logger.warning("LLM provider not available, falling back to rule-based planning")
+            # Get user's selected chat model to determine provider
+            from backend.app.services.system_settings_store import SystemSettingsStore
+            settings_store = SystemSettingsStore()
+            chat_setting = settings_store.get_setting("chat_model")
+            provider_name = None
+
+            if chat_setting:
+                # Get provider from model metadata or infer from model name
+                provider_name = chat_setting.metadata.get("provider")
+                if not provider_name:
+                    model_name = str(chat_setting.value)
+                    # Infer provider from model name
+                    if "gemini" in model_name.lower():
+                        provider_name = "vertex-ai"
+                    elif "gpt" in model_name.lower() or "text-" in model_name.lower():
+                        provider_name = "openai"
+                    elif "claude" in model_name.lower():
+                        provider_name = "anthropic"
+
+            # Get provider from user settings (no fallback)
+            try:
+                llm_provider = get_llm_provider_from_settings(llm_manager)
+            except ValueError as e:
+                logger.warning(f"LLM provider not available: {e}, falling back to rule-based planning")
                 return []
 
             # Build workspace context using ContextBuilder

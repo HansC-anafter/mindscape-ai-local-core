@@ -15,6 +15,7 @@ from backend.app.models.mindscape import (
     MindEvent, EventType, EventActor
 )
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +254,80 @@ class VertexAIProvider(LLMProvider):
         super().__init__(api_key)
         self.project_id = project_id
         self.location = location or "us-central1"
+        self._initialized = False
+        self._model_instance_cache = {}
+
+    def _ensure_initialized(self):
+        """Initialize Vertex AI platform if not already initialized"""
+        if self._initialized:
+            return
+
+        import json
+        from google.oauth2 import service_account
+        from google.cloud import aiplatform
+
+        credentials = None
+        if self.api_key:
+            try:
+                sa_info = json.loads(self.api_key)
+                credentials = service_account.Credentials.from_service_account_info(sa_info)
+                if not self.project_id and 'project_id' in sa_info:
+                    self.project_id = sa_info['project_id']
+            except (json.JSONDecodeError, ValueError):
+                credentials = service_account.Credentials.from_service_account_file(self.api_key)
+                if not self.project_id:
+                    with open(self.api_key, 'r') as f:
+                        sa_info = json.load(f)
+                        if 'project_id' in sa_info:
+                            self.project_id = sa_info['project_id']
+
+        if credentials:
+            aiplatform.init(project=self.project_id, location=self.location, credentials=credentials)
+        else:
+            aiplatform.init(project=self.project_id, location=self.location)
+
+        self._initialized = True
+
+    def _prepare_messages(self, messages: List[Dict[str, str]]):
+        """Convert standard message format to Vertex AI format"""
+        vertex_messages = []
+        system_instruction = None
+
+        for msg in messages:
+            if msg["role"] == "system":
+                system_instruction = msg["content"]
+            elif msg["role"] == "user":
+                vertex_messages.append({"role": "user", "parts": [{"text": msg["content"]}]})
+            elif msg["role"] == "assistant":
+                vertex_messages.append({"role": "model", "parts": [{"text": msg["content"]}]})
+
+        return vertex_messages, system_instruction
+
+    def _get_model_instance(self, model: str, system_instruction: Optional[str] = None):
+        """Get or create model instance with optional system instruction"""
+        cache_key = f"{model}:{system_instruction}" if system_instruction else model
+        if cache_key not in self._model_instance_cache:
+            try:
+                from vertexai.generative_models import GenerativeModel
+            except ImportError:
+                from vertexai.preview.generative_models import GenerativeModel
+            if system_instruction:
+                self._model_instance_cache[cache_key] = GenerativeModel(
+                    model_name=model,
+                    system_instruction=system_instruction
+                )
+            else:
+                self._model_instance_cache[cache_key] = GenerativeModel(model_name=model)
+        return self._model_instance_cache[cache_key]
+
+    def _build_generation_config(self, temperature: float, max_tokens: Optional[int], max_completion_tokens: Optional[int]):
+        """Build generation config for Vertex AI"""
+        from vertexai.generative_models import GenerationConfig
+        max_output = max_completion_tokens if max_completion_tokens else (max_tokens if max_tokens else 4096)
+        return GenerationConfig(
+            temperature=temperature,
+            max_output_tokens=max_output
+        )
 
     async def chat_completion(self, messages: List[Dict[str, str]],
                            model: str = "gemini-pro",
@@ -261,78 +336,15 @@ class VertexAIProvider(LLMProvider):
                            max_completion_tokens: Optional[int] = None,
                            stream: bool = False) -> str:
         try:
-            import json
-            import google.auth
-            from google.oauth2 import service_account
-            from google.cloud import aiplatform
-            from vertexai.preview.generative_models import GenerativeModel
+            self._ensure_initialized()
+            vertex_messages, system_instruction = self._prepare_messages(messages)
+            model_instance = self._get_model_instance(model, system_instruction)
+            generation_config = self._build_generation_config(temperature, max_tokens, max_completion_tokens)
 
-            # Parse service account JSON if api_key is a JSON string
-            credentials = None
-            if self.api_key:
-                try:
-                    # Try to parse as JSON string
-                    sa_info = json.loads(self.api_key)
-                    credentials = service_account.Credentials.from_service_account_info(sa_info)
-                    # Extract project_id from JSON if not provided
-                    if not self.project_id and 'project_id' in sa_info:
-                        self.project_id = sa_info['project_id']
-                except (json.JSONDecodeError, ValueError):
-                    # If not JSON, treat as file path
-                    credentials = service_account.Credentials.from_service_account_file(self.api_key)
-                    # Try to read project_id from file
-                    if not self.project_id:
-                        with open(self.api_key, 'r') as f:
-                            sa_info = json.load(f)
-                            if 'project_id' in sa_info:
-                                self.project_id = sa_info['project_id']
-
-            # Initialize Vertex AI
-            if credentials:
-                aiplatform.init(project=self.project_id, location=self.location, credentials=credentials)
-            else:
-                # Use default credentials (e.g., from gcloud auth)
-                aiplatform.init(project=self.project_id, location=self.location)
-
-            # Prepare messages for Vertex AI
-            # Vertex AI uses different message format
-            vertex_messages = []
-            system_instruction = None
-
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_instruction = msg["content"]
-                elif msg["role"] == "user":
-                    vertex_messages.append({"role": "user", "parts": [{"text": msg["content"]}]})
-                elif msg["role"] == "assistant":
-                    vertex_messages.append({"role": "model", "parts": [{"text": msg["content"]}]})
-
-            # Initialize model
-            model_instance = GenerativeModel(model_name=model)
-
-            # Build generation config
-            generation_config = {
-                "temperature": temperature,
-            }
-            if max_completion_tokens:
-                generation_config["max_output_tokens"] = max_completion_tokens
-            elif max_tokens:
-                generation_config["max_output_tokens"] = max_tokens
-            else:
-                generation_config["max_output_tokens"] = 4096
-
-            # Generate response
-            if system_instruction:
-                response = await model_instance.generate_content_async(
-                    contents=vertex_messages,
-                    generation_config=generation_config,
-                    system_instruction=system_instruction
-                )
-            else:
-                response = await model_instance.generate_content_async(
-                    contents=vertex_messages,
-                    generation_config=generation_config
-                )
+            response = await model_instance.generate_content_async(
+                contents=vertex_messages,
+                generation_config=generation_config
+            )
 
             return response.text
 
@@ -340,6 +352,48 @@ class VertexAIProvider(LLMProvider):
             raise Exception("Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai")
         except Exception as e:
             logger.error(f"Vertex AI API error: {e}")
+            raise
+
+    async def chat_completion_stream(self, messages: List[Dict[str, str]],
+                                   model: str = "gemini-pro",
+                                   temperature: float = 0.7,
+                                   max_tokens: Optional[int] = None,
+                                   max_completion_tokens: Optional[int] = None):
+        """
+        Streaming chat completion - returns async generator for SSE
+
+        Returns:
+            AsyncGenerator that yields chunks from Vertex AI stream
+        """
+        try:
+            self._ensure_initialized()
+            vertex_messages, system_instruction = self._prepare_messages(messages)
+            model_instance = self._get_model_instance(model, system_instruction)
+            generation_config = self._build_generation_config(temperature, max_tokens, max_completion_tokens)
+
+            import asyncio
+
+            def create_stream():
+                return model_instance.generate_content(
+                    contents=vertex_messages,
+                    generation_config=generation_config,
+                    stream=True
+                )
+
+            responses = await asyncio.to_thread(create_stream)
+            for response in responses:
+                if response.candidates and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    if candidate.content and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                yield part.text
+                                await asyncio.sleep(0)
+
+        except ImportError:
+            raise Exception("Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai")
+        except Exception as e:
+            logger.error(f"Vertex AI streaming API error: {e}", exc_info=True)
             raise
 
 
@@ -381,31 +435,52 @@ class LLMProviderManager:
         if anthropic_key:
             self.providers["anthropic"] = AnthropicProvider(anthropic_key)
 
-        # Vertex AI configuration
-        vertex_api_key = vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-        vertex_project_id = vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
+        # Vertex AI configuration (uses Service Account JSON, not API key)
+        vertex_service_account = vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        vertex_project_id = vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
         vertex_location = vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
 
-        if vertex_api_key and vertex_project_id:
+        logger.info(f"Vertex AI config check: service_account={'set' if vertex_service_account else 'not set'}, project_id={'set' if vertex_project_id else 'not set'}, location={vertex_location}")
+
+        if vertex_service_account and vertex_project_id:
             try:
-                self.providers["vertex"] = VertexAIProvider(
-                    api_key=vertex_api_key,
+                self.providers["vertex-ai"] = VertexAIProvider(
+                    api_key=vertex_service_account,
                     project_id=vertex_project_id,
                     location=vertex_location
                 )
+                logger.info("Vertex AI provider initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to initialize Vertex AI provider: {e}")
+        else:
+            logger.warning(f"Vertex AI provider not initialized: service_account={'set' if vertex_service_account else 'missing'}, project_id={'set' if vertex_project_id else 'missing'}")
 
     def get_provider(self, provider_name: Optional[str] = None) -> Optional[LLMProvider]:
-        """Get LLM provider by name, or return first available"""
+        """
+        Get LLM provider by name
+
+        Args:
+            provider_name: Provider name (required, no fallback)
+
+        Returns:
+            LLMProvider instance or None if not found
+
+        Raises:
+            ValueError: If provider_name is not specified
+        """
+        if not provider_name:
+            raise ValueError(
+                "provider_name is required. Cannot use fallback to first available provider. "
+                "Please specify the provider name explicitly."
+            )
+
         if not self.providers:
             return None
 
-        if provider_name and provider_name in self.providers:
+        if provider_name in self.providers:
             return self.providers[provider_name]
 
-        # Return first available provider
-        return list(self.providers.values())[0]
+        return None
 
     def get_available_providers(self) -> List[str]:
         """Get list of available providers"""
@@ -1013,8 +1088,8 @@ Respond in JSON format:
         user_prompt = f"Task: {task}\n\nWhich work scenario is most suitable for this task?"
 
         try:
-            # Get LLM provider
-            provider = self.llm_manager.get_provider()
+            # Get LLM provider from user settings
+            provider = get_llm_provider_from_settings(self.llm_manager)
 
             messages = [
                 {"role": "system", "content": system_prompt},

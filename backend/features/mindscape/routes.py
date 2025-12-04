@@ -22,6 +22,7 @@ from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.mindscape_onboarding import MindscapeOnboardingService
 from backend.app.services.playbook_webhook import PlaybookWebhookHandler
 from backend.app.services.intent_analyzer import IntentPipeline
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 router = APIRouter(tags=["mindscape"])
 
@@ -449,14 +450,16 @@ async def delete_intent(intent_id: str = Path(..., description="Intent ID")):
 @router.get("/intents/{intent_id}/playbooks", response_model=List[str])
 async def get_intent_playbooks(intent_id: str = Path(..., description="Intent ID")):
     """Get playbook codes associated with an intent"""
-    from backend.app.services.playbook_store import PlaybookStore
-    playbook_store = PlaybookStore()
+    from backend.app.services.playbook_service import PlaybookService
+    playbook_service = PlaybookService(store=store)
 
     intent = store.get_intent(intent_id)
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
 
-    playbook_codes = playbook_store.get_intent_playbooks(intent_id)
+    # Use PlaybookService's internal store for association queries
+    # TODO: Add association methods to PlaybookService API
+    playbook_codes = playbook_service.playbook_store.get_intent_playbooks(intent_id)
     return playbook_codes
 
 
@@ -466,23 +469,26 @@ async def associate_intent_playbook(
     playbook_code: str = Path(..., description="Playbook code")
 ):
     """Associate a playbook with an intent"""
-    from backend.app.services.playbook_store import PlaybookStore
-    playbook_store = PlaybookStore()
+    from backend.app.services.playbook_service import PlaybookService
+    playbook_service = PlaybookService(store=store)
 
     # Verify intent exists
     intent = store.get_intent(intent_id)
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
 
-    # Verify playbook exists
-    from backend.app.services.playbook_loader import PlaybookLoader
-    loader = PlaybookLoader()
-    playbook = loader.get_playbook_by_code(playbook_code)
+    # Verify playbook exists using PlaybookService
+    playbook = await playbook_service.get_playbook(
+        playbook_code=playbook_code,
+        locale="zh-TW",  # Default locale, can be made configurable
+        workspace_id=None
+    )
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
 
-    # Create association
-    association = playbook_store.associate_intent_playbook(intent_id, playbook_code)
+    # Create association using PlaybookService's internal store
+    # TODO: Add association methods to PlaybookService API
+    association = playbook_service.playbook_store.associate_intent_playbook(intent_id, playbook_code)
     return {
         "intent_id": association.intent_id,
         "playbook_code": association.playbook_code,
@@ -496,10 +502,12 @@ async def remove_intent_playbook(
     playbook_code: str = Path(..., description="Playbook code")
 ):
     """Remove association between intent and playbook"""
-    from backend.app.services.playbook_store import PlaybookStore
-    playbook_store = PlaybookStore()
+    from backend.app.services.playbook_service import PlaybookService
+    playbook_service = PlaybookService(store=store)
 
-    success = playbook_store.remove_intent_playbook_association(intent_id, playbook_code)
+    # Use PlaybookService's internal store for association queries
+    # TODO: Add association methods to PlaybookService API
+    success = playbook_service.playbook_store.remove_intent_playbook_association(intent_id, playbook_code)
     if not success:
         raise HTTPException(status_code=404, detail="Association not found")
     return None
@@ -521,10 +529,10 @@ async def extract_seeds(
 
         # Get LLM provider
         agent_runner = AgentRunner()
-        llm_provider = agent_runner.llm_manager.get_provider()
-
-        if not llm_provider:
-            raise HTTPException(status_code=400, detail="LLM provider not configured")
+        try:
+            llm_provider = get_llm_provider_from_settings(agent_runner.llm_manager)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"LLM provider not configured: {e}")
 
         extractor = SeedExtractor(llm_provider=llm_provider)
         seeds = await extractor.extract_seeds_from_content(
@@ -553,7 +561,10 @@ async def generate_suggestions(
 
         # Get LLM provider
         agent_runner = AgentRunner()
-        llm_provider = agent_runner.llm_manager.get_provider()
+        try:
+            llm_provider = get_llm_provider_from_settings(agent_runner.llm_manager)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"LLM provider not configured: {e}")
 
         generator = SuggestionGenerator(llm_provider=llm_provider)
         suggestions = await generator.generate_suggestions(
@@ -831,7 +842,11 @@ async def replay_intent_logs(
         llm_provider = None
         if request.model:
             llm_manager = LLMProviderManager()
-            llm_provider = llm_manager.get_provider()
+            try:
+                llm_provider = get_llm_provider_from_settings(llm_manager)
+            except ValueError as e:
+                logger.warning(f"LLM provider not available: {e}, continuing without LLM")
+                llm_provider = None
 
         pipeline = IntentPipeline(
             llm_provider=llm_provider,

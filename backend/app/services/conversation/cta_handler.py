@@ -23,6 +23,7 @@ from ...services.stores.tasks_store import TasksStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...services.mindscape_store import MindscapeStore
 from ...services.i18n_service import get_i18n_service
+from ...shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -970,7 +971,7 @@ class CTAHandler:
         openai_key = os.getenv("OPENAI_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
-        llm_provider = llm_manager.get_provider()
+        llm_provider = get_llm_provider_from_settings(llm_manager)
 
         # Use MessageGenerator with LLM
         message_generator = MessageGenerator(

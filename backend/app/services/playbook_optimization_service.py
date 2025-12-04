@@ -12,6 +12,7 @@ from backend.app.models.personalized_playbook import OptimizationSuggestion, Usa
 from backend.app.services.playbook_store import PlaybookStore
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.agent_runner import LLMProviderManager
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -130,10 +131,10 @@ class PlaybookOptimizationService:
             anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
 
             llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
-            provider = llm_manager.get_provider()
-
-            if not provider:
-                logger.warning("No LLM provider available")
+            try:
+                provider = get_llm_provider_from_settings(llm_manager)
+            except ValueError as e:
+                logger.warning(f"No LLM provider available: {e}")
                 return []
 
             response = await provider.generate_text(

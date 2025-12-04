@@ -20,6 +20,7 @@ except ImportError:
 
 from backend.app.services.model_context_presets import get_context_preset
 from backend.app.services.pack_info_collector import PackInfoCollector
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -656,10 +657,7 @@ class ContextBuilder:
                 raise ValueError("OpenAI API key is not configured or is invalid")
 
             llm_manager = LLMProviderManager(openai_key=openai_key)
-            provider = llm_manager.get_provider()
-            if not provider:
-                logger.error("No LLM provider available for summary generation")
-                raise ValueError("No LLM provider available")
+            provider = get_llm_provider_from_settings(llm_manager)
 
             summary_prompt = f"""Please generate a concise summary of the following conversation history, focusing on:
 1. User's main goals and needs

@@ -1,0 +1,186 @@
+"""
+Execution Fallback Service
+
+Provides fallback artifact generation when no matching playbook is found.
+For MVP: Use LLM to generate a basic document artifact.
+
+See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
+"""
+
+import logging
+import uuid
+from datetime import datetime
+from typing import Dict, Any, Optional
+
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+
+logger = logging.getLogger(__name__)
+
+
+async def generate_fallback_artifact(
+    user_request: str,
+    workspace_id: str,
+    profile_id: str,
+    expected_artifacts: Optional[list] = None,
+    llm_provider: Any = None,
+    model_name: str = "gpt-4o-mini"
+) -> Dict[str, Any]:
+    """
+    Generate a basic artifact using LLM when no playbook matches
+
+    This is the MVP fallback: instead of failing, we use LLM to produce
+    a basic document that can be refined later.
+
+    Args:
+        user_request: Original user request
+        workspace_id: Workspace ID
+        profile_id: User profile ID
+        expected_artifacts: Expected artifact types for guidance
+        llm_provider: LLM provider instance
+        model_name: Model to use for generation
+
+    Returns:
+        Dict with artifact info and content
+    """
+    artifact_id = str(uuid.uuid4())
+
+    # Determine target format from expected_artifacts or default to markdown
+    target_format = "md"
+    if expected_artifacts:
+        format_priority = ["docx", "md", "txt", "html"]
+        for fmt in format_priority:
+            if fmt in expected_artifacts:
+                target_format = fmt
+                break
+
+    # Build prompt for generic drafting
+    system_prompt = f"""You are a document drafting assistant. The user has requested content generation,
+but there is no specialized playbook available.
+
+Your task is to generate a useful, well-structured document based on the user's request.
+
+Guidelines:
+1. Create a clear, organized document structure
+2. Use appropriate headings and sections
+3. Provide actionable content where possible
+4. If the request is vague, make reasonable assumptions and note them
+5. Format: {"Markdown" if target_format in ["md", "txt"] else target_format.upper()}
+
+Expected output types for this workspace: {expected_artifacts or "general documents"}
+
+IMPORTANT: This is a generic drafting flow. The output may need refinement with specialized playbooks later.
+"""
+
+    try:
+        if llm_provider:
+            from backend.app.shared.llm_utils import build_prompt
+            messages = build_prompt(system_prompt=system_prompt, user_prompt=user_request)
+
+            provider = get_llm_provider_from_settings(llm_provider)
+            if provider and hasattr(provider, 'chat_completion'):
+                content = await provider.chat_completion(
+                    messages=messages,
+                    model=model_name,
+                    temperature=0.7,
+                    max_tokens=4000
+                )
+            else:
+                # Fallback: return a template
+                content = _generate_template_content(user_request, target_format)
+        else:
+            # No LLM provider - generate template
+            content = _generate_template_content(user_request, target_format)
+
+        # Create artifact record
+        artifact = {
+            "id": artifact_id,
+            "type": target_format,
+            "content": content,
+            "title": f"Draft: {user_request[:50]}..." if len(user_request) > 50 else f"Draft: {user_request}",
+            "created_at": datetime.utcnow().isoformat(),
+            "workspace_id": workspace_id,
+            "profile_id": profile_id,
+            "is_fallback": True,
+            "metadata": {
+                "generation_method": "generic_drafting",
+                "source_request": user_request,
+                "needs_refinement": True
+            }
+        }
+
+        # Store as MindEvent with is_artifact=true
+        await _store_artifact_as_event(artifact, workspace_id, profile_id)
+
+        logger.info(f"[FallbackArtifact] Generated fallback artifact: {artifact_id}")
+        return {
+            "status": "success",
+            "artifact": artifact,
+            "message": "已使用通用 drafting 流程產生草稿。此草稿可能需要進一步調整。"
+        }
+
+    except Exception as e:
+        logger.error(f"[FallbackArtifact] Failed to generate fallback: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+def _generate_template_content(user_request: str, target_format: str) -> str:
+    """Generate a simple template when LLM is not available"""
+    if target_format in ["md", "txt"]:
+        return f"""# 草稿文檔
+
+## 請求內容
+{user_request}
+
+## 大綱
+1. 背景說明
+2. 主要內容
+3. 結論與建議
+
+---
+
+*此為通用 drafting 流程產生的初始草稿，建議使用專門的 Playbook 進行細化。*
+"""
+    else:
+        return f"Draft Document\n\nRequest: {user_request}\n\n[Content to be generated]"
+
+
+async def _store_artifact_as_event(
+    artifact: Dict[str, Any],
+    workspace_id: str,
+    profile_id: str
+) -> None:
+    """Store artifact as MindEvent with is_artifact=true"""
+    try:
+        from backend.app.models.mindscape import MindEvent, EventType, EventActor
+        from backend.app.services.mindscape_store import MindscapeStore
+
+        store = MindscapeStore()
+        event = MindEvent(
+            id=artifact["id"],
+            timestamp=datetime.utcnow(),
+            actor=EventActor.ASSISTANT,
+            channel="local_workspace",
+            profile_id=profile_id,
+            workspace_id=workspace_id,
+            event_type=EventType.MESSAGE,
+            payload={
+                "artifact": artifact,
+                "message": artifact.get("content", "")[:500],
+                "artifact_type": artifact.get("type"),
+                "artifact_title": artifact.get("title")
+            },
+            is_artifact=True,
+            entity_ids=[],
+            metadata={
+                "generation_method": "generic_drafting",
+                "is_fallback": True
+            }
+        )
+        store.create_event(event)
+        logger.info(f"[FallbackArtifact] Stored artifact as MindEvent: {artifact['id']}")
+    except Exception as e:
+        logger.warning(f"[FallbackArtifact] Failed to store artifact as event: {e}")
+

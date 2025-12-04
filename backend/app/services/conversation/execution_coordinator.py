@@ -17,6 +17,7 @@ from ...services.mindscape_store import MindscapeStore
 from ...services.stores.tasks_store import TasksStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...core.execution_context import ExecutionContext
+from ...shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ class ExecutionCoordinator:
         plan_builder,
         playbook_runner,
         message_generator,
-        default_locale: str = "en"
+        default_locale: str = "en",
+        playbook_service=None
     ):
         """
         Initialize ExecutionCoordinator
@@ -47,6 +49,7 @@ class ExecutionCoordinator:
             playbook_runner: PlaybookRunner instance
             message_generator: MessageGenerator instance
             default_locale: Default locale for i18n
+            playbook_service: PlaybookService instance (optional, for unified query)
         """
         self.store = store
         self.tasks_store = tasks_store
@@ -56,6 +59,7 @@ class ExecutionCoordinator:
         self.playbook_runner = playbook_runner
         self.message_generator = message_generator
         self.default_locale = default_locale
+        self.playbook_service = playbook_service
         from ...services.config_store import ConfigStore
         self.config_store = ConfigStore(db_path=store.db_path)
         from ...services.playbook_run_executor import PlaybookRunExecutor
@@ -271,21 +275,13 @@ class ExecutionCoordinator:
         logger.info(f"ExecutionCoordinator: Pack {pack_id} execution method: {execution_method}")
 
         # Handle hardcoded pack executors first (for backward compatibility)
+        # Note: daily_planning has been migrated to playbook architecture
         if pack_id == "semantic_seeds":
             # Allow execution even without files (can extract from message)
+            # TODO: Consider migrating to playbook architecture if needed
             return await self._execute_semantic_seeds(
                 ctx.workspace_id, ctx.actor_id, message_id, files, message, task_event_callback
             )
-        elif pack_id == "daily_planning":
-            return await self._execute_daily_planning(
-                ctx.workspace_id, ctx.actor_id, message_id, files, message, task_event_callback
-            )
-        elif pack_id == "content_drafting":
-            output_type = task_plan.params.get("output_type", "summary")
-            return await self._execute_content_drafting(
-                ctx.workspace_id, ctx.actor_id, message_id, files, message, output_type, task_event_callback
-            )
-
         # Handle dynamic execution methods
         if execution_method == 'playbook':
             # Execute via playbook
@@ -314,37 +310,70 @@ class ExecutionCoordinator:
         """Execute pack via playbook for readonly tasks"""
         try:
             from ...capabilities.registry import get_registry
+
             registry = get_registry()
-            playbooks = registry.get_capability_playbooks(pack_id)
-
-            if not playbooks:
-                logger.warning(f"No playbooks found for pack {pack_id}")
-                return None
-
-            # Try to find appropriate playbook
             playbook_code = None
-            from ...services.playbook_loader import PlaybookLoader
-            playbook_loader = PlaybookLoader()
 
-            # Try pack_id first, then try playbook filenames (without extension)
-            playbook_codes_to_try = [pack_id]
-            for playbook_filename in playbooks:
-                base_name = playbook_filename.replace('.yaml', '').replace('.yml', '')
-                if base_name not in playbook_codes_to_try:
-                    playbook_codes_to_try.append(base_name)
+            # Use PlaybookService if available, otherwise fallback to PlaybookLoader
+            if self.playbook_service:
+                # Use unified PlaybookService
+                from ...services.playbook_service import PlaybookService
+                playbook_service = self.playbook_service
+            else:
+                # Backward compatibility: use PlaybookLoader
+                from ...services.playbook_loader import PlaybookLoader
+                playbook_loader = PlaybookLoader()
+                playbook_service = None
 
-            for code in playbook_codes_to_try:
+            # Determine if pack_id is a capability pack or system-level playbook
+            capability = registry.get_capability(pack_id)
+            capability_playbooks = registry.get_capability_playbooks(pack_id) if capability else []
+
+            if capability and capability_playbooks:
+                # Pack is a capability pack - load from capability pack playbooks
+                logger.debug(f"Pack {pack_id} is a capability pack, loading from capability playbooks")
+                playbook_codes_to_try = []
+                for playbook_filename in capability_playbooks:
+                    base_name = playbook_filename.replace('.yaml', '').replace('.yml', '')
+                    if base_name not in playbook_codes_to_try:
+                        playbook_codes_to_try.append(base_name)
+
+                for code in playbook_codes_to_try:
+                    try:
+                        if playbook_service:
+                            playbook = await playbook_service.get_playbook(
+                                code,
+                                locale=self.default_locale,
+                                workspace_id=ctx.workspace_id
+                            )
+                        else:
+                            playbook = playbook_loader.get_playbook_by_code(code, locale=self.default_locale)
+                        if playbook:
+                            playbook_code = code
+                            logger.info(f"Found playbook {playbook_code} for capability pack {pack_id}")
+                            break
+                    except Exception:
+                        continue
+            else:
+                # Pack is not a capability pack - try as system-level playbook
+                logger.debug(f"Pack {pack_id} is not a capability pack, trying as system-level playbook")
                 try:
-                    playbook = playbook_loader.get_playbook_by_code(code, locale=self.default_locale)
+                    if playbook_service:
+                        playbook = await playbook_service.get_playbook(
+                            pack_id,
+                            locale=self.default_locale,
+                            workspace_id=ctx.workspace_id
+                        )
+                    else:
+                        playbook = playbook_loader.get_playbook_by_code(pack_id, locale=self.default_locale)
                     if playbook:
-                        playbook_code = code
-                        logger.info(f"Found playbook {playbook_code} for pack {pack_id}")
-                        break
-                except Exception:
-                    continue
+                        playbook_code = pack_id
+                        logger.info(f"Found system-level playbook {playbook_code} for pack {pack_id}")
+                except Exception as e:
+                    logger.debug(f"Failed to load system-level playbook {pack_id}: {e}")
 
             if not playbook_code:
-                logger.warning(f"Could not find executable playbook for pack {pack_id}")
+                logger.warning(f"Could not find executable playbook for pack {pack_id} (capability pack: {capability is not None}, system-level: not found)")
                 return None
 
             # Execute playbook
@@ -540,7 +569,7 @@ class ExecutionCoordinator:
                         vertex_project_id=vertex_project_id,
                         vertex_location=vertex_location
                     )
-                    llm_provider = llm_manager.get_provider()
+                    llm_provider = get_llm_provider_from_settings(llm_manager)
 
                     if llm_provider:
                         extractor = SeedExtractor(llm_provider=llm_provider)
@@ -579,7 +608,7 @@ class ExecutionCoordinator:
                         vertex_project_id=vertex_project_id,
                         vertex_location=vertex_location
                     )
-                    llm_provider = llm_manager.get_provider()
+                    llm_provider = get_llm_provider_from_settings(llm_manager)
 
                     if llm_provider:
                         extractor = SeedExtractor(llm_provider=llm_provider)
@@ -659,142 +688,6 @@ class ExecutionCoordinator:
                     )
                 except Exception:
                     pass
-            return None
-
-    async def _execute_daily_planning(
-        self,
-        workspace_id: str,
-        profile_id: str,
-        message_id: str,
-        files: List[str],
-        message: str,
-        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Execute daily_planning pack"""
-        try:
-            from ...capabilities.daily_planning.services.pack_executor import DailyPlanningPackExecutor
-            from ...services.agent_runner import LLMProviderManager
-            import os
-
-            # Get LLM API keys from user config (stored in settings), fallback to env vars
-            config = self.config_store.get_or_create_config(profile_id)
-            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-            vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-            vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-            vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
-            llm_manager = LLMProviderManager(
-                openai_key=openai_key,
-                anthropic_key=anthropic_key,
-                vertex_api_key=vertex_api_key,
-                vertex_project_id=vertex_project_id,
-                vertex_location=vertex_location
-            )
-            llm_provider = llm_manager.get_provider()
-
-            executor = DailyPlanningPackExecutor(
-                store=self.store,
-                tasks_store=self.tasks_store,
-                task_manager=self.task_manager,
-                llm_provider=llm_provider
-            )
-            await executor.execute(
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                message_id=message_id,
-                files=files,
-                message=message
-            )
-            return {"pack_id": "daily_planning"}
-        except Exception as e:
-            logger.error(f"Failed to execute daily_planning: {e}", exc_info=True)
-            return None
-
-    async def _execute_content_drafting(
-        self,
-        workspace_id: str,
-        profile_id: str,
-        message_id: str,
-        files: List[str],
-        message: str,
-        output_type: str,
-        task_event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Execute content_drafting pack"""
-        try:
-            from ...capabilities.content_drafting.services.pack_executor import ContentDraftingPackExecutor
-            from ...services.agent_runner import LLMProviderManager
-            from ...services.system_settings_store import SystemSettingsStore
-            import os
-
-            # Get model name from system settings first to determine provider
-            settings_store = SystemSettingsStore()
-            provider_name = None
-            model_name = None
-            try:
-                chat_setting = settings_store.get_setting("chat_model")
-                if chat_setting and chat_setting.value:
-                    model_name = str(chat_setting.value)
-                    if "gemini" in model_name.lower():
-                        provider_name = "vertex-ai"
-                    elif "gpt" in model_name.lower() or "o1" in model_name.lower() or "o3" in model_name.lower():
-                        provider_name = "openai"
-                    elif "claude" in model_name.lower():
-                        provider_name = "anthropic"
-            except Exception as e:
-                logger.warning(f"Failed to get model from settings: {e}")
-
-            # Get LLM API keys from system settings first, then fallback to config/env vars
-            config = self.config_store.get_or_create_config(profile_id)
-            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-
-            # Get Vertex AI configuration from system settings
-            service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
-            vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
-            vertex_location_setting = settings_store.get_setting("vertex_ai_location")
-
-            vertex_api_key = (service_account_setting.value if service_account_setting and service_account_setting.value else None) or config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-            vertex_project_id = (vertex_project_setting.value if vertex_project_setting and vertex_project_setting.value else None) or config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-            vertex_location = (vertex_location_setting.value if vertex_location_setting and vertex_location_setting.value else None) or config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
-
-            llm_manager = LLMProviderManager(
-                openai_key=openai_key,
-                anthropic_key=anthropic_key,
-                vertex_api_key=vertex_api_key,
-                vertex_project_id=vertex_project_id,
-                vertex_location=vertex_location
-            )
-
-            # Get provider based on user's selected model - no fallback
-            if provider_name:
-                llm_provider = llm_manager.get_provider(provider_name)
-                if not llm_provider:
-                    error_msg = f"Provider '{provider_name}' not available for model '{model_name}'. Please check your API configuration."
-                    logger.error(error_msg)
-                    raise ValueError(error_msg)
-            else:
-                error_msg = f"Cannot determine LLM provider: model not specified or unknown model name. Please configure chat_model in system settings."
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-
-            executor = ContentDraftingPackExecutor(
-                store=self.store,
-                tasks_store=self.tasks_store,
-                task_manager=self.task_manager,
-                llm_provider=llm_provider
-            )
-            await executor.execute(
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                message_id=message_id,
-                files=files,
-                message=message,
-                output_type=output_type
-            )
-            return {"pack_id": "content_drafting"}
-        except Exception as e:
-            logger.error(f"Failed to execute content_drafting: {e}", exc_info=True)
             return None
 
     def _should_create_new_suggestion_task(
@@ -1213,11 +1106,19 @@ class ExecutionCoordinator:
                 # Final fallback: Try to get steps count from playbook YAML
                 if total_steps == 0:
                     try:
-                        from ...services.playbook_loader import PlaybookLoader
                         import yaml
                         from pathlib import Path
-                        playbook_loader = PlaybookLoader()
-                        playbook = playbook_loader.get_playbook_by_code(playbook_code)
+                        # Use PlaybookService if available, otherwise fallback to PlaybookLoader
+                        if self.playbook_service:
+                            playbook = await self.playbook_service.get_playbook(
+                                playbook_code,
+                                locale=self.default_locale,
+                                workspace_id=ctx.workspace_id
+                            )
+                        else:
+                            from ...services.playbook_loader import PlaybookLoader
+                            playbook_loader = PlaybookLoader()
+                            playbook = playbook_loader.get_playbook_by_code(playbook_code)
                         if playbook:
                             # Try to load the YAML file directly to get steps count
                             # Find the playbook file

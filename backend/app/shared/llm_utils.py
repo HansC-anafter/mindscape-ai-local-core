@@ -110,9 +110,28 @@ async def call_llm(
             - usage: Token usage information (if available)
     """
     try:
-        # If llm_provider is LLMProviderManager, get the actual provider
+        # If llm_provider is LLMProviderManager, get the actual provider based on model
         if hasattr(llm_provider, 'get_provider'):
-            provider = llm_provider.get_provider()
+            # Determine provider name from model name
+            provider_name = None
+            if model:
+                if "gemini" in model.lower():
+                    provider_name = "vertex-ai"
+                elif model.startswith("gpt") or model.startswith("o1") or model.startswith("o3"):
+                    provider_name = "openai"
+                elif model.startswith("claude"):
+                    provider_name = "anthropic"
+
+            # Get provider from user settings (no fallback)
+            from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+            try:
+                provider = get_llm_provider_from_settings(llm_provider)
+            except ValueError as e:
+                if provider_name:
+                    logger.warning(f"Provider {provider_name} not available for model {model}: {e}")
+                else:
+                    logger.warning(f"LLM provider not available: {e}")
+                raise Exception(f"No LLM provider available: {e}")
         else:
             provider = llm_provider
 

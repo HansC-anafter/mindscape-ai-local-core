@@ -7,8 +7,9 @@ import logging
 import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
-from backend.appshared.llm_utils import build_prompt, call_llm
+from backend.app.shared.llm_utils import build_prompt, call_llm
 from backend.app.services.agent_runner import LLMProviderManager
+from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 import os
 
 logger = logging.getLogger(__name__)
@@ -61,9 +62,7 @@ async def export_i18n_for_locale(
             openai_key = os.getenv("OPENAI_API_KEY")
             anthropic_key = os.getenv("ANTHROPIC_API_KEY")
             llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
-            llm_provider = llm_manager.get_provider()
-            if not llm_provider:
-                raise ValueError("No LLM provider available. Please configure OpenAI or Anthropic API key.")
+            llm_provider = get_llm_provider_from_settings(llm_manager)
 
         # Translate all keys recursively
         translated_data = await _translate_i18n_data(
