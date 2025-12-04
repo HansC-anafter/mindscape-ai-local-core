@@ -208,17 +208,28 @@ Keep it concise and friendly. Respond in {locale}."""
 
                         # Stream quick response with limited tokens for speed
                         quick_response_text = ""
-                        async for chunk_content in provider.chat_completion_stream(
-                            messages=quick_messages,
-                            model=model_name,
-                            temperature=0.7,
-                            max_tokens=300  # Limit tokens for quick response
-                        ):
-                            quick_response_text += chunk_content
-                            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'message_id': user_event.id})}\n\n"
-
-                        logger.info(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars")
-                        print(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars", file=sys.stderr)
+                        try:
+                            async for chunk_content in provider.chat_completion_stream(
+                                messages=quick_messages,
+                                model=model_name,
+                                temperature=0.7,
+                                max_tokens=500  # Increased for complete responses
+                            ):
+                                if chunk_content:
+                                    quick_response_text += chunk_content
+                                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'message_id': user_event.id, 'is_final': False})}\n\n"
+                            
+                            # Send completion event
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': '', 'message_id': user_event.id, 'is_final': True})}\n\n"
+                            yield f"data: {json.dumps({'type': 'complete', 'message_id': user_event.id})}\n\n"
+                            
+                            logger.info(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars")
+                            print(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars", file=sys.stderr)
+                        except Exception as stream_error:
+                            logger.warning(f"[QuickQA] Stream error: {stream_error}", exc_info=True)
+                            print(f"[QuickQA] Stream error: {stream_error}", file=sys.stderr)
+                            # Send error event but continue
+                            yield f"data: {json.dumps({'type': 'error', 'message': f'Quick response stream error: {str(stream_error)}', 'message_id': user_event.id})}\n\n"
             except Exception as e:
                 logger.warning(f"[QuickQA] Failed to generate quick response: {e}", exc_info=True)
                 print(f"[QuickQA] Failed to generate quick response: {e}", file=sys.stderr)
