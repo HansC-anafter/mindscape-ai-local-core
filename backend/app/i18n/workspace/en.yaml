@@ -48,3 +48,16 @@ file:
 file_info:
   type: "File type: {file_type}"
   pages: ", {pages} pages"
+
+pipeline_stage:
+  intent_extraction: "Analyzing: Understanding your request \"{user_message}\", searching for suitable Playbook."
+  playbook_selection_with_summary: "Selected \"{playbook_name}\" Playbook to handle \"{plan_summary}\", planning to split into {task_count} tasks."
+  playbook_selection: "Selected \"{playbook_name}\" Playbook, planning to split into {task_count} tasks for AI team processing."
+  no_action_needed_with_summary: "This round is mainly to clarify the idea of \"{plan_summary}\", no need to start Playbook for now."
+  no_action_needed: "This round is mainly to clarify ideas, no need to start Playbook for now."
+  no_playbook_found: "Searching available resources: Built-in Playbooks are not quite suitable for this need, switching to general approach."
+  execution_start: "Starting task execution, AI team is collaborating..."
+  task_assignment_multiple: "Planning next step: Assigning to {first_agent} first, then to {other_agents} respectively."
+  task_assignment_single: "Planning next step: Assigning to {first_agent}."
+  task_assignment_fallback: "Planning next step: Executing {task_count} tasks."
+  execution_error: "Encountered issue during execution: {error_message}, handling now."

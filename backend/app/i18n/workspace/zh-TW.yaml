@@ -48,3 +48,16 @@ file:
 file_info:
   type: "文件類型：{file_type}"
   pages: "，共 {pages} 頁"
+
+pipeline_stage:
+  intent_extraction: "分析中：理解你的需求「{user_message}」，尋找適合的 Playbook。"
+  playbook_selection_with_summary: "已選擇「{playbook_name}」 Playbook 處理「{plan_summary}」，計劃拆成 {task_count} 個任務。"
+  playbook_selection: "已選擇「{playbook_name}」 Playbook，計劃拆成 {task_count} 個任務交給 AI 團隊處理。"
+  no_action_needed_with_summary: "這輪主要是釐清「{plan_summary}」的想法，暫時不需要啟動 Playbook。"
+  no_action_needed: "這輪主要是釐清想法，暫時不需要啟動 Playbook。"
+  no_playbook_found: "尋找可用資源：目前內建的 Playbook 還不太適合這個需求，改用一般方式思考。"
+  execution_start: "開始執行任務，AI 團隊正在協作處理中..."
+  task_assignment_multiple: "計劃下一步：交給 {first_agent} 先處理，之後再交給 {other_agents} 分別處理。"
+  task_assignment_single: "計劃下一步：交給 {first_agent} 處理。"
+  task_assignment_fallback: "計劃下一步：執行 {task_count} 個任務。"
+  execution_error: "執行過程中遇到問題：{error_message}，正在處理中。"

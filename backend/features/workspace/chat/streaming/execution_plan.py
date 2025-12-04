@@ -13,6 +13,7 @@ from backend.app.services.execution_plan_generator import (
 )
 from backend.app.services.agent_runner import LLMProviderManager
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
+from backend.app.shared.i18n_loader import get_locale_from_context, load_i18n_string
 
 logger = logging.getLogger(__name__)
 
@@ -164,12 +165,22 @@ async def execute_plan_and_send_events(
 
     try:
         run_id = execution_plan.id if hasattr(execution_plan, 'id') and execution_plan.id else message_id
-
+        
+        workspace = orchestrator.store.get_workspace(workspace_id)
+        profile = orchestrator.store.get_profile(profile_id) if profile_id else None
+        locale = get_locale_from_context(profile=profile, workspace=workspace)
+        
+        execution_start_message = load_i18n_string(
+            'workspace.pipeline_stage.execution_start',
+            locale=locale,
+            default='開始執行任務，AI 團隊正在協作處理中...'
+        )
+        
         pipeline_stage_event = {
             'type': 'pipeline_stage',
             'run_id': run_id,
             'stage': 'execution_start',
-            'message': '開始執行任務，AI 團隊正在協作處理中...',
+            'message': execution_start_message,
             'streaming': True
         }
         yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
@@ -199,11 +210,23 @@ async def execute_plan_and_send_events(
                         other_agents = "、".join(other_agent_names)
                     except Exception:
                         other_agents = "、".join(agent_members[1:])
-                    message = f'計劃下一步：交給 {first_agent_name} 先處理，之後再交給 {other_agents} 分別處理。'
+                    message = load_i18n_string(
+                        'workspace.pipeline_stage.task_assignment_multiple',
+                        locale=locale,
+                        default=f'計劃下一步：交給 {first_agent_name} 先處理，之後再交給 {other_agents} 分別處理。'
+                    ).format(first_agent=first_agent_name, other_agents=other_agents)
                 else:
-                    message = f'計劃下一步：交給 {first_agent_name} 處理。'
+                    message = load_i18n_string(
+                        'workspace.pipeline_stage.task_assignment_single',
+                        locale=locale,
+                        default=f'計劃下一步：交給 {first_agent_name} 處理。'
+                    ).format(first_agent=first_agent_name)
             else:
-                message = f'計劃下一步：執行 {len(execution_plan.tasks)} 個任務。'
+                message = load_i18n_string(
+                    'workspace.pipeline_stage.task_assignment_fallback',
+                    locale=locale,
+                    default=f'計劃下一步：執行 {len(execution_plan.tasks)} 個任務。'
+                ).format(task_count=len(execution_plan.tasks))
 
             task_assignment_event = {
                 'type': 'pipeline_stage',
@@ -286,7 +309,11 @@ async def execute_plan_and_send_events(
             'type': 'pipeline_stage',
             'run_id': run_id,
             'stage': 'execution_error',
-            'message': f'執行過程中遇到問題：{str(exec_error)}，正在處理中。',
+            'message': load_i18n_string(
+                'workspace.pipeline_stage.execution_error',
+                locale=locale,
+                default=f'執行過程中遇到問題：{str(exec_error)}，正在處理中。'
+            ).format(error_message=str(exec_error)),
             'streaming': True,
             'metadata': {
                 'error_type': type(exec_error).__name__,

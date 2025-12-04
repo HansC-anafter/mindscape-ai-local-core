@@ -15,7 +15,7 @@ from backend.app.services.conversation_orchestrator import ConversationOrchestra
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
 from backend.app.services.conversation.context_builder import ContextBuilder
 from backend.app.services.system_settings_store import SystemSettingsStore
-from backend.app.shared.i18n_loader import get_locale_from_context
+from backend.app.shared.i18n_loader import get_locale_from_context, load_i18n_string
 from backend.app.shared.llm_utils import build_prompt
 
 from .context_builder import build_streaming_context, load_available_playbooks
@@ -71,8 +71,13 @@ async def generate_streaming_response(
         execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
 
         if execution_mode in ("execution", "hybrid"):
+            locale = get_locale_from_context(profile=profile, workspace=workspace)
             user_message_preview = request.message[:50] + ('...' if len(request.message) > 50 else '')
-            intent_message = f'分析中：理解你的需求「{user_message_preview}」，尋找適合的 Playbook。'
+            intent_message = load_i18n_string(
+                'workspace.pipeline_stage.intent_extraction',
+                locale=locale,
+                default=f'分析中：理解你的需求「{user_message_preview}」，尋找適合的 Playbook。'
+            ).format(user_message=user_message_preview)
             pipeline_stage_event = {
                 'type': 'pipeline_stage',
                 'run_id': user_event.id,
@@ -201,12 +206,21 @@ async def generate_streaming_response(
                         if not execution_plan.tasks or len(execution_plan.tasks) == 0:
                             # No tasks - this is a no_action_needed scenario
                             if execution_mode in ("execution", "hybrid"):
+                                locale = get_locale_from_context(profile=profile, workspace=workspace)
                                 plan_summary = execution_plan.plan_summary or execution_plan.user_request_summary
                                 if plan_summary:
                                     plan_preview = plan_summary[:40] + ('...' if len(plan_summary) > 40 else '')
-                                    no_action_message = f'這輪主要是釐清「{plan_preview}」的想法，暫時不需要啟動 Playbook。'
+                                    no_action_message = load_i18n_string(
+                                        'workspace.pipeline_stage.no_action_needed_with_summary',
+                                        locale=locale,
+                                        default=f'這輪主要是釐清「{plan_preview}」的想法，暫時不需要啟動 Playbook。'
+                                    ).format(plan_summary=plan_preview)
                                 else:
-                                    no_action_message = '這輪主要是釐清想法，暫時不需要啟動 Playbook。'
+                                    no_action_message = load_i18n_string(
+                                        'workspace.pipeline_stage.no_action_needed',
+                                        locale=locale,
+                                        default='這輪主要是釐清想法，暫時不需要啟動 Playbook。'
+                                    )
                                 pipeline_stage_event = {
                                     'type': 'pipeline_stage',
                                     'run_id': execution_plan.id or user_event.id,
@@ -241,12 +255,21 @@ async def generate_streaming_response(
                             playbook_name = playbook_code or "Playbook"
                             task_count = len(execution_plan.tasks)
 
+                            locale = get_locale_from_context(profile=profile, workspace=workspace)
                             plan_summary = execution_plan.plan_summary or execution_plan.user_request_summary
                             if plan_summary:
                                 plan_preview = plan_summary[:40] + ('...' if len(plan_summary) > 40 else '')
-                                playbook_message = f'已選擇「{playbook_name}」 Playbook 處理「{plan_preview}」，計劃拆成 {task_count} 個任務。'
+                                playbook_message = load_i18n_string(
+                                    'workspace.pipeline_stage.playbook_selection_with_summary',
+                                    locale=locale,
+                                    default=f'已選擇「{playbook_name}」 Playbook 處理「{plan_preview}」，計劃拆成 {task_count} 個任務。'
+                                ).format(playbook_name=playbook_name, plan_summary=plan_preview, task_count=task_count)
                             else:
-                                playbook_message = f'已選擇「{playbook_name}」 Playbook，計劃拆成 {task_count} 個任務交給 AI 團隊處理。'
+                                playbook_message = load_i18n_string(
+                                    'workspace.pipeline_stage.playbook_selection',
+                                    locale=locale,
+                                    default=f'已選擇「{playbook_name}」 Playbook，計劃拆成 {task_count} 個任務交給 AI 團隊處理。'
+                                ).format(playbook_name=playbook_name, task_count=task_count)
 
                             pipeline_stage_event = {
                                 'type': 'pipeline_stage',
@@ -279,7 +302,11 @@ async def generate_streaming_response(
                                 'type': 'pipeline_stage',
                                 'run_id': user_event.id,
                                 'stage': 'no_playbook_found',
-                                'message': '尋找可用資源：目前內建的 Playbook 還不太適合這個需求，改用一般方式思考。',
+                                'message': load_i18n_string(
+                                    'workspace.pipeline_stage.no_playbook_found',
+                                    locale=get_locale_from_context(profile=profile, workspace=workspace),
+                                    default='尋找可用資源：目前內建的 Playbook 還不太適合這個需求，改用一般方式思考。'
+                                ),
                                 'streaming': True
                             }
                             yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
@@ -291,7 +318,11 @@ async def generate_streaming_response(
                         'type': 'pipeline_stage',
                         'run_id': user_event.id,
                         'stage': 'execution_error',
-                        'message': f'執行過程中遇到問題：{str(e)}，正在處理中。',
+                        'message': load_i18n_string(
+                            'workspace.pipeline_stage.execution_error',
+                            locale=get_locale_from_context(profile=profile, workspace=workspace),
+                            default=f'執行過程中遇到問題：{str(e)}，正在處理中。'
+                        ).format(error_message=str(e)),
                         'streaming': True,
                         'metadata': {
                             'error_type': type(e).__name__,
