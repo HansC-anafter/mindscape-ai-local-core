@@ -160,9 +160,16 @@ class ExecutionCoordinator:
             llm_confidence = task_plan.params.get('llm_analysis', {}).get('confidence', 0.0) if task_plan.params else 0.0
 
             # For execution/hybrid mode with READONLY tasks, use workspace's execution_priority
+            # Only override auto_execute if we have a valid confidence value
+            # If confidence is 0.0 (not set), fall back to task_plan.auto_execute
             if execution_mode in ("execution", "hybrid") and side_effect_level == SideEffectLevel.READONLY:
-                should_auto_execute = should_auto_execute_readonly(execution_priority, llm_confidence)
-                logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} auto-execute={should_auto_execute} (execution_mode={execution_mode}, priority={execution_priority}, confidence={llm_confidence:.2f})")
+                if llm_confidence > 0.0:
+                    should_auto_execute = should_auto_execute_readonly(execution_priority, llm_confidence)
+                    logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} auto-execute={should_auto_execute} (execution_mode={execution_mode}, priority={execution_priority}, confidence={llm_confidence:.2f})")
+                else:
+                    # No confidence value - use task_plan.auto_execute as-is
+                    logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} auto-execute={should_auto_execute} (using task_plan.auto_execute, no confidence value)")
+                    print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} auto-execute={should_auto_execute} (using task_plan.auto_execute, no confidence value)", file=sys.stderr)
 
             # Check playbook-specific config (can override workspace settings)
             elif auto_exec_config and task_plan.pack_id in auto_exec_config:
@@ -194,15 +201,30 @@ class ExecutionCoordinator:
                     print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} completed", file=sys.stderr)
                 else:
                     # If execution failed (e.g., unknown execution method), create suggestion card instead
-                    logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card")
-                    print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card", file=sys.stderr)
-                    suggestion = await self._create_suggestion_card(
-                        task_plan, ctx.workspace_id, message_id
-                    )
-                    if suggestion:
-                        results["suggestion_cards"].append(suggestion)
-                        logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)")
-                        print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)", file=sys.stderr)
+                    pack_id_lower = task_plan.pack_id.lower() if task_plan.pack_id else ""
+
+                    if pack_id_lower == "intent_extraction":
+                        logger.error(
+                            f"ExecutionCoordinator: intent_extraction execution failed in fallback path. "
+                            f"This should not happen - intent_extraction should be handled by IntentInfraService."
+                        )
+                        print(
+                            f"ExecutionCoordinator: ERROR - intent_extraction reached fallback path. "
+                            f"This indicates a routing issue.",
+                            file=sys.stderr
+                        )
+                        # Don't create suggestion card to avoid infinite loop
+                        results["skipped_tasks"].append(task_plan.pack_id)
+                    else:
+                        logger.info(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card")
+                        print(f"ExecutionCoordinator: READONLY task {task_plan.pack_id} execution failed, creating suggestion card", file=sys.stderr)
+                        suggestion = await self._create_suggestion_card(
+                            task_plan, ctx.workspace_id, message_id
+                        )
+                        if suggestion:
+                            results["suggestion_cards"].append(suggestion)
+                            logger.info(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)")
+                            print(f"ExecutionCoordinator: Suggestion card created for {task_plan.pack_id} (fallback from failed execution)", file=sys.stderr)
 
             elif side_effect_level == SideEffectLevel.SOFT_WRITE:
                 # Check if should auto-execute based on workspace config
@@ -277,6 +299,22 @@ class ExecutionCoordinator:
     ) -> Optional[Dict[str, Any]]:
         """Execute readonly task automatically"""
         pack_id = task_plan.pack_id
+        pack_id_lower = pack_id.lower() if pack_id else ""
+
+        if pack_id_lower == "intent_extraction":
+            logger.error(
+                f"ExecutionCoordinator: intent_extraction should not reach _execute_readonly_task. "
+                f"This indicates a routing issue. Task should be handled by IntentInfraService in SuggestionActionHandler."
+            )
+            print(
+                f"ExecutionCoordinator: ERROR - intent_extraction reached _execute_readonly_task. "
+                f"This should be handled by IntentInfraService.",
+                file=sys.stderr
+            )
+            raise ValueError(
+                f"intent_extraction should be handled by IntentInfraService, not ExecutionCoordinator. "
+                f"Check SuggestionActionHandler priority handling logic."
+            )
 
         # Check execution method dynamically
         from ...capabilities.registry import get_registry
