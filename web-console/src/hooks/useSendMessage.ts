@@ -168,8 +168,14 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                       step_count: data.plan?.step_count,
                       steps: data.plan?.steps,
                       ai_team_members: data.plan?.ai_team_members,
+                      ai_team_members_count: data.plan?.ai_team_members?.length || 0,
                       raw_steps: JSON.stringify(data.plan?.steps, null, 2)
                     });
+                    if (data.plan?.ai_team_members && data.plan.ai_team_members.length > 0) {
+                      console.log('[useSendMessage] AI team members details:', JSON.stringify(data.plan.ai_team_members, null, 2));
+                    } else {
+                      console.warn('[useSendMessage] No ai_team_members in plan data!');
+                    }
                   }
                   const mappedSteps = (data.plan?.steps || []).map((s: any) => {
                     const step = {

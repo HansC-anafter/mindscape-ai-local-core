@@ -217,6 +217,15 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
           if (process.env.NODE_ENV === 'development') {
             console.log('[useExecutionState] Received ai_team_members:', event.plan.ai_team_members, 'mapped to:', aiTeamMembers);
+            if (event.plan.ai_team_members && event.plan.ai_team_members.length > 0) {
+              console.log('[useExecutionState] AI team members details:', JSON.stringify(event.plan.ai_team_members, null, 2));
+              console.log('[useExecutionState] Mapped AI team members:', JSON.stringify(aiTeamMembers, null, 2));
+            } else {
+              console.warn('[useExecutionState] No ai_team_members in event.plan!', {
+                plan_keys: Object.keys(event.plan),
+                plan_id: event.plan.id
+              });
+            }
           }
 
           const newState = {
