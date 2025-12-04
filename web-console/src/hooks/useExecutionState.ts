@@ -181,7 +181,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         }
         setState(prev => {
           const newRunId = event.plan.id || `plan-${Date.now()}`;
-          
+
           // Check if this is a new run or same run
           const isNewRun = newRunId !== prev.currentRunId;
 
@@ -241,13 +241,15 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           const newState = {
             ...prev,
             currentRunId: newRunId,
-            pipelineStage: null,
+            // Don't reset pipelineStage here - keep existing stage if it's for the same run
+            // Only reset if it's a new run
+            pipelineStage: isNewRun ? null : prev.pipelineStage,
             aiTeamMembers: aiTeamMembers,
             trainSteps: newSteps,
             thinkingSummary: event.plan.summary,
             overallProgress: calculateProgress(newSteps),
             executionTree: treeSteps,
-            thinkingTimeline: isNewRun 
+            thinkingTimeline: isNewRun
               ? [newTimelineEntry, ...prev.thinkingTimeline].slice(0, 10)
               : prev.thinkingTimeline, // Only add timeline entry for new runs
           };
