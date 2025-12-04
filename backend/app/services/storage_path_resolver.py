@@ -179,7 +179,7 @@ class StoragePathResolver:
         Returns:
             Path string of default storage directory, or None if not available
         """
-        from ...services.storage_path_validator import StoragePathValidator
+        from backend.app.services.storage_path_validator import StoragePathValidator
 
         env_base_path = os.getenv("WORKSPACE_STORAGE_BASE_PATH")
         if env_base_path:

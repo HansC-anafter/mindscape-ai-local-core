@@ -216,7 +216,7 @@ class StoragePathValidator:
             allowed_dirs.extend([d.strip() for d in env_dirs.split(",") if d.strip()])
 
         try:
-            from ...services.tool_registry import ToolRegistryService
+            from backend.app.services.tool_registry import ToolRegistryService
             tool_registry = ToolRegistryService()
             try:
                 connections = tool_registry.get_connections_by_tool_type(
@@ -250,7 +250,7 @@ class StoragePathValidator:
 
         if not allowed_dirs:
             try:
-                from ...services.tool_registry import ToolRegistryService
+                from backend.app.services.tool_registry import ToolRegistryService
                 tool_registry = ToolRegistryService()
                 tools = tool_registry.get_tools(enabled_only=False)
 

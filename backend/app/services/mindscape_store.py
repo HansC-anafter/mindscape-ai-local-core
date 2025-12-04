@@ -44,11 +44,13 @@ class MindscapeStore:
 
     def __init__(self, db_path: str = None):
         if db_path is None:
-            # Use /app/data/mindscape.db in Docker, otherwise backend/data/mindscape.db
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            data_dir = os.path.join(base_dir, "data")
-            os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, "mindscape.db")
+            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
+                db_path = '/app/data/mindscape.db'
+            else:
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                data_dir = os.path.join(base_dir, "data")
+                os.makedirs(data_dir, exist_ok=True)
+                db_path = os.path.join(data_dir, "mindscape.db")
 
         self.db_path = db_path
 

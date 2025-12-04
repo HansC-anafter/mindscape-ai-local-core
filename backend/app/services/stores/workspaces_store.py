@@ -25,9 +25,10 @@ class WorkspacesStore(StoreBase):
                     default_playbook_id, default_locale, mode, data_sources,
                     playbook_auto_execution_config, suggestion_history,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
-                    playbook_storage_config,
+                    playbook_storage_config, cloud_remote_tools_config,
+                    execution_mode, expected_artifacts, execution_priority,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 workspace.id,
                 workspace.owner_user_id,
@@ -45,6 +46,10 @@ class WorkspacesStore(StoreBase):
                 workspace.uploads_dir,
                 self.serialize_json(workspace.storage_config) if workspace.storage_config else None,
                 self.serialize_json(workspace.playbook_storage_config) if workspace.playbook_storage_config else None,
+                self.serialize_json(getattr(workspace, 'cloud_remote_tools_config', None)) if getattr(workspace, 'cloud_remote_tools_config', None) else None,
+                workspace.execution_mode,
+                self.serialize_json(workspace.expected_artifacts) if workspace.expected_artifacts else None,
+                workspace.execution_priority,
                 self.to_isoformat(workspace.created_at),
                 self.to_isoformat(workspace.updated_at)
             ))
@@ -115,6 +120,9 @@ class WorkspacesStore(StoreBase):
                     uploads_dir = ?,
                     storage_config = ?,
                     playbook_storage_config = ?,
+                    execution_mode = ?,
+                    expected_artifacts = ?,
+                    execution_priority = ?,
                     updated_at = ?
                 WHERE id = ?
             ''', (
@@ -132,6 +140,9 @@ class WorkspacesStore(StoreBase):
                 workspace.uploads_dir,
                 self.serialize_json(workspace.storage_config) if workspace.storage_config else None,
                 self.serialize_json(workspace.playbook_storage_config) if workspace.playbook_storage_config else None,
+                workspace.execution_mode,
+                self.serialize_json(workspace.expected_artifacts) if workspace.expected_artifacts else None,
+                workspace.execution_priority,
                 self.to_isoformat(workspace.updated_at),
                 workspace.id
             ))
@@ -200,6 +211,22 @@ class WorkspacesStore(StoreBase):
         except (KeyError, IndexError):
             playbook_storage_config = None
 
+        # Handle execution mode fields - they may not exist in older database rows
+        try:
+            execution_mode = row['execution_mode'] if row['execution_mode'] else "qa"
+        except (KeyError, IndexError):
+            execution_mode = "qa"
+
+        try:
+            expected_artifacts = self.deserialize_json(row['expected_artifacts'], None) if row['expected_artifacts'] else None
+        except (KeyError, IndexError):
+            expected_artifacts = None
+
+        try:
+            execution_priority = row['execution_priority'] if row['execution_priority'] else "medium"
+        except (KeyError, IndexError):
+            execution_priority = "medium"
+
         return Workspace(
             id=row['id'],
             owner_user_id=row['owner_user_id'],
@@ -217,6 +244,9 @@ class WorkspacesStore(StoreBase):
             uploads_dir=uploads_dir,
             storage_config=storage_config,
             playbook_storage_config=playbook_storage_config,
+            execution_mode=execution_mode,
+            expected_artifacts=expected_artifacts,
+            execution_priority=execution_priority,
             created_at=self.from_isoformat(row['created_at']),
             updated_at=self.from_isoformat(row['updated_at'])
         )
