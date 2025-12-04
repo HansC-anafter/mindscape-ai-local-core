@@ -167,6 +167,7 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                       plan_summary: data.plan?.plan_summary,
                       step_count: data.plan?.step_count,
                       steps: data.plan?.steps,
+                      ai_team_members: data.plan?.ai_team_members,
                       raw_steps: JSON.stringify(data.plan?.steps, null, 2)
                     });
                   }
