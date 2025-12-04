@@ -43,6 +43,7 @@ class ToolConnection:
         name: str = "",
         description: Optional[str] = None,
         associated_roles: Optional[List[str]] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
         self.id = id
         self.tool_type = tool_type
@@ -56,6 +57,7 @@ class ToolConnection:
         self.name = name or tool_type
         self.description = description
         self.associated_roles = associated_roles or []
+        self.config = config or {}
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
 
@@ -203,7 +205,7 @@ class MindscapeTool(ABC):
                 )
                 continue
 
-            # TODO: 更嚴格的類型驗證(可選)
+            # TODO: Add stricter type validation (optional)
             validated[param_name] = param_value
 
         return validated
