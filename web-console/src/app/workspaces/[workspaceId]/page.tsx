@@ -537,10 +537,22 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                         )}
                         {/* Debug: Show AI Team status in development */}
                         {process.env.NODE_ENV === 'development' && (
-                          <div className="mt-2 text-xs text-gray-400">
-                            Debug: aiTeamMembers={executionState.aiTeamMembers.length},
-                            pipelineStage={executionState.pipelineStage?.stage || 'null'},
-                            isExecuting={executionState.isExecuting ? 'true' : 'false'}
+                          <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-gray-600 dark:text-gray-400">
+                            <div>Debug AI Team Panel:</div>
+                            <div>aiTeamMembers.length={executionState.aiTeamMembers.length}</div>
+                            <div>pipelineStage={executionState.pipelineStage?.stage || 'null'}</div>
+                            <div>isExecuting={executionState.isExecuting ? 'true' : 'false'}</div>
+                            <div>workspace.execution_mode={workspace?.execution_mode}</div>
+                            <div>Should show: {(
+                              executionState.aiTeamMembers.length > 0 &&
+                              executionState.pipelineStage?.stage !== 'no_action_needed' &&
+                              executionState.pipelineStage?.stage !== 'no_playbook_found'
+                            ) ? 'YES' : 'NO'}</div>
+                            {executionState.aiTeamMembers.length > 0 && (
+                              <div className="mt-1">
+                                Members: {JSON.stringify(executionState.aiTeamMembers.map(m => ({ id: m.id, name: m.name_zh || m.name })), null, 2)}
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
