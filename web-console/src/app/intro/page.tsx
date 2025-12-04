@@ -12,7 +12,7 @@ export default function IntroPage() {
   };
 
   return (
-    <div className="w-full h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
+    <div className="w-full h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <FogRevealCard enableCardClear={true}>
         <div className="flex items-center justify-center">
           {/* 主入口卡片 */}
@@ -40,10 +40,10 @@ export default function IntroPage() {
             {/* 主要說明 */}
             <div className="text-center mb-10 space-y-3">
               <p className="text-lg text-gray-700 leading-snug">
-                我會幫你建立一個 <span className="font-semibold text-purple-600">AI 的心智空間</span>，
+                我會幫你建立一個 <span className="font-semibold text-gray-600">AI 的心智空間</span>，
               </p>
               <p className="text-lg text-gray-700 leading-snug">
-                協調 <span className="font-semibold text-purple-600">AI 成員</span>一起幫你工作。
+                協調 <span className="font-semibold text-gray-600">AI 成員</span>一起幫你工作。
               </p>
             </div>
 
@@ -51,10 +51,10 @@ export default function IntroPage() {
             <div className="flex flex-col items-center mb-8">
               <button
                 onClick={handleStart}
-                className="group relative bg-gradient-to-r from-purple-500 to-pink-500 text-white px-12 py-5 rounded-xl font-bold text-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95"
+                className="group relative bg-gradient-to-r from-gray-500 to-pink-500 text-white px-12 py-5 rounded-xl font-bold text-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95"
               >
                 <span className="relative z-10">開啟空間</span>
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-gray-600 to-pink-600 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               </button>
               <p className="text-xs mt-3 laser-text-rose tracking-wide">
                 建議僅在個人電腦使用，資料會保存在本機。

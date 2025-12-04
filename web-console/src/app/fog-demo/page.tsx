@@ -4,11 +4,11 @@ import { FogRevealCard } from '@/components/onboarding/FogRevealCard';
 
 export default function FogDemoPage() {
   return (
-    <div className="w-full h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
+    <div className="w-full h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <FogRevealCard enableCardClear={true}>
         <div className="flex flex-col gap-8 items-center">
           {/* 示例卡片 1 - 添加 data-fog-card 属性 */}
-          <div 
+          <div
             data-fog-card
             className="bg-white/90 backdrop-blur-sm rounded-2xl p-8 shadow-2xl max-w-md transition-all duration-300 hover:shadow-3xl hover:scale-105"
           >
@@ -23,13 +23,13 @@ export default function FogDemoPage() {
               <br />
               移開後，雲霧緩慢恢復。
             </p>
-            <button className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
+            <button className="bg-gradient-to-r from-gray-500 to-pink-500 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
               開始探索
             </button>
           </div>
 
           {/* 示例卡片 2 - 添加 data-fog-card 属性 */}
-          <div 
+          <div
             data-fog-card
             className="bg-white/90 backdrop-blur-sm rounded-2xl p-8 shadow-2xl max-w-md transition-all duration-300 hover:shadow-3xl hover:scale-105"
           >

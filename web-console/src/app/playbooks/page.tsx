@@ -202,7 +202,7 @@ export default function PlaybooksPage() {
                 {t('playbooksTitle')}
               </h1>
               {/* Workflow visualization */}
-              <div className="hidden md:flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg px-3 py-2 border border-blue-100 dark:border-blue-800">
+              <div className="hidden md:flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gradient-to-r from-blue-50 to-gray-50 dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-2 border border-blue-100 dark:border-blue-800">
                 <span className="text-base">🧠</span>
                 <span>{t('playbookStepMindscape')}</span>
                 <span className="text-gray-400 dark:text-gray-500">→</span>
@@ -221,7 +221,7 @@ export default function PlaybooksPage() {
                 placeholder={t('searchPlaybooks')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
               <button
                 onClick={() => {
@@ -340,7 +340,7 @@ export default function PlaybooksPage() {
                         {(playbook.tags || []).slice(0, 2).map(tag => (
                           <span
                             key={tag}
-                            className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded"
+                            className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 rounded"
                           >
                             {tag}
                           </span>

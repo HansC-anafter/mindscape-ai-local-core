@@ -283,7 +283,7 @@ export default function MindscapePage() {
         {/* Episode Selection Screen (when user has state) */}
         {hasState && !isOnboarding && (
           <div className="mb-8">
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-8 mb-6">
+            <div className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-gray-200 rounded-lg p-8 mb-6">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">歡迎回到你的 Mindscape AI 工作站</h2>
               <div className="text-gray-600 mb-6">先選一個今天要啟動的模式，AI 團隊就會照這個方向配合你工作。</div>
 
@@ -577,7 +577,7 @@ export default function MindscapePage() {
 
         {/* Current Mode Overview (only show after onboarding complete, but hide when showing episode selection) */}
         {!isOnboarding && !hasState && currentMode && (
-          <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-6 mb-6">
+          <div className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-gray-200 rounded-lg p-6 mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('mindscapeCurrentState')}</h2>
             <div className="space-y-2">
               <div>
@@ -605,7 +605,7 @@ export default function MindscapePage() {
                 </div>
               </div>
             </div>
-            <button className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">
+            <button className="mt-4 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm">
               調整模式
             </button>
           </div>

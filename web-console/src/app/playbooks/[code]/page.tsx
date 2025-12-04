@@ -576,7 +576,7 @@ export default function PlaybookDetailPage() {
                       {playbookTags.map((tag) => (
                         <span
                           key={tag}
-                          className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded"
+                          className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 rounded"
                         >
                           {tag}
                         </span>
@@ -734,7 +734,7 @@ export default function PlaybookDetailPage() {
               <textarea
                 value={userNotes}
                 onChange={(e) => setUserNotes(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md mb-4 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md mb-4 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 rows={8}
                 placeholder={t('writeYourNotesHere')}
               />
