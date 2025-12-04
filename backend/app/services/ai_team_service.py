@@ -135,6 +135,9 @@ def get_members_from_tasks(tasks: List[Any], playbook_code: Optional[str] = None
             logger.info(f"[AITeamService] Added member: {member_info.get('name_zh') or member_info.get('name')}")
         elif member_info:
             logger.warning(f"[AITeamService] Member {pack_id} is not visible")
+        else:
+            # Pack ID not found in config - this is expected for some pack types
+            logger.debug(f"[AITeamService] Pack ID {pack_id} not found in AI team config (may be a tool or system pack)")
 
     # Sort by order
     members.sort(key=lambda m: m.get("order", 999))

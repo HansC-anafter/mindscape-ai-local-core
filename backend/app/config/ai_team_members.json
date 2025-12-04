@@ -64,6 +64,16 @@
       "visible": true,
       "order": 1
     }
+  },
+  "execution_status_query": {
+    "default": {
+      "name": "Status Query Handler",
+      "name_zh": "狀態查詢處理器",
+      "role": "負責查詢執行狀態與進度",
+      "icon": "📊",
+      "visible": true,
+      "order": 1
+    }
   }
 }
 
