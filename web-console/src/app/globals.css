@@ -2,6 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    /* Theme color variables for light mode */
+    --color-scrollbar-thumb: rgba(168, 85, 247, 0.4);
+    --color-scrollbar-thumb-hover: rgba(168, 85, 247, 0.6);
+    --color-scrollbar-track: transparent;
+  }
+
+  .dark {
+    /* Theme color variables for dark mode */
+    --color-scrollbar-thumb: rgba(196, 181, 253, 0.5);
+    --color-scrollbar-thumb-hover: rgba(196, 181, 253, 0.7);
+    --color-scrollbar-track: transparent;
+  }
+
+  /* Global scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--color-scrollbar-track);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-scrollbar-thumb);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: var(--color-scrollbar-track);
+  }
+}
+
 @layer utilities {
   @keyframes slideDown {
     from {

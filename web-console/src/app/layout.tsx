@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { LocaleProvider } from '../lib/i18n'
+import { ThemeProvider } from '../lib/theme-provider'
 
 export const metadata: Metadata = {
   title: 'Mindscape AI - Personal Agent Console',
@@ -15,9 +16,11 @@ export default function RootLayout({
   return (
     <html lang="zh-TW" suppressHydrationWarning>
       <body suppressHydrationWarning>
-        <LocaleProvider>
-          {children}
-        </LocaleProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <LocaleProvider>
+            {children}
+          </LocaleProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
