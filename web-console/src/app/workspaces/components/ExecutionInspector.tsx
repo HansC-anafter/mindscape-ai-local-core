@@ -502,23 +502,23 @@ export default function ExecutionInspector({
   };
 
   const getStepStatusColor = (step: ExecutionStep) => {
-    if (step.status === 'completed') return 'text-green-600 bg-green-50 border-green-200';
-    if (step.status === 'running') return 'text-blue-600 bg-blue-50 border-blue-200';
-    if (step.status === 'waiting_confirmation') return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-    if (step.status === 'failed') return 'text-red-600 bg-red-50 border-red-200';
-    return 'text-gray-400 bg-gray-50 border-gray-200';
+    if (step.status === 'completed') return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700';
+    if (step.status === 'running') return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700';
+    if (step.status === 'waiting_confirmation') return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700';
+    if (step.status === 'failed') return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700';
+    return 'text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
   };
 
   const getTriggerSourceBadge = (source?: string) => {
     switch (source) {
       case 'auto':
-        return { label: t('triggerSourceAuto'), color: 'bg-blue-100 text-blue-700 border-blue-300' };
+        return { label: t('triggerSourceAuto'), color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700' };
       case 'suggestion':
-        return { label: t('triggerSourceSuggested'), color: 'bg-purple-100 text-purple-700 border-purple-300' };
+        return { label: t('triggerSourceSuggested'), color: 'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 border-gray-400 dark:border-gray-600' };
       case 'manual':
-        return { label: t('triggerSourceManual'), color: 'bg-gray-100 text-gray-700 border-gray-300' };
+        return { label: t('triggerSourceManual'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
       default:
-        return { label: t('triggerSourceUnknown'), color: 'bg-gray-100 text-gray-700 border-gray-300' };
+        return { label: t('triggerSourceUnknown'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
     }
   };
 
@@ -581,7 +581,7 @@ export default function ExecutionInspector({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-500"></div>
       </div>
     );
   }
@@ -606,7 +606,7 @@ export default function ExecutionInspector({
   const runNumber = parseInt(executionId.slice(-1), 16) % 10 + 1; // Simple run number calculation
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
       {/* Execution Header */}
       {execution && (
         <ExecutionHeader
@@ -658,9 +658,9 @@ export default function ExecutionInspector({
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Run Insight & Draft Changes */}
-          <div className="flex-shrink-0 border-b bg-white">
+          <div className="flex-shrink-0 border-b dark:border-gray-700 bg-white dark:bg-gray-900">
             <div className="grid grid-cols-2 gap-0 h-56">
-              <div className="border-r p-3 overflow-y-auto">
+              <div className="border-r dark:border-gray-700 p-3 overflow-y-auto">
                 <PlaybookRevisionArea
                   playbookCode={execution?.playbook_code}
                   playbookSteps={steps.map(s => ({
@@ -686,14 +686,14 @@ export default function ExecutionInspector({
                 />
               </div>
               <div className="p-3 overflow-y-auto">
-                <div className="text-xs font-semibold text-gray-900 mb-1.5">{t('revisionDraft')}</div>
-                <div className="text-[10px] text-gray-500">{t('aiSuggestedChangesWillAppear')}</div>
+                <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-1.5">{t('revisionDraft')}</div>
+                <div className="text-[10px] text-gray-500 dark:text-gray-300">{t('aiSuggestedChangesWillAppear')}</div>
               </div>
             </div>
           </div>
 
           {/* Steps Timeline & Current Step Details or Workflow Visualization */}
-          <div className="flex-1 overflow-hidden bg-gray-50 p-3">
+          <div className="flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950 p-3">
             {workflowData && workflowData.workflow_result && workflowData.handoff_plan ? (
               <div className="h-full overflow-y-auto">
                 <WorkflowVisualization
@@ -718,7 +718,7 @@ export default function ExecutionInspector({
 
         {/* 4️⃣ Right: Playbook Inspector / Conversation */}
         {playbookMetadata?.supports_execution_chat && (
-          <div className="w-80 flex-shrink-0 border-l bg-white">
+          <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900">
             <ExecutionChatPanel
               executionId={executionId}
               workspaceId={workspaceId}

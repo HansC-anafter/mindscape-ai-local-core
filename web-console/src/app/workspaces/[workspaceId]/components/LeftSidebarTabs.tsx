@@ -23,13 +23,13 @@ export default function LeftSidebarTabs({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Tab Header */}
-      <div className="flex border-b bg-gray-50 shrink-0">
+      <div className="flex border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shrink-0">
         <button
           onClick={() => onTabChange('timeline')}
           className={`flex-1 px-4 py-2 text-xs font-medium transition-colors ${
             activeTab === 'timeline'
-              ? 'bg-white text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
           }`}
         >
           {t('tabScheduling') || 'Scheduling'}
@@ -38,8 +38,8 @@ export default function LeftSidebarTabs({
           onClick={() => onTabChange('outcomes')}
           className={`flex-1 px-4 py-2 text-xs font-medium transition-colors ${
             activeTab === 'outcomes'
-              ? 'bg-white text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
           }`}
         >
           {t('tabOutcomes') || 'Outcomes'}
@@ -48,8 +48,8 @@ export default function LeftSidebarTabs({
           onClick={() => onTabChange('background')}
           className={`flex-1 px-4 py-2 text-xs font-medium transition-colors ${
             activeTab === 'background'
-              ? 'bg-white text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
           }`}
         >
           {t('tabBackgroundTasks') || 'Background Tasks'}
@@ -62,7 +62,7 @@ export default function LeftSidebarTabs({
           ? timelineContent
           : activeTab === 'outcomes'
           ? outcomesContent
-          : backgroundContent || <div className="p-4 text-sm text-gray-500">{t('backgroundTasksPanel') || 'Background Tasks Panel'}</div>}
+          : backgroundContent || <div className="p-4 text-sm text-gray-500 dark:text-gray-400">{t('backgroundTasksPanel') || 'Background Tasks Panel'}</div>}
       </div>
     </div>
   );

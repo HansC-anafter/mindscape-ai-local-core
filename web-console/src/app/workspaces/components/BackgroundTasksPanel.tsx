@@ -182,7 +182,7 @@ export default function BackgroundTasksPanel({
   const getStatusBadge = (routine: BackgroundRoutine) => {
     if (!routine.enabled) {
       return (
-        <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-gray-100 text-gray-600 border-gray-300 font-medium">
+        <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 font-medium">
           {t('disabled')}
         </span>
       );
@@ -193,25 +193,25 @@ export default function BackgroundTasksPanel({
       if (routine.readiness_status === 'ready') {
         if (routine.last_status === 'ok') {
           return (
-            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-green-100 text-green-700 border-green-300 font-medium">
+            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 font-medium">
               {t('runningNormally')}
             </span>
           );
         }
         return (
-          <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-green-100 text-green-700 border-green-300 font-medium">
+          <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 font-medium">
             {t('ready')}
           </span>
         );
       } else if (routine.readiness_status === 'needs_setup') {
         return (
-          <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-yellow-100 text-yellow-700 border-yellow-300 font-medium">
+          <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 font-medium">
             {t('needsSetup')}
           </span>
         );
       } else if (routine.readiness_status === 'unsupported') {
         return (
-          <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-red-100 text-red-700 border-red-300 font-medium">
+          <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 font-medium">
             {t('unsupported')}
           </span>
         );
@@ -221,20 +221,20 @@ export default function BackgroundTasksPanel({
     // Fallback to legacy status
     if (routine.last_status === 'ok') {
       return (
-        <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-green-100 text-green-700 border-green-300 font-medium">
+        <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 font-medium">
           {t('runningNormally')}
         </span>
       );
     } else if (routine.last_status === 'failed') {
       return (
-        <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-red-100 text-red-700 border-red-300 font-medium">
+        <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 font-medium">
           {t('executionFailed')}
         </span>
       );
     }
 
     return (
-      <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 text-blue-700 border-blue-300 font-medium">
+      <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 font-medium">
         {t('enabled')}
       </span>
     );
@@ -243,7 +243,7 @@ export default function BackgroundTasksPanel({
   if (loading) {
     return (
       <div className="p-4 flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-6 h-6 border-2 border-blue-600 dark:border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -257,7 +257,7 @@ export default function BackgroundTasksPanel({
         {routines.length > 0 && (
           <>
             {routines.length > 0 && systemTools.length > 0 && (
-              <div className="text-xs font-semibold text-gray-700 mb-2 pt-2 border-t border-gray-200">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                 {t('backgroundRoutines')}
               </div>
             )}
@@ -266,13 +266,13 @@ export default function BackgroundTasksPanel({
                 key={routine.id}
                 className={`border rounded p-2 transition-colors ${
                   routine.enabled
-                    ? 'bg-gray-50 border-gray-200'
-                    : 'bg-gray-50 border-gray-200 opacity-60'
+                    ? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                    : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 opacity-60'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-xs font-medium text-gray-900 truncate">
+                    <span className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
                       {routine.playbook_code}
                     </span>
                     {getStatusBadge(routine)}
@@ -284,10 +284,10 @@ export default function BackgroundTasksPanel({
                     disabled={updatingIds.has(routine.id)}
                     className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${
                       updatingIds.has(routine.id)
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                         : routine.enabled
-                        ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
-                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
+                        ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/40 border border-red-300 dark:border-red-700'
+                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/40 border border-blue-300 dark:border-blue-700'
                     }`}
                   >
                     {updatingIds.has(routine.id)
@@ -300,7 +300,7 @@ export default function BackgroundTasksPanel({
 
                 {/* Tool Status Chips */}
                 {routine.tool_statuses && Object.keys(routine.tool_statuses).length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-gray-200">
+                  <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(routine.tool_statuses).map(([toolType, status]) => (
                         <ToolStatusChip
@@ -318,7 +318,7 @@ export default function BackgroundTasksPanel({
                 )}
 
                 {/* Routine Details */}
-                <div className="text-xs text-gray-600 space-y-1 mt-2">
+                <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1 mt-2">
                   {routine.last_run_at && (
                     <div>
                       <span className="font-medium">{t('lastExecution')}:</span>
@@ -332,17 +332,17 @@ export default function BackgroundTasksPanel({
                     </div>
                   )}
                   {routine.last_status === 'failed' && (
-                    <div className="text-red-600 text-[10px] mt-1">
+                    <div className="text-red-600 dark:text-red-400 text-[10px] mt-1">
                       {t('lastExecutionFailed')}
                     </div>
                   )}
                   {routine.readiness_status === 'needs_setup' && (
-                    <div className="text-yellow-600 text-[10px] mt-1">
+                    <div className="text-yellow-600 dark:text-yellow-400 text-[10px] mt-1">
                       {t('toolsNeedConfiguration')}
                     </div>
                   )}
                   {routine.readiness_status === 'unsupported' && (
-                    <div className="text-red-600 text-[10px] mt-1">
+                    <div className="text-red-600 dark:text-red-400 text-[10px] mt-1">
                       {t('requiredToolsNotSupported')}
                     </div>
                   )}
@@ -356,25 +356,25 @@ export default function BackgroundTasksPanel({
         {systemTools.length > 0 && (
           <>
             {routines.length > 0 && systemTools.length > 0 && (
-              <div className="text-xs font-semibold text-gray-700 mb-2 pt-2 border-t border-gray-200">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                 {t('systemTools') || 'System Tools'}
               </div>
             )}
             {systemTools.map((tool) => (
               <div
                 key={tool.playbook_code}
-                className="border rounded p-2 bg-gray-50 border-gray-200"
+                className="border rounded p-2 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-gray-900 truncate flex-1 min-w-0">
+                  <span className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate flex-1 min-w-0">
                     {tool.name || tool.playbook_code}
                   </span>
-                  <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 text-blue-700 border-blue-300 font-medium ml-2 flex-shrink-0">
+                  <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 font-medium ml-2 flex-shrink-0">
                     {t('systemTool') || 'System Tool'}
                   </span>
                 </div>
                 {tool.description && (
-                  <div className="text-xs text-gray-600 mt-2">
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-2">
                     {tool.description}
                   </div>
                 )}
@@ -385,7 +385,7 @@ export default function BackgroundTasksPanel({
 
         {/* Empty State */}
         {totalItems === 0 && (
-          <div className="text-xs text-gray-500 italic py-4 text-center">
+          <div className="text-xs text-gray-500 dark:text-gray-400 italic py-4 text-center">
             {t('noBackgroundTasks')}
           </div>
         )}

@@ -137,6 +137,7 @@ export default function TimelinePanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [isTimelineItemsCollapsed, setIsTimelineItemsCollapsed] = useState(true); // Default collapsed
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const [showStorageConfigModal, setShowStorageConfigModal] = useState(false);
   const [localWorkspace, setLocalWorkspace] = useState<any>(null);
@@ -917,326 +918,93 @@ export default function TimelinePanel({
           );
         })()}
 
-        {/* Timeline Items (existing) - Show items NOT from Playbook executions */}
-        {(() => {
-          const now = new Date();
-          const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        {/* Timeline Items moved to bottom as collapsible - see below */}
 
-          // Filter timeline items: exclude those that have execution_id (from Playbook executions)
+      </div>
+
+        {/* Timeline Items - Collapsible at bottom */}
+        {(() => {
           const nonExecutionItems = timelineItems.filter((item: TimelineItem) => !item.execution_id);
 
-          // Filter timeline items: exclude those that are from Playbook executions
-          const failedExecutions = executions
-            .filter(exec => exec.status === 'failed')
-            .sort((a, b) => {
-              const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-              const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-              return bTime - aTime; // Most recent first
-            })
-            .slice(0, 5); // Show only last 5 failures
-
-          // Helper function to extract short reason from failure_reason
-          const getShortFailureReason = (reason?: string): string => {
-            if (!reason) return t('unknownError');
-            const lowerReason = reason.toLowerCase();
-            if (lowerReason.includes('timeout') || lowerReason.includes('timed out')) {
-              return 'Timeout';
-            }
-            if (lowerReason.includes('tool error') || lowerReason.includes('tool failed')) {
-              return 'Tool Error';
-            }
-            if (lowerReason.includes('validation') || lowerReason.includes('invalid')) {
-              return 'Validation Failed';
-            }
-            if (lowerReason.includes('network') || lowerReason.includes('connection')) {
-              return 'Network Error';
-            }
-            // Return first 30 chars as fallback
-            return reason.length > 30 ? reason.substring(0, 30) + '...' : reason;
-          };
-
-          // Render non-execution timeline items (DRAFT, SUMMARY, etc.)
-          const renderNonExecutionItems = () => {
-            if (nonExecutionItems.length === 0) {
-              return null;
-            }
-
-            return (
-              <div className="space-y-1.5 mt-4">
-                <div className="text-xs font-semibold text-gray-600 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10">
-                  {t('timelineItems') || 'Timeline Items'}
-                </div>
-                {nonExecutionItems
-                  .sort((a: TimelineItem, b: TimelineItem) => {
-                    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-                    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-                    return bTime - aTime; // Most recent first
-                  })
-                  .map((item: TimelineItem) => {
-                    const itemType = item.type || 'PLAN';
-                    const itemTitle = item.title || 'Untitled';
-                    const itemSummary = item.summary || '';
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="w-full text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-2 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm transition-all"
-                        style={{ position: 'relative' }}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {itemTitle}
-                            </div>
-                            {itemSummary && (
-                            <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5 line-clamp-2">
-                              {itemSummary}
-                            </div>
-                          )}
-                          <div className="text-[10px] text-gray-400 dark:text-gray-300 mt-0.5">
-                            {itemType}
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-300 ml-2">
-                            {item.created_at
-                              ? new Date(item.created_at).toLocaleTimeString(undefined, {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })
-                              : ''}
-                          </span>
-                        </div>
-                        {item.cta && Array.isArray(item.cta) && item.cta.length > 0 && (() => {
-                          // Filter out Confirm/confirmation buttons if task is already completed
-                          const isCompleted = item.task_status === 'succeeded' ||
-                                            item.task_status === 'failed' ||
-                                            item.task_completed_at !== undefined;
-
-                          const filteredCTAs = item.cta.filter((cta: any) => {
-                            // Hide confirmation buttons for completed tasks
-                            if (isCompleted) {
-                              const action = cta.action?.toLowerCase() || '';
-                              const label = cta.label?.toLowerCase() || '';
-                              // Filter out confirm/confirmation actions
-                              if (action.includes('confirm') ||
-                                  action.includes('publish') ||
-                                  action.includes('export') ||
-                                  action.includes('execute_external') ||
-                                  label.includes('confirm') ||
-                                  label.includes('确认')) {
-                                return false;
-                              }
-                            }
-                            return true;
-                          });
-
-                          if (filteredCTAs.length === 0) {
-                            return null;
-                          }
-
-                          return (
-                            <div className="flex items-center gap-1.5 mt-2" style={{ position: 'relative', zIndex: 10 }}>
-                              {filteredCTAs.map((ctaItem, idx) => {
-                                const handleCTAClick = async (e: React.MouseEvent) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-
-                                if (ctaItem.action === 'view_result' && item.task_id) {
-                                  // First try to fetch artifacts (actual files)
-                                  try {
-                                    const response = await fetch(
-                                      `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/by-task/${item.task_id}`
-                                    );
-                                    if (response.ok) {
-                                      const artifactsData = await response.json();
-                                      const artifacts = artifactsData.artifacts || artifactsData || [];
-                                      if (artifacts && artifacts.length > 0) {
-                                        // Open artifact in new window or download
-                                        const artifact = artifacts[0];
-                                        if (artifact.download_url) {
-                                          window.open(artifact.download_url, '_blank');
-                                          return;
-                                        } else if (artifact.file_path) {
-                                          // Try to construct download URL
-                                          const downloadUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/download`;
-                                          window.open(downloadUrl, '_blank');
-                                          return;
-                                        }
-                                      }
-                                    }
-                                  } catch (err) {
-                                    console.error('Error fetching artifacts:', err);
-                                  }
-
-                                  // If no artifacts, format and display the content from item.data
-                                  if (item.data) {
-                                    let content = '';
-                                    const data = item.data;
-
-                                    // Format based on content type
-                                    if (data.content) {
-                                      // Draft content
-                                      content = `# ${data.title || 'Generated Draft'}\n\n`;
-                                      if (data.format) {
-                                        content += `**Format:** ${data.format}\n\n`;
-                                      }
-                                      content += data.content;
-                                      if (data.tags && data.tags.length > 0) {
-                                        content += `\n\n**Tags:** ${data.tags.join(', ')}`;
-                                      }
-                                    } else if (data.summary !== undefined || item.type === 'SUMMARY') {
-                                      // Summary content
-                                      content = `# ${data.title || 'Generated Summary'}\n\n`;
-                                      if (data.summary && data.summary.trim()) {
-                                        content += `## Summary\n\n${data.summary}\n\n`;
-                                      }
-                                      if (data.key_points && data.key_points.length > 0) {
-                                        content += `## Key Points\n\n`;
-                                        data.key_points.forEach((point: string, idx: number) => {
-                                          content += `${idx + 1}. ${point}\n`;
-                                        });
-                                        content += '\n';
-                                      }
-                                      if (data.themes && data.themes.length > 0) {
-                                        content += `## Themes\n\n`;
-                                        data.themes.forEach((theme: string) => {
-                                          content += `- ${theme}\n`;
-                                        });
-                                      }
-
-                                      // If no content was generated, show a message
-                                      if (!data.summary && (!data.key_points || data.key_points.length === 0) && (!data.themes || data.themes.length === 0)) {
-                                        content += `\n> **Note:** Summary generation completed, but no content was extracted.\n`;
-                                        content += `> This may be because:\n`;
-                                        content += `> - No relevant content was found in the input\n`;
-                                        content += `> - The content was too short to summarize\n`;
-                                        content += `> - Files were not processed (files_processed: ${data.files_processed || 0})\n\n`;
-                                        if (data.message) {
-                                          content += `**Status:** ${data.message}\n`;
-                                        }
-                                      }
-                                    } else {
-                                      // Fallback: show formatted JSON
-                                      content = JSON.stringify(data, null, 2);
-                                    }
-
-                                    // Create a formatted text file and open it
-                                    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-                                    const url = URL.createObjectURL(blob);
-                                    window.open(url, '_blank');
-                                  } else {
-                                    alert('No content available for this task.');
-                                  }
-                                } else if (ctaItem.action === 'add_to_intents' || ctaItem.action === 'add_to_tasks') {
-                                  // These actions are for suggestion items, not completed timeline items
-                                  console.log('Action not applicable for completed timeline item:', ctaItem.action);
-                                } else {
-                                  // Handle other actions
-                                  await handleCTAAction(item, ctaItem.action, ctaItem);
-                                }
-                              };
-
-                              const isPrimary = ctaItem.action === 'view_result' || ctaItem.label?.includes('查看') || ctaItem.label?.includes('View');
-                              const isConfirm = ctaItem.action?.includes('confirm') || ctaItem.label?.includes('Confirm') || ctaItem.label?.includes('确认');
-
-                              // If it's a confirm button and task is completed, show as status badge (not clickable)
-                              if (isConfirm && isCompleted) {
-                                return (
-                                  <span
-                                    key={idx}
-                                    className="text-[10px] px-2 py-0.5 rounded font-medium bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700"
-                                  >
-                                    {ctaItem.label || ctaItem.action}
-                                  </span>
-                                );
-                              }
-
-                              return (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={handleCTAClick}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  className={`text-[10px] px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
-                                    isPrimary
-                                      ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/40'
-                                      : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
-                                  }`}
-                                  style={{ pointerEvents: 'auto', zIndex: 10 }}
-                                >
-                                  {ctaItem.label || ctaItem.action}
-                                </button>
-                              );
-                            })}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })}
-              </div>
-            );
-          };
-
-          if (failedExecutions.length === 0 && nonExecutionItems.length === 0) {
+          if (nonExecutionItems.length === 0) {
             return null;
           }
 
           return (
-            <>
-              {renderNonExecutionItems()}
-              {failedExecutions.length > 0 && (
-                <div className="space-y-1.5 mt-4">
-                <div className="text-xs font-semibold text-gray-600 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10">
-                  {t('recentFailures')}
+            <div className="border-t dark:border-gray-700 flex-shrink-0">
+              <div
+                className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                onClick={() => setIsTimelineItemsCollapsed(!isTimelineItemsCollapsed)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 text-xs">{isTimelineItemsCollapsed ? '▶' : '▼'}</span>
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                    {t('timelineItems') || 'Timeline Items'}
+                  </span>
+                  <span className="text-[10px] text-gray-400">
+                    ({nonExecutionItems.length})
+                  </span>
                 </div>
-                  {failedExecutions.map((execution) => {
-                    const shortReason = getShortFailureReason(execution.failure_reason);
-                    const runNumber = execution.execution_id?.slice(-8) || 'N/A';
+              </div>
 
-                    return (
-                      <button
-                        key={execution.execution_id}
-                        onClick={() => handleExecutionClick(execution.execution_id)}
-                        className="w-full text-left bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 rounded p-2 hover:border-red-300 dark:hover:border-red-700 hover:shadow-sm transition-all"
-                      >
-                        {/* Playbook name + Run # */}
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {execution.playbook_code || 'Unknown Playbook'}
+              <div
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                  isTimelineItemsCollapsed ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100'
+                }`}
+              >
+                {!isTimelineItemsCollapsed && (
+                  <div className="px-3 pb-2 overflow-y-auto max-h-[300px]">
+                    <div className="space-y-1.5">
+                      {nonExecutionItems
+                        .sort((a: TimelineItem, b: TimelineItem) => {
+                          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                          return bTime - aTime; // Most recent first
+                        })
+                        .map((item: TimelineItem) => {
+                          const itemType = item.type || 'PLAN';
+                          const itemTitle = item.title || 'Untitled';
+                          const itemSummary = item.summary || '';
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="w-full text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-2 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm transition-all"
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+                                    {itemTitle}
+                                  </div>
+                                  {itemSummary && (
+                                    <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5 line-clamp-2">
+                                      {itemSummary}
+                                    </div>
+                                  )}
+                                  <div className="text-[10px] text-gray-400 dark:text-gray-300 mt-0.5">
+                                    {itemType}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-gray-400 dark:text-gray-300 ml-2">
+                                  {item.created_at
+                                    ? new Date(item.created_at).toLocaleTimeString(undefined, {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: true
+                                      })
+                                    : ''}
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
-                              Run #{runNumber}
-                            </div>
-                          </div>
-                          <span className="text-[10px] text-gray-400 dark:text-gray-300 ml-2">
-                            {execution.created_at
-                              ? new Date(execution.created_at).toLocaleTimeString(undefined, {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })
-                              : ''}
-                          </span>
-                        </div>
-                        {/* Short reason */}
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 font-medium">
-                            {shortReason}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           );
         })()}
-
-      </div>
     </div>
     </>
   );

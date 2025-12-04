@@ -3,12 +3,18 @@
 import React, { useState, useEffect } from 'react';
 import PathChangeConfirmDialog from '@/components/PathChangeConfirmDialog';
 
+type ExecutionMode = 'qa' | 'execution' | 'hybrid';
+type ExecutionPriority = 'low' | 'medium' | 'high';
+
 interface Workspace {
   id: string;
   title: string;
   storage_base_path?: string;
   artifacts_dir?: string;
   storage_config?: any;
+  execution_mode?: ExecutionMode;
+  expected_artifacts?: string[];
+  execution_priority?: ExecutionPriority;
 }
 
 interface WorkspaceSettingsProps {
@@ -18,24 +24,54 @@ interface WorkspaceSettingsProps {
   onUpdate?: () => void;
 }
 
+const EXECUTION_MODE_OPTIONS: { value: ExecutionMode; label: string; icon: string; description: string }[] = [
+  { value: 'qa', label: '對話模式', icon: '💬', description: '討論為主，執行為輔' },
+  { value: 'execution', label: '執行模式', icon: '⚡', description: '行動優先，直接產出' },
+  { value: 'hybrid', label: '混合模式', icon: '🔄', description: '平衡對話與執行' },
+];
+
+const EXECUTION_PRIORITY_OPTIONS: { value: ExecutionPriority; label: string; description: string }[] = [
+  { value: 'low', label: '保守', description: '高信心度才執行 (90%)' },
+  { value: 'medium', label: '平衡', description: '中等信心度 (80%)' },
+  { value: 'high', label: '積極', description: '低門檻快速執行 (60%)' },
+];
+
+const COMMON_ARTIFACTS = ['docx', 'pptx', 'xlsx', 'pdf', 'md', 'html'];
+
 export default function WorkspaceSettings({
   workspace,
   workspaceId,
   apiUrl,
   onUpdate
 }: WorkspaceSettingsProps) {
+  // Storage settings state
   const [storageBasePath, setStorageBasePath] = useState('');
   const [artifactsDir, setArtifactsDir] = useState('artifacts');
   const [originalStorageBasePath, setOriginalStorageBasePath] = useState('');
   const [originalArtifactsDir, setOriginalArtifactsDir] = useState('');
   const [storagePathChanged, setStoragePathChanged] = useState(false);
+
+  // Execution mode settings state
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('qa');
+  const [executionPriority, setExecutionPriority] = useState<ExecutionPriority>('medium');
+  const [expectedArtifacts, setExpectedArtifacts] = useState<string[]>([]);
+  const [originalExecutionMode, setOriginalExecutionMode] = useState<ExecutionMode>('qa');
+  const [originalExecutionPriority, setOriginalExecutionPriority] = useState<ExecutionPriority>('medium');
+  const [originalExpectedArtifacts, setOriginalExpectedArtifacts] = useState<string[]>([]);
+  const [executionSettingsChanged, setExecutionSettingsChanged] = useState(false);
+
+  // UI state
   const [saving, setSaving] = useState(false);
+  const [savingExecution, setSavingExecution] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [executionError, setExecutionError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [executionSuccess, setExecutionSuccess] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   useEffect(() => {
     if (workspace) {
+      // Storage settings
       const basePath = workspace.storage_base_path || '';
       const dir = workspace.artifacts_dir || 'artifacts';
       setStorageBasePath(basePath);
@@ -43,6 +79,18 @@ export default function WorkspaceSettings({
       setOriginalStorageBasePath(basePath);
       setOriginalArtifactsDir(dir);
       setStoragePathChanged(false);
+
+      // Execution mode settings
+      const mode = workspace.execution_mode || 'qa';
+      const priority = workspace.execution_priority || 'medium';
+      const artifacts = workspace.expected_artifacts || [];
+      setExecutionMode(mode);
+      setExecutionPriority(priority);
+      setExpectedArtifacts(artifacts);
+      setOriginalExecutionMode(mode);
+      setOriginalExecutionPriority(priority);
+      setOriginalExpectedArtifacts(artifacts);
+      setExecutionSettingsChanged(false);
     }
   }, [workspace]);
 
@@ -52,6 +100,62 @@ export default function WorkspaceSettings({
       artifactsDir !== originalArtifactsDir;
     setStoragePathChanged(pathChanged);
   }, [storageBasePath, artifactsDir, originalStorageBasePath, originalArtifactsDir]);
+
+  useEffect(() => {
+    const changed =
+      executionMode !== originalExecutionMode ||
+      executionPriority !== originalExecutionPriority ||
+      JSON.stringify(expectedArtifacts.sort()) !== JSON.stringify(originalExpectedArtifacts.sort());
+    setExecutionSettingsChanged(changed);
+  }, [executionMode, executionPriority, expectedArtifacts, originalExecutionMode, originalExecutionPriority, originalExpectedArtifacts]);
+
+  const handleToggleArtifact = (artifact: string) => {
+    setExpectedArtifacts(prev =>
+      prev.includes(artifact)
+        ? prev.filter(a => a !== artifact)
+        : [...prev, artifact]
+    );
+  };
+
+  const handleSaveExecutionSettings = async () => {
+    setSavingExecution(true);
+    setExecutionError(null);
+    setExecutionSuccess(false);
+
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          execution_mode: executionMode,
+          execution_priority: executionPriority,
+          expected_artifacts: expectedArtifacts,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to update' }));
+        throw new Error(errorData.detail || 'Failed to update execution settings');
+      }
+
+      const updated = await response.json();
+      setOriginalExecutionMode(updated.execution_mode || 'qa');
+      setOriginalExecutionPriority(updated.execution_priority || 'medium');
+      setOriginalExpectedArtifacts(updated.expected_artifacts || []);
+      setExecutionSettingsChanged(false);
+      setExecutionSuccess(true);
+      setTimeout(() => setExecutionSuccess(false), 3000);
+
+      if (onUpdate) {
+        onUpdate();
+      }
+    } catch (err: any) {
+      setExecutionError(err.message || '儲存失敗');
+      console.error('Failed to save execution settings:', err);
+    } finally {
+      setSavingExecution(false);
+    }
+  };
 
   const handleOpenFolder = async () => {
     if (!storageBasePath) {
@@ -161,10 +265,136 @@ export default function WorkspaceSettings({
         onCancel={() => setShowConfirmDialog(false)}
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-8">
+      {/* Execution Mode Settings */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">執行模式</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            設定 AI 助手的行為模式，決定對話與執行的平衡。
+          </p>
+        </div>
+
+        {/* Execution Mode Selector */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            行為模式
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            {EXECUTION_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setExecutionMode(option.value)}
+                className={`
+                  p-3 rounded-lg border-2 text-left transition-all
+                  ${executionMode === option.value
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                  }
+                `}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg">{option.icon}</span>
+                  <span className={`font-medium ${executionMode === option.value ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'}`}>
+                    {option.label}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{option.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Execution Priority (only show when not in QA mode) */}
+        {executionMode !== 'qa' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              執行優先級
+            </label>
+            <div className="flex gap-2">
+              {EXECUTION_PRIORITY_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setExecutionPriority(option.value)}
+                  className={`
+                    px-4 py-2 rounded-lg border text-sm transition-all
+                    ${executionPriority === option.value
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300'
+                    }
+                  `}
+                  title={option.description}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {EXECUTION_PRIORITY_OPTIONS.find(o => o.value === executionPriority)?.description}
+            </p>
+          </div>
+        )}
+
+        {/* Expected Artifacts */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            預期產出類型
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {COMMON_ARTIFACTS.map((artifact) => (
+              <button
+                key={artifact}
+                onClick={() => handleToggleArtifact(artifact)}
+                className={`
+                  px-3 py-1.5 rounded-full text-sm transition-all
+                  ${expectedArtifacts.includes(artifact)
+                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  }
+                `}
+              >
+                {artifact.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            選擇此 Workspace 預期產出的檔案類型，AI 會優先嘗試產出這些類型的文件
+          </p>
+        </div>
+
+        {/* Execution Settings Error */}
+        {executionError && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            <p className="text-sm text-red-700 dark:text-red-300">{executionError}</p>
+          </div>
+        )}
+
+        {/* Execution Settings Success */}
+        {executionSuccess && (
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+            <p className="text-sm text-green-700 dark:text-green-300">執行模式設定已儲存</p>
+          </div>
+        )}
+
+        {/* Save Execution Settings Button */}
+        <div className="flex justify-end">
+          <button
+            onClick={handleSaveExecutionSettings}
+            disabled={savingExecution || !executionSettingsChanged}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {savingExecution ? '儲存中...' : '儲存執行模式'}
+          </button>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <hr className="border-gray-200 dark:border-gray-700" />
+
+      {/* Storage Settings */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">存儲設定</h2>
-        <p className="text-sm text-gray-600">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">存儲設定</h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           設定 Workspace 的檔案存儲路徑，所有 Playbook 產物將存儲在此路徑下。
         </p>
       </div>

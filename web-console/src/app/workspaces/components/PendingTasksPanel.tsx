@@ -77,7 +77,7 @@ function PlaybookIntentSubtitle({
   if (loading || !intentTag) return null;
 
   return (
-    <div className="text-[10px] text-gray-500 mb-1.5 flex items-center gap-1.5">
+    <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1.5 flex items-center gap-1.5">
       <span>{t('intentBasedOnAISuggestion')}</span>
       {isEditing ? (
         <div className="flex items-center gap-1">
@@ -85,7 +85,7 @@ function PlaybookIntentSubtitle({
             type="text"
             value={editedLabel}
             onChange={(e) => setEditedLabel(e.target.value)}
-            className="text-[10px] px-1 py-0.5 border border-gray-300 rounded flex-1 min-w-0"
+            className="text-[10px] px-1 py-0.5 border border-gray-300 dark:border-gray-600 rounded flex-1 min-w-0 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 handleSaveEdit();
@@ -98,7 +98,7 @@ function PlaybookIntentSubtitle({
           />
           <button
             onClick={handleSaveEdit}
-            className="text-[10px] text-blue-600 hover:text-blue-700"
+            className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
           >
             {t('save')}
           </button>
@@ -107,7 +107,7 @@ function PlaybookIntentSubtitle({
               setIsEditing(false);
               setEditedLabel(intentTag.title);
             }}
-            className="text-[10px] text-gray-500 hover:text-gray-700"
+            className="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
           >
             {t('cancel')}
           </button>
@@ -117,7 +117,7 @@ function PlaybookIntentSubtitle({
           <span className="font-medium">{intentTag.title}</span>
           <button
             onClick={() => setIsEditing(true)}
-            className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
             title={t('editIntentLabel')}
           >
             ✎
@@ -182,6 +182,7 @@ interface Task {
   message_id?: string;
   created_at: string;
   updated_at?: string;
+  completed_at?: string;
   data?: any;
   params?: any;
   result?: any;
@@ -200,6 +201,7 @@ interface PendingTasksPanelProps {
   workspaceId: string;
   apiUrl?: string;
   onViewArtifact?: (artifact: any) => void;
+  onSwitchToOutcomes?: () => void;
   workspace?: {
     playbook_auto_execution_config?: Record<string, {
       confidence_threshold?: number;
@@ -212,6 +214,7 @@ export default function PendingTasksPanel({
   workspaceId,
   apiUrl = 'http://localhost:8000',
   onViewArtifact,
+  onSwitchToOutcomes,
   workspace: workspaceProp,
 }: PendingTasksPanelProps) {
   const t = useT();
@@ -275,7 +278,11 @@ export default function PendingTasksPanel({
       if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
       const completedAt = task.completed_at || task.updated_at || task.created_at;
       if (!completedAt) return false;
-      const completedTime = new Date(completedAt).getTime();
+      // Backend returns UTC time without timezone indicator, parse as UTC
+      const completedTimeStr = completedAt.includes('Z') || completedAt.includes('+') || completedAt.includes('-', 11)
+        ? completedAt
+        : completedAt + 'Z';
+      const completedTime = new Date(completedTimeStr).getTime();
       const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
       return completedTime > fiveMinutesAgo;
     });
@@ -398,9 +405,13 @@ export default function PendingTasksPanel({
         // Also include recently completed foreground tasks (within last 5 minutes) that have artifacts
         const recentCompletedTasks = foregroundTasks.filter((task: Task) => {
           if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
-          const completedAt = task.updated_at || task.created_at;
+          const completedAt = task.completed_at || task.updated_at || task.created_at;
           if (!completedAt) return false;
-          const completedTime = new Date(completedAt).getTime();
+          // Backend returns UTC time without timezone indicator, parse as UTC
+          const completedTimeStr = completedAt.includes('Z') || completedAt.includes('+') || completedAt.includes('-', 11)
+            ? completedAt
+            : completedAt + 'Z';
+          const completedTime = new Date(completedTimeStr).getTime();
           const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
           return completedTime > fiveMinutesAgo;
         });
@@ -446,15 +457,15 @@ export default function PendingTasksPanel({
     const statusUpper = status?.toUpperCase();
     switch (statusUpper) {
       case 'RUNNING':
-        return 'bg-blue-100 text-blue-800 border-blue-300';
+        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700';
       case 'PENDING':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+        return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700';
       case 'SUCCEEDED':
-        return 'bg-green-100 text-green-800 border-green-300';
+        return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-300 dark:border-green-700';
       case 'FAILED':
-        return 'bg-red-100 text-red-800 border-red-300';
+        return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-300 dark:border-red-700';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-300';
+        return 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300 border-gray-300 dark:border-gray-600';
     }
   };
 
@@ -476,7 +487,11 @@ export default function PendingTasksPanel({
 
   const formatTime = (timestamp: string) => {
     try {
-      const date = new Date(timestamp);
+      // Backend returns UTC time without timezone indicator, parse as UTC
+      const timeStr = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 11)
+        ? timestamp
+        : timestamp + 'Z';
+      const date = new Date(timeStr);
       // Use same format as MessageItem (main chat window)
       return date.toLocaleTimeString(undefined, {
         hour: '2-digit',
@@ -496,7 +511,7 @@ export default function PendingTasksPanel({
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: laserScanStyle }} />
-      <div className="bg-white border border-gray-200 rounded-lg p-2 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 shadow-sm">
         {loading && (
           <div className="flex justify-end mb-1">
             <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -538,19 +553,19 @@ export default function PendingTasksPanel({
             return (
             <div
               key={`bg-${task.id}`}
-              className="border rounded p-2 bg-gray-50 border-gray-200"
+              className="border rounded p-2 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
             >
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-300">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600">
                     {t('backgroundExecution')}
                   </span>
-                  <span className="text-xs font-medium text-gray-900">
+                  <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
                     {playbookCode}
                   </span>
                 </div>
               </div>
-              <div className="text-xs text-gray-600 mb-2">
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                 {t('backgroundExecutionDescription')}
               </div>
               <button
@@ -584,7 +599,7 @@ export default function PendingTasksPanel({
                     alert(`${t('enableFailed')}: ${err instanceof Error ? err.message : t('unknownError')}`);
                   }
                 }}
-                className="w-full px-2 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                className="w-full px-2 py-1.5 text-xs font-medium text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 rounded transition-colors"
               >
                 {t('enableBackgroundTask')}
               </button>
@@ -605,7 +620,7 @@ export default function PendingTasksPanel({
           });
           return visibleBackgroundTasks.length === 0;
         })() ? (
-          <div className="text-xs text-gray-500 italic py-2">
+          <div className="text-xs text-gray-500 dark:text-gray-400 italic py-2">
             {t('noPendingTasks')}
           </div>
         ) : tasks.length > 0 ? (
@@ -660,15 +675,15 @@ export default function PendingTasksPanel({
                     key={task.id}
                     className={`border rounded p-1.5 transition-colors ${
                       isSucceeded
-                        ? 'bg-green-50 hover:bg-green-100 border-green-200'
-                        : 'bg-gray-50 hover:bg-gray-100'
+                        ? 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 border-green-200 dark:border-green-800'
+                        : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-700'
                     }`}
                   >
                     <div className="flex-1 min-w-0">
                       {/* Compact header: title + time + status badge in one line */}
                       <div className="flex items-center justify-between gap-1.5 mb-1">
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                          <div className="text-xs font-medium text-gray-900 truncate">
+                          <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
                             {task.task_type === 'suggestion'
                               ? task.pack_id || 'Task'
                               : (task.task_type || task.pack_id || 'Task')}
@@ -680,7 +695,7 @@ export default function PendingTasksPanel({
                             if (isBackground) {
                               return (
                                 <span
-                                  className="text-xs px-1 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-300 flex-shrink-0"
+                                  className="text-xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 flex-shrink-0"
                                   title={t('backgroundExecutionDescription')}
                                 >
                                   {t('backgroundExecution')}
@@ -691,7 +706,7 @@ export default function PendingTasksPanel({
                             if (task.result?.llm_analysis?.confidence !== undefined) {
                               return (
                                 <span
-                                  className="text-xs px-1 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 flex-shrink-0"
+                                  className="text-xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-400 dark:border-gray-600 flex-shrink-0"
                                   title={t('llmConfidenceScore', { confidence: task.result.llm_analysis.confidence.toFixed(2) })}
                                 >
                                   {t('confidence')}{task.result.llm_analysis.confidence.toFixed(2)}
@@ -702,7 +717,7 @@ export default function PendingTasksPanel({
                           })()}
                         </div>
                         {task.created_at && (
-                          <div className="text-xs text-gray-400 flex-shrink-0">
+                          <div className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
                             {formatTime(task.created_at)}
                           </div>
                         )}
@@ -723,13 +738,13 @@ export default function PendingTasksPanel({
                           {task.result.llm_analysis.content_tags.slice(0, 3).map((tag: string, idx: number) => (
                             <span
                               key={idx}
-                              className="text-xs px-1 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200"
+                              className="text-xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700"
                             >
                               {tag}
                             </span>
                           ))}
                           {task.result.llm_analysis.content_tags.length > 3 && (
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
                               +{task.result.llm_analysis.content_tags.length - 3}
                             </span>
                           )}
@@ -738,7 +753,7 @@ export default function PendingTasksPanel({
 
                       {/* LLM Analysis: Reason */}
                       {task.result?.llm_analysis?.reason && task.result.llm_analysis.reason.trim() && (
-                        <div className="text-xs text-gray-600 mb-1 line-clamp-2">
+                        <div className="text-xs text-gray-600 dark:text-gray-400 mb-1 line-clamp-2">
                           {task.result.llm_analysis.reason}
                         </div>
                       )}
@@ -752,16 +767,16 @@ export default function PendingTasksPanel({
 
                       {/* Artifact Creation Warning */}
                       {isSucceeded && task.artifact_creation_failed && task.artifact_warning && (
-                        <div className="mt-1 mb-1 p-1.5 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                        <div className="mt-1 mb-1 p-1.5 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-xs">
                           <div className="flex items-start gap-1.5">
-                            <svg className="h-3.5 w-3.5 text-yellow-600 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                            <svg className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium text-yellow-800 mb-0.5">未指定儲存位置</div>
-                              <div className="text-yellow-700 text-[10px] mb-0.5">{task.artifact_warning.message}</div>
+                              <div className="font-medium text-yellow-800 dark:text-yellow-300 mb-0.5">未指定儲存位置</div>
+                              <div className="text-yellow-700 dark:text-yellow-400 text-[10px] mb-0.5">{task.artifact_warning.message}</div>
                               {task.artifact_warning.action_required && (
-                                <div className="text-yellow-600 text-[10px] mb-1">
+                                <div className="text-yellow-600 dark:text-yellow-500 text-[10px] mb-1">
                                   {task.artifact_warning.action_required}
                                 </div>
                               )}
@@ -808,7 +823,7 @@ export default function PendingTasksPanel({
                                     alert(`${t('retryFailed')}: ${err.message || t('unknownError')}`);
                                   }
                                 }}
-                                className="w-full px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 hover:text-yellow-800 border border-yellow-300 rounded hover:bg-yellow-100 transition-all flex items-center justify-center gap-1"
+                                className="w-full px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 border border-yellow-300 dark:border-yellow-700 rounded hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-all flex items-center justify-center gap-1"
                               >
                                 <span>🔄</span>
                                 <span>{t('retry')}</span>
@@ -818,51 +833,13 @@ export default function PendingTasksPanel({
                         </div>
                       )}
 
-                      {/* View Artifact button for completed tasks - lazy loads artifact on click */}
-                      {isSucceeded && onViewArtifact && (
-                        <div className="mt-1">
-                          <button
-                            onClick={async () => {
-                              // Check cache first
-                              if (artifactMap[task.id]) {
-                                onViewArtifact(artifactMap[task.id]);
-                                return;
-                              }
-                              // Lazy load artifact on demand
-                              try {
-                                const artifactResponse = await fetch(
-                                  `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/by-task/${task.id}`
-                                );
-                                if (artifactResponse.ok) {
-                                  const artifactData = await artifactResponse.json();
-                                  const artifacts = artifactData.artifacts || [];
-                                  if (artifacts.length > 0) {
-                                    // Cache the artifact
-                                    setArtifactMap(prev => ({ ...prev, [task.id]: artifacts[0] }));
-                                    onViewArtifact(artifacts[0]);
-                                  } else {
-                                    alert(t('noArtifactFound') || 'No artifact found for this task');
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('[PendingTasksPanel] Failed to load artifact:', err);
-                                alert(t('artifactLoadFailed') || 'Failed to load artifact');
-                              }
-                            }}
-                            className="w-full px-2 py-1 text-xs font-medium text-green-700 hover:text-green-800 border border-green-300 rounded hover:bg-green-100 transition-all flex items-center justify-center gap-1"
-                          >
-                            <span>📦</span>
-                            <span>{t('viewArtifact')}</span>
-                          </button>
-                        </div>
-                      )}
 
                       {/* Action row - Execute button + Auto-exec config dropdown in same line */}
                       {task.task_type === 'suggestion' && task.result?.suggestion && task.pack_id && !isSucceeded && (
                         <div className="flex flex-col gap-1">
                           {/* Status message */}
                           {taskStatusMessages[task.id] && (
-                            <div className="text-[10px] text-blue-600 px-1">
+                            <div className="text-[10px] text-blue-600 dark:text-blue-400 px-1">
                               {taskStatusMessages[task.id]}
                             </div>
                           )}
@@ -986,8 +963,8 @@ export default function PendingTasksPanel({
                               disabled={executingTaskIds.has(task.id)}
                               className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-all relative shadow-sm hover:shadow-md flex items-center justify-center gap-1 ${
                                 executingTaskIds.has(task.id)
-                                  ? 'bg-blue-400 text-white border border-blue-500 cursor-not-allowed opacity-75'
-                                  : 'text-blue-600 hover:text-blue-700 border border-blue-300 hover:bg-blue-50'
+                                  ? 'bg-blue-400 dark:bg-blue-600 text-white border border-blue-500 dark:border-blue-700 cursor-not-allowed opacity-75'
+                                  : 'text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30'
                               }`}
                             >
                               {executingTaskIds.has(task.id) ? (
@@ -1009,7 +986,7 @@ export default function PendingTasksPanel({
                                 setRejectReason('');
                                 setRejectComment('');
                               }}
-                              className="px-2 py-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-300 rounded hover:bg-red-50 transition-all flex items-center justify-center gap-1 flex-shrink-0"
+                              className="px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 border border-red-300 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-all flex items-center justify-center gap-1 flex-shrink-0"
                               title={t('rejectTask')}
                             >
                               <span>✕</span>
@@ -1082,7 +1059,7 @@ export default function PendingTasksPanel({
                                   ? String(workspace.playbook_auto_execution_config[task.pack_id || ''].confidence_threshold || 0.8)
                                   : 'none'
                               }
-                              className="px-1.5 py-1 text-[10px] text-gray-600 border border-gray-300 rounded bg-white hover:bg-gray-50 transition-colors flex-shrink-0"
+                              className="px-1.5 py-1 text-[10px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
                               title="設定自動執行閾值（會持久化到當前 workspace）"
                             >
                               <option value="none">auto</option>
@@ -1092,7 +1069,7 @@ export default function PendingTasksPanel({
                             </select>
                           ) : (
                             <span
-                              className="px-1.5 py-1 text-[10px] text-gray-400 border border-gray-200 rounded bg-gray-50 flex-shrink-0 cursor-not-allowed"
+                              className="px-1.5 py-1 text-[10px] text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800 flex-shrink-0 cursor-not-allowed"
                               title="信心分數需 ≥ 0.7 才能設定自動執行"
                             >
                               auto
@@ -1116,18 +1093,18 @@ export default function PendingTasksPanel({
       {/* Reject Task Dialog */}
       {showRejectDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-            <h3 className="text-lg font-semibold mb-4">{t('rejectTask')}</h3>
-            <p className="text-sm text-gray-600 mb-4">{t('rejectTaskConfirm')}</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">{t('rejectTask')}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{t('rejectTaskConfirm')}</p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 {t('rejectReason')}
               </label>
               <select
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               >
                 <option value="">{t('rejectReasonOther')}</option>
                 <option value="irrelevant">{t('rejectReasonIrrelevant')}</option>
@@ -1139,13 +1116,13 @@ export default function PendingTasksPanel({
 
             {rejectReason === 'other' && (
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {t('rejectComment')}
                 </label>
                 <textarea
                   value={rejectComment}
                   onChange={(e) => setRejectComment(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   rows={3}
                   placeholder={t('rejectComment')}
                 />
@@ -1159,7 +1136,7 @@ export default function PendingTasksPanel({
                   setRejectReason('');
                   setRejectComment('');
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 {t('cancel')}
               </button>
@@ -1249,7 +1226,7 @@ export default function PendingTasksPanel({
         return (
           <div
             key={taskId}
-            className="fixed bottom-4 right-4 bg-blue-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3"
+            className="fixed bottom-4 right-4 bg-blue-500 dark:bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3"
           >
             <span>{t('taskRejected')}</span>
             <span className="text-sm opacity-90">{t('restoreAvailable', { seconds: remaining })}</span>
@@ -1283,7 +1260,7 @@ export default function PendingTasksPanel({
                   alert(`${t('restoreTask')} failed: ${err.message || t('unknownError')}`);
                 }
               }}
-              className="px-3 py-1 text-sm font-medium bg-white text-blue-600 rounded hover:bg-blue-50 transition-colors"
+              className="px-3 py-1 text-sm font-medium bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors"
             >
               {t('restoreTask')}
             </button>

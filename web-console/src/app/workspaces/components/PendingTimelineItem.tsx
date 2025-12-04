@@ -136,7 +136,7 @@ export default function PendingTimelineItem({
         `
       }} />
       <div
-        className={`bg-amber-50 border border-amber-200 rounded p-2 shadow-sm transition-all duration-300 ${
+        className={`bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2 shadow-sm transition-all duration-300 ${
           isVisible
             ? 'opacity-100 translate-y-0'
             : 'opacity-0 translate-y-2'
@@ -149,7 +149,7 @@ export default function PendingTimelineItem({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <svg
-            className="h-4 w-4 text-amber-600 animate-pulse"
+            className="h-4 w-4 text-amber-600 dark:text-amber-500 animate-pulse"
             fill="currentColor"
             viewBox="0 0 20 20"
           >
@@ -159,16 +159,16 @@ export default function PendingTimelineItem({
               clipRule="evenodd"
             />
           </svg>
-          <span className="text-xs font-medium text-amber-900">
+          <span className="text-xs font-medium text-amber-900 dark:text-amber-300">
             {execution.playbook_code || 'Playbook Execution'}
           </span>
           {execution.trigger_source && (
-            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-amber-100 text-amber-700 border-amber-300">
+            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700">
               {execution.trigger_source}
             </span>
           )}
         </div>
-        <span className="text-xs text-amber-600 font-medium">
+        <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
           Step {execution.current_step_index + 1}/{execution.total_steps}
         </span>
       </div>
@@ -176,16 +176,16 @@ export default function PendingTimelineItem({
       {/* Confirmation Prompt */}
       <div className="mb-3">
         {currentStep.confirmation_prompt ? (
-          <p className="text-xs text-amber-800 leading-relaxed bg-amber-100 rounded p-2 border border-amber-300">
+          <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed bg-amber-100 dark:bg-amber-900/30 rounded p-2 border border-amber-300 dark:border-amber-700">
             {currentStep.confirmation_prompt}
           </p>
         ) : (
-          <p className="text-xs text-amber-800 leading-relaxed">
+          <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
             This step requires your confirmation to continue.
           </p>
         )}
         {currentStep.step_name && (
-          <p className="text-xs text-amber-700 mt-1 font-medium">
+          <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 font-medium">
             Step: {currentStep.step_name}
           </p>
         )}
@@ -198,8 +198,8 @@ export default function PendingTimelineItem({
           disabled={isProcessing}
           className={`flex-1 px-3 py-1.5 text-xs font-medium text-white rounded transition-all ${
             isProcessing
-              ? 'bg-amber-400 cursor-not-allowed'
-              : 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800'
+              ? 'bg-amber-400 dark:bg-amber-600 cursor-not-allowed'
+              : 'bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 active:bg-amber-800 dark:active:bg-amber-800'
           }`}
         >
           {isProcessing ? 'Processing...' : 'Confirm'}
@@ -207,10 +207,10 @@ export default function PendingTimelineItem({
         <button
           onClick={handleReject}
           disabled={isProcessing}
-          className={`flex-1 px-3 py-1.5 text-xs font-medium text-amber-700 rounded border transition-all ${
+          className={`flex-1 px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300 rounded border transition-all ${
             isProcessing
-              ? 'bg-amber-50 border-amber-200 cursor-not-allowed opacity-50'
-              : 'bg-amber-100 border-amber-300 hover:bg-amber-200 active:bg-amber-300'
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 cursor-not-allowed opacity-50'
+              : 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 hover:bg-amber-200 dark:hover:bg-amber-900/40 active:bg-amber-300 dark:active:bg-amber-900/50'
           }`}
         >
           {isProcessing ? 'Processing...' : 'Reject'}

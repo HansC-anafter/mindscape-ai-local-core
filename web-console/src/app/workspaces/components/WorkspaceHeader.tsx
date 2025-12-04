@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { t } from '@/lib/i18n';
 import WorkspaceModeSelector, { WorkspaceMode } from '../../../components/WorkspaceModeSelector';
 import ActivePlaybookIndicator from '../../../components/ActivePlaybookIndicator';
+import ExecutionModePill, { ExecutionMode, ExecutionPriority } from '../../../components/ExecutionModePill';
+import ExpectedArtifactsBadge from '../../../components/ExpectedArtifactsBadge';
 
 interface AssociatedIntent {
   id: string;
@@ -17,9 +19,13 @@ interface AssociatedIntent {
 interface WorkspaceHeaderProps {
   workspaceName: string;
   mode: WorkspaceMode;
+  executionMode?: ExecutionMode;
+  executionPriority?: ExecutionPriority;
+  expectedArtifacts?: string[];
   associatedIntent?: AssociatedIntent | null;
   workspaceId: string;
   onModeChange?: (mode: WorkspaceMode) => void;
+  onExecutionModeClick?: () => void;
   updatingMode?: boolean;
   onWorkspaceUpdate?: () => void;
   apiUrl?: string;
@@ -32,17 +38,21 @@ const modeLabels: Record<NonNullable<WorkspaceMode>, string> = {
 };
 
 const modeColors: Record<NonNullable<WorkspaceMode>, string> = {
-  research: 'bg-blue-100 text-blue-700 border-blue-300',
-  publishing: 'bg-green-100 text-green-700 border-green-300',
-  planning: 'bg-purple-100 text-purple-700 border-purple-300',
+  research: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700',
+  publishing: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700',
+  planning: 'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 border-gray-400 dark:border-gray-600',
 };
 
 export default function WorkspaceHeader({
   workspaceName,
   mode,
+  executionMode,
+  executionPriority,
+  expectedArtifacts,
   associatedIntent,
   workspaceId,
   onModeChange,
+  onExecutionModeClick,
   updatingMode = false,
   onWorkspaceUpdate,
   apiUrl = 'http://localhost:8000',
@@ -126,10 +136,10 @@ export default function WorkspaceHeader({
 
   return (
     <>
-      <div className="bg-white border-b border-gray-200 px-6 py-1.5">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-1.5">
         <div className="flex items-center gap-4 relative">
-          {/* Left: Workspace name (moved from center to left, where "默默 AI 工作台" was) */}
-          <div className="flex items-center flex-shrink-0">
+          {/* Left: Workspace name and execution mode indicators */}
+          <div className="flex items-center gap-3 flex-shrink-0">
             {isEditing ? (
               <input
                 type="text"
@@ -138,22 +148,34 @@ export default function WorkspaceHeader({
                 onKeyDown={handleKeyPress}
                 onBlur={handleSaveRename}
                 disabled={isRenaming}
-                className="text-base font-semibold text-gray-900 bg-white border border-blue-500 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="text-base font-semibold text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 border border-blue-500 dark:border-blue-600 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
                 autoFocus
               />
             ) : (
               <div className="flex items-center gap-1.5 group">
-                <h1 className="text-base font-semibold text-gray-900">
+                <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100">
                   {workspaceName}
                 </h1>
                 <button
                   onClick={handleStartRename}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 text-xs"
+                  className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
                   title={t('workspaceRename')}
                 >
                   ✏️
                 </button>
               </div>
+            )}
+
+            {/* Execution Mode Pill */}
+            <ExecutionModePill
+              mode={executionMode || 'qa'}
+              priority={executionPriority}
+              onClick={onExecutionModeClick}
+            />
+
+            {/* Expected Artifacts Badge */}
+            {expectedArtifacts && expectedArtifacts.length > 0 && (
+              <ExpectedArtifactsBadge artifacts={expectedArtifacts} />
             )}
           </div>
 

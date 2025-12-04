@@ -455,7 +455,7 @@ export default function VoiceRecordingPanel({
         <button
           onClick={mergeRecordings}
           disabled={loading || session.progress.recorded === 0}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
         >
           {loading ? 'Merging...' : 'Merge All Recordings'}
         </button>
