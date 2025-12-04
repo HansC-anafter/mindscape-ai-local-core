@@ -51,7 +51,7 @@ class EventsStore(StoreBase):
         # Generate embedding asynchronously (don't block event creation)
         if generate_embedding:
             try:
-                from backend.app.event_embedding_generator import EventEmbeddingGenerator
+                from backend.app.services.event_embedding_generator import EventEmbeddingGenerator
                 import asyncio
 
                 generator = EventEmbeddingGenerator()

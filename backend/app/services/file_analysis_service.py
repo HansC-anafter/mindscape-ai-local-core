@@ -83,23 +83,20 @@ class FileAnalysisService:
         import os
         from pathlib import Path
 
-        # Extract base64 data from data URL
-        # Format: data:[<mediatype>][;base64],<data>
         header, encoded = file_data.split(',', 1)
         file_content = base64.b64decode(encoded)
 
-        # Generate unique file ID
+        import hashlib
+        file_hash = hashlib.sha256(file_content).hexdigest()
+
         file_id = str(uuid.uuid4())
 
-        # Determine upload directory
         uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
         workspace_uploads_dir = Path(uploads_dir) / workspace_id
         workspace_uploads_dir.mkdir(parents=True, exist_ok=True)
 
-        # Get file extension from filename
         file_ext = Path(file_name).suffix if file_name else ""
         if not file_ext:
-            # Try to infer extension from MIME type
             if file_type:
                 mime_to_ext = {
                     'image/jpeg': '.jpg',
@@ -111,7 +108,6 @@ class FileAnalysisService:
                 }
                 file_ext = mime_to_ext.get(file_type, '')
 
-        # Save file
         file_path = workspace_uploads_dir / f"{file_id}{file_ext}"
         with open(file_path, "wb") as f:
             f.write(file_content)
@@ -123,7 +119,8 @@ class FileAnalysisService:
             "file_path": str(file_path),
             "file_name": file_name,
             "file_type": file_type,
-            "file_size": file_size or len(file_content)
+            "file_size": file_size or len(file_content),
+            "file_hash": file_hash
         }
 
     async def analyze_file(
@@ -153,6 +150,8 @@ class FileAnalysisService:
         Returns:
             Analysis result with file_id, file_path, and collaboration_results
         """
+        logger.info(f"Starting file analysis for {file_name} (file_id={file_id}, has_file_data={bool(file_data)}, file_path={file_path})")
+
         if not file_id and not file_data:
             raise ValueError("Either file_id or file_data is required")
 
@@ -163,22 +162,76 @@ class FileAnalysisService:
             except (ImportError, AttributeError):
                 from pathlib import Path
                 import os
-                uploads_dir = os.getenv("UPLOADS_DIR", "uploads")
+                uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
                 uploads_path = Path(uploads_dir)
                 if uploads_path.exists():
-                    for uploaded_file in uploads_path.glob(f"{file_id}.*"):
+                    for uploaded_file in uploads_path.rglob(f"{file_id}.*"):
                         file_path = str(uploaded_file)
+                        logger.info(f"Found file_path for file_id {file_id}: {file_path}")
                         break
+                    if not file_path:
+                        logger.warning(f"Could not find file_path for file_id {file_id} in {uploads_path}")
 
-        analysis_result = await self.collaboration_service.analyze_file(
-            file_data=file_data or file_id or "",
-            file_name=file_name,
-            file_type=file_type,
-            file_size=file_size,
-            profile_id=profile_id,
-            workspace_id=workspace_id,
-            file_path=file_path
-        )
+        logger.info(f"Calling collaboration_service.analyze_file for {file_name}")
+        try:
+            analysis_result = await self.collaboration_service.analyze_file(
+                file_data=file_data or file_id or "",
+                file_name=file_name,
+                file_type=file_type,
+                file_size=file_size,
+                profile_id=profile_id,
+                workspace_id=workspace_id,
+                file_path=file_path
+            )
+            logger.info(f"Collaboration service analysis completed for {file_name}")
+        except Exception as e:
+            logger.error(f"Failed to analyze file {file_name} with collaboration service: {e}", exc_info=True)
+            raise
+
+        file_hash = None
+        if file_path:
+            from pathlib import Path
+            if Path(file_path).exists():
+                import hashlib
+                try:
+                    with open(file_path, "rb") as f:
+                        file_content = f.read()
+                        file_hash = hashlib.sha256(file_content).hexdigest()
+                        logger.info(f"Calculated file_hash for {file_name} from file_path: {file_hash[:16]}...")
+                except Exception as e:
+                    logger.warning(f"Failed to calculate file_hash from file_path {file_path}: {e}")
+            else:
+                logger.warning(f"File path does not exist: {file_path}")
+        elif file_data:
+            import hashlib
+            import base64
+            try:
+                header, encoded = file_data.split(',', 1)
+                file_content = base64.b64decode(encoded)
+                file_hash = hashlib.sha256(file_content).hexdigest()
+                logger.info(f"Calculated file_hash for {file_name} from file_data: {file_hash[:16]}...")
+            except Exception as e:
+                logger.warning(f"Failed to calculate file_hash from file_data: {e}")
+        elif file_id:
+            import hashlib
+            from pathlib import Path
+            import os
+            uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
+            uploads_path = Path(uploads_dir) / workspace_id if workspace_id else Path(uploads_dir)
+            if uploads_path.exists():
+                for uploaded_file in uploads_path.rglob(f"{file_id}.*"):
+                    try:
+                        with open(uploaded_file, "rb") as f:
+                            file_content = f.read()
+                            file_hash = hashlib.sha256(file_content).hexdigest()
+                            logger.info(f"Calculated file_hash for {file_name} from file_id {file_id}: {file_hash[:16]}...")
+                            file_path = str(uploaded_file)
+                            break
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate file_hash from file {uploaded_file}: {e}")
+                        continue
+                if not file_hash:
+                    logger.warning(f"Could not find file for file_id {file_id} in {uploads_path}")
 
         file_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -198,14 +251,20 @@ class FileAnalysisService:
                 }]
             },
             entity_ids=[],
-            metadata={"file_analysis": analysis_result}
+            metadata={
+                "file_analysis": analysis_result,
+                "should_embed": True,
+                "is_artifact": True,
+                "file_hash": file_hash,
+                "file_name": file_name
+            }
         )
-        self.store.create_event(file_event)
+        self.store.create_event(file_event, generate_embedding=True)
 
         if file_path:
             analysis_result['file_path'] = file_path
         analysis_result['event_id'] = file_event.id
-        analysis_result['file_id'] = file_event.id
+        analysis_result['file_id'] = file_id or file_event.id
 
         await self._create_intents_from_analysis(
             workspace_id=workspace_id,
@@ -302,11 +361,8 @@ class FileAnalysisService:
             collaboration = analysis_result.get('collaboration_results', {})
             semantic_seeds = collaboration.get('semantic_seeds', {})
 
-            # Always create timeline item, even if intents is empty
-            # This helps with debugging and shows that analysis was attempted
             intents = semantic_seeds.get('intents', []) if semantic_seeds.get('enabled') else []
 
-            # Handle multiple files case - check if we have a list of file names
             if isinstance(file_name, list):
                 file_count = len(file_name)
                 file_display = f"{file_count} file(s)"
@@ -318,11 +374,9 @@ class FileAnalysisService:
                 title = f"Extracted {len(intents)} intents from {file_display}"
                 summary = f"Found {len(intents)} potential intents: {', '.join(intents[:3])}"
             else:
-                # Even if no intents, create timeline item to show analysis was done
                 title = f"Extracted 0 intents from {file_display}"
                 summary = f"Found 0 potential intents or projects"
 
-            # Always create timeline item, even if intents is empty
             timeline_item = TimelineItem(
                 id=str(uuid.uuid4()),
                 workspace_id=workspace_id,

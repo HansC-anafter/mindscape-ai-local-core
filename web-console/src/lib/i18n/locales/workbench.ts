@@ -62,6 +62,15 @@ export const workbenchZhTW = {
   defaultPlaybook: 'Default Playbook',
   locale: 'Locale',
 
+  // Execution failure diagnostics
+  failureType: '失敗類型',
+  failureReason: '失敗原因',
+  diagnosticInfo: '診斷信息',
+  executionSteps: '執行步驟數',
+  lastStep: '最後步驟',
+  trackExecution: '追蹤調度',
+  noExecutionSteps: '未找到執行步驟 - Playbook 可能未啟動或卡在初始化階段',
+
   // Workspace Modes
   workspaceMode: '工作區模式',
   activePlaybook: '正在使用工作劇本',
@@ -197,6 +206,7 @@ export const workbenchZhTW = {
   'suggestion.create_intent_card_title': '建立意圖卡',
   'suggestion.create_intent_card_titl': '建立意圖卡', // typo fallback
   'suggestion.create_intent_card_description': '開始追蹤你的長期目標和任務',
+  viewOriginalResponse: '查看原始回應',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const workbenchEn = {
@@ -228,6 +238,7 @@ export const workbenchEn = {
   taskStatusRunning: 'Processing',
   taskStatusPending: 'Pending',
   suggestionWaitingForAction: 'Waiting for action...',
+  mindscapePossibleDirections: 'Possible directions Mindscape sees (for reference only)',
   executeDailyPlanning: 'Execute Daily Planning',
   executePack: 'Execute {packId}',
   justNow: 'just now',
@@ -256,6 +267,15 @@ export const workbenchEn = {
   primaryProject: 'Primary Project',
   defaultPlaybook: 'Default Playbook',
   locale: 'Locale',
+
+  // Execution failure diagnostics
+  failureType: 'Failure Type',
+  failureReason: 'Failure Reason',
+  diagnosticInfo: 'Diagnostic Info',
+  executionSteps: 'Execution Steps',
+  lastStep: 'Last Step',
+  trackExecution: 'Track Execution',
+  noExecutionSteps: 'No execution steps found - Playbook may not have started or is stuck in initialization phase',
 
   // Workspace Modes
   workspaceMode: 'Workspace Mode',
@@ -391,5 +411,5 @@ export const workbenchEn = {
   'suggestion.create_intent_card_title': 'Create Intent Card',
   'suggestion.create_intent_card_titl': 'Create Intent Card', // typo fallback
   'suggestion.create_intent_card_description': 'Start tracking your long-term goals and tasks',
-  viewOriginalResponse: '查看原始回應',
+  viewOriginalResponse: 'View Original Response',
 } as const satisfies Partial<Record<MessageKey, string>>;

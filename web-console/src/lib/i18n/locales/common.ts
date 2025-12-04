@@ -165,6 +165,10 @@ export const commonEn = {
   add: 'Add',
   accept: 'Accept',
   skip: 'Skip',
+  copy: 'Copy',
+  open: 'Open',
+  sourceIntent: 'Source Intent',
+  noOutcomes: 'No outcomes yet',
 
   // Common
   loading: 'Loading...',
