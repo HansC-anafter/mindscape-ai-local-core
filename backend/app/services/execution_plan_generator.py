@@ -15,6 +15,7 @@ See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 
 import json
 import logging
+import sys
 import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime
