@@ -14,7 +14,7 @@ from backend.app.models.playbook import (
     PlaybookKind,
     InteractionMode
 )
-from backend.app.services.playbook_loader import PlaybookLoader
+from backend.app.services.playbook_service import PlaybookService
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +22,14 @@ logger = logging.getLogger(__name__)
 class HandoffPlanBuilder:
     """Builds complete HandoffPlan from simplified workflow steps"""
 
-    def __init__(self):
-        self.playbook_loader = PlaybookLoader()
+    def __init__(self, playbook_service: Optional[PlaybookService] = None):
+        """
+        Initialize HandoffPlanBuilder
+
+        Args:
+            playbook_service: PlaybookService instance (optional, will create if not provided)
+        """
+        self.playbook_service = playbook_service or PlaybookService()
 
     def build_handoff_plan(
         self,
@@ -70,14 +76,21 @@ class HandoffPlanBuilder:
         if not playbook_code:
             raise ValueError("playbook_code is required in workflow step")
 
-        playbook = self.playbook_loader.get_playbook_by_code(playbook_code)
-        if not playbook:
-            logger.warning(f"Playbook not found: {playbook_code}, using defaults")
+        # Use PlaybookService to get playbook
+        import asyncio
+        try:
+            playbook = asyncio.run(self.playbook_service.get_playbook(playbook_code))
+            if not playbook:
+                logger.warning(f"Playbook not found: {playbook_code}, using defaults")
+                kind = PlaybookKind.USER_WORKFLOW
+                interaction_mode = [InteractionMode.CONVERSATIONAL]
+            else:
+                kind = playbook.metadata.kind
+                interaction_mode = playbook.metadata.interaction_mode
+        except Exception as e:
+            logger.warning(f"Failed to load playbook {playbook_code}: {e}, using defaults")
             kind = PlaybookKind.USER_WORKFLOW
             interaction_mode = [InteractionMode.CONVERSATIONAL]
-        else:
-            kind = playbook.metadata.kind
-            interaction_mode = playbook.metadata.interaction_mode
 
         inputs = step_dict.get('inputs', {})
         input_mapping = step_dict.get('input_mapping', {})

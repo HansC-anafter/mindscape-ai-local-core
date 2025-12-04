@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from backend.app.capabilities.registry import get_registry
-from backend.app.services.playbook_loader import PlaybookLoader
+from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.conversation.plan_builder import PlanBuilder
 from backend.app.services.mindscape_store import MindscapeStore
 
@@ -22,13 +22,14 @@ class SuggestionGenerator:
         self,
         store: Optional[MindscapeStore] = None,
         plan_builder: Optional[PlanBuilder] = None,
-        default_locale: str = "zh-TW"
+        default_locale: str = "zh-TW",
+        playbook_service: Optional[PlaybookService] = None
     ):
         self.store = store or MindscapeStore()
         self.default_locale = default_locale
         self.plan_builder = plan_builder or PlanBuilder(store=self.store, default_locale=default_locale)
         self.registry = get_registry()
-        self.playbook_loader = PlaybookLoader()
+        self.playbook_service = playbook_service or PlaybookService(store=self.store)
         from backend.app.services.i18n_service import get_i18n_service
         self.i18n = get_i18n_service(default_locale=default_locale)
         from backend.app.services.config_store import ConfigStore
@@ -71,7 +72,7 @@ class SuggestionGenerator:
 
             # Get locale from context or use default
             target_locale = locale or self.default_locale
-            available_playbooks = self._get_available_playbooks(locale=target_locale)
+            available_playbooks = await self._get_available_playbooks(locale=target_locale)
             logger.info(f"Found {len(available_playbooks)} available playbooks (locale: {target_locale})")
 
             has_recent_file = bool(context.get("recent_file"))
@@ -157,40 +158,31 @@ class SuggestionGenerator:
             logger.warning(f"Failed to get installed packs: {e}")
             return []
 
-    def _get_available_playbooks(self, locale: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def _get_available_playbooks(self, locale: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get list of available playbooks, filtered by locale if specified"""
         try:
-            playbooks = self.playbook_loader.load_all_playbooks()
+            import asyncio
 
-            # Filter by locale preference if specified
+            # Use PlaybookService to get playbooks
             target_locale = locale or self.default_locale
+            playbook_metadata_list = await self.playbook_service.list_playbooks(
+                workspace_id=None,  # Get all playbooks
+                locale=target_locale,
+                category=None,
+                source=None,
+                tags=None
+            )
 
-            # Group playbooks by code and select preferred locale
-            playbook_dict = {}
-            for pb in playbooks:
-                code = pb.metadata.playbook_code
-                pb_locale = pb.metadata.locale or 'en'
-
-                # If we don't have this playbook yet, or if we found a better locale match
-                if code not in playbook_dict:
-                    playbook_dict[code] = pb
-                else:
-                    existing_locale = playbook_dict[code].metadata.locale or 'en'
-                    # Prefer target locale, then zh-TW, then en
-                    if pb_locale == target_locale and existing_locale != target_locale:
-                        playbook_dict[code] = pb
-                    elif pb_locale == 'zh-TW' and existing_locale not in [target_locale, 'zh-TW']:
-                        playbook_dict[code] = pb
-
+            # Convert PlaybookMetadata to dict format
             return [
                 {
-                    'playbook_code': pb.metadata.playbook_code,
-                    'name': pb.metadata.name,
-                    'description': pb.metadata.description or '',
-                    'tags': pb.metadata.tags or [],
-                    'tool_dependencies': pb.metadata.tool_dependencies or []
+                    'playbook_code': pb.playbook_code,
+                    'name': pb.name,
+                    'description': pb.description or '',
+                    'tags': pb.tags or [],
+                    'tool_dependencies': pb.tool_dependencies or []
                 }
-                for pb in playbook_dict.values()
+                for pb in playbook_metadata_list
             ]
         except Exception as e:
             logger.warning(f"Failed to get available playbooks: {e}")
@@ -470,11 +462,38 @@ class SuggestionGenerator:
                 vertex_project_id=vertex_project_id,
                 vertex_location=vertex_location
             )
-            llm_provider = llm_manager.get_provider()
 
+            # Get user's selected chat model to determine provider
+            from backend.app.services.system_settings_store import SystemSettingsStore
+            settings_store = SystemSettingsStore()
+            chat_setting = settings_store.get_setting("chat_model")
+            provider_name = None
+
+            if chat_setting:
+                # Get provider from model metadata or infer from model name
+                provider_name = chat_setting.metadata.get("provider")
+                if not provider_name:
+                    model_name = str(chat_setting.value)
+                    # Infer provider from model name
+                    if "gemini" in model_name.lower():
+                        provider_name = "vertex-ai"
+                    elif "gpt" in model_name.lower() or "text-" in model_name.lower():
+                        provider_name = "openai"
+                    elif "claude" in model_name.lower():
+                        provider_name = "anthropic"
+
+            # Get provider based on user's selection - no fallback
+            if not provider_name:
+                error_msg = "Cannot determine LLM provider: chat_model not configured in system settings"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            llm_provider = llm_manager.get_provider(provider_name)
             if not llm_provider:
-                logger.warning("LLM provider not available for playbook suggestion analysis")
-                return []
+                model_name = str(chat_setting.value) if chat_setting and chat_setting.value else "unknown"
+                error_msg = f"Provider '{provider_name}' not available for model '{model_name}'. Please check your API configuration."
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
             # Build content summary for analysis
             content_summary = self._build_content_summary(

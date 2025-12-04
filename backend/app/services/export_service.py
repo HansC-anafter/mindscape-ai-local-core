@@ -14,7 +14,7 @@ from backend.app.models.playbook import Playbook
 from backend.app.models.ai_role import AIRoleConfig
 from backend.app.models.tool_connection import ToolConnectionTemplate
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.playbook_store import PlaybookStore
+from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.ai_role_store import AIRoleStore
 from backend.app.services.tool_registry import ToolRegistryService
 
@@ -33,12 +33,12 @@ class ExportService:
     def __init__(
         self,
         mindscape_store: Optional[MindscapeStore] = None,
-        playbook_store: Optional[PlaybookStore] = None,
+        playbook_service: Optional[PlaybookService] = None,
         ai_role_store: Optional[AIRoleStore] = None,
         tool_registry: Optional[ToolRegistryService] = None,
     ):
         self.mindscape_store = mindscape_store or MindscapeStore()
-        self.playbook_store = playbook_store or PlaybookStore()
+        self.playbook_service = playbook_service or PlaybookService(store=self.mindscape_store)
         self.ai_role_store = ai_role_store or AIRoleStore()
         import os
         data_dir = os.getenv("DATA_DIR", "./data")
@@ -71,8 +71,17 @@ class ExportService:
         ai_roles_data = [self._serialize_ai_role(role) for role in ai_roles]
 
         # 5. Get playbooks
-        playbooks = self.playbook_store.list_playbooks()
-        playbooks_data = [self._serialize_playbook(pb) for pb in playbooks]
+        playbooks_metadata = await self.playbook_service.list_playbooks()
+        # Convert PlaybookMetadata to Playbook for serialization
+        playbooks_data = []
+        for pb_meta in playbooks_metadata:
+            # Get full playbook for serialization
+            playbook = await self.playbook_service.get_playbook(
+                playbook_code=pb_meta.playbook_code,
+                locale=pb_meta.locale
+            )
+            if playbook:
+                playbooks_data.append(self._serialize_playbook(playbook))
 
         # 6. Get tool connection templates (without credentials)
         tool_templates_data = self.tool_registry.export_as_templates(profile_id)
@@ -121,7 +130,16 @@ class ExportService:
         profile = await self.mindscape_store.get_profile(profile_id)
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
-        playbooks = self.playbook_store.list_playbooks()
+        playbooks_metadata = await self.playbook_service.list_playbooks()
+        # Convert PlaybookMetadata to list for preview
+        playbooks = []
+        for pb_meta in playbooks_metadata:
+            playbook = await self.playbook_service.get_playbook(
+                playbook_code=pb_meta.playbook_code,
+                locale=pb_meta.locale
+            )
+            if playbook:
+                playbooks.append(playbook)
         tool_connections = self.tool_registry.get_connections_by_profile(profile_id)
 
         # Build preview
