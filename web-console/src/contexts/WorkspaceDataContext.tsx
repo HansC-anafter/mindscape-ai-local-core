@@ -26,6 +26,9 @@ interface Workspace {
   default_playbook_id?: string;
   default_locale?: string;
   mode?: string | null;
+  execution_mode?: 'qa' | 'execution' | 'hybrid' | null;
+  expected_artifacts?: string[];
+  execution_priority?: 'low' | 'medium' | 'high' | null;
   data_sources?: any;
   associated_intent?: any;
   storage_base_path?: string;
@@ -160,6 +163,11 @@ export function WorkspaceDataProvider({
   const loadWorkspace = useCallback(async () => {
     if (loadingWorkspaceRef.current || !mountedRef.current) return;
 
+    // Ensure AbortController exists before making request
+    if (!abortControllerRef.current) {
+      abortControllerRef.current = new AbortController();
+    }
+
     loadingWorkspaceRef.current = true;
     setIsLoadingWorkspace(true);
     setError(null); // Clear previous errors
@@ -167,7 +175,7 @@ export function WorkspaceDataProvider({
     try {
       const response = await fetch(
         `${getApiUrl()}/api/v1/workspaces/${workspaceId}`,
-        { signal: abortControllerRef.current?.signal }
+        { signal: abortControllerRef.current.signal }
       );
 
       if (!response.ok) {
@@ -199,13 +207,13 @@ export function WorkspaceDataProvider({
         // Retry after a short delay if still mounted
         // Use a ref to store the retry function to avoid dependency issues
         if (mountedRef.current) {
+          // Create a new AbortController for retry immediately
+          abortControllerRef.current = new AbortController();
           setTimeout(() => {
             if (mountedRef.current && !loadingWorkspaceRef.current) {
-              // Create a new AbortController for retry
-              abortControllerRef.current = new AbortController();
               loadWorkspace();
             }
-          }, 100);
+          }, 200); // Increased delay to 200ms for more stability
         }
         return; // Exit early, don't execute finally block
       } else {
@@ -370,6 +378,7 @@ export function WorkspaceDataProvider({
   // Initial load
   useEffect(() => {
     mountedRef.current = true;
+    // Create new AbortController for this effect run
     abortControllerRef.current = new AbortController();
 
     // Load data sequentially to avoid rate limiting
@@ -386,9 +395,14 @@ export function WorkspaceDataProvider({
 
     return () => {
       mountedRef.current = false;
-      abortControllerRef.current?.abort();
+      // Abort any pending requests when component unmounts or workspaceId changes
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
     };
-  }, [workspaceId, loadWorkspace, loadTasks, loadExecutions, loadSystemStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]); // Only depend on workspaceId to avoid unnecessary re-renders
 
   // Listen for workspace events (unified event handling)
   useEffect(() => {
