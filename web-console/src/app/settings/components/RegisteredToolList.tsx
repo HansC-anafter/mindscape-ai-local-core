@@ -20,16 +20,16 @@ export function RegisteredToolList({ tools, maxDisplay = 10 }: RegisteredToolLis
 
   return (
     <Card>
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('registeredTools')}</h3>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('registeredTools')}</h3>
       <div className="space-y-2">
         {displayTools.map((tool) => (
           <div
             key={tool.tool_id}
-            className="flex items-center justify-between p-3 border border-gray-200 rounded"
+            className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded"
           >
             <div>
-              <span className="font-medium text-gray-900">{tool.display_name}</span>
-              <span className="ml-2 text-sm text-gray-500">{tool.category}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{tool.display_name}</span>
+              <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">{tool.category}</span>
             </div>
             <StatusPill
               status={tool.enabled ? 'enabled' : 'disabled'}
@@ -39,7 +39,7 @@ export function RegisteredToolList({ tools, maxDisplay = 10 }: RegisteredToolLis
         ))}
       </div>
       {tools.length > maxDisplay && (
-        <p className="mt-4 text-sm text-gray-500 text-center">
+        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400 text-center">
           {t('showing')} {maxDisplay} {t('of')} {tools.length} {t('toolsCountLabel')}
         </p>
       )}

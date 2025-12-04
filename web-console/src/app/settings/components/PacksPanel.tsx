@@ -14,14 +14,12 @@ import type { ToolStatus } from '../types';
 
 interface PacksPanelProps {
   getToolStatus: (toolType: string) => ToolStatus;
+  activeSection?: string;
 }
 
-type PackTab = 'suites' | 'packages';
-
-export function PacksPanel({ getToolStatus }: PacksPanelProps) {
+export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
   const { packs, loading: packsLoading, installingPack, loadPacks, installPack } = usePacks();
   const { suites, loading: suitesLoading, installingSuite, loadSuites, installSuite } = useSuites();
-  const [activeTab, setActiveTab] = useState<PackTab>('suites');
   const [installSuccess, setInstallSuccess] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -62,10 +60,15 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
     }
   };
 
-  const tabs = [
-    { id: 'suites' as PackTab, label: t('capabilitySuites') },
-    { id: 'packages' as PackTab, label: t('capabilityPackages') },
-  ];
+  // Show empty state if no section is selected
+  if (!activeSection) {
+    return (
+      <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <p>{t('capabilityPacks')}</p>
+        <p className="text-sm mt-2">{t('selectPacksSection') || '請選擇能力套裝或能力包'}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -85,71 +88,19 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
         />
       )}
 
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`
-                  whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm
-                  ${
-                    activeTab === tab.id
-                      ? 'border-purple-500 text-purple-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* Install from File - show on both tabs */}
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <button
-                type="button"
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-                onClick={() => setShowTooltip(!showTooltip)}
-                onBlur={() => setTimeout(() => setShowTooltip(false), 200)}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-              {showTooltip && (
-                <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg z-50">
-                  <p className="whitespace-normal">{t('installFromFileDescription')}</p>
-                  <div className="absolute -top-1 right-4 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                </div>
-              )}
-            </div>
-            <InstallFromFileButton onSuccess={() => {
-              loadPacks();
-              loadSuites();
-              // Trigger refresh of installed capabilities list
-              setRefreshTrigger(prev => prev + 1);
-            }} />
-          </div>
-        </div>
-      </div>
-
-      {/* Tab Content */}
-      {activeTab === 'suites' && (
+      {/* Section Content */}
+      {activeSection === 'suites' && (
         <Section
           description={t('capabilitySuitesDescription')}
         >
           {suitesLoading ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-sm">載入中...</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">載入中...</p>
             </div>
           ) : suites.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-sm">無可用能力套裝</p>
-              <p className="text-gray-400 text-xs mt-2">能力套裝從共享層載入</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">無可用能力套裝</p>
+              <p className="text-gray-400 dark:text-gray-500 text-xs mt-2">能力套裝從共享層載入</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -177,16 +128,45 @@ export function PacksPanel({ getToolStatus }: PacksPanelProps) {
         </Section>
       )}
 
-      {activeTab === 'packages' && (
+      {activeSection === 'packages' && (
         <Section
           description={t('capabilityPackagesDescription')}
         >
           {packsLoading ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-sm">載入中...</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">載入中...</p>
             </div>
           ) : (
             <>
+              <div className="flex items-center justify-end mb-4">
+                <div className="relative">
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onClick={() => setShowTooltip(!showTooltip)}
+                        onBlur={() => setTimeout(() => setShowTooltip(false), 200)}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                      {showTooltip && (
+                        <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg z-50">
+                          <p className="whitespace-normal">{t('installFromFileDescription')}</p>
+                          <div className="absolute -top-1 right-4 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                        </div>
+                      )}
+                    </div>
+                    <InstallFromFileButton onSuccess={() => {
+                      loadPacks();
+                      loadSuites();
+                      setRefreshTrigger(prev => prev + 1);
+                    }} />
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 {packs.map((pack) => (
                   <PackCard

@@ -160,15 +160,15 @@ export function ServiceStatusPanel() {
     switch (status) {
       case 'healthy':
       case 'ok':
-        return 'bg-green-100 text-green-800 border-green-200';
+        return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800';
       case 'unhealthy':
       case 'warning':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800';
       case 'unavailable':
       case 'error':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-600';
     }
   };
 
@@ -204,20 +204,20 @@ export function ServiceStatusPanel() {
     const statusIcon = getStatusIcon(statusValue);
 
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-gray-900">{title}</h3>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</h3>
           <span className={`px-2 py-1 rounded text-xs font-medium border ${statusColor}`}>
             {statusIcon} {statusValue}
           </span>
         </div>
         {status.error && (
-          <p className="text-xs text-red-600 mt-1">{status.error}</p>
+          <p className="text-xs text-red-600 dark:text-red-400 mt-1">{status.error}</p>
         )}
         {details && Object.keys(details).length > 0 && (
           <div className="mt-2 space-y-1">
             {Object.entries(details).map(([key, value]) => (
-              <div key={key} className="text-xs text-gray-600">
+              <div key={key} className="text-xs text-gray-600 dark:text-gray-400">
                 <span className="font-medium">{key}:</span> {String(value)}
               </div>
             ))}
@@ -230,19 +230,19 @@ export function ServiceStatusPanel() {
   if (loading && !healthStatus) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="text-gray-500">{t('loadingServiceStatus')}</div>
+        <div className="text-gray-500 dark:text-gray-400">{t('loadingServiceStatus')}</div>
       </div>
     );
   }
 
   if (error && !healthStatus) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800 font-medium">{t('failedToLoadServiceStatus')}</p>
-        <p className="text-red-600 text-sm mt-1">{error}</p>
+      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+        <p className="text-red-800 dark:text-red-300 font-medium">{t('failedToLoadServiceStatus')}</p>
+        <p className="text-red-600 dark:text-red-400 text-sm mt-1">{error}</p>
         <button
           onClick={fetchHealthStatus}
-          className="mt-3 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+          className="mt-3 px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-md text-sm hover:bg-red-700 dark:hover:bg-red-600"
         >
           {t('retry')}
         </button>
@@ -255,15 +255,15 @@ export function ServiceStatusPanel() {
       {/* Header with refresh controls */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">{t('serviceStatus')}</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('serviceStatus')}</h2>
           {lastUpdated && (
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {t('lastUpdated')} {lastUpdated.toLocaleTimeString()}
             </p>
           )}
         </div>
         <div className="flex items-center space-x-3">
-          <label className="flex items-center text-sm text-gray-600">
+          <label className="flex items-center text-sm text-gray-600 dark:text-gray-400">
             <input
               type="checkbox"
               checked={autoRefresh}
@@ -275,7 +275,7 @@ export function ServiceStatusPanel() {
           <button
             onClick={fetchHealthStatus}
             disabled={loading}
-            className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 disabled:opacity-50"
+            className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md text-sm hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
           >
             {loading ? t('refreshing') : t('refresh')}
           </button>
@@ -286,20 +286,20 @@ export function ServiceStatusPanel() {
       {healthStatus && (
         <div className={`rounded-lg border p-4 ${
           healthStatus.overall_status === 'healthy'
-            ? 'bg-green-50 border-green-200'
-            : 'bg-yellow-50 border-yellow-200'
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
         }`}>
           <div className="flex items-center">
             <span className={`text-2xl mr-2 ${
-              healthStatus.overall_status === 'healthy' ? 'text-green-600' : 'text-yellow-600'
+              healthStatus.overall_status === 'healthy' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'
             }`}>
               {healthStatus.overall_status === 'healthy' ? '✓' : '⚠'}
             </span>
             <div>
-              <p className="font-medium text-gray-900">
+              <p className="font-medium text-gray-900 dark:text-gray-100">
                 {t('overallStatus')} {healthStatus.overall_status.toUpperCase()}
               </p>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 {healthStatus.overall_status === 'healthy'
                   ? t('allServicesOperational')
                   : t('someServicesHaveIssues')}
@@ -332,31 +332,31 @@ export function ServiceStatusPanel() {
           />
         )}
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-900">{t('llmConfiguration')}</h3>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('llmConfiguration')}</h3>
             <span className={`px-2 py-1 rounded text-xs font-medium border ${
               healthStatus?.llm_available
-                ? 'bg-green-100 text-green-800 border-green-200'
-                : 'bg-red-100 text-red-800 border-red-200'
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
+                : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800'
             }`}>
               {healthStatus?.llm_available ? `✓ ${t('configured')}` : `✗ ${t('notConfigured')}`}
             </span>
           </div>
           {healthStatus?.llm_provider && (
-            <p className="text-xs text-gray-600 mt-1">
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
               {t('provider')} {healthStatus.llm_provider}
             </p>
           )}
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-900">{t('vectorDB')}</h3>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('vectorDB')}</h3>
             <span className={`px-2 py-1 rounded text-xs font-medium border ${
               healthStatus?.vector_db_connected
-                ? 'bg-green-100 text-green-800 border-green-200'
-                : 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
+                : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800'
             }`}>
               {healthStatus?.vector_db_connected ? `✓ ${t('connected')}` : `⚠ ${t('notConnected')}`}
             </span>
@@ -367,7 +367,7 @@ export function ServiceStatusPanel() {
       {/* Tool Connections */}
       {healthStatus?.tools && Object.keys(healthStatus.tools).length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-900 mb-3">{t('toolConnections')}</h3>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{t('toolConnections')}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {Object.entries(healthStatus.tools).map(([toolName, toolStatus]) => (
               <ServiceCard
@@ -386,27 +386,27 @@ export function ServiceStatusPanel() {
       {/* Issues */}
       {healthStatus?.issues && healthStatus.issues.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-900 mb-3">{t('issuesAndRecommendations')}</h3>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{t('issuesAndRecommendations')}</h3>
           <div className="space-y-2">
             {healthStatus.issues.map((issue, index) => (
               <div
                 key={index}
                 className={`rounded-lg border p-3 ${
                   issue.severity === 'error'
-                    ? 'bg-red-50 border-red-200'
+                    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                     : issue.severity === 'warning'
-                    ? 'bg-yellow-50 border-yellow-200'
-                    : 'bg-blue-50 border-blue-200'
+                    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                    : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
                 }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <p className={`text-sm font-medium ${
                       issue.severity === 'error'
-                        ? 'text-red-800'
+                        ? 'text-red-800 dark:text-red-300'
                         : issue.severity === 'warning'
-                        ? 'text-yellow-800'
-                        : 'text-blue-800'
+                        ? 'text-yellow-800 dark:text-yellow-300'
+                        : 'text-blue-800 dark:text-blue-300'
                     }`}>
                       {issue.message}
                     </p>
@@ -414,7 +414,7 @@ export function ServiceStatusPanel() {
                   {issue.action_url && (
                     <a
                       href={issue.action_url}
-                      className="ml-3 text-xs text-purple-600 hover:text-purple-800 underline"
+                      className="ml-3 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 underline"
                     >
                       {t('fix')}
                     </a>

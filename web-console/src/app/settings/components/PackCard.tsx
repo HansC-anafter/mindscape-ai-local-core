@@ -61,27 +61,27 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
   const displayTools = pack.tools || pack.required_tools || [];
 
   return (
-    <Card hover>
-      <div className="flex items-start space-x-4 mb-4">
-        {pack.icon && <span className="text-3xl">{pack.icon}</span>}
-        <div className="flex-1">
+    <Card hover className="flex flex-col h-full">
+      <div className="flex items-start space-x-3 mb-4 flex-shrink-0">
+        {pack.icon && <span className="text-2xl flex-shrink-0">{pack.icon}</span>}
+        <div className="flex-1 min-w-0">
           {/* Status, Version, Date - Above name */}
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             {pack.installed && (
-              <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
+              <span className="px-2 py-1 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-medium whitespace-nowrap">
                 {t('installed')}
               </span>
             )}
             {pack.enabled_by_default && !pack.installed && (
-              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded font-medium">
+              <span className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded font-medium whitespace-nowrap">
                 {t('default')}
               </span>
             )}
             {(pack.version || pack.installed_at) && (
-              <div className="flex items-center gap-3 text-xs text-gray-500">
-                {pack.version && <span>v{pack.version}</span>}
+              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
+                {pack.version && <span className="whitespace-nowrap">v{pack.version}</span>}
                 {pack.installed_at && (
-                  <span>
+                  <span className="whitespace-nowrap">
                     {t('installedAt')}: {new Date(pack.installed_at).toLocaleDateString('zh-TW')}
                   </span>
                 )}
@@ -90,24 +90,24 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
           </div>
 
           {/* Name */}
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{pack.name || packName}</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1.5 leading-tight">{pack.name || packName}</h3>
 
           {/* Description */}
           {packDescription && (
-            <p className="text-sm text-gray-600 mb-2">{packDescription}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{packDescription}</p>
           )}
         </div>
       </div>
 
-      <div className="space-y-3 mb-4">
+      <div className="space-y-3 mb-4 flex-1 min-h-0">
         {pack.ai_members && pack.ai_members.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">{t('packInstallsMembers')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packInstallsMembers')}:</p>
             <div className="flex flex-wrap gap-2">
               {pack.ai_members.map((member) => (
                 <span
                   key={member}
-                  className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded"
+                  className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 rounded"
                 >
                   {member}
                 </span>
@@ -118,12 +118,12 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {displayPlaybooks.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">{t('packInstallsPlaybooks')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packInstallsPlaybooks')}:</p>
             <div className="flex flex-wrap gap-2">
               {displayPlaybooks.map((playbook, idx) => (
                 <span
                   key={idx}
-                  className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded"
+                  className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded"
                 >
                   {playbook}
                 </span>
@@ -134,12 +134,12 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {displayTools.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">{t('packProvidesTools')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packProvidesTools')}:</p>
             <div className="flex flex-wrap gap-2">
               {displayTools.map((tool, idx) => (
                 <span
                   key={idx}
-                  className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded"
+                  className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded"
                 >
                   {tool}
                 </span>
@@ -150,8 +150,8 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {pack.routes && pack.routes.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">{t('packProvidesRoutes')}:</p>
-            <div className="text-xs text-gray-600">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packProvidesRoutes')}:</p>
+            <div className="text-xs text-gray-600 dark:text-gray-400">
               {pack.routes.length} {t('apiRoutes')}
             </div>
           </div>
@@ -159,12 +159,12 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {packCapabilities.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">{t('mainCapabilities')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('mainCapabilities')}:</p>
             <div className="flex flex-wrap gap-2">
               {packCapabilities.map((capability, idx) => (
                 <span
                   key={idx}
-                  className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded"
+                  className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded"
                 >
                   {capability}
                 </span>
@@ -175,7 +175,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {pack.required_tools && pack.required_tools.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">{t('requiredToolsLabel')}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('requiredToolsLabel')}</p>
             <div className="space-y-2">
               {pack.required_tools.map((toolType) => {
               const status = getToolStatus(toolType);
@@ -198,7 +198,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
               return (
                 <div key={toolType} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-700 font-medium">{toolName}</span>
+                    <span className="text-gray-700 dark:text-gray-300 font-medium">{toolName}</span>
                     <StatusPill
                       status={isConfigured ? 'enabled' : 'disabled'}
                       label={status.label}
@@ -206,9 +206,9 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                     />
                   </div>
                   {!isConfigured && toolInfo && (
-                    <div className="pl-2 text-xs text-gray-500 space-y-1">
+                    <div className="pl-2 text-xs text-gray-500 dark:text-gray-400 space-y-1">
                       {toolInfo.description && (
-                        <p className="text-gray-500">{toolInfo.description}</p>
+                        <p className="text-gray-500 dark:text-gray-400">{toolInfo.description}</p>
                       )}
                       <div className="flex flex-wrap gap-2">
                         {toolInfo.official_url && (
@@ -216,7 +216,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             href={toolInfo.official_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
                             {t('officialWebsite')}
                           </a>
@@ -226,7 +226,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             href={toolInfo.download_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
                             {t('download')}
                           </a>
@@ -236,7 +236,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             href={toolInfo.local_setup_guide}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
                             {t('setupGuide')}
                           </a>
@@ -246,7 +246,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             href={toolInfo.api_docs}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
                             {t('apiDocs')}
                           </a>
@@ -265,10 +265,10 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
       <button
         onClick={onInstall}
         disabled={installing || pack.installed}
-        className={`w-full py-2 rounded-md font-medium ${
+        className={`w-full py-2 rounded-md font-medium mt-auto flex-shrink-0 ${
           pack.installed
-            ? 'bg-gray-100 text-gray-600 cursor-not-allowed'
-            : 'bg-purple-600 text-white hover:bg-purple-700'
+            ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed'
+            : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
         } disabled:opacity-50`}
       >
         {pack.installed ? t('installed') : installing ? t('installing') : t('installPack')}

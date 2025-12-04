@@ -16,8 +16,8 @@ export function Section({ title, description, children, className = '', headerRi
       {(title || description) && (
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="flex-1">
-            {title && <h2 className="text-xl font-semibold text-gray-900">{title}</h2>}
-            {description && <p className={`text-sm text-gray-600 ${title ? 'mt-1' : ''}`}>{description}</p>}
+            {title && <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{title}</h2>}
+            {description && <p className={`text-sm text-gray-600 dark:text-gray-400 ${title ? 'mt-1' : ''}`}>{description}</p>}
           </div>
           {headerRight && (
             <div className="flex-shrink-0">

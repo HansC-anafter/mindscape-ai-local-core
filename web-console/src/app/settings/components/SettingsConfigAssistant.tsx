@@ -37,59 +37,185 @@ export function SettingsConfigAssistant({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  const adjustTextareaHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      const scrollHeight = textareaRef.current.scrollHeight;
+      const maxHeight = 120;
+      const minHeight = 40;
+      const newHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
+      textareaRef.current.style.height = `${newHeight}px`;
+    }
+  }, []);
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [input, adjustTextareaHeight]);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      adjustTextareaHeight();
+    }
+  }, [adjustTextareaHeight]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const generateWelcomeMessage = useCallback((ctx: SettingsContext | null): string => {
+  const generateWelcomeMessage = useCallback((ctx: SettingsContext | null, tab: SettingsTab): { content: string; actions?: Array<{ label: string; action: string; params?: Record<string, any> }> } => {
+    const issues: string[] = [];
+    const actions: Array<{ label: string; action: string; params?: Record<string, any> }> = [];
+    let content = '';
+    let suggestions: string[] = [];
+    const currentTab = ctx?.currentTab || tab;
+
     if (!ctx) {
-      return t('configAssistantWelcome') || 'Welcome to Configuration Assistant! How can I help you?';
+      switch (tab) {
+        case 'basic':
+          content = t('configAssistantBasicTab') || 'You are on the Basic Settings page.';
+          suggestions.push(t('configAssistantBasicSuggestion1') || 'Configure LLM API keys (OpenAI or Anthropic)');
+          suggestions.push(t('configAssistantBasicSuggestion2') || 'Set backend mode (local or remote)');
+          break;
+        case 'tools':
+          content = t('configAssistantToolsTab') || 'You are on the Tools & Integrations page.';
+          suggestions.push(t('configAssistantToolsSuggestion1') || 'Connect external tools (WordPress, Google Drive, etc.)');
+          suggestions.push(t('configAssistantToolsSuggestion2') || 'Manage tool connections and permissions');
+          break;
+        case 'packs':
+          content = t('configAssistantPacksTab') || 'You are on the Capability Packs page.';
+          suggestions.push(t('configAssistantPacksSuggestion1') || 'Install capability suites (AI members + Playbooks)');
+          suggestions.push(t('configAssistantPacksSuggestion2') || 'Install individual capability packages');
+          suggestions.push(t('configAssistantPacksSuggestion3') || 'Install from .mindpack file');
+          break;
+        case 'service_status':
+          content = t('configAssistantServiceStatusTab') || 'You are on the Service Status page.';
+          suggestions.push(t('configAssistantServiceStatusSuggestion1') || 'Check system health and service status');
+          suggestions.push(t('configAssistantServiceStatusSuggestion2') || 'View service issues and recommendations');
+          break;
+        default:
+          content = t('configAssistantWelcome') || 'Welcome! I can help you with:';
+          suggestions.push(t('configAssistantHelpLLM') || 'Configure LLM API keys');
+          suggestions.push(t('configAssistantHelpTools') || 'Connect tools and services');
+          suggestions.push(t('configAssistantHelpDiagnose') || 'Diagnose configuration issues');
+          suggestions.push(t('configAssistantHelpAnswer') || 'Answer configuration questions');
+      }
+
+      if (suggestions.length > 0) {
+        content += '\n\n' + (t('configAssistantSuggestions') || 'Suggestions:');
+        suggestions.forEach((suggestion, index) => {
+          content += `\n${index + 1}. ${suggestion}`;
+        });
+      }
+
+      return { content, actions: actions.length > 0 ? actions : undefined };
     }
 
     const { configSnapshot } = ctx;
-    const issues: string[] = [];
 
-    if (!configSnapshot.backend.openai_configured && !configSnapshot.backend.anthropic_configured) {
-      issues.push(t('configAssistantIssueNoLLM') || 'No LLM API keys configured');
+    switch (currentTab) {
+      case 'basic':
+        content = t('configAssistantBasicTab') || 'You are on the Basic Settings page.';
+        suggestions.push(t('configAssistantBasicSuggestion1') || 'Configure LLM API keys (OpenAI or Anthropic)');
+        suggestions.push(t('configAssistantBasicSuggestion2') || 'Set backend mode (local or remote)');
+        if (!configSnapshot.backend.openai_configured && !configSnapshot.backend.anthropic_configured) {
+          issues.push(t('configAssistantIssueNoLLM') || 'No LLM API keys configured');
+          actions.push({
+            label: t('configureLLMKeys') || 'Configure LLM Keys',
+            action: 'navigate',
+            params: { tab: 'basic' }
+          });
+        }
+        break;
+
+      case 'tools':
+        content = t('configAssistantToolsTab') || 'You are on the Tools & Integrations page.';
+        suggestions.push(t('configAssistantToolsSuggestion1') || 'Connect external tools (WordPress, Google Drive, etc.)');
+        suggestions.push(t('configAssistantToolsSuggestion2') || 'Manage tool connections and permissions');
+        if (configSnapshot.tools.issues.length > 0) {
+          issues.push(`${configSnapshot.tools.issues.length} ${t('configAssistantIssueTools') || 'tools not connected'}`);
+          actions.push({
+            label: t('connectTools') || 'Connect Tools',
+            action: 'navigate',
+            params: { tab: 'tools' }
+          });
+        }
+        break;
+
+      case 'packs':
+        content = t('configAssistantPacksTab') || 'You are on the Capability Packs page.';
+        suggestions.push(t('configAssistantPacksSuggestion1') || 'Install capability suites (AI members + Playbooks)');
+        suggestions.push(t('configAssistantPacksSuggestion2') || 'Install individual capability packages');
+        suggestions.push(t('configAssistantPacksSuggestion3') || 'Install from .mindpack file');
+        if (configSnapshot.packs.installed === 0) {
+          suggestions.push(t('configAssistantPacksSuggestion4') || 'Start by installing a capability suite');
+        }
+        break;
+
+      case 'service_status':
+        content = t('configAssistantServiceStatusTab') || 'You are on the Service Status page.';
+        suggestions.push(t('configAssistantServiceStatusSuggestion1') || 'Check system health and service status');
+        suggestions.push(t('configAssistantServiceStatusSuggestion2') || 'View service issues and recommendations');
+        if (configSnapshot.services.issues.length > 0) {
+          issues.push(`${configSnapshot.services.issues.length} ${t('configAssistantIssueServices') || 'service issues'}`);
+        }
+        break;
+
+      default:
+        content = t('configAssistantWelcome') || 'Welcome! I can help you with:';
+        suggestions.push(t('configAssistantHelpLLM') || 'Configure LLM API keys');
+        suggestions.push(t('configAssistantHelpTools') || 'Connect tools and services');
+        suggestions.push(t('configAssistantHelpDiagnose') || 'Diagnose configuration issues');
+        suggestions.push(t('configAssistantHelpAnswer') || 'Answer configuration questions');
     }
 
-    if (configSnapshot.tools.issues.length > 0) {
-      issues.push(`${configSnapshot.tools.issues.length} ${t('configAssistantIssueTools') || 'tools not connected'}`);
+    if (suggestions.length > 0) {
+      content += '\n\n' + (t('configAssistantSuggestions') || 'Suggestions:');
+      suggestions.forEach((suggestion, index) => {
+        content += `\n${index + 1}. ${suggestion}`;
+      });
     }
-
-    if (configSnapshot.services.issues.length > 0) {
-      issues.push(`${configSnapshot.services.issues.length} ${t('configAssistantIssueServices') || 'service issues'}`);
-    }
-
-    let welcome = t('configAssistantWelcome') || 'Welcome! I can help you with:';
-    welcome += '\n- ' + (t('configAssistantHelpLLM') || 'Configure LLM API keys');
-    welcome += '\n- ' + (t('configAssistantHelpTools') || 'Connect tools and services');
-    welcome += '\n- ' + (t('configAssistantHelpDiagnose') || 'Diagnose configuration issues');
-    welcome += '\n- ' + (t('configAssistantHelpAnswer') || 'Answer configuration questions');
 
     if (issues.length > 0) {
-      welcome += `\n\n${t('configAssistantDetectedIssues') || 'Detected issues'}: ${issues.join(', ')}`;
+      content += `\n\n${t('configAssistantDetectedIssues') || '⚠️ Detected issues'}: ${issues.join(', ')}`;
     }
 
-    return welcome;
+    if (actions.length === 0 && currentTab !== 'packs') {
+      actions.push({
+        label: t('viewAllSettings') || 'View All Settings',
+        action: 'navigate',
+        params: { tab: 'basic' }
+      });
+    }
+
+    return { content, actions: actions.length > 0 ? actions : undefined };
   }, []);
 
   useEffect(() => {
-    if (context && messages.length === 0) {
-      const welcomeMessage = generateWelcomeMessage(context);
-      setMessages([{
-        id: 'welcome',
-        role: 'assistant',
-        content: welcomeMessage,
-        timestamp: new Date()
-      }]);
-    }
-  }, [context, generateWelcomeMessage, messages.length]);
+    const welcome = generateWelcomeMessage(context, currentTab);
+    const welcomeMessageId = 'welcome';
+
+    setMessages(prev => {
+      const existingWelcome = prev.find(m => m.id === welcomeMessageId);
+      if (existingWelcome && existingWelcome.content === welcome.content) {
+        return prev;
+      }
+
+      const otherMessages = prev.filter(m => m.id !== welcomeMessageId);
+      return [{
+        id: welcomeMessageId,
+        role: 'assistant' as const,
+        content: welcome.content,
+        timestamp: new Date(),
+        actions: welcome.actions
+      }, ...otherMessages];
+    });
+  }, [context, currentTab, generateWelcomeMessage]);
 
   const buildSystemPrompt = useCallback((ctx: SettingsContext | null): string => {
     if (!ctx) {
@@ -197,7 +323,7 @@ Be concise, helpful, and action-oriented.`;
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -225,8 +351,8 @@ Be concise, helpful, and action-oriented.`;
               <div
                 className={`max-w-[85%] rounded-lg px-3 py-2 text-xs whitespace-pre-wrap ${
                   message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-800'
+                    ? 'bg-blue-600 dark:bg-blue-700 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
                 }`}
               >
                 {message.content}
@@ -238,7 +364,7 @@ Be concise, helpful, and action-oriented.`;
                   <button
                     key={index}
                     onClick={() => handleAction(action.action, action.params)}
-                    className="w-full text-left p-2 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors text-xs"
+                    className="w-full text-left p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors text-xs text-gray-900 dark:text-gray-100"
                   >
                     {action.label}
                   </button>
@@ -249,7 +375,7 @@ Be concise, helpful, and action-oriented.`;
         ))}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-600">
+            <div className="bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
               <span className="inline-block animate-pulse">{t('thinking') || 'Thinking...'}</span>
             </div>
           </div>
@@ -257,21 +383,25 @@ Be concise, helpful, and action-oriented.`;
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-gray-200 pt-3">
-        <div className="flex gap-2">
-          <input
-            type="text"
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex-shrink-0">
+        <div className="flex gap-2 items-end">
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onChange={(e) => {
+              setInput(e.target.value);
+            }}
+            onKeyDown={handleKeyPress}
+            onInput={adjustTextareaHeight}
             placeholder={t('configAssistantPlaceholder') || 'Ask about configuration...'}
-            className="flex-1 px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 resize-none overflow-y-auto min-h-[2.5rem] max-h-[120px] leading-5"
             disabled={isLoading}
+            rows={1}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
-            className="px-4 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed h-[2.5rem] flex-shrink-0"
           >
             {t('send') || 'Send'}
           </button>
