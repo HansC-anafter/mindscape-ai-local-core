@@ -267,7 +267,6 @@ const [showSystemTools, setShowSystemTools] = useState(false);
   }
 
   if (error || (!workspace && !loading)) {
-    console.log('Rendering error state:', { error, workspace: workspace?.id, loading });
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
@@ -319,7 +318,7 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
-                    {/* Timeline Panel - Main content with "執行中" section at top (has its own scroll) */}
+                    {/* Timeline Panel - Main content (has its own scroll) */}
                     <div className="flex-1 min-h-0">
                       <TimelinePanel
                         workspaceId={workspaceId}
@@ -535,26 +534,6 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                             />
                           </div>
                         )}
-                        {/* Debug: Show AI Team status in development */}
-                        {process.env.NODE_ENV === 'development' && (
-                          <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-gray-600 dark:text-gray-400">
-                            <div>Debug AI Team Panel:</div>
-                            <div>aiTeamMembers.length={executionState.aiTeamMembers.length}</div>
-                            <div>pipelineStage={executionState.pipelineStage?.stage || 'null'}</div>
-                            <div>isExecuting={executionState.isExecuting ? 'true' : 'false'}</div>
-                            <div>workspace.execution_mode={workspace?.execution_mode}</div>
-                            <div>Should show: {(
-                              executionState.aiTeamMembers.length > 0 &&
-                              executionState.pipelineStage?.stage !== 'no_action_needed' &&
-                              executionState.pipelineStage?.stage !== 'no_playbook_found'
-                            ) ? 'YES' : 'NO'}</div>
-                            {executionState.aiTeamMembers.length > 0 && (
-                              <div className="mt-1">
-                                Members: {JSON.stringify(executionState.aiTeamMembers.map(m => ({ id: m.id, name: m.name_zh || m.name })), null, 2)}
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </>
                     )}
 
@@ -583,7 +562,7 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                         />
                       </div>
                     </div>
-                    {/* Momo AI Workbench Section - Bottom (建議下一步) */}
+                    {/* AI Workbench Section - Bottom */}
                     <div className="flex-1 overflow-y-auto min-h-0">
                       <div className="p-4">
                         {workspace && workspace.mode === 'research' && (
