@@ -3,7 +3,11 @@
  * Settings, Settings Tabs, Tool Actions, Capability Packs, Local File System, Vector DB, Obsidian
  */
 import type { MessageKey } from '../../keys';
-import { slackJa, airtableJa, googleSheetsJa, githubJa, toolsJa } from '../saas';
+import { slackJa } from '../saas/slack';
+import { airtableJa } from '../saas/airtable';
+import { googleSheetsJa } from '../saas/google_sheets';
+import { githubJa } from '../saas/github';
+import { toolsJa } from '../saas/tools';
 
 export const settingsJa = {
   // Settings
@@ -114,8 +118,9 @@ export const settingsJa = {
   noEnabledModels: '有効なモデルがありません。「モデルとクォータ」で少なくとも1つのモデルを有効にしてください。',
   selectChatModel: 'Chat モデルを選択',
   mcpServer: 'MCP サーバー',
+  mcpServerDescription: 'Model Context Protocol サーバーを設定して AI 機能を拡張',
   thirdPartyWorkflow: 'サードパーティ Workflow',
-  thirdPartyWorkflowDescription: 'ワークフロー自動化プラットフォームに接続して AI 機能を拡張',
+  thirdPartyWorkflowDescription: '外部ワークフロー自動化プラットフォームに接続して AI 機能を拡張',
   addWorkflow: 'Workflow を追加',
   noWorkflows: 'ワークフロー接続が設定されていません',
   addWorkflowToStart: '「Workflow を追加」をクリックして開始',
@@ -228,6 +233,8 @@ export const settingsJa = {
   enterNewDirectoryPath: '新しいディレクトリパスを入力...',
   configuredDirectories: '設定済みディレクトリ',
   writeEnabled: '書き込み有効',
+  appendWorkspaceName: '+ ワークスペース名',
+  appendWorkspaceNameTooltip: 'ワークスペース名を追加: {workspaceTitle}',
   allowWriteOperations: '書き込み操作を許可',
   allowWriteDescription: '有効にすると、AI がファイルを作成および変更できます。必要時のみ有効にすることを推奨します。',
   supportedPathFormats: 'サポートされるパス形式：絶対パス（例：/home/user/Documents）、相対パス（例：./data/documents）、ユーザーディレクトリ（例：~/Documents）',
@@ -252,6 +259,13 @@ export const settingsJa = {
   testResults: 'テスト結果',
   testFailed: 'テスト失敗',
   configSaved: '設定が保存されました',
+  configSavedEnvUpdated: '設定が保存されました。.env ファイルが更新されました。マウントを有効にするには、サービスを再起動してください。',
+  configSavedEnvUpdateFailed: '設定が保存されましたが、.env ファイルの更新に失敗しました。.env ファイルに手動で設定してください：',
+  restartRequired: '設定を有効にするには、サービスを再起動する必要があります',
+  restarting: '再起動中...',
+  restartService: 'サービスを再起動',
+  restartFailed: '再起動に失敗しました。手動で実行してください：docker compose restart backend',
+  orManuallyRun: 'または手動で実行：docker compose restart backend',
   configSaveFailed: '設定の保存に失敗しました',
   chatModel: 'チャットモデル',
   chatModelDescription: '対話推論に使用するモデル',

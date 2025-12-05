@@ -251,6 +251,8 @@ export const settingsZhTW = {
   writeEnabled: '寫入已啟用',
   allowWriteOperations: '允許寫入操作',
   allowWriteDescription: '啟用後，AI 可以創建和修改文件。建議僅在必要時啟用。',
+  appendWorkspaceName: '+ 工作區名稱',
+  appendWorkspaceNameTooltip: '附加工作區名稱: {workspaceTitle}',
   supportedPathFormats: '支持的路径格式：绝对路径（如 /home/user/Documents）、相对路径（如 ./data/documents）、用户目录（如 ~/Documents）',
 
   // Vector DB
@@ -272,6 +274,13 @@ export const settingsZhTW = {
   testResults: '測試結果',
   testFailed: '測試失敗',
   configSaved: '配置已保存',
+  configSavedEnvUpdated: '配置已保存。.env 文件已更新。請重啟服務以使掛載生效。',
+  configSavedEnvUpdateFailed: '配置已保存，但 .env 文件更新失敗。請手動在 .env 文件中設置：',
+  restartRequired: '需要重啟服務以使配置生效',
+  restarting: '重啟中...',
+  restartService: '重啟服務',
+  restartFailed: '重啟失敗，請手動執行：docker compose restart backend',
+  orManuallyRun: '或手動執行：docker compose restart backend',
   configSaveFailed: '配置保存失敗',
   chatModel: '對話模型',
   chatModelDescription: '用於對話推理的模型',

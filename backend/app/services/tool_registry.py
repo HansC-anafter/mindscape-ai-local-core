@@ -610,6 +610,23 @@ class ToolRegistryService:
         if not connection_id:
             connection_id = f"{provider_name}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
+        # Remove old tools for this connection before registering new ones
+        # This prevents tool accumulation when connection is updated
+        tool_ids_to_remove = [
+            tool_id for tool_id, tool in self._tools.items()
+            if tool.site_id == connection_id and tool.provider == provider_name
+        ]
+        for tool_id in tool_ids_to_remove:
+            del self._tools[tool_id]
+            try:
+                from backend.app.shared.tool_executor import unregister_dynamic_tool
+                unregister_dynamic_tool(tool_id)
+            except Exception as e:
+                logger.warning(f"Failed to unregister dynamic tool {tool_id}: {e}")
+
+        if tool_ids_to_remove:
+            logger.info(f"Removed {len(tool_ids_to_remove)} old tools for connection {connection_id}")
+
         # Register to local registry
         registered_tools = []
         for discovered_tool in discovered_tools:
@@ -677,6 +694,7 @@ class ToolRegistryService:
                 wp_url=config.base_url if config.tool_type == "wordpress" else None,
                 wp_username=config.api_key if config.tool_type == "wordpress" else None,
                 wp_application_password=config.api_secret if config.tool_type == "wordpress" else None,
+                config=config.custom_config.copy() if config.custom_config else {},
                 last_discovery=datetime.utcnow(),
                 discovery_method=provider_name,
             )
