@@ -225,7 +225,7 @@ export const settingsZhTW = {
   capabilityAssignedToDefaultAssistant: '此能力已分配給預設助手角色。您可以在設定中將它分配到更適合的角色。',
   mainCapabilities: '主要能力',
   // Pack names and descriptions
-  packProductDesignerName: '產品設計師 Pack',
+  packProductDesignerName: '平面設計助理 Pack',
   packProductDesignerDescription: '幫你整理產品想法、調整頁面架構，把模糊感受變成需求',
   packContentCreatorName: '內容創作者 Pack',
   packContentCreatorDescription: '陪你一起構思內容、調整結構、打磨文字',

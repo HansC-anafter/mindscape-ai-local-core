@@ -724,7 +724,7 @@ async def get_current_mode(user_id: str = Path(..., description="Profile ID")):
         # Infer mode (simplified version)
         main_mode = "2025 創業者模式"  # TODO: Use LLM to infer from intents/seeds
         weekly_focus = [intent.title for intent in intents[:3]]
-        ai_assistants = ["產品設計師", "內容編輯", "情緒陪練"]  # TODO: Infer from recent executions
+        ai_assistants = ["平面設計助理", "內容編輯", "情緒陪練"]  # TODO: Infer from recent executions
 
         return {
             "main_mode": main_mode,

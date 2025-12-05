@@ -229,7 +229,7 @@ export const settingsEn = {
   capabilityAssignedToDefaultAssistant: 'This capability has been assigned to the default assistant role. You can reassign it to a more suitable role in settings.',
   mainCapabilities: 'Main Capabilities',
   // Pack names and descriptions
-  packProductDesignerName: 'Product Designer Pack',
+  packProductDesignerName: 'Graphic Design Assistant Pack',
   packProductDesignerDescription: 'Help you organize product ideas, adjust page architecture, and turn vague feelings into requirements',
   packContentCreatorName: 'Content Creator Pack',
   packContentCreatorDescription: 'Work with you to brainstorm content, adjust structure, and polish text',

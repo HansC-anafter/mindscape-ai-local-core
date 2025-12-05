@@ -127,7 +127,7 @@ This playbook is automatically registered as a background routine when a workspa
 {
   "main_mode": "2025 創業者模式",
   "weekly_focus": ["產品設計", "內容創作", "系統優化"],
-  "ai_assistants": ["產品設計師", "內容編輯", "情緒陪練"],
+  "ai_assistants": ["平面設計助理", "內容編輯", "情緒陪練"],
   "last_sync": "2025-12-02T10:00:00Z"
 }
 ```
