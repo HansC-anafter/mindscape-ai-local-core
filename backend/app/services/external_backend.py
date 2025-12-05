@@ -239,11 +239,9 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
         return None
 
     try:
-        # Dynamically load plugin package
-        # Try multiple import strategies:
-        # 1. Relative import (for built-in backends)
-        # 2. Absolute import (for external packages)
-        # 3. Built-in backend shortcut
+        # Dynamically load plugin package with fallback import strategies
+        # Supports relative imports for built-in backends, absolute imports for external packages,
+        # and built-in backend shortcuts for common configurations
 
         module = None
 

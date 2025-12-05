@@ -72,20 +72,20 @@ class ImportService:
             "errors": []
         }
 
-        # 1. Validate format
+        # Validate the import data format before processing
         if not self._validate_import_data(data):
             results["success"] = False
             results["errors"].append("Invalid import format")
             return results
 
-        # 2. Import playbooks
+        # Process playbook imports if present in data
         if "playbooks" in data:
             playbook_results = self._import_playbooks(data["playbooks"])
             results["imported_playbooks"] = playbook_results["imported"]
             results["skipped_playbooks"] = playbook_results["skipped"]
             results["errors"].extend(playbook_results["errors"])
 
-        # 3. Import intents
+        # Process intent/capability pack imports if present in data
         if "intents" in data or "capability_packs" in data:
             intents_data = data.get("intents", data.get("capability_packs", []))
             intent_results = self._import_intents(intents_data, profile_id)

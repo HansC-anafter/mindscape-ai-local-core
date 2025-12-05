@@ -59,8 +59,8 @@ class BackendManager:
         # Fallback to environment variable
         if not mode:
             mode = os.getenv("AGENT_BACKEND_MODE", "local")
-            remote_crs_url = os.getenv("REMOTE_AGENT_URL") or os.getenv("REMOTE_CRS_URL")  # 向後兼容
-            remote_crs_token = os.getenv("REMOTE_AGENT_TOKEN") or os.getenv("REMOTE_CRS_TOKEN")  # 向後兼容
+            remote_crs_url = os.getenv("REMOTE_AGENT_URL") or os.getenv("REMOTE_CRS_URL")  # Backward compatibility
+            remote_crs_token = os.getenv("REMOTE_AGENT_TOKEN") or os.getenv("REMOTE_CRS_TOKEN")  # Backward compatibility
             openai_key = os.getenv("OPENAI_API_KEY")
             anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
@@ -71,7 +71,7 @@ class BackendManager:
                 anthropic_key=anthropic_key
             )
         # If remote mode with custom credentials, create backend with credentials
-        # 向後兼容：remote_crs → http_remote
+        # Backward compatibility: remote_crs → http_remote
         elif mode in ("http_remote", "remote_crs") and remote_crs_url and remote_crs_token:
             self.backends["http_remote"] = GenericHTTPBackend(
                 base_url=remote_crs_url,
@@ -178,14 +178,14 @@ class BackendManager:
             logger.info(f"LocalLLMBackend.is_available() = {available}")
             # Don't check availability - allow setting mode even without keys
         # If setting remote mode, update the backend with new credentials
-        # 向後兼容：remote_crs → http_remote
+        # Backward compatibility: remote_crs → http_remote
         elif mode in ("http_remote", "remote_crs") and remote_crs_url and remote_crs_token:
             # Recreate backend with new credentials
             self.backends["http_remote"] = GenericHTTPBackend(
                 base_url=remote_crs_url,
                 api_token=remote_crs_token
             )
-            mode = "http_remote"  # 標準化為 http_remote
+            mode = "http_remote"  # Standardize to http_remote
             backend = self.backends[mode]
             if not backend.is_available():
                 logger.error(f"Remote backend is not available")

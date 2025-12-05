@@ -70,14 +70,14 @@ class LangChainToolAdapter(MindscapeTool):
 
         self.langchain_tool = langchain_tool
 
-        # 提取 LangChain 工具的 metadata
+        # Extract metadata from LangChain tool
         metadata = self._extract_metadata_from_langchain(langchain_tool)
 
         super().__init__(metadata)
 
     def _extract_metadata_from_langchain(self, lc_tool: Any) -> ToolMetadata:
         """
-        從 LangChain 工具提取 metadata
+        Extract metadata from LangChain tool
 
         Args:
             lc_tool: LangChain BaseTool
@@ -85,17 +85,17 @@ class LangChainToolAdapter(MindscapeTool):
         Returns:
             ToolMetadata
         """
-        # 獲取基本資訊
+        # Get basic information
         name = getattr(lc_tool, 'name', 'unknown')
         description = getattr(lc_tool, 'description', '')
 
-        # 提取 input schema
+        # Extract input schema
         input_schema = self._extract_input_schema(lc_tool)
 
-        # 判斷危險等級（基於工具名稱和描述）
+        # Infer danger level (based on tool name and description)
         danger_level = self._infer_danger_level(name, description)
 
-        # 推斷分類
+        # Infer category
         category = self._infer_category(name, description)
 
         return ToolMetadata(
@@ -176,20 +176,20 @@ class LangChainToolAdapter(MindscapeTool):
         name_lower = name.lower()
         desc_lower = description.lower()
 
-        # 檢查危險關鍵字
+        # Check for danger keywords
         if any(kw in name_lower or kw in desc_lower for kw in danger_keywords):
             return ToolDangerLevel.DANGER
 
-        # 檢查中等風險關鍵字
+        # Check for moderate risk keywords
         if any(kw in name_lower or kw in desc_lower for kw in moderate_keywords):
             return ToolDangerLevel.MODERATE
 
-        # 默認：安全
+        # Default: safe
         return ToolDangerLevel.SAFE
 
     def _infer_category(self, name: str, description: str) -> ToolCategory:
         """
-        根據工具名稱和描述推斷分類
+        Infer category based on tool name and description
         """
         category_keywords = {
             ToolCategory.SEARCH: ['search', 'query', 'find', 'lookup', 'wikipedia', 'google'],
@@ -224,23 +224,23 @@ class LangChainToolAdapter(MindscapeTool):
             input_data: 輸入數據
 
         Returns:
-            工具執行結果
+            Tool execution result
         """
-        # LangChain 工具可能是同步或異步
+        # LangChain tools may be sync or async
         if hasattr(self.langchain_tool, 'ainvoke'):
-            # 異步執行
+            # Async execution
             result = await self.langchain_tool.ainvoke(input_data)
         elif hasattr(self.langchain_tool, '_arun'):
-            # 舊版異步接口
+            # Legacy async interface
             result = await self.langchain_tool._arun(**input_data)
         elif hasattr(self.langchain_tool, 'invoke'):
-            # 同步執行，在 executor 中運行
+            # Sync execution, run in executor
             result = await asyncio.to_thread(
                 self.langchain_tool.invoke,
                 input_data
             )
         elif hasattr(self.langchain_tool, '_run'):
-            # 舊版同步接口
+            # Legacy sync interface
             result = await asyncio.to_thread(
                 self.langchain_tool._run,
                 **input_data
@@ -348,7 +348,7 @@ class MindscapeToLangChainAdapter:
 
 
 # ============================================
-# 便捷函數
+# Convenience functions
 # ============================================
 
 def from_langchain(langchain_tool: Any) -> MindscapeTool:

@@ -97,16 +97,16 @@ class Tool(ABC):
         return self.is_high_risk_action(action)
 
 
-# ========== 新版工具介面 ==========
+# ========== New Tool Interface ==========
 
 class MindscapeTool(ABC):
     """
-    Mindscape 工具抽象類(新版)
+    Mindscape Tool abstract base class (new version)
 
-    設計原則：
-    1. 保持中立，不依賴任何特定框架
-    2. 可以輕鬆轉換成 LangChain BaseTool 或 MCP Tool
-    3. 支援同步和異步執行
+    Design principles:
+    1. Remain framework-neutral, no dependencies on specific frameworks
+    2. Can be easily converted to LangChain BaseTool or MCP Tool
+    3. Supports both synchronous and asynchronous execution
 
     Example:
         class MyTool(MindscapeTool):
@@ -179,24 +179,24 @@ class MindscapeTool(ABC):
         驗證輸入參數是否符合 schema
 
         Args:
-            **kwargs: 輸入參數
+            **kwargs: Input parameters
 
         Returns:
-            驗證後的參數
+            Validated parameters
 
         Raises:
-            ValueError: 驗證失敗
+            ValueError: Validation failure
         """
         schema = self.metadata.input_schema
 
-        # 檢查必填參數
+        # Check required parameters
         for required_param in schema.required:
             if required_param not in kwargs:
                 raise ValueError(
                     f"Missing required parameter: {required_param}"
                 )
 
-        # 檢查參數類型(基礎驗證)
+        # Validate parameter types (basic validation)
         validated = {}
         for param_name, param_value in kwargs.items():
             if param_name not in schema.properties:
@@ -212,10 +212,10 @@ class MindscapeTool(ABC):
 
     async def safe_execute(self, **kwargs) -> ToolExecutionResult:
         """
-        安全執行工具(包含錯誤處理和結果包裝)
+        Safely execute tool with error handling and result wrapping
 
         Args:
-            **kwargs: 工具參數
+            **kwargs: Tool parameters
 
         Returns:
             ToolExecutionResult
@@ -224,10 +224,10 @@ class MindscapeTool(ABC):
         start_time = time.time()
 
         try:
-            # 驗證輸入
+            # Validate input parameters
             validated = self.validate_input(**kwargs)
 
-            # 執行工具
+            # Execute the tool
             result = await self.execute(**validated)
 
             execution_time = int((time.time() - start_time) * 1000)
@@ -244,7 +244,7 @@ class MindscapeTool(ABC):
             )
 
         except ValueError as e:
-            # 參數驗證錯誤
+            # Parameter validation error
             logger.error(f"Tool {self.name} validation error: {e}")
             return ToolExecutionResult(
                 success=False,
@@ -254,7 +254,7 @@ class MindscapeTool(ABC):
             )
 
         except Exception as e:
-            # 執行錯誤
+            # Execution error
             logger.error(f"Tool {self.name} execution error: {e}")
             return ToolExecutionResult(
                 success=False,
@@ -265,10 +265,10 @@ class MindscapeTool(ABC):
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        轉換成字典(用於序列化)
+        Convert to dictionary for serialization
 
         Returns:
-            工具的字典表示
+            Dictionary representation of the tool
         """
         return {
             "name": self.name,
@@ -325,7 +325,7 @@ class MindscapeTool(ABC):
         return f"{self.name}: {self.description[:50]}..."
 
 
-# 便捷函式
+# Convenience functions
 def create_tool_from_function(
     func,
     name: str,
@@ -333,16 +333,16 @@ def create_tool_from_function(
     source_type: ToolSourceType = ToolSourceType.CUSTOM
 ) -> MindscapeTool:
     """
-    從函式創建工具(簡化版)
+    Create tool from function (simplified version)
 
     Args:
-        func: 異步函式
-        name: 工具名稱
-        description: 描述
-        source_type: 來源類型
+        func: Async function
+        name: Tool name
+        description: Description
+        source_type: Source type
 
     Returns:
-        MindscapeTool 實例
+        MindscapeTool instance
 
     Example:
         async def my_func(query: str):
@@ -357,7 +357,7 @@ def create_tool_from_function(
     import inspect
     from backend.app.services.tools.schemas import create_simple_tool_metadata
 
-    # 從函式簽名推斷參數
+    # Infer parameters from function signature
     sig = inspect.signature(func)
     parameters = {}
     required = []
@@ -366,7 +366,7 @@ def create_tool_from_function(
         if param_name in ['self', 'cls']:
             continue
 
-        param_type = "string"  # 預設類型
+        param_type = "string"  # Default type
         if param.annotation != inspect.Parameter.empty:
             if param.annotation == int:
                 param_type = "integer"
@@ -383,7 +383,7 @@ def create_tool_from_function(
         if param.default == inspect.Parameter.empty:
             required.append(param_name)
 
-    # 創建 metadata
+    # Create metadata
     metadata = create_simple_tool_metadata(
         name=name,
         description=description,
@@ -392,7 +392,7 @@ def create_tool_from_function(
         source_type=source_type
     )
 
-    # 創建動態工具類
+    # Create dynamic tool class
     class DynamicTool(MindscapeTool):
         async def execute(self, **kwargs):
             return await func(**kwargs)

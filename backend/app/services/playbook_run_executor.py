@@ -18,6 +18,12 @@ from backend.app.models.playbook import PlaybookRun, PlaybookKind
 from backend.app.services.playbook_runner import PlaybookRunner
 from backend.app.services.workflow_orchestrator import WorkflowOrchestrator
 from backend.app.services.playbook_service import PlaybookService
+from backend.app.services.playbook_initializer import PlaybookInitializer
+from backend.app.services.playbook_checkpoint_manager import PlaybookCheckpointManager
+from backend.app.services.playbook_phase_manager import PlaybookPhaseManager
+from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
+from backend.app.models.execution_metadata import ExecutionMetadata
+from backend.app.models.workspace import PlaybookExecution
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +40,30 @@ class PlaybookRunExecutor:
         """
         self.store = store
         self.playbook_runner = PlaybookRunner()
+
         if store:
             self.workflow_orchestrator = WorkflowOrchestrator(store=store)
+            mindscape_store = store
         else:
             from backend.app.services.mindscape_store import MindscapeStore
-            store = MindscapeStore()
-            self.workflow_orchestrator = WorkflowOrchestrator(store=store)
+            mindscape_store = MindscapeStore()
+            self.workflow_orchestrator = WorkflowOrchestrator(store=mindscape_store)
 
-        self.playbook_service = PlaybookService(store=store)
+        self.playbook_service = PlaybookService(store=mindscape_store)
+
+        # Initialize Claude-style long-chain execution components
+        db_path = mindscape_store.db_path if hasattr(mindscape_store, 'db_path') else None
+        if db_path:
+            self.executions_store = PlaybookExecutionsStore(db_path)
+            self.checkpoint_manager = PlaybookCheckpointManager(self.executions_store)
+            self.phase_manager = PlaybookPhaseManager(self.executions_store, None)  # Events store TBD
+        else:
+            self.executions_store = None
+            self.checkpoint_manager = None
+            self.phase_manager = None
+
+        # Initialize initializer for first-time playbook execution
+        self.initializer = PlaybookInitializer("/tmp/mindscape-workspace")  # Configurable path
 
     async def execute_playbook_run(
         self,
@@ -101,13 +123,51 @@ class PlaybookRunExecutor:
             tasks_store = TasksStore(store.db_path)
             total_steps = len(playbook_run.playbook_json.steps) if playbook_run.playbook_json.steps else 1
 
+            # Initialize Claude-style execution tracking
+            execution_metadata = ExecutionMetadata()
+            execution_metadata.set_execution_context(playbook_code=playbook_code)
+
+            if self.executions_store:
+                execution_record = PlaybookExecution(
+                    id=execution_id,
+                    workspace_id=workspace_id,
+                    playbook_code=playbook_code,
+                    intent_instance_id=None,  # Set from context if available
+                    status="running",
+                    phase="initialization",
+                    last_checkpoint=None,
+                    progress_log_path=None,
+                    feature_list_path=None,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                self.executions_store.create_execution(execution_record)
+
+                # Initialize playbook artifacts if first execution
+                init_result = await self.initializer.initialize_playbook_execution(
+                    execution_id=execution_record.id,
+                    playbook_code=playbook_code,
+                    workspace_id=workspace_id
+                )
+
+                if init_result["success"]:
+                    execution_record.progress_log_path = init_result["artifacts"].get("progress_log")
+                    execution_record.feature_list_path = init_result["artifacts"].get("feature_list")
+                    # Update execution record with artifact paths
+                    self.executions_store.update_execution_status(
+                        execution_id=execution_record.id,
+                        status="running",
+                        phase="execution"
+                    )
+
             execution_context = {
                 "playbook_code": playbook_code,
                 "playbook_name": playbook_run.playbook.metadata.name,
                 "execution_id": execution_id,
                 "total_steps": total_steps,
                 "current_step_index": 0,
-                "status": "running"
+                "status": "running",
+                "execution_metadata": execution_metadata.to_dict()
             }
 
             logger.info(f"PlaybookRunExecutor: Creating execution task {execution_id} for playbook {playbook_code}, workspace_id={workspace_id}, total_steps={total_steps}")

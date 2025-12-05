@@ -12,14 +12,14 @@ from pydantic import BaseModel, Field
 
 
 class TrainingJobStatus(str, Enum):
-    """訓練任務狀態"""
-    QUEUED = "queued"             # 排隊中
-    PREPARING = "preparing"       # 準備樣本
-    TRAINING = "training"         # 訓練中
-    VALIDATING = "validating"     # 驗證中
-    COMPLETED = "completed"       # 完成
-    FAILED = "failed"             # 失敗
-    CANCELLED = "cancelled"       # 已取消
+    """Training job status enumeration"""
+    QUEUED = "queued"             # Queued for processing
+    PREPARING = "preparing"       # Preparing training samples
+    TRAINING = "training"         # Currently training
+    VALIDATING = "validating"     # Validating training results
+    COMPLETED = "completed"       # Training completed successfully
+    FAILED = "failed"             # Training failed
+    CANCELLED = "cancelled"       # Job was cancelled
 
 
 class TrainingJobPriority(str, Enum):
@@ -36,43 +36,43 @@ class VoiceTrainingJob(BaseModel):
     Stored in external database, responsible for actual training execution
     """
     id: str = Field(..., description="Training job ID (UUID)")
-    voice_profile_id: str = Field(..., description="關聯的 voice profile ID")
-    instructor_id: str = Field(..., description="講師 ID")
+    voice_profile_id: str = Field(..., description="Associated voice profile ID")
+    instructor_id: str = Field(..., description="Instructor ID")
 
-    # 任務狀態
-    status: TrainingJobStatus = Field(TrainingJobStatus.QUEUED, description="任務狀態")
-    priority: TrainingJobPriority = Field(TrainingJobPriority.NORMAL, description="優先級")
+    # Job status
+    status: TrainingJobStatus = Field(TrainingJobStatus.QUEUED, description="Current job status")
+    priority: TrainingJobPriority = Field(TrainingJobPriority.NORMAL, description="Job priority level")
 
-    # 訓練配置
+    # Training configuration
     training_config: Dict[str, Any] = Field(
         default_factory=dict,
-        description="訓練配置（模型類型、參數等）"
+        description="Training configuration (model type, parameters, etc.)"
     )
 
-    # 樣本信息
-    sample_file_paths: List[str] = Field(default_factory=list, description="樣本文件路徑")
+    # Sample information
+    sample_file_paths: List[str] = Field(default_factory=list, description="Training sample file paths")
     sample_metadata: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="樣本元數據（時長、品質等）"
+        description="Sample metadata (duration, quality, etc.)"
     )
 
-    # 執行信息
-    started_at: Optional[datetime] = Field(None, description="開始時間")
-    completed_at: Optional[datetime] = Field(None, description="完成時間")
-    estimated_duration_seconds: Optional[int] = Field(None, description="預估時長（秒）")
-    actual_duration_seconds: Optional[int] = Field(None, description="實際時長（秒）")
+    # Execution information
+    started_at: Optional[datetime] = Field(None, description="Job start timestamp")
+    completed_at: Optional[datetime] = Field(None, description="Job completion timestamp")
+    estimated_duration_seconds: Optional[int] = Field(None, description="Estimated duration in seconds")
+    actual_duration_seconds: Optional[int] = Field(None, description="Actual duration in seconds")
 
-    # 結果
-    result_model_path: Optional[str] = Field(None, description="生成的模型文件路徑")
-    result_metrics: Optional[Dict[str, Any]] = Field(None, description="訓練指標")
-    error_message: Optional[str] = Field(None, description="錯誤信息（如果失敗）")
-    error_stack: Optional[str] = Field(None, description="錯誤堆棧")
+    # Results
+    result_model_path: Optional[str] = Field(None, description="Generated model file path")
+    result_metrics: Optional[Dict[str, Any]] = Field(None, description="Training performance metrics")
+    error_message: Optional[str] = Field(None, description="Error message if job failed")
+    error_stack: Optional[str] = Field(None, description="Error stack trace")
 
-    # 資源使用
-    gpu_used: Optional[str] = Field(None, description="使用的 GPU 資源")
-    compute_cost: Optional[float] = Field(None, description="計算成本（如果可追蹤）")
+    # Resource usage
+    gpu_used: Optional[str] = Field(None, description="GPU resources used")
+    compute_cost: Optional[float] = Field(None, description="Compute cost if trackable")
 
-    # 元數據
+    # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

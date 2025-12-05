@@ -218,6 +218,18 @@ class PlaybookMetadata(BaseModel):
         description="Runtime handler: local_llm, remote_crs, custom"
     )
 
+    # Runtime tier (new)
+    runtime_tier: Optional[str] = Field(
+        None,
+        description="Runtime tier: local, cloud_recommended, cloud_only"
+    )
+
+    # Runtime configuration (new)
+    runtime: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Runtime configuration for cloud execution"
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

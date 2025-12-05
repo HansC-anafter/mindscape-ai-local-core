@@ -103,6 +103,8 @@ class PlaybookFileLoader:
                 optional_tools=frontmatter.get('optional_tools', []),
                 scope=frontmatter.get('scope'),
                 owner=frontmatter.get('owner'),
+                runtime_tier=frontmatter.get('runtime_tier'),
+                runtime=frontmatter.get('runtime'),
             )
 
             playbook = Playbook(

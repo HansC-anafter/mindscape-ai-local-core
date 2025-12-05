@@ -147,9 +147,7 @@ class QAResponseGenerator:
                 enhanced_prompt += f"\n\n{system_suggestion}"
 
             # Get available playbooks for workspace capability awareness
-            # Merge playbooks from both sources:
-            # 1. PlaybookLoader (file system) - system default playbooks
-            # 2. PlaybookStore (database) - user-imported and personalized playbooks
+            # Merge playbooks from file system (system defaults) and database (user-imported)
             available_playbooks = []
             playbook_codes_seen = set()
 

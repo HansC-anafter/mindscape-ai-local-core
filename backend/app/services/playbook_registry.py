@@ -58,13 +58,13 @@ class PlaybookRegistry:
         """Load all playbooks from different sources"""
         logger.info("Loading playbooks from all sources...")
 
-        # 1. Load system-level playbooks
+        # Load system-level playbooks first for core functionality
         self._load_system_playbooks()
 
-        # 2. Load capability playbooks
+        # Load capability playbooks for extended features
         self._load_capability_playbooks()
 
-        # 3. Load user-defined playbooks (from database, optional)
+        # Load user-defined playbooks from database if store is available
         if self.store:
             self._load_user_playbooks()
 

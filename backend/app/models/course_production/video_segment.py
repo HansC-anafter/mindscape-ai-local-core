@@ -36,63 +36,63 @@ class VideoSegment(BaseModel):
     Stored in external database, actual video files stored in storage service
     """
     id: str = Field(..., description="Segment ID (UUID)")
-    instructor_id: str = Field(..., description="講師 ID")
-    course_id: Optional[str] = Field(None, description="課程 ID（如果已關聯）")
+    instructor_id: str = Field(..., description="Instructor ID")
+    course_id: Optional[str] = Field(None, description="Course ID if associated")
 
-    # 源文件信息
-    source_video_path: str = Field(..., description="源視頻文件路徑")
-    source_video_id: str = Field(..., description="源視頻 ID")
+    # Source file information
+    source_video_path: str = Field(..., description="Source video file path")
+    source_video_id: str = Field(..., description="Source video ID")
 
-    # 時間範圍
-    start_time: float = Field(..., ge=0.0, description="開始時間（秒）")
-    end_time: float = Field(..., ge=0.0, description="結束時間（秒）")
-    duration: float = Field(..., ge=0.0, description="時長（秒）")
+    # Time range
+    start_time: float = Field(..., ge=0.0, description="Start time in seconds")
+    end_time: float = Field(..., ge=0.0, description="End time in seconds")
+    duration: float = Field(..., ge=0.0, description="Duration in seconds")
 
-    # 片段文件（如果已切分）
-    segment_file_path: Optional[str] = Field(None, description="切分後的片段文件路徑")
+    # Segment file (if split)
+    segment_file_path: Optional[str] = Field(None, description="Path to split segment file")
 
-    # 視覺特徵
-    shot_type: Optional[ShotType] = Field(None, description="鏡頭類型")
-    quality_score: float = Field(0.0, ge=0.0, le=1.0, description="品質分數")
-    quality_level: SegmentQuality = Field(SegmentQuality.FAIR, description="品質等級")
+    # Visual features
+    shot_type: Optional[ShotType] = Field(None, description="Shot type")
+    quality_score: float = Field(0.0, ge=0.0, le=1.0, description="Quality score")
+    quality_level: SegmentQuality = Field(SegmentQuality.FAIR, description="Quality level")
 
-    # 內容標籤
-    tags: List[str] = Field(default_factory=list, description="標籤（如 '暖身', '主要動作序列'）")
-    action_names: List[str] = Field(default_factory=list, description="動作名稱列表（課程特定術語）")
-    intent_tags: List[str] = Field(default_factory=list, description="意圖標籤（如 '重點部位', '難度等級'）")
+    # Content tags
+    tags: List[str] = Field(default_factory=list, description="Tags (e.g., 'warmup', 'main_sequence')")
+    action_names: List[str] = Field(default_factory=list, description="Action names list (course-specific terms)")
+    intent_tags: List[str] = Field(default_factory=list, description="Intent tags (e.g., 'focus_area', 'difficulty_level')")
 
-    # 腳本對齊
+    # Script alignment
     script_line_ids: List[str] = Field(
         default_factory=list,
-        description="對齊的腳本行 ID 列表（如 ['line_010', 'line_018']）"
+        description="Aligned script line IDs (e.g., ['line_010', 'line_018'])"
     )
     script_alignment_confidence: Optional[float] = Field(
         None,
         ge=0.0,
         le=1.0,
-        description="對齊置信度"
+        description="Alignment confidence score"
     )
 
-    # CV 分析結果（JSON）
-    pose_estimation: Optional[Dict[str, Any]] = Field(None, description="姿態估計結果（如果適用）")
-    composition_features: Optional[Dict[str, Any]] = Field(None, description="構圖特徵")
-    lighting_quality: Optional[float] = Field(None, ge=0.0, le=1.0, description="光線品質")
-    framing_quality: Optional[float] = Field(None, ge=0.0, le=1.0, description="構圖品質")
+    # CV analysis results (JSON)
+    pose_estimation: Optional[Dict[str, Any]] = Field(None, description="Pose estimation results if applicable")
+    composition_features: Optional[Dict[str, Any]] = Field(None, description="Composition features")
+    lighting_quality: Optional[float] = Field(None, ge=0.0, le=1.0, description="Lighting quality score")
+    framing_quality: Optional[float] = Field(None, ge=0.0, le=1.0, description="Framing quality score")
 
-    # STT 結果
-    transcript: Optional[str] = Field(None, description="語音轉錄文本")
-    transcript_confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="轉錄置信度")
+    # STT results
+    transcript: Optional[str] = Field(None, description="Speech-to-text transcript")
+    transcript_confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Transcription confidence score")
 
-    # 使用統計
-    usage_count: int = Field(0, description="使用次數（被多少課程使用）")
-    last_used_at: Optional[datetime] = Field(None, description="最後使用時間")
+    # Usage statistics
+    usage_count: int = Field(0, description="Usage count (how many courses use this segment)")
+    last_used_at: Optional[datetime] = Field(None, description="Last usage timestamp")
 
-    # 元數據
+    # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # 分析任務關聯
-    analysis_job_id: Optional[str] = Field(None, description="分析任務 ID（如果由 SmartCut 生成）")
+    # Analysis job association
+    analysis_job_id: Optional[str] = Field(None, description="Analysis job ID if generated by SmartCut")
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}

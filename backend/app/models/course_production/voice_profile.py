@@ -14,12 +14,12 @@ from ..workspace import Workspace  # 參考現有模型結構
 
 
 class VoiceProfileStatus(str, Enum):
-    """聲紋模型狀態"""
-    PENDING = "pending"           # 等待訓練
-    TRAINING = "training"         # 訓練中
-    READY = "ready"               # 可用
-    DEPRECATED = "deprecated"      # 已棄用
-    FAILED = "failed"             # 訓練失敗
+    """Voice model status enumeration"""
+    PENDING = "pending"           # Waiting for training
+    TRAINING = "training"         # Currently training
+    READY = "ready"               # Available for use
+    DEPRECATED = "deprecated"      # Deprecated and no longer used
+    FAILED = "failed"             # Training failed
 
 
 class VoiceProfile(BaseModel):
@@ -29,35 +29,35 @@ class VoiceProfile(BaseModel):
     Stored in external database, actual model files stored in storage service
     """
     id: str = Field(..., description="Voice profile ID (UUID)")
-    instructor_id: str = Field(..., description="講師 ID")
+    instructor_id: str = Field(..., description="Instructor ID")
 
-    # 版本管理
-    version: int = Field(1, description="模型版本號")
-    profile_name: str = Field(..., description="模型名稱（如 '我的 AI 聲音 v1'）")
+    # Version management
+    version: int = Field(1, description="Model version number")
+    profile_name: str = Field(..., description="Profile name (e.g., 'My AI Voice v1')")
 
-    # 狀態
-    status: VoiceProfileStatus = Field(VoiceProfileStatus.PENDING, description="模型狀態")
+    # Status
+    status: VoiceProfileStatus = Field(VoiceProfileStatus.PENDING, description="Current model status")
 
-    # 訓練配置
-    sample_duration_seconds: Optional[float] = Field(None, description="樣本總時長（秒）")
-    sample_count: int = Field(0, description="樣本數量")
-    sample_paths: List[str] = Field(default_factory=list, description="樣本文件路徑列表")
+    # Training configuration
+    sample_duration_seconds: Optional[float] = Field(None, description="Total sample duration in seconds")
+    sample_count: int = Field(0, description="Number of training samples")
+    sample_paths: List[str] = Field(default_factory=list, description="List of sample file paths")
 
-    # 模型存儲
+    # Model storage
     model_storage_path: Optional[str] = Field(None, description="Model file storage path")
     model_storage_service: Optional[str] = Field(None, description="Storage service identifier")
 
-    # 訓練任務關聯
-    training_job_id: Optional[str] = Field(None, description="關聯的訓練任務 ID")
+    # Training job association
+    training_job_id: Optional[str] = Field(None, description="Associated training job ID")
 
-    # 元數據
+    # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    ready_at: Optional[datetime] = Field(None, description="模型就緒時間")
+    ready_at: Optional[datetime] = Field(None, description="Model ready timestamp")
 
-    # 品質指標（訓練完成後填充）
-    quality_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="品質分數")
-    similarity_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="相似度分數")
+    # Quality metrics (populated after training completion)
+    quality_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Overall quality score")
+    similarity_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Voice similarity score")
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}

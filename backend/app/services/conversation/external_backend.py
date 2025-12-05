@@ -240,10 +240,7 @@ async def load_external_backend(config: Dict[str, Any]) -> Optional[ExternalBack
 
     try:
         # Dynamically load plugin package
-        # Try multiple import strategies:
-        # 1. Relative import (for built-in backends like .mock_external_backend)
-        # 2. Absolute import (for external packages like mindscape_external_backend)
-        # 3. Built-in backend shortcut (mock_external_backend → .mock_external_backend)
+        # Try multiple import strategies with fallback options for different backend types
 
         module = None
 

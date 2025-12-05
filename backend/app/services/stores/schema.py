@@ -395,6 +395,30 @@ def init_tasks_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_execution_id ON tasks(execution_id)')
 
 
+def init_playbook_executions_schema(cursor):
+    """Initialize playbook_executions table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS playbook_executions (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            playbook_code TEXT NOT NULL,
+            intent_instance_id TEXT,
+            status TEXT NOT NULL,
+            phase TEXT,
+            last_checkpoint TEXT,
+            progress_log_path TEXT,
+            feature_list_path TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_workspace ON playbook_executions(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_status ON playbook_executions(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_intent ON playbook_executions(intent_instance_id)')
+
+
 def init_task_feedback_schema(cursor):
     """Initialize task_feedback table and indexes"""
     cursor.execute('''
@@ -679,3 +703,4 @@ def init_schema(cursor):
     init_tool_calls_schema(cursor)
     init_stage_results_schema(cursor)
     init_background_routines_schema(cursor)
+    init_playbook_executions_schema(cursor)

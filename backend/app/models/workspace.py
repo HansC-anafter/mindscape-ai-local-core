@@ -464,6 +464,20 @@ class ExecutionSession(BaseModel):
     failure_reason: Optional[str] = Field(None, description="Failure reason if failed")
     default_cluster: Optional[str] = Field(None, description="Default cluster: local_mcp/sem-hub/wp-hub/n8n")
 
+    # Checkpoint and resume support
+    last_checkpoint: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Last checkpoint data (JSON snapshot of execution state)"
+    )
+    phase_summaries: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Phase summaries written to external memory"
+    )
+    supports_resume: bool = Field(
+        default=True,
+        description="Whether this execution supports resume from checkpoint"
+    )
+
     @classmethod
     def from_task(cls, task: Task) -> "ExecutionSession":
         """Create ExecutionSession from Task"""
@@ -485,7 +499,10 @@ class ExecutionSession(BaseModel):
             initiator_user_id=execution_context.get("initiator_user_id"),
             failure_type=execution_context.get("failure_type"),
             failure_reason=execution_context.get("failure_reason"),
-            default_cluster=execution_context.get("default_cluster")
+            default_cluster=execution_context.get("default_cluster"),
+            last_checkpoint=execution_context.get("last_checkpoint"),
+            phase_summaries=execution_context.get("phase_summaries", []),
+            supports_resume=execution_context.get("supports_resume", True)
         )
 
 
@@ -554,6 +571,30 @@ class PlaybookExecutionStep(BaseModel):
             error=payload.get("error"),
             failure_type=payload.get("failure_type")
         )
+
+
+class PlaybookExecution(BaseModel):
+    """
+    PlaybookExecution model - represents a playbook execution record
+
+    This is the persistent record for playbook executions with checkpoint/resume support.
+    """
+    id: str = Field(..., description="Execution ID")
+    workspace_id: str = Field(..., description="Workspace ID")
+    playbook_code: str = Field(..., description="Playbook code")
+    intent_instance_id: Optional[str] = Field(None, description="Origin intent instance ID")
+    status: str = Field(..., description="Execution status: running/paused/done/failed")
+    phase: Optional[str] = Field(None, description="Current phase ID")
+    last_checkpoint: Optional[str] = Field(None, description="Last checkpoint data (JSON)")
+    progress_log_path: Optional[str] = Field(None, description="Progress log file path")
+    feature_list_path: Optional[str] = Field(None, description="Feature list file path")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 
 class ExecutionChatMessage(BaseModel):

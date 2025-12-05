@@ -83,7 +83,7 @@ class WordPressListPostsTool(MindscapeTool):
             os.getenv("WORDPRESS_APPLICATION_PASSWORD", "")
         )
 
-        # 構建 Basic Auth header
+        # Build Basic Auth header
         if self.wp_username and self.wp_password:
             credentials = f"{self.wp_username}:{self.wp_password}"
             token = b64encode(credentials.encode()).decode()
@@ -93,15 +93,15 @@ class WordPressListPostsTool(MindscapeTool):
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        執行：列出 WordPress 文章
+        Execute: List WordPress posts
 
         Args:
-            input_data: 已驗證的輸入參數
+            input_data: Validated input parameters
 
         Returns:
             {
                 "success": True,
-                "data": [...],  # 文章列表
+                "data": [...],  # list of posts
                 "count": 10,
                 "page": 1,
                 "per_page": 10
@@ -282,7 +282,7 @@ class WordPressCreateDraftTool(MindscapeTool):
             payload = {
                 "title": title,
                 "content": content,
-                "status": "draft",  # 強制設為草稿
+                "status": "draft",  # Force set to draft
             }
 
             if excerpt:
@@ -320,7 +320,7 @@ class WordPressUpdatePostTool(MindscapeTool):
             description="更新現有的 WordPress 文章內容、標題或其他屬性",
             category=ToolCategory.CONTENT,
             source_type=ToolSourceType.LOCAL,
-            danger_level=ToolDangerLevel.MODERATE,  # 修改內容有中等風險
+            danger_level=ToolDangerLevel.MODERATE,  # Content modification has moderate risk
             properties={
                 "post_id": {
                     "type": "integer",
@@ -368,10 +368,10 @@ class WordPressUpdatePostTool(MindscapeTool):
             self.auth_header = None
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """執行：更新文章"""
+        """Execute: Update post"""
         post_id = input_data["post_id"]
 
-        # 構建更新 payload（只包含提供的欄位）
+        # Build update payload (only include provided fields)
         payload = {}
         if "title" in input_data:
             payload["title"] = input_data["title"]
@@ -383,7 +383,7 @@ class WordPressUpdatePostTool(MindscapeTool):
             payload["status"] = input_data["status"]
 
         if not payload:
-            raise ValueError("至少需要提供一個要更新的欄位")
+            raise ValueError("At least one field to update must be provided")
 
         async with aiohttp.ClientSession() as session:
             headers = {"Content-Type": "application/json"}
@@ -517,15 +517,15 @@ class WordPressListOrdersTool(MindscapeTool):
 
 
 class WordPressUpdateOrderStatusTool(MindscapeTool):
-    """更新 WooCommerce 訂單狀態（高風險操作）"""
+    """Update WooCommerce order status (high-risk operation)"""
 
     def __init__(self, connection: ToolConnection):
         metadata = create_simple_tool_metadata(
             name="wordpress.update_order_status",
-            description="⚠️ 更新 WooCommerce 訂單狀態（高風險操作，可能影響付款和物流）",
+            description="Update WooCommerce order status (high-risk operation, may affect payment and logistics)",
             category=ToolCategory.COMMERCE,
             source_type=ToolSourceType.LOCAL,
-            danger_level=ToolDangerLevel.DANGER,  # ⚠️ 高風險
+            danger_level=ToolDangerLevel.DANGER,  # High risk operation
             properties={
                 "order_id": {
                     "type": "integer",
@@ -593,23 +593,23 @@ class WordPressUpdateOrderStatusTool(MindscapeTool):
                 else:
                     error_text = await response.text()
                     raise Exception(
-                        f"更新訂單狀態失敗: {response.status} - {error_text}"
+                        f"Failed to update order status: {response.status} - {error_text}"
                     )
 
 
 # ============================================
-# 工廠函數
+# Factory functions
 # ============================================
 
 def create_wordpress_tools(connection: ToolConnection) -> List[MindscapeTool]:
     """
-    創建所有 WordPress 工具實例
+    Create all WordPress tool instances
 
     Args:
-        connection: WordPress 連接配置
+        connection: WordPress connection configuration
 
     Returns:
-        WordPress 工具列表
+        List of WordPress tools
 
     Example:
         >>> wp_conn = ToolConnection(
@@ -620,16 +620,16 @@ def create_wordpress_tools(connection: ToolConnection) -> List[MindscapeTool]:
         ...     api_secret="app_password"
         ... )
         >>> tools = create_wordpress_tools(wp_conn)
-        >>> print(f"創建了 {len(tools)} 個工具")
+        >>> print(f"Created {len(tools)} tools")
     """
     return [
-        # 內容管理
+        # Content management
         WordPressListPostsTool(connection),
         WordPressGetPostTool(connection),
         WordPressCreateDraftTool(connection),
         WordPressUpdatePostTool(connection),
 
-        # 電商管理
+        # E-commerce management
         WordPressListOrdersTool(connection),
         WordPressUpdateOrderStatusTool(connection),
     ]

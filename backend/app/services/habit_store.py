@@ -51,8 +51,8 @@ class HabitStore:
     # Habit Observation methods
 
     def create_observation(self, observation: HabitObservation) -> HabitObservation:
-        """建立習慣觀察記錄"""
-        # 確保資料庫 schema 已更新
+        """Create habit observation record"""
+        # Ensure database schema is up to date
         self._ensure_observation_schema()
 
         with self.get_connection() as conn:
@@ -276,35 +276,35 @@ class HabitStore:
 
     def apply_confirmed_habits(self, profile: MindscapeProfile) -> MindscapeProfile:
         """
-        將已確認的習慣覆蓋到 profile 的 preferences 上
-        不改寫原設定，只在讀取時覆蓋
+        Apply confirmed habits to profile preferences
+        Don't modify original settings, only overlay during reading
         """
         confirmed_habits = self.get_confirmed_habits(profile.id)
         if not confirmed_habits:
             return profile
 
-        # 建立 preferences 的副本（避免修改原始物件）
+        # Create a copy of preferences (avoid modifying original object)
         preferences_dict = profile.preferences.dict() if profile.preferences else {}
 
-        # 應用已確認的習慣
+        # Apply confirmed habits
         for habit in confirmed_habits:
             if habit.habit_category == HabitCategory.PREFERENCE:
-                # 直接覆蓋對應的偏好設定
+                # Directly override corresponding preference settings
                 if habit.habit_key in ['language', 'communication_style', 'response_length', 'timezone']:
                     preferences_dict[habit.habit_key] = habit.habit_value
 
-        # 建立新的 UserPreferences 物件
+        # Create new UserPreferences object
         from backend.app.models.mindscape import UserPreferences, CommunicationStyle, ResponseLength
         updated_preferences = UserPreferences(**preferences_dict)
 
-        # 建立新的 profile 副本（不修改原始物件）
+        # Create new profile copy (don't modify original object)
         profile_dict = profile.dict()
         profile_dict['preferences'] = updated_preferences
         return MindscapeProfile(**profile_dict)
 
     def _row_to_observation(self, row) -> HabitObservation:
-        """將資料庫行轉換為 HabitObservation"""
-        # 兼容舊資料（如果沒有新欄位）
+        """Convert database row to HabitObservation"""
+        # Backward compatibility (if new fields don't exist)
         has_insight_signal = row.get('has_insight_signal', 0) == 1 if 'has_insight_signal' in row.keys() else False
         insight_score = row.get('insight_score', 0.0) if 'insight_score' in row.keys() else 0.0
 
@@ -324,15 +324,15 @@ class HabitStore:
         )
 
     def _ensure_observation_schema(self):
-        """確保 habit_observations 表包含新欄位（遷移）"""
+        """Ensure habit_observations table has new fields (migration)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # 檢查欄位是否存在
+            # Check if columns exist
             cursor.execute("PRAGMA table_info(habit_observations)")
             columns = [row[1] for row in cursor.fetchall()]
 
-            # 添加 has_insight_signal 欄位（如果不存在）
+            # Add has_insight_signal column (if not exists)
             if 'has_insight_signal' not in columns:
                 try:
                     cursor.execute('''
@@ -343,7 +343,7 @@ class HabitStore:
                 except sqlite3.OperationalError as e:
                     logger.warning(f"Failed to add has_insight_signal column: {e}")
 
-            # 添加 insight_score 欄位（如果不存在）
+            # Add insight_score column (if not exists)
             if 'insight_score' not in columns:
                 try:
                     cursor.execute('''

@@ -52,30 +52,29 @@ class ExportService:
         """
         profile_id = request.profile_id
 
-        # 1. Get mindscape profile
+        # Retrieve the mindscape profile for the export
         profile = await self.mindscape_store.get_profile(profile_id)
         if not profile:
             raise ValueError(f"Profile not found: {profile_id}")
 
-        # 2. Convert profile to template (sanitized)
+        # Sanitize profile data for template export
         mindscape_template = self._sanitize_profile(profile)
 
-        # 3. Get and convert intent cards to capability packs
+        # Process intent cards into capability packs if requested
         capability_packs = []
         if request.include_intent_cards:
             intents = await self.mindscape_store.get_intents_by_profile(profile_id)
             capability_packs = self._convert_intents_to_capability_packs(intents)
 
-        # 4. Get AI role configurations
+        # Collect AI role configurations for the profile
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
         ai_roles_data = [self._serialize_ai_role(role) for role in ai_roles]
 
-        # 5. Get playbooks
+        # Gather playbook metadata and convert to full playbook objects
         playbooks_metadata = await self.playbook_service.list_playbooks()
-        # Convert PlaybookMetadata to Playbook for serialization
         playbooks_data = []
         for pb_meta in playbooks_metadata:
-            # Get full playbook for serialization
+            # Load complete playbook for full serialization
             playbook = await self.playbook_service.get_playbook(
                 playbook_code=pb_meta.playbook_code,
                 locale=pb_meta.locale
@@ -83,16 +82,16 @@ class ExportService:
             if playbook:
                 playbooks_data.append(self._serialize_playbook(playbook))
 
-        # 6. Get tool connection templates (without credentials)
+        # Export tool connection templates without sensitive credentials
         tool_templates_data = self.tool_registry.export_as_templates(profile_id)
 
-        # 7. Build role-tool mappings
+        # Create mappings between AI roles and their associated tools
         role_tool_mappings = self._build_role_tool_mappings(ai_roles)
 
-        # 8. Get agent backend config (sanitized)
+        # Generate sanitized agent backend configuration template
         agent_backend_config = self._get_agent_backend_config_template()
 
-        # 9. Build metadata
+        # Build comprehensive metadata for the export package
         metadata = self._build_metadata(
             profile,
             ai_roles,
@@ -100,7 +99,7 @@ class ExportService:
             request.include_usage_statistics
         )
 
-        # 10. Create exported configuration
+        # Create final exported configuration with all collected data
         exported = ExportedConfiguration(
             export_version="1.0.0",
             export_timestamp=datetime.utcnow(),

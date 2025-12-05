@@ -60,6 +60,7 @@ class PlaybookService:
         playbook_code: str,
         locale: str = "zh-TW",
         workspace_id: Optional[str] = None,
+        runtime_tier: Optional[str] = None,
     ) -> Optional[Playbook]:
         """
         Get playbook details
@@ -68,6 +69,7 @@ class PlaybookService:
             playbook_code: Playbook code
             locale: Language locale (default: zh-TW)
             workspace_id: Workspace ID (optional, for priority: user > capability > system)
+            runtime_tier: Runtime tier filter (optional, "local", "cloud_recommended", "cloud_only")
 
         Returns:
             Playbook object or None
@@ -80,6 +82,14 @@ class PlaybookService:
             raise ValueError(f"locale cannot be None when calling get_playbook for {playbook_code}")
 
         playbook = await self.registry.get_playbook(playbook_code, locale, workspace_id)
+
+        # Check runtime_tier compatibility if specified
+        if playbook and runtime_tier:
+            playbook_runtime_tier = getattr(playbook.metadata, 'runtime_tier', None)
+            if playbook_runtime_tier == "cloud_only" and runtime_tier == "local":
+                logger.warning(f"Playbook {playbook_code} requires cloud execution but local was requested")
+                return None  # Cloud-only playbook not available for local execution
+
         return playbook
 
     async def list_playbooks(
@@ -89,6 +99,7 @@ class PlaybookService:
         category: Optional[str] = None,
         source: Optional[PlaybookSource] = None,
         tags: Optional[List[str]] = None,
+        runtime_tier: Optional[str] = None,
     ) -> List[PlaybookMetadata]:
         """
         List all available playbooks
@@ -99,17 +110,38 @@ class PlaybookService:
             category: Category filter (optional)
             source: Source filter (system, capability, user)
             tags: Tags filter (optional, for P1.5 attribute mapping)
+            runtime_tier: Runtime tier filter (optional, "local", "cloud_recommended", "cloud_only")
 
         Returns:
             List of playbook metadata
         """
-        return await self.registry.list_playbooks(
+        playbooks = await self.registry.list_playbooks(
             workspace_id=workspace_id,
             locale=locale,
             category=category,
             source=source,
             tags=tags
         )
+
+        # Filter by runtime_tier if specified
+        if runtime_tier:
+            filtered_playbooks = []
+            for playbook in playbooks:
+                playbook_runtime_tier = getattr(playbook, 'runtime_tier', None)
+                if runtime_tier == "local":
+                    # Local execution: exclude cloud_only playbooks
+                    if playbook_runtime_tier != "cloud_only":
+                        filtered_playbooks.append(playbook)
+                elif runtime_tier == "cloud_recommended":
+                    # Cloud recommended: include all playbooks
+                    filtered_playbooks.append(playbook)
+                elif runtime_tier == "cloud_only":
+                    # Cloud only: only include cloud_only playbooks
+                    if playbook_runtime_tier == "cloud_only":
+                        filtered_playbooks.append(playbook)
+            return filtered_playbooks
+
+        return playbooks
 
     async def execute_playbook(
         self,

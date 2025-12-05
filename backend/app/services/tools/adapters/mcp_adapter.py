@@ -36,7 +36,7 @@ class MCPToolAdapter(MindscapeTool):
         >>> client = MCPClient(config)
         >>> await client.connect()
         >>>
-        >>> # 從 MCP tool info 創建 adapter
+        >>> # Create adapter from MCP tool info
         >>> mcp_tool_info = {
         ...     "name": "github.search_issues",
         ...     "description": "Search GitHub issues",
@@ -49,7 +49,7 @@ class MCPToolAdapter(MindscapeTool):
 
     def __init__(self, mcp_client: MCPClient, tool_info: Dict[str, Any]):
         """
-        初始化 MCP 工具適配器
+        Initialize MCP tool adapter
 
         Args:
             mcp_client: 已連接的 MCPClient 實例
@@ -61,16 +61,16 @@ class MCPToolAdapter(MindscapeTool):
         self.mcp_client = mcp_client
         self.mcp_tool_name = tool_info["name"]
 
-        # 提取並轉換 metadata
+        # Extract and convert metadata
         metadata = self._extract_metadata_from_mcp(tool_info)
         super().__init__(metadata)
 
     def _extract_metadata_from_mcp(self, tool_info: Dict[str, Any]) -> ToolMetadata:
         """
-        從 MCP 工具信息提取 metadata
+        Extract metadata from MCP tool info
 
         Args:
-            tool_info: MCP tools/list 返回的工具信息
+            tool_info: Tool information returned by MCP tools/list
 
         Returns:
             ToolMetadata
@@ -79,10 +79,10 @@ class MCPToolAdapter(MindscapeTool):
         description = tool_info.get("description", "")
         input_schema = tool_info.get("inputSchema", {})
 
-        # 推斷危險等級
+        # Infer danger level
         danger_level = self._infer_danger_level(name, description)
 
-        # 推斷分類
+        # Infer category
         category = self._infer_category(name, description)
 
         return ToolMetadata(
@@ -116,20 +116,20 @@ class MCPToolAdapter(MindscapeTool):
         name_lower = name.lower()
         desc_lower = description.lower()
 
-        # 檢查危險關鍵字
+        # Check for danger keywords
         if any(kw in name_lower or kw in desc_lower for kw in danger_keywords):
             return ToolDangerLevel.DANGER
 
-        # 檢查中等風險關鍵字
+        # Check for moderate risk keywords
         if any(kw in name_lower or kw in desc_lower for kw in moderate_keywords):
             return ToolDangerLevel.MODERATE
 
-        # 默認：安全
+        # Default: safe
         return ToolDangerLevel.SAFE
 
     def _infer_category(self, name: str, description: str) -> ToolCategory:
         """
-        根據工具名稱和描述推斷分類
+        Infer category based on tool name and description
 
         Args:
             name: 工具名稱
@@ -167,20 +167,20 @@ class MCPToolAdapter(MindscapeTool):
 
         Note:
             MCP tools/call 返回的 content 是一個數組，可能包含：
-            - text: 文本內容
-            - image: 圖片數據
-            - resource: 資源引用
+            - text: text content
+            - image: image data
+            - resource: resource reference
 
-            我們將其轉換為更友好的格式
+            We convert this to a more user-friendly format
         """
         try:
-            # 調用 MCP 工具
+            # Call MCP tool
             content_list = await self.mcp_client.call_tool(
                 self.mcp_tool_name,
                 input_data
             )
 
-            # 轉換 MCP content 格式為更友好的格式
+            # Convert MCP content format to more user-friendly format
             result = self._parse_mcp_content(content_list)
 
             return result
@@ -208,16 +208,16 @@ class MCPToolAdapter(MindscapeTool):
             content_list: MCP content 數組
 
         Returns:
-            解析後的結果（根據 content 類型）
+            Parsed result (based on content type)
         """
         if not content_list:
             return None
 
-        # 如果只有一個 text 內容，直接返回文本
+        # If only one text content, return text directly
         if len(content_list) == 1 and content_list[0].get("type") == "text":
             return content_list[0].get("text")
 
-        # 如果有多個內容，返回結構化數據
+        # If multiple contents, return structured data
         parsed = {
             "text": [],
             "images": [],
@@ -241,7 +241,7 @@ class MCPToolAdapter(MindscapeTool):
                     "mimeType": item.get("mimeType"),
                 })
 
-        # 如果只有文本，簡化輸出
+        # If only text, simplify output
         if parsed["images"] == [] and parsed["resources"] == []:
             return "\n".join(parsed["text"])
 
@@ -249,14 +249,14 @@ class MCPToolAdapter(MindscapeTool):
 
 
 # ============================================
-# 便捷函數
+# Convenience functions
 # ============================================
 
 async def discover_mcp_tools(
     mcp_client: MCPClient
 ) -> List[MCPToolAdapter]:
     """
-    從 MCP server 發現並創建所有工具
+    Discover and create all tools from MCP server
 
     Args:
         mcp_client: 已連接的 MCPClient
@@ -271,10 +271,10 @@ async def discover_mcp_tools(
         ...     for tool in tools:
         ...         print(tool.name)
     """
-    # 列出所有工具
+    # List all tools
     tools_info = await mcp_client.list_tools()
 
-    # 為每個工具創建 adapter
+    # Create adapter for each tool
     adapters = []
     for tool_info in tools_info:
         adapter = MCPToolAdapter(mcp_client, tool_info)
@@ -286,10 +286,10 @@ async def discover_mcp_tools(
 
 def is_mcp_available() -> bool:
     """
-    檢查 MCP 支援是否可用
+    Check if MCP support is available
 
     Returns:
-        bool: True 如果可以使用 MCP
+        bool: True if MCP can be used
     """
     try:
         from backend.app.services.tools.mcp_client import MCPClient

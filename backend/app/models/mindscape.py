@@ -287,6 +287,7 @@ class EventType(str, Enum):
     EXECUTION_CHAT = "execution_chat"      # Execution-scoped chat messages
     OBSIDIAN_NOTE_UPDATED = "obsidian_note_updated"  # Obsidian note creation/update events
     EXECUTION_PLAN = "execution_plan"      # Chain-of-Thought execution plan
+    PHASE_SUMMARY = "phase_summary"        # Playbook phase summary for external memory
 
 
 class EventActor(str, Enum):
