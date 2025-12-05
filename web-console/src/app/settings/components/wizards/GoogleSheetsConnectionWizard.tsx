@@ -79,14 +79,14 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
     <>
       <button
         onClick={onClose}
-        className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+        className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
         {t('cancel')}
       </button>
       {!form.api_key && !reuseGoogleDrive && (
         <button
           onClick={handleOAuth}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
         >
           {t('connectViaOAuth')}
         </button>
@@ -94,7 +94,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
       <button
         onClick={handleDiscover}
         disabled={discovering || !form.connection_id || !form.name || (!form.api_key && !reuseGoogleDrive)}
-        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+        className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {discovering ? t('discovering') : t('discoverAndRegister')}
       </button>
@@ -112,33 +112,33 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
       footer={footer}
     >
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {t('connectionName')}
         </label>
         <input
           type="text"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
           placeholder="e.g., My Google Sheets"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {t('siteIdentifier')}
         </label>
         <input
           type="text"
           value={form.connection_id}
           onChange={(e) => setForm({ ...form, connection_id: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
           placeholder="e.g., google-sheets-1"
         />
       </div>
 
       {hasGoogleDriveConnection && (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
           <label className="flex items-center">
             <input
               type="checkbox"
@@ -151,11 +151,11 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
               }}
               className="mr-2"
             />
-            <span className="text-sm text-blue-800">
+            <span className="text-sm text-blue-800 dark:text-blue-300">
               {t('reuseGoogleDriveOAuth')}
             </span>
           </label>
-          <p className="text-xs text-blue-600 mt-1">
+          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
             {t('reuseGoogleDriveOAuthDescription')}
           </p>
         </div>
@@ -163,25 +163,25 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
 
       {!reuseGoogleDrive && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {t('googleSheetsAccessToken')}
           </label>
           <input
             type="password"
             value={form.api_key}
             onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
             placeholder="ya29..."
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t('googleSheetsTokenDescription')}
           </p>
         </div>
       )}
 
       {!reuseGoogleDrive && !form.api_key && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-          <p className="text-sm text-yellow-800">
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
+          <p className="text-sm text-yellow-800 dark:text-yellow-300">
             {t('googleSheetsOAuthNote')}
           </p>
         </div>

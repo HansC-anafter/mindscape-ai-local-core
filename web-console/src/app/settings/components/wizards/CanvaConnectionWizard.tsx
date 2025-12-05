@@ -95,7 +95,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
   const renderStep1 = () => (
     <div>
-      <h4 className="text-sm font-medium text-gray-700 mb-3">
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
         {t('selectCanvaAuthMethod') || 'Select Authentication Method'}
       </h4>
       <div className="space-y-3">
@@ -104,10 +104,10 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
             setUseOAuth(true);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
+          className="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 text-left transition-colors"
         >
-          <div className="font-medium text-gray-900">OAuth 2.0 (Recommended)</div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="font-medium text-gray-900 dark:text-gray-100">OAuth 2.0 (Recommended)</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t('canvaOAuthDescription') || 'Secure OAuth authentication via Canva Developer Portal'}
           </div>
         </button>
@@ -116,10 +116,10 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
             setUseOAuth(false);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
+          className="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 text-left transition-colors"
         >
-          <div className="font-medium text-gray-900">API Key</div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="font-medium text-gray-900 dark:text-gray-100">API Key</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t('canvaAPIKeyDescription') || 'Direct API key authentication (if available)'}
           </div>
         </button>
@@ -132,65 +132,65 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
       return (
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('connectionName') || 'Connection Name'}
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="e.g., My Canva Account"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('canvaClientID') || 'Canva Client ID'}
             </label>
             <input
               type="text"
               value={form.client_id}
               onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="From Canva Developer Portal"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {t('canvaClientIDDescription') || 'Get this from your Canva Developer Portal application'}
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('canvaClientSecret') || 'Canva Client Secret'}
             </label>
             <input
               type="password"
               value={form.client_secret}
               onChange={(e) => setForm({ ...form, client_secret: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="From Canva Developer Portal"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('canvaRedirectURI') || 'Redirect URI (Optional)'}
             </label>
             <input
               type="url"
               value={form.redirect_uri}
               onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="http://localhost:8000/api/tools/canva/oauth/callback"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {t('canvaRedirectURIDescription') || 'Must match the redirect URI configured in your Canva Developer Portal'}
             </p>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-            <p className="text-sm text-blue-800">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+            <p className="text-sm text-blue-800 dark:text-blue-300">
               {t('canvaOAuthFlowNote') || 'After clicking "Connect", you will be redirected to Canva to authorize the connection.'}
             </p>
           </div>
@@ -200,53 +200,53 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
       return (
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('connectionName') || 'Connection Name'}
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="e.g., My Canva Account"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('canvaAPIKey') || 'Canva API Key'}
             </label>
             <input
               type="password"
               value={form.api_key}
               onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="Your Canva API Key"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('canvaBaseURL') || 'Base URL'}
             </label>
             <input
               type="url"
               value={form.base_url}
               onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="https://api.canva.com/rest/v1"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('canvaBrandID') || 'Brand ID (Optional)'}
             </label>
             <input
               type="text"
               value={form.brand_id}
               onChange={(e) => setForm({ ...form, brand_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="Your Canva Brand ID"
             />
           </div>
@@ -260,21 +260,21 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
       {step > 1 && (
         <button
           onClick={() => setStep(step - 1)}
-          className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+          className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
         >
           {t('back') || 'Back'}
         </button>
       )}
       <button
         onClick={onClose}
-        className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+        className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
         {t('cancel') || 'Cancel'}
       </button>
       {step < 2 ? (
         <button
           onClick={() => setStep(step + 1)}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+          className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600"
         >
           {t('next') || 'Next'}
         </button>
@@ -282,7 +282,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
         <button
           onClick={handleConnect}
           disabled={connecting || !form.name || (useOAuth ? (!form.client_id || !form.client_secret) : !form.api_key)}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {connecting ? (t('connecting') || 'Connecting...') : (t('connect') || 'Connect')}
         </button>

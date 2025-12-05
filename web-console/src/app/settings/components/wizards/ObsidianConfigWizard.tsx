@@ -176,20 +176,20 @@ export function ObsidianConfigWizard({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">{t('obsidianConfig')}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('obsidianConfig')}</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             ✕
           </button>
         </div>
 
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               {t('obsidianVaultPaths')}
             </label>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
               {t('obsidianVaultPathsDescription')}
             </p>
             <div className="flex gap-2 mb-2">
@@ -199,24 +199,24 @@ export function ObsidianConfigWizard({
                 onChange={(e) => setNewVaultPath(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && addVaultPath()}
                 placeholder={t('enterVaultPath')}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               />
               <button
                 type="button"
                 onClick={addVaultPath}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
                 {t('add')}
               </button>
             </div>
             <div className="space-y-1">
               {form.vault_paths.map((path) => (
-                <div key={path} className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                  <span className="text-sm text-gray-700">{path}</span>
+                <div key={path} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-2 rounded">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{path}</span>
                   <button
                     type="button"
                     onClick={() => removeVaultPath(path)}
-                    className="text-red-600 hover:text-red-800 text-sm"
+                    className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 text-sm"
                   >
                     {t('delete')}
                   </button>
@@ -226,10 +226,10 @@ export function ObsidianConfigWizard({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               {t('obsidianIncludeFolders')}
             </label>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
               {t('obsidianIncludeFoldersDescription')}
             </p>
             <div className="flex gap-2 mb-2">
@@ -239,12 +239,12 @@ export function ObsidianConfigWizard({
                 onChange={(e) => setNewIncludeFolder(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && addIncludeFolder()}
                 placeholder="e.g., Research"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               />
               <button
                 type="button"
                 onClick={addIncludeFolder}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
                 {t('add')}
               </button>
@@ -253,13 +253,13 @@ export function ObsidianConfigWizard({
               {form.include_folders.map((folder) => (
                 <span
                   key={folder}
-                  className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
+                  className="inline-flex items-center px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full text-sm"
                 >
                   {folder}
                   <button
                     type="button"
                     onClick={() => removeIncludeFolder(folder)}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    className="ml-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
                   >
                     ×
                   </button>
@@ -269,10 +269,10 @@ export function ObsidianConfigWizard({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               {t('obsidianExcludeFolders')}
             </label>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
               {t('obsidianExcludeFoldersDescription')}
             </p>
             <div className="flex gap-2 mb-2">
@@ -282,12 +282,12 @@ export function ObsidianConfigWizard({
                 onChange={(e) => setNewExcludeFolder(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && addExcludeFolder()}
                 placeholder="e.g., .obsidian"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               />
               <button
                 type="button"
                 onClick={addExcludeFolder}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
                 {t('add')}
               </button>
@@ -296,13 +296,13 @@ export function ObsidianConfigWizard({
               {form.exclude_folders.map((folder) => (
                 <span
                   key={folder}
-                  className="inline-flex items-center px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm"
+                  className="inline-flex items-center px-3 py-1 bg-gray-100 dark:bg-gray-800/30 text-gray-800 dark:text-gray-300 rounded-full text-sm"
                 >
                   {folder}
                   <button
                     type="button"
                     onClick={() => removeExcludeFolder(folder)}
-                    className="ml-2 text-gray-600 hover:text-gray-800"
+                    className="ml-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300"
                   >
                     ×
                   </button>
@@ -312,10 +312,10 @@ export function ObsidianConfigWizard({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               {t('obsidianIncludeTags')}
             </label>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
               {t('obsidianIncludeTagsDescription')}
             </p>
             <div className="flex gap-2 mb-2">
@@ -325,12 +325,12 @@ export function ObsidianConfigWizard({
                 onChange={(e) => setNewTag(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && addTag()}
                 placeholder="e.g., research"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               />
               <button
                 type="button"
                 onClick={addTag}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
                 {t('add')}
               </button>
@@ -339,13 +339,13 @@ export function ObsidianConfigWizard({
               {form.include_tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm"
+                  className="inline-flex items-center px-3 py-1 bg-gray-100 dark:bg-gray-800/30 text-gray-800 dark:text-gray-300 rounded-full text-sm"
                 >
                   #{tag}
                   <button
                     type="button"
                     onClick={() => removeTag(tag)}
-                    className="ml-2 text-gray-600 hover:text-gray-800"
+                    className="ml-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300"
                   >
                     ×
                   </button>
@@ -362,7 +362,7 @@ export function ObsidianConfigWizard({
               onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
               className="mr-2"
             />
-            <label htmlFor="obsidianEnabled" className="text-sm font-medium text-gray-700">
+            <label htmlFor="obsidianEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('enableObsidianIntegration')}
             </label>
           </div>
@@ -370,8 +370,8 @@ export function ObsidianConfigWizard({
           {error && <InlineAlert type="error" message={error} />}
           {success && <InlineAlert type="success" message={success} />}
           {testResult && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <pre className="text-sm text-blue-800 whitespace-pre-wrap">{testResult}</pre>
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <pre className="text-sm text-blue-800 dark:text-blue-300 whitespace-pre-wrap">{testResult}</pre>
             </div>
           )}
 
@@ -380,7 +380,7 @@ export function ObsidianConfigWizard({
               type="button"
               onClick={handleTest}
               disabled={testing || form.vault_paths.length === 0}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {testing ? t('testing') : t('testConnection')}
             </button>
@@ -388,14 +388,14 @@ export function ObsidianConfigWizard({
               type="button"
               onClick={handleSave}
               disabled={saving || form.vault_paths.length === 0}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? t('saving') : t('save')}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
             >
               {t('cancel')}
             </button>

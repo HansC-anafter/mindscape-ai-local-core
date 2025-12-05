@@ -134,9 +134,32 @@ export function SettingsConfigAssistant({
         break;
 
       case 'tools':
+        if (currentSection === 'third-party-workflow') {
+          content = '您正在設定第三方工作流程整合頁面。';
+          suggestions.push('這些整合可以讓 AI 自動處理重複任務');
+          suggestions.push('通常需要技術夥伴協助設定外部服務');
+          suggestions.push('如果只有本機環境，可以先略過這些設定');
+        } else if (currentSection === 'developer-integrations') {
+          content = '您正在設定開發者整合頁面。';
+          suggestions.push('這些工具需要外部環境或技術協作');
+          suggestions.push('適合有工程師或服務商協助的團隊');
+          suggestions.push('一般使用者可以先略過');
+        } else if (currentSection === 'general-integrations') {
+          content = '您正在設定一般整合頁面。';
+          suggestions.push('這些是常用的工具整合');
+          suggestions.push('在本地核心模式下即可正常使用');
+          suggestions.push('建議從這些開始設定');
+        } else if (currentSection === 'system-tools') {
+          content = '您正在設定系統工具頁面。';
+          suggestions.push('這些是系統級的本地工具');
+          suggestions.push('包含向量資料庫、本地檔案系統等');
+          suggestions.push('建議優先設定這些基礎工具');
+        } else {
         content = t('configAssistantToolsTab') || 'You are on the Tools & Integrations page.';
         suggestions.push(t('configAssistantToolsSuggestion1') || 'Connect external tools (WordPress, Google Drive, etc.)');
         suggestions.push(t('configAssistantToolsSuggestion2') || 'Manage tool connections and permissions');
+        }
+
         if (configSnapshot.tools.issues.length > 0) {
           issues.push(`${configSnapshot.tools.issues.length} ${t('configAssistantIssueTools') || 'tools not connected'}`);
           actions.push({

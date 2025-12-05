@@ -68,19 +68,19 @@ export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardP
 
   const renderStep1 = () => (
     <div>
-      <h4 className="text-sm font-medium text-gray-700 mb-3">{t('selectWorkflowProvider') || 'Select Workflow Platform'}</h4>
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectWorkflowProvider') || 'Select Workflow Platform'}</h4>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {platforms.map((p) => (
           <button
             key={p.id}
             onClick={() => handlePlatformSelect(p.id)}
-            className="p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
+            className="p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 text-left transition-colors"
           >
             <div className="flex items-center space-x-3">
               <span className="text-2xl">{p.icon}</span>
               <div>
-                <div className="font-medium text-gray-900">{p.name}</div>
-                <div className="text-xs text-gray-500 mt-1">{p.description}</div>
+                <div className="font-medium text-gray-900 dark:text-gray-100">{p.name}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{p.description}</div>
               </div>
             </div>
           </button>
@@ -95,58 +95,58 @@ export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardP
     return (
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {t('workflowName') || 'Workflow Name'}
           </label>
           <input
             type="text"
             value={config.name}
             onChange={(e) => setConfig({ ...config, name: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
             placeholder={`${platformConfig?.name || 'Workflow'} Connection`}
           />
         </div>
 
         {selectedPlatform === 'n8n' && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('n8nInstanceUrl') || 'n8n Instance URL'}
             </label>
             <input
               type="url"
               value={config.base_url || ''}
               onChange={(e) => setConfig({ ...config, base_url: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="https://n8n.example.com"
             />
           </div>
         )}
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {t('apiKey') || 'API Key'}
           </label>
           <input
             type="password"
             value={config.api_key}
             onChange={(e) => setConfig({ ...config, api_key: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
             placeholder="Your API key"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {t('webhookUrl') || 'Webhook URL (Optional)'}
           </label>
           <input
             type="url"
             value={config.webhook_url || ''}
             onChange={(e) => setConfig({ ...config, webhook_url: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
             placeholder="https://webhook.example.com"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t('webhookUrlDescription') || 'Optional: Webhook URL for receiving events from the workflow platform'}
           </p>
         </div>
@@ -159,14 +159,14 @@ export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardP
       {step > 1 && (
         <button
           onClick={() => setStep(step - 1)}
-          className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+          className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
         >
           {t('back') || 'Back'}
         </button>
       )}
       <button
         onClick={onClose}
-        className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+        className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
         {t('cancel') || 'Cancel'}
       </button>
@@ -174,7 +174,7 @@ export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardP
         <button
           onClick={() => setStep(step + 1)}
           disabled={!selectedPlatform}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {t('next') || 'Next'}
         </button>
@@ -182,7 +182,7 @@ export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardP
         <button
           onClick={handleConfigSubmit}
           disabled={connecting || !config.name || !config.api_key}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {connecting ? (t('connecting') || 'Connecting...') : (t('connect') || 'Connect')}
         </button>

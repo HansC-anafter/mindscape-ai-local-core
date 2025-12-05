@@ -86,7 +86,7 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
 
   const renderStep1 = () => (
     <div>
-      <h4 className="text-sm font-medium text-gray-700 mb-3">
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
         {t('selectGitHubAuthMethod')}
       </h4>
       <div className="space-y-3">
@@ -95,10 +95,10 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
             setUseOAuth(true);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
+          className="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 text-left transition-colors"
         >
-          <div className="font-medium text-gray-900">OAuth 2.0 (Recommended)</div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="font-medium text-gray-900 dark:text-gray-100">OAuth 2.0 (Recommended)</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t('githubOAuthDescription')}
           </div>
         </button>
@@ -107,10 +107,10 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
             setUseOAuth(false);
             setStep(2);
           }}
-          className="w-full p-4 border border-gray-300 rounded-md hover:border-gray-500 hover:bg-gray-50 text-left"
+          className="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 text-left transition-colors"
         >
-          <div className="font-medium text-gray-900">Personal Access Token</div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="font-medium text-gray-900 dark:text-gray-100">Personal Access Token</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t('githubTokenDescription')}
           </div>
         </button>
@@ -123,36 +123,36 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
       return (
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('connectionName')}
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="e.g., My GitHub Account"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('githubClientID')}
             </label>
             <input
               type="text"
               value={form.client_id}
               onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="From GitHub App settings"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {t('githubClientIDDescription')}
             </p>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-            <p className="text-sm text-blue-800">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+            <p className="text-sm text-blue-800 dark:text-blue-300">
               {t('githubOAuthFlowNote')}
             </p>
           </div>
@@ -162,30 +162,30 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
       return (
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('connectionName')}
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="e.g., My GitHub Account"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('githubPersonalAccessToken')}
             </label>
             <input
               type="password"
               value={form.access_token}
               onChange={(e) => setForm({ ...form, access_token: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="ghp_..."
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {t('githubTokenDescriptionFull')}
             </p>
           </div>
@@ -198,14 +198,14 @@ export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionW
     <>
       <button
         onClick={step === 1 ? onClose : () => setStep(1)}
-        className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+        className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
         {step === 1 ? t('cancel') : t('back')}
       </button>
       <button
         onClick={step === 1 ? () => {} : handleConnect}
         disabled={connecting || (step === 2 && !form.name && (!useOAuth || !form.access_token))}
-        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+        className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {connecting
           ? t('connecting')

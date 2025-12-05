@@ -127,7 +127,7 @@ export function GoogleDriveConnectionWizard({
     <>
       <button
         onClick={onClose}
-        className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+        className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
         {t('cancel')}
       </button>
@@ -135,7 +135,7 @@ export function GoogleDriveConnectionWizard({
         <button
           onClick={handleOAuthConnect}
           disabled={oauthConnecting || !form.connection_id || !form.name}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {oauthConnecting ? (
             <>
@@ -153,7 +153,7 @@ export function GoogleDriveConnectionWizard({
         <button
           onClick={handleDiscover}
           disabled={discovering || !form.connection_id || !form.name || !form.api_key}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
+          className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {discovering ? t('discovering') : t('discoverAndRegister')}
         </button>
@@ -172,27 +172,27 @@ export function GoogleDriveConnectionWizard({
       footer={footer}
     >
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {t('connectionName')}
         </label>
         <input
           type="text"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
           placeholder="e.g., My Google Drive"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {t('siteIdentifier')}
         </label>
         <input
           type="text"
           value={form.connection_id}
           onChange={(e) => setForm({ ...form, connection_id: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
           placeholder="e.g., google-drive-1"
         />
       </div>
@@ -204,9 +204,9 @@ export function GoogleDriveConnectionWizard({
               type="radio"
               checked={useOAuth}
               onChange={() => setUseOAuth(true)}
-              className="form-radio h-4 w-4 text-gray-600"
+              className="form-radio h-4 w-4 text-blue-600 dark:text-blue-500"
             />
-            <span className="ml-2 text-sm font-medium text-gray-700">
+            <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
               Use OAuth 2.0 (Recommended)
             </span>
           </label>
@@ -215,9 +215,9 @@ export function GoogleDriveConnectionWizard({
               type="radio"
               checked={!useOAuth}
               onChange={() => setUseOAuth(false)}
-              className="form-radio h-4 w-4 text-gray-600"
+              className="form-radio h-4 w-4 text-blue-600 dark:text-blue-500"
             />
-            <span className="ml-2 text-sm font-medium text-gray-700">
+            <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
               Manual Token Input
             </span>
           </label>
@@ -225,24 +225,24 @@ export function GoogleDriveConnectionWizard({
       </div>
 
       {useOAuth ? (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-4">
           <div className="flex items-start">
             <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="h-5 w-5 text-blue-400 dark:text-blue-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
             </div>
             <div className="ml-3 flex-1">
-              <h3 className="text-sm font-medium text-blue-800">
+              <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300">
                 OAuth 2.0 Authorization
               </h3>
-              <div className="mt-2 text-sm text-blue-700">
+              <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
                 <p>
                   Click "Authorize with Google" to securely connect your Google Drive account.
                   You'll be redirected to Google to grant read-only access to your Drive files.
                 </p>
                 <p className="mt-2">
-                  <strong>Scopes requested:</strong> Google Drive (read-only)
+                  <strong className="font-semibold">Scopes requested:</strong> Google Drive (read-only)
                 </p>
               </div>
             </div>
@@ -251,36 +251,36 @@ export function GoogleDriveConnectionWizard({
       ) : (
         <>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              OAuth 2.0 Access Token <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              OAuth 2.0 Access Token <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             <input
               type="password"
               value={form.api_key}
               onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="ya29..."
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Obtain Access Token through OAuth 2.0 flow
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Currently supports read-only operations (list files, read files)
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Refresh Token ({t('optional')})
             </label>
             <input
               type="password"
               value={form.api_secret}
               onChange={(e) => setForm({ ...form, api_secret: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               placeholder="1//..."
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Used for automatic Access Token refresh ({t('optional')})
             </p>
           </div>
