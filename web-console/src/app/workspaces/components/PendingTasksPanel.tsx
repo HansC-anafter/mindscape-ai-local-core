@@ -186,15 +186,8 @@ interface Task {
   data?: any;
   params?: any;
   result?: any;
-  artifact_warning?: {
-    type: string;
-    message: string;
-    action_required?: string;
-    storage_path_missing?: boolean;
-    storage_path?: string;
-    fallback_path?: string;
-  };
   artifact_creation_failed?: boolean;
+  artifact_warning?: any;
 }
 
 interface PendingTasksPanelProps {
@@ -251,7 +244,7 @@ export default function PendingTasksPanel({
     const backgroundPlaybookCodes = ['habit_learning'];
 
     // Filter background tasks
-    const backgroundTasks = allTasks.filter((task: Task) => {
+    const backgroundTasks = allTasks.filter((task: any) => {
       const playbookCode = task.pack_id || task.playbook_id || '';
       const isBackground = backgroundPlaybookCodes.includes(playbookCode.toLowerCase()) ||
                           task.result?.llm_analysis?.is_background ||
@@ -260,7 +253,7 @@ export default function PendingTasksPanel({
     });
 
     // Filter foreground tasks
-    const foregroundTasks = allTasks.filter((task: Task) => {
+    const foregroundTasks = allTasks.filter((task: any) => {
       const playbookCode = task.pack_id || task.playbook_id || '';
       const isBackground = backgroundPlaybookCodes.includes(playbookCode.toLowerCase()) ||
                           task.result?.llm_analysis?.is_background ||
@@ -270,11 +263,11 @@ export default function PendingTasksPanel({
 
     // Only show PENDING tasks in pending panel
     const activeTasks = foregroundTasks.filter(
-      (task: Task) => task.status?.toUpperCase() === 'PENDING'
+      (task: any) => task.status?.toUpperCase() === 'PENDING'
     );
 
     // Also include recently completed foreground tasks (within last 5 minutes)
-    const recentCompletedTasks = foregroundTasks.filter((task: Task) => {
+    const recentCompletedTasks = foregroundTasks.filter((task: any) => {
       if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
       const completedAt = task.completed_at || task.updated_at || task.created_at;
       if (!completedAt) return false;
@@ -835,7 +828,7 @@ export default function PendingTasksPanel({
 
 
                       {/* Action row - Execute button + Auto-exec config dropdown in same line */}
-                      {task.task_type === 'suggestion' && task.result?.suggestion && task.pack_id && !isSucceeded && (
+                      {task.pack_id && !isSucceeded && (
                         <div className="flex flex-col gap-1">
                           {/* Status message */}
                           {taskStatusMessages[task.id] && (

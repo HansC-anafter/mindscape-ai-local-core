@@ -17,11 +17,13 @@ from . import (
 router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
 
 # Register all sub-routers
-router.include_router(general.router)
-router.include_router(obsidian.router)
+# IMPORTANT: Specific routes (like /llm-models) must be registered BEFORE
+# catch-all routes (like /{key}) to avoid route conflicts
 router.include_router(llm_models.router)
 router.include_router(google_oauth.router)
+router.include_router(obsidian.router)
 router.include_router(embedding_migrations.router)
 router.include_router(env_vars.router)
 router.include_router(system_control.router)
+router.include_router(general.router)  # Catch-all routes last
 

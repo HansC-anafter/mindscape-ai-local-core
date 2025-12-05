@@ -192,7 +192,7 @@ export default function WorkspaceChat({
             model_name: m.model_name,
             provider: m.provider
           })));
-        } else if (data.available_chat_models) {
+        } else if (data.available_chat_models && data.available_chat_models.length > 0) {
           setAvailableChatModels(data.available_chat_models);
         }
 
@@ -367,7 +367,8 @@ export default function WorkspaceChat({
       const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/workbench/context-token-count`);
       if (response.ok) {
         const data = await response.json();
-        setContextTokenCount(data.context_tokens || null);
+        // Support both token_count and context_tokens field names
+        setContextTokenCount(data.token_count || data.context_tokens || null);
       } else if (response.status === 404) {
         // Route might not be available yet, silently ignore
         setContextTokenCount(null);
@@ -1405,7 +1406,7 @@ export default function WorkspaceChat({
                 </button>
               )}
               <select
-                value={currentChatModel}
+                value={currentChatModel || ''}
                 onChange={async (e) => {
                   const selectedModel = e.target.value;
                   const model = availableChatModels.find(m => m.model_name === selectedModel);
@@ -1426,11 +1427,15 @@ export default function WorkspaceChat({
                 className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
                 title={t('workspaceSelectChatModel')}
               >
-                {availableChatModels.map((model) => (
-                  <option key={model.model_name} value={model.model_name}>
-                    {model.model_name}
-                  </option>
-                ))}
+                {availableChatModels.length > 0 ? (
+                  availableChatModels.map((model) => (
+                    <option key={model.model_name} value={model.model_name}>
+                      {model.model_name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">{t('noModelsAvailable') || 'No models available'}</option>
+                )}
               </select>
               {currentChatModel && (
                 <>

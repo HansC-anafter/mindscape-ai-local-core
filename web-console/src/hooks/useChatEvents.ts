@@ -32,6 +32,7 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
   const [fileAnalysisResult, setFileAnalysisResult] = useState<any>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(false);
 
   const loadEvents = useCallback(async (beforeId?: string, append: boolean = false) => {
     try {
@@ -43,7 +44,8 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
       setError(null);
 
       const url = new URL(`${apiUrl}/api/v1/workspaces/${workspaceId}/events`);
-      url.searchParams.set('limit', '25');
+      // Increase limit to load more messages initially (was 25, now 200 to match backend max)
+      url.searchParams.set('limit', beforeId ? '100' : '200');
       if (beforeId) {
         url.searchParams.set('before_id', beforeId);
       }
@@ -93,6 +95,7 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
         setMessages(prev => [...chatMessages, ...prev]);
       } else {
         setMessages(chatMessages);
+        setAutoLoadAttempted(false); // Reset auto-load flag on initial load
       }
 
       setHasMore(eventsData.has_more === true);
@@ -147,6 +150,18 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
     const oldestMessage = messages[0];
     await loadEvents(oldestMessage.id, true);
   }, [messages, hasMore, loadingMore, loadEvents]);
+
+  // Auto-load more messages once after initial load if hasMore is true
+  useEffect(() => {
+    if (hasMore && !loading && !loadingMore && messages.length > 0 && !autoLoadAttempted) {
+      // Auto-load more messages once to get more history
+      setAutoLoadAttempted(true);
+      const timer = setTimeout(() => {
+        loadMore();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [hasMore, loading, loadingMore, messages.length, autoLoadAttempted, loadMore]);
 
   useEffect(() => {
     loadEvents();
