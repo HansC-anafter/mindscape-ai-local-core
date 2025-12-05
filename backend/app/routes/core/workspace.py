@@ -340,6 +340,7 @@ async def update_workspace(
     Updates workspace fields. Only provided fields will be updated.
     """
     try:
+        logger.info(f"Updating workspace {workspace_id} with request: {request.dict(exclude_unset=True)}")
         workspace = store.get_workspace(workspace_id)
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
@@ -506,6 +507,7 @@ async def update_workspace(
             store.create_event(warning_event)
 
         updated = store.update_workspace(workspace)
+        logger.info(f"Workspace {workspace_id} updated successfully. Storage path: {updated.storage_base_path}, Artifacts dir: {updated.artifacts_dir}")
 
         event = MindEvent(
             id=str(uuid.uuid4()),

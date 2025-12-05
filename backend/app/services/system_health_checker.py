@@ -140,15 +140,30 @@ class SystemHealthChecker:
                     model_name = str(chat_setting.value)
                     provider = chat_setting.metadata.get("provider", "openai") if hasattr(chat_setting, 'metadata') else "openai"
 
-                    # Get API key
+                    # Get API key or Vertex AI configuration
                     if provider == "openai":
                         api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+                        vertex_ai_configured = False
                     elif provider == "anthropic":
                         api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+                        vertex_ai_configured = False
+                    elif provider == "vertex-ai":
+                        # Check Vertex AI configuration
+                        vertex_ai_service_account = settings_store.get_setting("vertex_ai_service_account_json")
+                        vertex_ai_project_id = settings_store.get_setting("vertex_ai_project_id")
+                        vertex_ai_location = settings_store.get_setting("vertex_ai_location")
+                        vertex_ai_configured = bool(
+                            vertex_ai_service_account and
+                            vertex_ai_service_account.value and
+                            vertex_ai_project_id and
+                            vertex_ai_project_id.value
+                        )
+                        api_key = None  # Vertex AI doesn't use API key
                     else:
                         api_key = None
+                        vertex_ai_configured = False
 
-                    if api_key:
+                    if api_key or vertex_ai_configured:
                         # Test connection with a simple API call
                         try:
                             if provider == "openai":
@@ -173,6 +188,11 @@ class SystemHealthChecker:
                                 )
                                 configured = bool(response.content)
                                 available = configured
+                            elif provider == "vertex-ai":
+                                # For Vertex AI, if configuration exists, consider it configured
+                                # Actual connection test would require GCP credentials setup
+                                configured = vertex_ai_configured
+                                available = configured
                         except Exception as api_error:
                             logger.warning(f"LLM connection test failed: {api_error}")
                             configured = False
@@ -183,17 +203,25 @@ class SystemHealthChecker:
                                 issues.append(HealthIssue(
                                     issue_type="api_key_invalid",
                                     severity=HealthIssueSeverity.ERROR,
-                                    message=f"LLM API key 可能无效或已过期: {error_msg}",
+                                    message=f"LLM API key may be invalid or expired: {error_msg}",
                                     action_url="/settings?tab=llm"
                                 ))
                     else:
                         if current_mode == "local":
-                            issues.append(HealthIssue(
-                                issue_type="api_key_missing",
-                                severity=HealthIssueSeverity.ERROR,
-                                message="LLM API key 尚未设定（OpenAI 或 Anthropic）",
-                                action_url="/settings?tab=llm"
-                            ))
+                            if provider == "vertex-ai":
+                                issues.append(HealthIssue(
+                                    issue_type="vertex_ai_not_configured",
+                                    severity=HealthIssueSeverity.ERROR,
+                                    message="Vertex AI is not configured (service account JSON and project ID required)",
+                                    action_url="/settings?tab=llm"
+                                ))
+                            else:
+                                issues.append(HealthIssue(
+                                    issue_type="api_key_missing",
+                                    severity=HealthIssueSeverity.ERROR,
+                                    message="LLM API key not configured (OpenAI or Anthropic)",
+                                    action_url="/settings?tab=llm"
+                                ))
                 else:
                     # No chat model configured, check if API keys exist
                     if current_mode == "local":
@@ -205,7 +233,7 @@ class SystemHealthChecker:
                             issues.append(HealthIssue(
                                 issue_type="api_key_missing",
                                 severity=HealthIssueSeverity.ERROR,
-                                message="LLM API key 尚未设定（OpenAI 或 Anthropic）",
+                                message="LLM API key not configured (OpenAI or Anthropic)",
                                 action_url="/settings?tab=llm"
                             ))
                             configured = False
@@ -215,7 +243,7 @@ class SystemHealthChecker:
                             issues.append(HealthIssue(
                                 issue_type="remote_crs_not_configured",
                                 severity=HealthIssueSeverity.ERROR,
-                                message="Remote CRS 尚未配置",
+                                message="Remote CRS is not configured",
                                 action_url="/settings?tab=backend"
                             ))
                             configured = False
@@ -234,13 +262,22 @@ class SystemHealthChecker:
                         issues.append(HealthIssue(
                             issue_type="api_key_missing",
                             severity=HealthIssueSeverity.ERROR,
-                            message="LLM API key 尚未设定（OpenAI 或 Anthropic）",
+                            message="LLM API key not configured (OpenAI or Anthropic)",
                             action_url="/settings?tab=llm"
                         ))
 
+            # Normalize provider name for consistent display
+            provider_display = provider
+            if provider == "vertex-ai" or provider == "vertex_ai":
+                provider_display = "vertex-ai"
+            elif provider == "anthropic":
+                provider_display = "anthropic"
+            elif provider == "openai":
+                provider_display = "openai"
+
             return {
                 "configured": configured,
-                "provider": provider,
+                "provider": provider_display,
                 "available": available
             }
         except Exception as e:
@@ -248,7 +285,7 @@ class SystemHealthChecker:
             issues.append(HealthIssue(
                 issue_type="llm_check_failed",
                 severity=HealthIssueSeverity.ERROR,
-                message=f"检查 LLM 配置时发生错误: {str(e)}",
+                message=f"Error checking LLM configuration: {str(e)}",
                 action_url="/settings"
             ))
             return {
@@ -335,7 +372,7 @@ class SystemHealthChecker:
                         issues.append(HealthIssue(
                             issue_type="pgvector_not_installed",
                             severity=HealthIssueSeverity.WARNING,
-                            message="pgvector 扩展未安装，语义搜索功能不可用",
+                            message="pgvector extension not installed, semantic search unavailable",
                             action_url="/settings?tab=database"
                         ))
 
@@ -355,7 +392,7 @@ class SystemHealthChecker:
                     issues.append(HealthIssue(
                         issue_type="vector_db_not_connected",
                         severity=HealthIssueSeverity.WARNING,
-                        message="Vector DB 未连接，语义搜索功能可能不可用",
+                        message="Vector DB not connected, semantic search may be unavailable",
                         action_url="/settings?tab=database"
                     ))
 
@@ -373,7 +410,7 @@ class SystemHealthChecker:
                     issues.append(HealthIssue(
                         issue_type="vector_db_not_connected",
                         severity=HealthIssueSeverity.WARNING,
-                        message="Vector DB 连接检查失败，语义搜索功能可能不可用",
+                        message="Vector DB connection check failed, semantic search may be unavailable",
                         action_url="/settings?tab=database"
                     ))
 
@@ -388,7 +425,7 @@ class SystemHealthChecker:
             issues.append(HealthIssue(
                 issue_type="vector_db_check_failed",
                 severity=HealthIssueSeverity.WARNING,
-                message=f"检查 Vector DB 连接时发生错误: {str(e)}",
+                message=f"Error checking Vector DB connection: {str(e)}",
                 action_url="/settings?tab=database"
             ))
             return {"connected": False}
@@ -479,7 +516,7 @@ class SystemHealthChecker:
                         issues.append(HealthIssue(
                             issue_type=f"{tool_type}_not_configured",
                             severity=HealthIssueSeverity.INFO,
-                            message=f"{tool_type.capitalize()} 尚未連接",
+                            message=f"{tool_type.capitalize()} is not connected",
                             action_url=f"/settings?tab=tools&tool={tool_type}",
                             tool_type=tool_type
                         ))

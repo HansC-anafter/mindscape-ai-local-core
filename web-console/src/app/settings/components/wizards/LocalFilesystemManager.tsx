@@ -22,11 +22,17 @@ interface LocalFilesystemManagerProps {
   initialPlaybookStorageConfig?: Record<string, PlaybookStorageConfig>;
 }
 
+interface DirectoryConfig {
+  path: string;
+  allowWrite: boolean;
+}
+
 interface ConfiguredDirectory {
   name: string;
   allowed_directories: string[];
   allow_write: boolean;
   enabled?: boolean;
+  directory_configs?: Array<{ path: string; allow_write: boolean }>;
 }
 
 // Detect platform for common directories
@@ -161,9 +167,8 @@ export function LocalFilesystemManager({
   initialPlaybookStorageConfig,
 }: LocalFilesystemManagerProps) {
   const [saving, setSaving] = useState(false);
-  const [directories, setDirectories] = useState<string[]>([]);
+  const [directories, setDirectories] = useState<DirectoryConfig[]>([]);
   const [newDirectory, setNewDirectory] = useState('');
-  const [allowWrite, setAllowWrite] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [requiresRestart, setRequiresRestart] = useState(false);
@@ -171,6 +176,7 @@ export function LocalFilesystemManager({
   const [configuredDirs, setConfiguredDirs] = useState<ConfiguredDirectory[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCommonDirs, setSelectedCommonDirs] = useState<Set<string>>(new Set());
+  const [savedStorageBasePath, setSavedStorageBasePath] = useState<string | undefined>(initialStorageBasePath);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [commonDirectories] = useState(() => getCommonDirectories());
   const isWindows = typeof window !== 'undefined' && navigator.platform.toLowerCase().includes('win');
@@ -235,7 +241,8 @@ export function LocalFilesystemManager({
       // Always set directories, even if initialStorageBasePath is empty/undefined
       // This ensures the input field is always visible
       if (initialStorageBasePath) {
-        setDirectories([initialStorageBasePath]);
+        setDirectories([{ path: initialStorageBasePath, allowWrite: false }]);
+        setSavedStorageBasePath(initialStorageBasePath);
       } else {
         // If no path is set, initialize with empty array to show input field
         setDirectories([]);
@@ -287,7 +294,30 @@ export function LocalFilesystemManager({
       const data = await settingsApi.get<{ connections?: ConfiguredDirectory[] }>(
         '/api/v1/tools/local-filesystem/directories'
       );
-      setConfiguredDirs(data.connections || []);
+      const connections = data.connections || [];
+      setConfiguredDirs(connections);
+
+      // Sync directories from the first connection if available
+      if (connections.length > 0) {
+        const firstConn = connections[0];
+        if (firstConn.allowed_directories.length > 0) {
+          // Use directory_configs if available, otherwise fall back to legacy allow_write
+          let dirConfigs: DirectoryConfig[];
+          if (firstConn.directory_configs && firstConn.directory_configs.length > 0) {
+            dirConfigs = firstConn.directory_configs.map((dc: any) => ({
+              path: dc.path,
+              allowWrite: dc.allow_write || false
+            }));
+          } else {
+            // Legacy: use allow_write for all directories
+            dirConfigs = firstConn.allowed_directories.map((path: string) => ({
+              path,
+              allowWrite: firstConn.allow_write || false
+            }));
+          }
+          setDirectories(dirConfigs);
+        }
+      }
     } catch (err) {
       console.error('Failed to load directories:', err);
     } finally {
@@ -299,16 +329,17 @@ export function LocalFilesystemManager({
     const trimmed = newDirectory.trim();
     if (workspaceMode) {
       if (trimmed) {
-        setDirectories([trimmed]);
+        setDirectories([{ path: trimmed, allowWrite: false }]);
         setNewDirectory('');
         setError(null);
       }
     } else {
-      if (trimmed && !directories.includes(trimmed)) {
-        setDirectories([...directories, trimmed]);
+      const existingPaths = directories.map(d => d.path);
+      if (trimmed && !existingPaths.includes(trimmed)) {
+        setDirectories([...directories, { path: trimmed, allowWrite: false }]);
         setNewDirectory('');
         setError(null);
-      } else if (trimmed && directories.includes(trimmed)) {
+      } else if (trimmed && existingPaths.includes(trimmed)) {
         setError('Directory already added');
       }
     }
@@ -318,27 +349,28 @@ export function LocalFilesystemManager({
     const removed = directories[index];
     setDirectories(directories.filter((_, i) => i !== index));
     // Also remove from selected common dirs if it was a common dir
-    if (selectedCommonDirs.has(removed)) {
+    if (selectedCommonDirs.has(removed.path)) {
       const newSelected = new Set(selectedCommonDirs);
-      newSelected.delete(removed);
+      newSelected.delete(removed.path);
       setSelectedCommonDirs(newSelected);
     }
   };
 
   const handleToggleCommonDirectory = (path: string) => {
     if (workspaceMode) {
-      setDirectories([path]);
+      setDirectories([{ path, allowWrite: false }]);
       const newSelected = new Set([path]);
       setSelectedCommonDirs(newSelected);
     } else {
+      const existingPaths = directories.map(d => d.path);
       const newSelected = new Set(selectedCommonDirs);
       if (newSelected.has(path)) {
         newSelected.delete(path);
-        setDirectories(directories.filter(d => d !== path));
+        setDirectories(directories.filter(d => d.path !== path));
       } else {
         newSelected.add(path);
-        if (!directories.includes(path)) {
-          setDirectories([...directories, path]);
+        if (!existingPaths.includes(path)) {
+          setDirectories([...directories, { path, allowWrite: false }]);
         }
       }
       setSelectedCommonDirs(newSelected);
@@ -367,7 +399,7 @@ export function LocalFilesystemManager({
           // If path is not available, try to construct from current input or initial path
           if (!actualPath) {
             // First, try to use current directories value (user's current input)
-            const currentPath = directories.length > 0 ? directories[0] : '';
+            const currentPath = directories.length > 0 ? directories[0].path : '';
 
             if (currentPath && currentPath.trim()) {
               // User has a path in input, try to get parent and append selected directory
@@ -407,16 +439,16 @@ export function LocalFilesystemManager({
 
           // If we have a path, update directories directly
           if (actualPath) {
-            setDirectories([actualPath]);
+            setDirectories([{ path: actualPath, allowWrite: false }]);
             setError(null);
             return;
           }
 
           // If still no path, show dialog for user to confirm/enter path
           let defaultPath = '';
-          if (directories.length > 0 && directories[0].trim()) {
+          if (directories.length > 0 && directories[0].path.trim()) {
             // Use current input as base
-            const currentPath = directories[0].trim();
+            const currentPath = directories[0].path.trim();
             const separator = isWindows ? '\\' : '/';
             if (currentPath.endsWith(separator) || currentPath.endsWith('/') || currentPath.endsWith('\\')) {
               defaultPath = `${currentPath}${dirName}`;
@@ -460,8 +492,9 @@ export function LocalFilesystemManager({
 
         if (userPath && userPath.trim()) {
           const trimmedPath = userPath.trim();
-          if (!directories.includes(trimmedPath)) {
-            setDirectories([...directories, trimmedPath]);
+          const existingPaths = directories.map(d => d.path);
+          if (!existingPaths.includes(trimmedPath)) {
+            setDirectories([...directories, { path: trimmedPath, allowWrite: false }]);
             setError(null);
           } else {
             setError('Directory already added');
@@ -524,8 +557,9 @@ export function LocalFilesystemManager({
 
         if (userPath && userPath.trim()) {
           const trimmedPath = userPath.trim();
-          if (!directories.includes(trimmedPath)) {
-            setDirectories([...directories, trimmedPath]);
+          const existingPaths = directories.map(d => d.path);
+          if (!existingPaths.includes(trimmedPath)) {
+            setDirectories([...directories, { path: trimmedPath, allowWrite: false }]);
             setError(null);
           } else {
             setError('Directory already added');
@@ -546,7 +580,7 @@ export function LocalFilesystemManager({
     }
 
     if (workspaceMode) {
-      const path = directories[0].trim();
+      const path = directories[0]?.path?.trim() || '';
       if (!path.startsWith('/') && !path.match(/^[A-Za-z]:/)) {
         setError('Workspace storage path must be an absolute path. Please use full path, e.g., /Users/.../Documents or C:\\Users\\...\\Documents');
         return;
@@ -558,7 +592,7 @@ export function LocalFilesystemManager({
     setSuccess(null);
     try {
       if (workspaceMode && workspaceId && apiUrl) {
-        let storageBasePath = directories[0].trim();
+        let storageBasePath = directories[0]?.path?.trim() || '';
         storageBasePath = storageBasePath.replace(/\/+$/, '');
 
         // Don't convert paths automatically - let backend validate and provide clear error messages
@@ -585,12 +619,24 @@ export function LocalFilesystemManager({
           requestBody.playbook_storage_config = playbookConfigToSave;
         }
 
+        console.log('Saving workspace configuration:', {
+          workspaceId,
+          apiUrl,
+          requestBody
+        });
+
         const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(requestBody),
+        });
+
+        console.log('Workspace update response:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
         });
 
         if (!response.ok) {
@@ -618,7 +664,18 @@ export function LocalFilesystemManager({
           return;
         }
 
-        setSuccess(t('configSaved'));
+        const responseData = await response.json();
+        console.log('Workspace update response data:', responseData);
+
+        // Update saved state to reflect saved configuration
+        if (responseData.storage_base_path) {
+          setSavedStorageBasePath(responseData.storage_base_path);
+        }
+        if (responseData.artifacts_dir) {
+          setArtifactsDir(responseData.artifacts_dir);
+        }
+
+        setSuccess(t('storagePathConfigured'));
         setTimeout(() => {
           onSuccess();
         }, 1500);
@@ -634,8 +691,11 @@ export function LocalFilesystemManager({
         }>('/api/v1/tools/local-filesystem/configure', {
           connection_id: 'local-fs-default',
           name: 'Local File System',
-          allowed_directories: directories,
-          allow_write: allowWrite,
+          allowed_directories: directories.map(d => d.path),
+          directory_configs: directories.map(d => ({
+            path: d.path,
+            allow_write: d.allowWrite
+          })),
         });
 
         // Check if .env update is needed
@@ -661,19 +721,25 @@ export function LocalFilesystemManager({
           setSuccess(t('configSaved'));
         }
 
+        // Reload configured directories to show updated state
         await loadConfiguredDirectories();
+
+        // Show success message for 3 seconds before closing
         setTimeout(() => {
           onSuccess();
         }, 3000);
       }
     } catch (err) {
+      console.error('Failed to save configuration:', err);
       const errorMessage = err instanceof Error ? err.message : 'Configuration failed';
       setError(errorMessage);
+      setSuccess(null);
+      setRequiresRestart(false);
     } finally {
       setSaving(false);
     }
   };
-  const hasSelectedPath = workspaceMode && directories.length > 0 && directories[0].trim() !== '';
+  const hasSelectedPath = workspaceMode && directories.length > 0 && directories[0]?.path?.trim() !== '';
 
   const handlePathInputConfirm = () => {
     const trimmedPath = pathInputValue.trim();
@@ -687,7 +753,7 @@ export function LocalFilesystemManager({
         setError('Workspace storage path must be an absolute path. Please use full path, e.g., /Users/.../Documents or C:\\Users\\...\\Documents');
         return;
       }
-      setDirectories([trimmedPath]);
+      setDirectories([{ path: trimmedPath, allowWrite: false }]);
       setError(null);
       setShowPathInputDialog(false);
       setSelectedDirName('');
@@ -795,7 +861,7 @@ export function LocalFilesystemManager({
         )}
 
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{workspaceMode ? "Configure Workspace Storage Path" : t('localFileSystemConfig')}</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{workspaceMode ? t('configureWorkspaceStoragePath') : t('localFileSystemConfig')}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             ×
           </button>
@@ -866,13 +932,15 @@ export function LocalFilesystemManager({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {workspaceMode ? "Workspace Storage Path" : t('allowedDirectories')}
+              {workspaceMode ? t('workspaceStoragePath') : t('allowedDirectories')}
             </label>
             {workspaceMode && (
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                Set the file storage path for the Workspace. All Playbook artifacts will be stored under this path.
+                {t('workspaceStoragePathDescription')}
                 <br />
-                <span className="text-orange-600 dark:text-orange-400 font-medium">Please use absolute path (e.g., {initialStorageBasePath || (isWindows ? 'C:\\Users\\...\\Documents' : '/Users/.../Documents')}).</span>
+                <span className="text-orange-600 dark:text-orange-400 font-medium">
+                  {t('workspaceStoragePathAbsolutePathHint', { example: initialStorageBasePath || (isWindows ? 'C:\\Users\\...\\Documents' : '/Users/.../Documents') })}
+                </span>
               </p>
             )}
 
@@ -881,10 +949,10 @@ export function LocalFilesystemManager({
               {workspaceMode && (
                 <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                   <p className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">
-                    Please use the button below to select project root directory
+                    {t('selectProjectRootDirectory')}
                   </p>
                   <p className="text-xs text-blue-700 dark:text-blue-400">
-                    Click the "Browse Directory" button to select your project root directory. The system will automatically fill in the complete path.
+                    {t('selectProjectRootDirectoryDescription')}
                   </p>
                 </div>
               )}
@@ -893,18 +961,18 @@ export function LocalFilesystemManager({
                 onClick={handleDirectoryPicker}
                 className={`px-6 py-3 ${workspaceMode ? 'bg-blue-600 hover:bg-blue-700 text-lg font-medium' : 'px-4 py-2 bg-blue-600 hover:bg-blue-700 text-sm'} text-white rounded-md flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md`}
                 title={typeof window !== 'undefined' && 'showDirectoryPicker' in window
-                  ? 'Open system directory picker (Chrome/Edge)'
-                  : 'Not available in this browser. Use quick select or manual input.'}
+                  ? t('browseDirectoryChromeEdge')
+                  : t('browseDirectoryNotAvailable')}
               >
-                <span>Browse Directory {typeof window !== 'undefined' && 'showDirectoryPicker' in window ? '(Chrome/Edge)' : '(Not Available)'}</span>
+                <span>{t('browseDirectory')} {typeof window !== 'undefined' && 'showDirectoryPicker' in window ? `(${t('browseDirectoryChromeEdge').replace('Browse Directory ', '')})` : `(${t('browseDirectoryNotAvailable').replace('Browse Directory ', '')})`}</span>
               </button>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {workspaceMode ? (
-                  'Click this button to open the system directory picker and select your project root directory. Please confirm the path is correct after selection.'
+                  t('browseDirectoryDescription')
                 ) : (
                   typeof window !== 'undefined' && 'showDirectoryPicker' in window
-                    ? 'Opens system directory picker. You may need to enter the full path after selection.'
-                    : 'Directory picker not available in this browser. Use quick select buttons above or manual input below.'
+                    ? t('browseDirectoryWorkspaceDescription')
+                    : t('browseDirectoryNotAvailable')
                 )}
               </p>
               <input
@@ -921,14 +989,14 @@ export function LocalFilesystemManager({
             {/* Common Directories Quick Selection - Show after directory picker in workspace mode */}
             {workspaceMode && (
               <div className="mb-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Or use quick select:</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('orUseQuickSelect')}</p>
               </div>
             )}
             <div className="mb-4">
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                 {workspaceMode ? (
                   <>
-                    Quick Select Workspace Storage Path:
+                    {t('quickSelectWorkspaceStoragePath')}
                     {!actualUsername && (
                       <>
                         <br />
@@ -941,7 +1009,8 @@ export function LocalFilesystemManager({
               </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {filteredCommonDirs.map((commonDir) => {
-                    const isSelected = selectedCommonDirs.has(commonDir.path) || directories.includes(commonDir.path);
+                    const existingPaths = directories.map(d => d.path);
+                    const isSelected = selectedCommonDirs.has(commonDir.path) || existingPaths.includes(commonDir.path);
                     return (
                       <button
                         key={commonDir.path}
@@ -992,7 +1061,15 @@ export function LocalFilesystemManager({
             {/* Selected Directories List */}
             {(directories.length > 0 || workspaceMode) && (
               <div className="space-y-2">
-                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{workspaceMode ? "Workspace Storage Path:" : "Selected Directories:"}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{workspaceMode ? t('workspaceStoragePathLabel') : "Selected Directories:"}</p>
+                  {workspaceMode && savedStorageBasePath && directories.length > 0 && directories[0]?.path === savedStorageBasePath && (
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                      <span>✓</span>
+                      {t('configured')}
+                    </span>
+                  )}
+                </div>
                 {workspaceMode && directories.length === 0 ? (
                   // Show input field even when directories is empty in workspace mode
                   <EmptyPathInputWithWorkspaceName
@@ -1003,7 +1080,7 @@ export function LocalFilesystemManager({
                     onPathChange={(path) => {
                       const trimmedPath = path.trim();
                       if (trimmedPath) {
-                        setDirectories([trimmedPath]);
+                        setDirectories([{ path: trimmedPath, allowWrite: false }]);
                       } else {
                         setDirectories([]);
                       }
@@ -1049,10 +1126,10 @@ export function LocalFilesystemManager({
                           <>
                             <input
                               type="text"
-                              value={dir}
+                              value={dir.path}
                               onChange={(e) => {
                                 const newDirs = [...directories];
-                                newDirs[index] = e.target.value;
+                                newDirs[index] = { ...newDirs[index], path: e.target.value };
                                 setDirectories(newDirs);
                                 setError(null);
                               }}
@@ -1066,8 +1143,8 @@ export function LocalFilesystemManager({
                                   e.preventDefault();
                                   e.stopPropagation();
                                   const newDirs = [...directories];
-                                  const newPath = appendWorkspaceTitle(dir);
-                                  newDirs[index] = newPath;
+                                  const newPath = appendWorkspaceTitle(dir.path);
+                                  newDirs[index] = { ...newDirs[index], path: newPath };
                                   setDirectories(newDirs);
                                   setError(null);
                                 }}
@@ -1081,7 +1158,23 @@ export function LocalFilesystemManager({
                             )}
                           </>
                         ) : (
-                          <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 font-mono">{dir}</span>
+                          <>
+                            <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 font-mono">{dir.path}</span>
+                            <label className="flex items-center space-x-1 text-xs text-gray-600 dark:text-gray-400">
+                              <input
+                                type="checkbox"
+                                checked={dir.allowWrite}
+                                onChange={(e) => {
+                                  const newDirs = [...directories];
+                                  newDirs[index] = { ...newDirs[index], allowWrite: e.target.checked };
+                                  setDirectories(newDirs);
+                                }}
+                                className="rounded"
+                                title={t('allowWriteOperations')}
+                              />
+                              <span>{t('allowWriteOperations')}</span>
+                            </label>
+                          </>
                         )}
                         {!workspaceMode && (
                           <button
@@ -1138,12 +1231,12 @@ export function LocalFilesystemManager({
           {workspaceMode && (
             <div className="border-t dark:border-gray-700 pt-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Artifacts Directory
+                {t('artifactsDirectory')}
               </label>
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                Directory name for storing playbook artifacts under the workspace storage path.
+                {t('artifactsDirectoryDescription')}
                 <br />
-                Default: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">artifacts</code>
+                {t('artifactsDirectoryDefault')}: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">artifacts</code>
               </p>
               <input
                 type="text"
@@ -1153,7 +1246,7 @@ export function LocalFilesystemManager({
                 placeholder="artifacts"
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Artifacts will be stored at: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{directories[0] || '...'}/{artifactsDir || 'artifacts'}</code>
+                {t('artifactsWillBeStoredAt')} <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{directories[0]?.path || '...'}/{artifactsDir || 'artifacts'}</code>
               </p>
             </div>
           )}
@@ -1163,14 +1256,14 @@ export function LocalFilesystemManager({
             <div className="border-t dark:border-gray-700 pt-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Playbook Storage Configuration
+                  {t('playbookStorageConfiguration')}
                 </label>
                 {loadingPlaybooks && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Loading playbooks...</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('loadingPlaybooks')}</span>
                 )}
               </div>
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                Configure custom storage paths for specific playbooks. Playbooks without custom configuration will use the workspace default.
+                {t('playbookStorageConfigurationDescription')}
               </p>
 
               {/* List of used playbooks */}
@@ -1191,7 +1284,7 @@ export function LocalFilesystemManager({
                                 const newConfig = { ...playbookStorageConfig };
                                 if (e.target.checked) {
                                   newConfig[playbookCode] = {
-                                    base_path: directories[0] || '',
+                                    base_path: directories[0]?.path || '',
                                     artifacts_dir: artifactsDir,
                                   };
                                 } else {
@@ -1212,7 +1305,7 @@ export function LocalFilesystemManager({
                               }}
                               className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                             >
-                              Remove
+                              {t('remove')}
                             </button>
                           )}
                         </div>
@@ -1220,7 +1313,7 @@ export function LocalFilesystemManager({
                           <div className="space-y-2 mt-2">
                             <div>
                               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Base Path
+                                {t('basePath')}
                               </label>
                               <input
                                 type="text"
@@ -1234,12 +1327,12 @@ export function LocalFilesystemManager({
                                   setPlaybookStorageConfig(newConfig);
                                 }}
                                 className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                                placeholder={directories[0] || 'Enter base path'}
+                                placeholder={directories[0]?.path || 'Enter base path'}
                               />
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Artifacts Directory
+                                {t('artifactsDirectory')}
                               </label>
                               <input
                                 type="text"
@@ -1266,26 +1359,12 @@ export function LocalFilesystemManager({
 
               {usedPlaybooks.length === 0 && !loadingPlaybooks && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-                  No playbooks have been used in this workspace yet. Playbook-specific storage configuration will appear here once playbooks are executed.
+                  {t('noPlaybooksUsedYet')}
                 </p>
               )}
             </div>
           )}
 
-          {!workspaceMode && (
-            <div className="border-t dark:border-gray-700 pt-4">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={allowWrite}
-                  onChange={(e) => setAllowWrite(e.target.checked)}
-                  className="mr-2"
-                />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('allowWriteOperations')}</span>
-              </label>
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('allowWriteDescription')}</p>
-            </div>
-          )}
 
           {configuredDirs.length > 0 && (
             <div className="border-t dark:border-gray-700 pt-4">
@@ -1306,14 +1385,20 @@ export function LocalFilesystemManager({
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      {conn.allowed_directories.map((dir, dirIdx) => (
-                        <div key={dirIdx} className="flex items-center space-x-2">
-                          {conn.enabled !== false && (
-                            <span className="text-green-600 dark:text-green-400 text-sm">✓</span>
-                          )}
-                          <span className="text-xs text-gray-600 dark:text-gray-400 flex-1 font-mono">{dir}</span>
-                        </div>
-                      ))}
+                      {conn.allowed_directories.map((dir, dirIdx) => {
+                        const isEnabled = conn.enabled !== false;
+                        return (
+                          <div key={dirIdx} className="flex items-center space-x-2">
+                            {isEnabled && (
+                              <span className="text-green-600 dark:text-green-400 text-sm font-semibold" title={t('enabled')}>✓</span>
+                            )}
+                            {!isEnabled && (
+                              <span className="text-gray-400 dark:text-gray-500 text-sm" title={t('disabled')}>✗</span>
+                            )}
+                            <span className="text-xs text-gray-600 dark:text-gray-400 flex-1 font-mono">{dir}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                     {conn.allow_write && (
                       <span className="text-xs text-orange-600 dark:text-orange-400 mt-2 block">
