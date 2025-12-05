@@ -39,6 +39,7 @@ export function ModelsAndQuotaPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [configCard, setConfigCard] = useState<ModelConfigCardData | null>(null);
+  const [togglingModels, setTogglingModels] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadAllModels();
@@ -108,7 +109,6 @@ export function ModelsAndQuotaPanel() {
       );
       setConfigCard(data);
     } catch (err) {
-      console.error('Failed to load model config:', err);
       const configCardData: ModelConfigCardData = {
         model,
         api_key_configured: false,
@@ -119,31 +119,69 @@ export function ModelsAndQuotaPanel() {
   };
 
   const toggleModel = async (modelId: string, enabled: boolean) => {
+    if (togglingModels.has(modelId)) {
+      return;
+    }
+
+    const currentModel = models.find(m => String(m.id) === modelId);
+    if (!currentModel) {
+      return;
+    }
+
+    const previousEnabled = currentModel.enabled;
+    const wasSelected = selectedModel && String(selectedModel.id) === modelId;
+
+    setTogglingModels(prev => new Set(prev).add(modelId));
+
+    setModels(prev => prev.map(m =>
+      String(m.id) === modelId ? { ...m, enabled } : m
+    ));
+
+    if (enabled) {
+      setSelectedModel({ ...currentModel, enabled: true });
+    } else if (wasSelected) {
+      setSelectedModel(null);
+      setConfigCard(null);
+    }
+
     try {
+      const numericModelId = Number(modelId);
+      if (isNaN(numericModelId)) {
+        throw new Error(`Invalid model ID: ${modelId}`);
+      }
 
       const updatedModel = await settingsApi.put<ModelItem>(
-        `/api/v1/system-settings/models/${modelId}/enable`,
+        `/api/v1/system-settings/models/${numericModelId}/enable`,
         { enabled }
       );
 
       setModels(prev => prev.map(m =>
-        m.id === modelId ? { ...m, enabled: updatedModel.enabled } : m
+        String(m.id) === modelId ? { ...m, enabled: updatedModel.enabled } : m
       ));
 
-      if (enabled) {
-        const model = models.find(m => m.id === modelId);
-        if (model) {
-          setSelectedModel({ ...model, enabled: true });
-        }
-      } else if (selectedModel?.id === modelId) {
-        setSelectedModel(null);
-        setConfigCard(null);
+      if (updatedModel.enabled && wasSelected) {
+        const updatedSelectedModel = { ...currentModel, enabled: true };
+        setSelectedModel(updatedSelectedModel);
+        loadModelConfig(updatedSelectedModel);
       }
     } catch (err) {
       showNotification('error', err instanceof Error ? err.message : 'Failed to toggle model');
       setModels(prev => prev.map(m =>
-        m.id === modelId ? { ...m, enabled: !enabled } : m
+        String(m.id) === modelId ? { ...m, enabled: previousEnabled } : m
       ));
+
+      if (previousEnabled && wasSelected) {
+        setSelectedModel({ ...currentModel, enabled: previousEnabled });
+      } else if (!previousEnabled && wasSelected) {
+        setSelectedModel(null);
+        setConfigCard(null);
+      }
+    } finally {
+      setTogglingModels(prev => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
     }
   };
 
@@ -243,13 +281,14 @@ export function ModelsAndQuotaPanel() {
                     <input
                       type="checkbox"
                       checked={model.enabled}
+                      disabled={togglingModels.has(String(model.id))}
                       onChange={(e) => {
                         e.stopPropagation();
-                        toggleModel(model.id, e.target.checked);
+                        toggleModel(String(model.id), e.target.checked);
                       }}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 dark:after:border-gray-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-400 dark:peer-checked:bg-purple-700/80"></div>
+                    <div className={`w-11 h-6 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 dark:after:border-gray-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-400 dark:peer-checked:bg-purple-700/80 ${togglingModels.has(String(model.id)) ? 'opacity-50 cursor-wait' : ''}`}></div>
                   </label>
                 </div>
               </div>
