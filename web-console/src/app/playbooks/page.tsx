@@ -7,6 +7,8 @@ import Header from '../../components/Header';
 import { t, useLocale } from '../../lib/i18n';
 import { getPlaybookMetadata } from '../../lib/i18n/locales/playbooks';
 import PlaybookDiscoveryChat from '../../components/playbook/PlaybookDiscoveryChat';
+import { getPlaybookRegistry } from '../../playbook';
+import ForkPlaybookButton from '../../components/playbooks/ForkPlaybookButton';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -22,6 +24,7 @@ interface Playbook {
   onboarding_task?: string;
   required_tools: string[];
   kind?: string;
+  scope?: 'system' | 'tenant' | 'profile' | 'workspace';
   user_meta: {
     favorite: boolean;
     use_count: number;
@@ -158,8 +161,18 @@ export default function PlaybooksPage() {
 
       if (response.ok) {
         const newWorkspace = await response.json();
-        // Navigate to workspace page
-        router.push(`/workspaces/${newWorkspace.id}`);
+
+        // Check if playbook has UI Surface
+        const registry = getPlaybookRegistry();
+        const playbookPackage = registry.get(playbook.playbook_code);
+
+        if (playbookPackage?.uiLayout) {
+          // Navigate to Playbook Surface
+          router.push(`/workspaces/${newWorkspace.id}/playbook/${playbook.playbook_code}`);
+        } else {
+          // Navigate to regular workspace
+          router.push(`/workspaces/${newWorkspace.id}`);
+        }
       } else {
         const errorData = await response.json().catch(() => ({}));
         alert(t('workspaceCreateFailed') + ': ' + (errorData.detail || response.statusText));
@@ -293,10 +306,28 @@ export default function PlaybooksPage() {
                       className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer border border-gray-200 dark:border-gray-700"
                       onClick={() => router.push(`/playbooks/${playbook.playbook_code}`)}
                     >
-                      {/* Top row: Icon, System Playbook, Test badge, Favorite */}
+                      {/* Top row: Icon, Scope/Template badge, System Playbook, Test badge, Favorite */}
                       <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-3xl">{playbook.icon || '📋'}</span>
+                          {playbook.scope && (
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              playbook.scope === 'system'
+                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                : playbook.scope === 'tenant'
+                                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                                : playbook.scope === 'profile'
+                                ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            }`}>
+                              {playbook.scope === 'workspace' ? 'Instance' : 'Template'}
+                            </span>
+                          )}
+                          {playbook.scope && playbook.scope !== 'workspace' && (
+                            <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
+                              {playbook.scope.toUpperCase()}
+                            </span>
+                          )}
                           {playbook.kind === 'system_tool' && (
                             <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
                               {t('systemPlaybook')}
@@ -359,13 +390,21 @@ export default function PlaybooksPage() {
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           👁️ {playbook.user_meta?.use_count || 0} {t('times')}
                         </span>
-                        <button
-                          onClick={(e) => handleExecuteNow(e, playbook)}
-                          disabled={creatingWorkspace === playbook.playbook_code}
-                          className="px-3 py-1 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
-                        >
-                          {creatingWorkspace === playbook.playbook_code ? t('creating') : t('executeNow')}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {playbook.scope && playbook.scope !== 'workspace' && (
+                            <ForkPlaybookButton
+                              playbookCode={playbook.playbook_code}
+                              playbookName={playbook.name}
+                            />
+                          )}
+                          <button
+                            onClick={(e) => handleExecuteNow(e, playbook)}
+                            disabled={creatingWorkspace === playbook.playbook_code}
+                            className="px-3 py-1 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
+                          >
+                            {creatingWorkspace === playbook.playbook_code ? t('creating') : t('executeNow')}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

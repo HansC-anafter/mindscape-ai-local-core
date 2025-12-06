@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import PathChangeConfirmDialog from '@/components/PathChangeConfirmDialog';
+import ResourceBindingPanel from './ResourceBindingPanel';
+import ToolOverlayPanel from './ToolOverlayPanel';
+import DataSourceOverlayPanel from './DataSourceOverlayPanel';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid';
 type ExecutionPriority = 'low' | 'medium' | 'high';
@@ -531,6 +534,30 @@ export default function WorkspaceSettings({
             {saving ? '儲存中...' : '儲存'}
           </button>
         </div>
+      </div>
+
+      {/* Divider */}
+      <hr className="border-gray-200 dark:border-gray-700" />
+
+      {/* Resource Bindings */}
+      <div>
+        <ResourceBindingPanel workspaceId={workspaceId} />
+      </div>
+
+      {/* Divider */}
+      <hr className="border-gray-200 dark:border-gray-700" />
+
+      {/* Tool Overlay */}
+      <div>
+        <ToolOverlayPanel workspaceId={workspaceId} />
+      </div>
+
+      {/* Divider */}
+      <hr className="border-gray-200 dark:border-gray-700" />
+
+      {/* Data Source Overlay */}
+      <div>
+        <DataSourceOverlayPanel workspaceId={workspaceId} />
       </div>
       </div>
     </>
