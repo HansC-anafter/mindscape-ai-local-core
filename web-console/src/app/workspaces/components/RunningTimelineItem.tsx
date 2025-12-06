@@ -270,10 +270,9 @@ export default function RunningTimelineItem({
         // Fallback to 1 only if we really can't determine
         totalSteps = 1;
       }
-      // Use step_index from latestStep if available, otherwise use currentExecution.current_step_index
-      const stepIndex = latestStep.step_index !== undefined
-        ? latestStep.step_index
-        : currentExecution.current_step_index;
+      // Always use currentExecution.current_step_index as the authoritative source
+      // latestStep.step_index might be from an old step event
+      const stepIndex = currentExecution.current_step_index;
       const stepInfo = `步驟 ${stepIndex + 1}/${totalSteps}`;
 
       if (latestStep.used_tools && latestStep.used_tools.length > 0) {
@@ -311,10 +310,9 @@ export default function RunningTimelineItem({
     // Fallback to 1 only if we really can't determine
     totalSteps = 1;
   }
-  // Use step_index from latestStep if available, otherwise use currentExecution.current_step_index
-  const currentStepIndex = latestStep?.step_index !== undefined
-    ? latestStep.step_index
-    : currentExecution.current_step_index;
+  // Always use currentExecution.current_step_index as the authoritative source
+  // latestStep.step_index might be from an old step event
+  const currentStepIndex = currentExecution.current_step_index;
   const progressPercentage = totalSteps > 0
     ? ((currentStepIndex + 1) / totalSteps) * 100
     : 0;
