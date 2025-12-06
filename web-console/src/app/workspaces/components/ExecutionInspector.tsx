@@ -720,22 +720,16 @@ export default function ExecutionInspector({
   }
 
   // Calculate total steps:
-  // 1. Use max total_steps from step events (most accurate)
-  // 2. Fallback to execution.total_steps
-  // 3. Fallback to steps.length
-  const maxTotalStepsFromSteps = steps.length > 0
-    ? Math.max(...steps.map(s => s.total_steps || 0).filter(t => t > 0), 0)
-    : 0;
-  const totalSteps = maxTotalStepsFromSteps > 0
-    ? maxTotalStepsFromSteps
-    : ((execution && execution.total_steps && execution.total_steps > 0)
-       ? execution.total_steps
-       : (steps.length > 0 ? steps.length : 1));
+  // Always use execution.total_steps as the authoritative source
+  // step's total_steps might be incorrect or outdated
+  // Fallback to steps.length only if execution.total_steps is not available
+  const totalSteps = (execution && execution.total_steps && execution.total_steps > 0)
+    ? execution.total_steps
+    : (steps.length > 0 ? steps.length : 1);
 
   // Debug: Log totalSteps calculation
-  if (steps.length > 0) {
+  if (process.env.NODE_ENV === 'development' && steps.length > 0) {
     console.log('[ExecutionInspector] totalSteps calculation:', {
-      maxTotalStepsFromSteps,
       execution_total_steps: execution?.total_steps,
       steps_length: steps.length,
       final_totalSteps: totalSteps
