@@ -218,7 +218,17 @@ export default function RunningTimelineItem({
       case 'step_update':
         if (data.step) {
           setLatestStep(data.step);
-          if (onUpdate && currentExecution) {
+          // Update currentExecution's current_step_index if step_index changed
+          if (data.step.step_index !== undefined && currentExecution) {
+            const updatedExecution = {
+              ...currentExecution,
+              current_step_index: data.step.step_index
+            };
+            setCurrentExecution(updatedExecution);
+            if (onUpdate) {
+              onUpdate(updatedExecution, data.step);
+            }
+          } else if (onUpdate && currentExecution) {
             onUpdate(currentExecution, data.step);
           }
         }
@@ -265,7 +275,11 @@ export default function RunningTimelineItem({
           totalSteps = 1;
         }
       }
-      const stepInfo = `步驟 ${currentExecution.current_step_index + 1}/${totalSteps}`;
+      // Use step_index from latestStep if available, otherwise use currentExecution.current_step_index
+      const stepIndex = latestStep.step_index !== undefined 
+        ? latestStep.step_index 
+        : currentExecution.current_step_index;
+      const stepInfo = `步驟 ${stepIndex + 1}/${totalSteps}`;
 
       if (latestStep.used_tools && latestStep.used_tools.length > 0) {
         const toolsText = latestStep.used_tools.join(' + ');
@@ -345,7 +359,7 @@ export default function RunningTimelineItem({
             <span className="text-xs text-gray-500 dark:text-gray-300">Connecting...</span>
           )}
           <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-            Step {currentExecution.current_step_index + 1}/{totalSteps}
+            Step {currentStepIndex + 1}/{totalSteps}
           </span>
         </div>
       </div>
