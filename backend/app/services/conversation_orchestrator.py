@@ -306,8 +306,14 @@ class ConversationOrchestrator:
                         "uploaded_files": files
                     }
                 )
+                if intent_result:
+                    logger.info(f"Intent analysis result: selected_playbook_code={intent_result.selected_playbook_code}, is_multi_step={intent_result.is_multi_step}")
+                else:
+                    logger.warning("Intent analysis returned None")
             except Exception as e:
                 logger.warning(f"Intent analysis failed, falling back to QA: {str(e)}")
+                import sys
+                print(f"Intent analysis failed: {str(e)}", file=sys.stderr)
 
             if intent_result and intent_result.is_multi_step:
                 logger.info(f"Detected multi-step workflow with {len(intent_result.workflow_steps)} steps")
@@ -408,6 +414,7 @@ class ConversationOrchestrator:
             print(f"ConversationOrchestrator: Execution plan completed - executed: {len(execution_results.get('executed_tasks', []))}, suggestions: {len(execution_results.get('suggestion_cards', []))}, skipped: {len(execution_results.get('skipped_tasks', []))}", file=sys.stderr)
 
             if intent_result and intent_result.selected_playbook_code:
+                logger.info(f"Executing playbook: {intent_result.selected_playbook_code}")
                 playbook_result = await self.execution_coordinator.execute_playbook(
                     playbook_code=intent_result.selected_playbook_code,
                     playbook_context=intent_result.playbook_context,
@@ -441,28 +448,77 @@ class ConversationOrchestrator:
                     }
                     assistant_response = playbook_result.get("message")
             else:
-                logger.info("Using QA mode (no playbook selected)")
-                qa_result = await self.qa_response_generator.generate_response(
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    message=message,
-                    message_id=user_event.id,
-                    project_id=project_id,
-                    workspace=workspace
-                )
-                assistant_response = qa_result.get("response")
-                assistant_event = qa_result.get("event")
+                # Log why no playbook was selected
+                if not intent_result:
+                    logger.warning("No playbook selected: intent_result is None (intent analysis may have failed)")
+                elif not intent_result.selected_playbook_code:
+                    logger.warning(f"No playbook selected: intent_result.selected_playbook_code is empty. Intent analysis completed but no playbook matched.")
+                    logger.debug(f"Intent result details: {intent_result}")
 
-                # Log assistant response for debugging
-                if assistant_response:
-                    logger.info(f"Generated assistant response: {assistant_response[:100]}... (length: {len(assistant_response)})")
-                else:
-                    logger.warning("Assistant response is empty or None")
+                # Check mode to determine if QA should be disabled
+                # QA is disabled only in execution and mixed modes, enabled in conversational mode
+                mode_lower = mode.lower() if mode else ""
+                disable_qa = mode_lower in ["execution", "mixed", "混合", "執行"]
 
-                if assistant_event:
-                    logger.info(f"Created assistant event: {assistant_event.id}, timestamp: {assistant_event.timestamp}")
+                if disable_qa:
+                    # QA mode disabled for execution/mixed modes - return message indicating no playbook matched
+                    logger.info(f"No playbook selected - QA mode is disabled (mode: {mode})")
+                    from ...models.mindscape import MindEvent, EventType, EventActor
+                    from ...services.i18n_service import get_i18n_service
+
+                    i18n = get_i18n_service(default_locale=self.default_locale)
+                    assistant_response = i18n.t(
+                        "conversation_orchestrator",
+                        "no_playbook_matched",
+                        default="I couldn't find a suitable playbook for your request. Please try rephrasing your request or specify which playbook you'd like to use."
+                    )
+
+                    # Create assistant event with the response
+                    assistant_event = MindEvent(
+                        id=str(uuid.uuid4()),
+                        timestamp=datetime.utcnow(),
+                        actor=EventActor.ASSISTANT,
+                        channel="local_workspace",
+                        profile_id=profile_id,
+                        workspace_id=workspace_id,
+                        event_type=EventType.MESSAGE,
+                        payload={
+                            "message": assistant_response
+                        },
+                        entity_ids=[],
+                        metadata={
+                            "no_playbook_matched": True,
+                            "qa_mode_disabled": True,
+                            "mode": mode
+                        }
+                    )
+                    self.store.create_event(assistant_event)
+
+                    logger.info(f"Created assistant event (no playbook matched): {assistant_event.id}")
                 else:
-                    logger.warning("Assistant event is None")
+                    # QA mode enabled for conversational mode
+                    logger.info(f"Using QA mode (no playbook selected, mode: {mode})")
+                    qa_result = await self.qa_response_generator.generate_response(
+                        workspace_id=workspace_id,
+                        profile_id=profile_id,
+                        message=message,
+                        message_id=user_event.id,
+                        project_id=project_id,
+                        workspace=workspace
+                    )
+                    assistant_response = qa_result.get("response")
+                    assistant_event = qa_result.get("event")
+
+                    # Log assistant response for debugging
+                    if assistant_response:
+                        logger.info(f"Generated assistant response: {assistant_response[:100]}... (length: {len(assistant_response)})")
+                    else:
+                        logger.warning("Assistant response is empty or None")
+
+                    if assistant_event:
+                        logger.info(f"Created assistant event: {assistant_event.id}, timestamp: {assistant_event.timestamp}")
+                    else:
+                        logger.warning("Assistant event is None")
 
             # Get recent events AFTER assistant event is created
             # Add a small delay to ensure event is persisted

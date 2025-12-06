@@ -262,15 +262,48 @@ Return in JSON format:
 """
 
         try:
-            response = await call_llm(
-                self.llm_provider,
-                prompt,
-                model="gpt-4o-mini"
+            # Get model name from system settings
+            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+
+            try:
+                model_name = get_model_name_from_chat_model() or "gpt-4o-mini"
+            except:
+                model_name = "gpt-4o-mini"
+
+            # Build messages using build_prompt
+            messages = build_prompt(
+                system_prompt="You are an intent analysis assistant. Analyze user input to determine interaction type.",
+                user_prompt=prompt
             )
+
+            response_dict = await call_llm(
+                messages=messages,
+                llm_provider=self.llm_provider,
+                model=model_name
+            )
+
+            response_text = response_dict.get("text", "")
+            if not response_text:
+                logger.warning("LLM returned empty response for interaction type determination")
+                return InteractionType.UNKNOWN, 0.0
 
             # Parse JSON response
             import json
-            result = json.loads(response)
+            try:
+                result = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:500]}")
+                # Try to extract JSON from markdown code blocks
+                import re
+                json_match = re.search(r'\{[^{}]*"interaction_type"[^{}]*\}', response_text)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group())
+                    except:
+                        return InteractionType.UNKNOWN, 0.0
+                else:
+                    return InteractionType.UNKNOWN, 0.0
 
             interaction_type_str = result.get("interaction_type", "unknown")
             confidence = float(result.get("confidence", 0.0))
@@ -337,14 +370,46 @@ Return in JSON format:
 """
 
         try:
-            response = await call_llm(
-                self.llm_provider,
-                prompt,
-                model="gpt-4o-mini"
+            # Get model name from system settings
+            from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+
+            try:
+                model_name = get_model_name_from_chat_model() or "gpt-4o-mini"
+            except:
+                model_name = "gpt-4o-mini"
+
+            # Build messages using build_prompt
+            messages = build_prompt(
+                system_prompt="You are a task domain analysis assistant. Analyze user input to determine task domain.",
+                user_prompt=prompt
             )
 
+            response_dict = await call_llm(
+                messages=messages,
+                llm_provider=self.llm_provider,
+                model=model_name
+            )
+
+            response_text = response_dict.get("text", "")
+            if not response_text:
+                logger.warning("LLM returned empty response for task domain determination")
+                return TaskDomain.UNKNOWN, 0.0
+
             import json
-            result = json.loads(response)
+            try:
+                result = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:500]}")
+                # Try to extract JSON from markdown code blocks
+                import re
+                json_match = re.search(r'\{[^{}]*"task_domain"[^{}]*\}', response_text)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group())
+                    except:
+                        return TaskDomain.UNKNOWN, 0.0
+                else:
+                    return TaskDomain.UNKNOWN, 0.0
 
             domain_str = result.get("task_domain", "unknown")
             confidence = float(result.get("confidence", 0.0))
@@ -380,16 +445,18 @@ Return in JSON format:
 class PlaybookSelector:
     """Layer 3: Playbook selection and context preparation"""
 
-    def __init__(self, playbook_service=None):
+    def __init__(self, playbook_service=None, llm_provider=None):
         """
         Initialize PlaybookSelector
 
         Args:
             playbook_service: PlaybookService instance (required, for unified query)
+            llm_provider: LLM provider instance (optional, for LLM-based playbook matching)
         """
         if not playbook_service:
             raise ValueError("PlaybookService is required. PlaybookLoader has been removed.")
         self.playbook_service = playbook_service
+        self.llm_provider = llm_provider
         self.use_new_interface = True
 
     async def select_playbook(
@@ -401,7 +468,7 @@ class PlaybookSelector:
         workspace_id: Optional[str] = None
     ) -> tuple[Optional[str], float, Optional[HandoffPlan]]:
         """
-        Select appropriate playbook based on task domain and generate HandoffPlan if playbook.json exists
+        Select appropriate playbook based on task domain and user input using dynamic playbook discovery
 
         Args:
             task_domain: Task domain
@@ -416,33 +483,34 @@ class PlaybookSelector:
             - confidence: Selection confidence (0.0-1.0)
             - handoff_plan: HandoffPlan if playbook.json exists, None otherwise
         """
-        domain_playbook_map = {
-            TaskDomain.PROPOSAL_WRITING: "major_proposal_writing",
-            TaskDomain.YEARLY_REVIEW: "yearly_personal_book",
-            TaskDomain.HABIT_LEARNING: None,
-            TaskDomain.PROJECT_PLANNING: "project_breakdown",
-            TaskDomain.CONTENT_WRITING: "content_drafting",
-            TaskDomain.UNKNOWN: None
-        }
+        # Dynamically load all available playbooks
+        available_playbooks = await self.playbook_service.list_playbooks(
+            workspace_id=workspace_id,
+            locale=locale or "zh-TW"
+        )
 
-        playbook_code = domain_playbook_map.get(task_domain)
+        if not available_playbooks:
+            logger.warning("No playbooks available for selection")
+            return None, 0.0, None
+
+        # Use LLM to match user input and task domain to the best playbook
+        playbook_code = await self._match_playbook_by_llm(
+            available_playbooks=available_playbooks,
+            task_domain=task_domain,
+            user_input=user_input
+        )
 
         if playbook_code:
-            # Use PlaybookService if available, otherwise fallback to PlaybookLoader
-            if self.use_new_interface:
-                playbook_run = await self.playbook_service.load_playbook_run(
-                    playbook_code=playbook_code,
-                    locale=locale or "zh-TW",
-                    workspace_id=workspace_id
-                )
-            else:
-                playbook_run = self.playbook_loader.load_playbook_run(
-                    playbook_code=playbook_code,
-                    locale=locale
-                )
+            # Load the selected playbook
+            playbook_run = await self.playbook_service.load_playbook_run(
+                playbook_code=playbook_code,
+                locale=locale or "zh-TW",
+                workspace_id=workspace_id
+            )
 
             if not playbook_run:
-                raise ValueError(f"Playbook {playbook_code} not found")
+                logger.warning(f"Playbook {playbook_code} not found after selection")
+                return None, 0.0, None
 
             if playbook_run.has_json():
                 handoff_plan = self._generate_handoff_plan(
@@ -452,9 +520,136 @@ class PlaybookSelector:
                 )
                 return playbook_code, 0.8, handoff_plan
             else:
-                raise ValueError(f"Playbook {playbook_code} does not have playbook.json. Only playbook.md found. Please create playbook.json for structured workflow execution.")
+                # Playbook exists but no playbook.json - return playbook_code without handoff_plan
+                logger.info(f"Playbook {playbook_code} found but does not have playbook.json. Only playbook.md found. Returning playbook_code without handoff_plan.")
+                return playbook_code, 0.8, None
 
         return None, 0.0, None
+
+    async def _match_playbook_by_llm(
+        self,
+        available_playbooks: List[Any],
+        task_domain: TaskDomain,
+        user_input: str
+    ) -> Optional[str]:
+        """
+        Use LLM to match the best playbook from available playbooks based on task domain and user input
+
+        Args:
+            available_playbooks: List of available playbook metadata
+            task_domain: Task domain
+            user_input: User input text
+
+        Returns:
+            Selected playbook code or None
+        """
+        if not available_playbooks:
+            return None
+
+        # Build playbook list for LLM
+        playbook_list = []
+        for pb in available_playbooks:
+            playbook_info = f"- {pb.playbook_code}: {pb.name}"
+            if pb.description:
+                playbook_info += f" ({pb.description[:100]})"
+            if pb.tags:
+                playbook_info += f" [tags: {', '.join(pb.tags)}]"
+            playbook_list.append(playbook_info)
+
+        playbooks_text = "\n".join(playbook_list)
+
+        prompt = f"""Given the user request and task domain, select the most appropriate playbook from the available list.
+
+User request: "{user_input}"
+Task domain: {task_domain.value}
+
+Available playbooks:
+{playbooks_text}
+
+Return the playbook_code of the best matching playbook in JSON format:
+{{
+    "playbook_code": "playbook_code_here",
+    "confidence": 0.0-1.0,
+    "reason": "brief explanation"
+}}
+
+If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, "reason": "..."}}
+"""
+
+        if not self.llm_provider:
+            logger.warning("LLM provider not available, cannot use LLM for playbook matching")
+            return None
+
+        try:
+            # Build messages using build_prompt
+            messages = build_prompt(
+                system_prompt="You are a playbook selection assistant. Analyze user requests and select the most appropriate playbook from the available list.",
+                user_prompt=prompt
+            )
+
+            # Get model name from system settings
+            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+
+            try:
+                model_name = get_model_name_from_chat_model() or "gpt-4o-mini"
+            except:
+                model_name = "gpt-4o-mini"
+
+            # Use unified call_llm tool with existing llm_provider
+            response_dict = await call_llm(
+                messages=messages,
+                llm_provider=self.llm_provider,
+                model=model_name
+            )
+
+            response_text = response_dict.get("text", "")
+            if not response_text:
+                logger.warning("LLM returned empty response")
+                return None
+
+            logger.info(f"LLM response text: {response_text[:200]}...")
+
+            import json
+            try:
+                result = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:500]}")
+                # Try to extract JSON from markdown code blocks
+                import re
+                # Remove markdown code block markers
+                cleaned_text = re.sub(r'^```json\s*', '', response_text, flags=re.MULTILINE)
+                cleaned_text = re.sub(r'^```\s*$', '', cleaned_text, flags=re.MULTILINE)
+                cleaned_text = cleaned_text.strip()
+                try:
+                    result = json.loads(cleaned_text)
+                except:
+                    # Try to find JSON object in the text
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group())
+                        except:
+                            return None
+                    else:
+                        return None
+
+            selected_code = result.get("playbook_code")
+
+            if selected_code:
+                # Verify the playbook exists in the list
+                playbook_codes = [pb.playbook_code for pb in available_playbooks]
+                if selected_code in playbook_codes:
+                    logger.info(f"LLM selected playbook: {selected_code} (confidence: {result.get('confidence', 0.0)})")
+                    return selected_code
+                else:
+                    logger.warning(f"LLM selected playbook {selected_code} not in available list")
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"LLM playbook matching failed: {e}")
+            return None
 
     def _generate_handoff_plan(
         self,
@@ -621,7 +816,10 @@ class IntentPipeline:
 
         self.rule_matcher = RuleBasedIntentMatcher()
         self.llm_matcher = LLMBasedIntentMatcher(llm_provider)
-        self.playbook_selector = PlaybookSelector(playbook_service=playbook_service)
+        self.playbook_selector = PlaybookSelector(
+            playbook_service=playbook_service,
+            llm_provider=llm_provider  # Pass llm_provider to PlaybookSelector
+        )
         self.decision_coordinator = IntentDecisionCoordinator(
             self.rule_matcher,
             self.llm_matcher,
@@ -717,6 +915,10 @@ class IntentPipeline:
                 elif context and "locale" in context:
                     locale = context.get("locale")
 
+                # Ensure playbook_selector has llm_provider
+                if not self.playbook_selector.llm_provider and self.llm_matcher.llm_provider:
+                    self.playbook_selector.llm_provider = self.llm_matcher.llm_provider
+
                 playbook_code, confidence, handoff_plan = await self.playbook_selector.select_playbook(
                     task_domain=result.task_domain,
                     user_input=user_input,
@@ -790,11 +992,33 @@ class IntentPipeline:
         if not self.llm_matcher.llm_provider:
             return None
 
-        available_playbooks = self.playbook_loader.load_all_playbooks()
-        playbook_list = [
-            f"- {p.metadata.playbook_code}: {p.metadata.name}"
-            for p in available_playbooks
-        ]
+        # Use PlaybookService to get available playbooks
+        available_playbooks_metadata = await self.playbook_selector.playbook_service.list_playbooks()
+        available_playbooks = available_playbooks_metadata
+        # Handle both PlaybookMetadata and Playbook objects
+        playbook_list = []
+        for p in available_playbooks:
+            if hasattr(p, 'playbook_code'):
+                # PlaybookMetadata
+                playbook_code = p.playbook_code
+                name = p.name
+                description = p.description if hasattr(p, 'description') else None
+                tags = p.tags if hasattr(p, 'tags') else []
+            elif hasattr(p, 'metadata'):
+                # Playbook object
+                playbook_code = p.metadata.playbook_code
+                name = p.metadata.name
+                description = p.metadata.description if hasattr(p.metadata, 'description') else None
+                tags = p.metadata.tags if hasattr(p.metadata, 'tags') else []
+            else:
+                continue
+
+            playbook_info = f"- {playbook_code}: {name}"
+            if description:
+                playbook_info += f" ({description[:100]})"
+            if tags:
+                playbook_info += f" [tags: {', '.join(tags)}]"
+            playbook_list.append(playbook_info)
 
         prompt = f"""Analyze the following user request to determine if it requires multiple playbooks:
 

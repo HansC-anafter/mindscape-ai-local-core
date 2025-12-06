@@ -199,7 +199,7 @@ Translate only the content, do not add explanations."""
     messages = build_prompt(system_prompt=system_prompt, user_prompt=user_prompt)
 
     # Call LLM
-    from backend.appshared.llm_utils import call_llm
+    from backend.app.shared.llm_utils import call_llm
     result = await call_llm(messages=messages, llm_provider=llm_provider)
 
     translated = result.get("text", text).strip()
