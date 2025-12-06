@@ -24,6 +24,7 @@ import HelpIcon from '../../../components/HelpIcon';
 import ExecutionInspector from '../components/ExecutionInspector';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
 import { WorkspaceDataProvider, useWorkspaceData } from '@/contexts/WorkspaceDataContext';
+import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
 import {
   TrainHeader,
   ExecutionModeSelector,
@@ -540,13 +541,8 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                         {/* Produced Artifacts */}
                         <ArtifactsList
                           artifacts={executionState.producedArtifacts}
-                          onView={(artifact) => {
-                            setSelectedArtifact({
-                              id: artifact.id,
-                              name: artifact.name,
-                              type: artifact.type,
-                              file_type: artifact.type,
-                            } as Artifact);
+                          onView={(artifact: any) => {
+                            setSelectedArtifact(artifact);
                           }}
                         />
 
@@ -654,7 +650,9 @@ export default function WorkspacePage() {
 
   return (
     <WorkspaceDataProvider workspaceId={workspaceId}>
-      <WorkspacePageContent workspaceId={workspaceId} />
+      <ExecutionContextProvider workspaceId={workspaceId}>
+        <WorkspacePageContent workspaceId={workspaceId} />
+      </ExecutionContextProvider>
     </WorkspaceDataProvider>
   );
 }
