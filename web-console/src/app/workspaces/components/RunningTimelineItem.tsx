@@ -54,6 +54,37 @@ export default function RunningTimelineItem({
   const [intentStatus, setIntentStatus] = useState<'confirmed' | 'candidate' | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
+  // Sync execution prop changes to internal state
+  useEffect(() => {
+    if (execution.execution_id === currentExecution.execution_id) {
+      // Only update if execution_id matches (same execution)
+      // Update if current_step_index or total_steps changed
+      if (
+        execution.current_step_index !== currentExecution.current_step_index ||
+        execution.total_steps !== currentExecution.total_steps ||
+        execution.status !== currentExecution.status
+      ) {
+        setCurrentExecution(execution);
+      }
+    } else {
+      // Different execution, update immediately
+      setCurrentExecution(execution);
+    }
+  }, [execution, currentExecution.execution_id, currentExecution.current_step_index, currentExecution.total_steps, currentExecution.status]);
+
+  // Sync currentStep prop changes to internal state
+  useEffect(() => {
+    if (currentStep) {
+      setLatestStep(currentStep);
+    }
+  }, [currentStep]);
+
+  // Debug: Log execution total_steps
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[RunningTimelineItem] Execution ${execution.execution_id.substring(0, 8)}... total_steps: ${execution.total_steps}, current_step_index: ${execution.current_step_index}`);
+    console.log(`[RunningTimelineItem] Initial execution object:`, JSON.stringify(execution, null, 2));
+  }
+
   // Fetch intent tag status
   useEffect(() => {
     const fetchIntentStatus = async () => {
@@ -154,6 +185,16 @@ export default function RunningTimelineItem({
           const newStatus = data.execution.status;
           const oldStatus = currentExecution?.status;
 
+          // Debug: Log execution update
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[RunningTimelineItem] Received execution_update:', {
+              execution_id: data.execution.execution_id,
+              total_steps: data.execution.total_steps,
+              current_step_index: data.execution.current_step_index,
+              status: newStatus
+            });
+          }
+
           // Check if execution status changed to completed
           if ((newStatus === 'succeeded' || newStatus === 'failed') && oldStatus && oldStatus !== newStatus) {
             if (process.env.NODE_ENV === 'development') {
@@ -212,7 +253,19 @@ export default function RunningTimelineItem({
       const agentLabel = latestStep.agent_type
         ? `${getAgentLabel(latestStep.agent_type)} · `
         : '';
-      const stepInfo = `步驟 ${currentExecution.current_step_index + 1}/${currentExecution.total_steps}`;
+      // Use total_steps from execution, but prefer from step if available
+      // If total_steps is 0 or undefined, try to calculate from steps array or use 1 as fallback
+      let totalSteps = currentExecution.total_steps;
+      if (!totalSteps || totalSteps === 0) {
+        // Try to get from step's total_steps if available
+        if (latestStep && latestStep.total_steps) {
+          totalSteps = latestStep.total_steps;
+        } else {
+          // Fallback to 1 only if we really can't determine
+          totalSteps = 1;
+        }
+      }
+      const stepInfo = `步驟 ${currentExecution.current_step_index + 1}/${totalSteps}`;
 
       if (latestStep.used_tools && latestStep.used_tools.length > 0) {
         const toolsText = latestStep.used_tools.join(' + ');
@@ -223,7 +276,13 @@ export default function RunningTimelineItem({
         return `${agentLabel}${stepInfo}：執行中...`;
       }
     }
-    return `步驟 ${currentExecution.current_step_index + 1}/${currentExecution.total_steps}：執行中...`;
+    // Use total_steps from execution, but prefer from step if available
+    let totalSteps = currentExecution.total_steps;
+    if (!totalSteps || totalSteps === 0) {
+      // Fallback to 1 only if we really can't determine
+      totalSteps = 1;
+    }
+    return `步驟 ${currentExecution.current_step_index + 1}/${totalSteps}：執行中...`;
   };
 
   const getAgentLabel = (agentType: string): string => {
@@ -236,8 +295,19 @@ export default function RunningTimelineItem({
     return agentLabels[agentType] || agentType;
   };
 
-  const progressPercentage = currentExecution.total_steps > 0
-    ? ((currentExecution.current_step_index + 1) / currentExecution.total_steps) * 100
+  // Calculate total_steps: prefer from execution, then from step, then fallback to 1
+  let totalSteps = currentExecution.total_steps;
+  if (!totalSteps || totalSteps === 0) {
+    // Try to get from latest step's total_steps if available
+    if (latestStep && latestStep.total_steps) {
+      totalSteps = latestStep.total_steps;
+    } else {
+      // Fallback to 1 only if we really can't determine
+      totalSteps = 1;
+    }
+  }
+  const progressPercentage = totalSteps > 0
+    ? ((currentExecution.current_step_index + 1) / totalSteps) * 100
     : 0;
 
   return (
@@ -275,7 +345,7 @@ export default function RunningTimelineItem({
             <span className="text-xs text-gray-500 dark:text-gray-300">Connecting...</span>
           )}
           <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-            Step {currentExecution.current_step_index + 1}/{currentExecution.total_steps}
+            Step {currentExecution.current_step_index + 1}/{totalSteps}
           </span>
         </div>
       </div>

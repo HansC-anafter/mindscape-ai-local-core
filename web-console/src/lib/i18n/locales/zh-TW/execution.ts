@@ -39,6 +39,17 @@ export const executionZhTW = {
   // Actions
   stop: '停止',
   stopping: '停止中...',
+  reload: '重新載入',
+  reloading: '重新載入中...',
+  restart: '重新開始',
+  restarting: '重新開始中...',
+  reloadPlaybook: '重新載入 Playbook',
+  restartExecution: '重新開始執行',
+  confirmRestartExecution: '確定要重新開始此執行嗎？\n\n這將從頭開始創建一個新的執行並取消當前執行。',
+  restartingExecution: '正在重新開始執行，請稍候...',
+  executionRestarted: '執行已重新開始',
+  executionRestartFailed: '執行重新開始失敗',
+  view: '查看',
 
   // Execution Header
   runNumber: '執行 #{number}',
@@ -58,6 +69,7 @@ export const executionZhTW = {
   stepNumber: '步驟 {number}',
   unnamed: '未命名',
   tools: '工具',
+  pending: '待處理',
 
   // Execution Messages
   thisExecutionFailed: '此執行失敗：{reason}。請查看步驟時間軸以診斷問題。',

@@ -39,6 +39,17 @@ export const executionEn = {
   // Actions
   stop: 'Stop',
   stopping: 'Stopping...',
+  reload: 'Reload',
+  reloading: 'Reloading...',
+  restart: 'Reset',
+  restarting: 'Resetting...',
+  reloadPlaybook: 'Reload Playbook',
+  restartExecution: 'Reset Execution',
+  confirmRestartExecution: 'Are you sure you want to reset this execution?\n\nThis will create a new execution from the beginning and cancel the current one.',
+  restartingExecution: 'Resetting execution, please wait...',
+  executionRestarted: 'Execution reset',
+  executionRestartFailed: 'Execution reset failed',
+  view: 'View',
 
   // Execution Header
   runNumber: 'Run #{number}',
@@ -58,6 +69,7 @@ export const executionEn = {
   stepNumber: 'Step {number}',
   unnamed: 'Unnamed',
   tools: 'Tools',
+  pending: 'Pending',
 
   // Execution Messages
   thisExecutionFailed: 'This execution failed: {reason}. Check the steps timeline to diagnose the issue.',

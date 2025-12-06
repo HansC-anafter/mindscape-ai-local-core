@@ -112,6 +112,9 @@ async def workspace_chat(
             workspace=workspace
         )
 
+        # Ensure workspace_id is included in result
+        if isinstance(result, dict) and "workspace_id" not in result:
+            result["workspace_id"] = workspace_id
         return WorkspaceChatResponse(**result)
 
     except HTTPException:
@@ -120,5 +123,12 @@ async def workspace_chat(
         logger.error(f"Workspace chat error: {str(e)}\n{traceback.format_exc()}")
         print(f"ERROR: Workspace chat error: {str(e)}", file=sys.stderr)
         print(traceback.format_exc(), file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"Failed to process workspace chat: {str(e)}")
+        # Return error response with workspace_id
+        error_result = {
+            "workspace_id": workspace_id,
+            "display_events": [],
+            "triggered_playbook": None,
+            "pending_tasks": []
+        }
+        return WorkspaceChatResponse(**error_result)
 

@@ -39,6 +39,17 @@ export const executionJa = {
   // Actions
   stop: '停止',
   stopping: '停止中...',
+  reload: '再読み込み',
+  reloading: '再読み込み中...',
+  restart: 'リセット',
+  restarting: 'リセット中...',
+  reloadPlaybook: 'プレイブックを再読み込み',
+  restartExecution: '実行をリセット',
+  confirmRestartExecution: 'この実行をリセットしてもよろしいですか？\n\n最初から新しい実行が作成され、現在の実行がキャンセルされます。',
+  restartingExecution: '実行をリセット中です。しばらくお待ちください...',
+  executionRestarted: '実行がリセットされました',
+  executionRestartFailed: '実行のリセットに失敗しました',
+  view: '表示',
 
   // Execution Header
   runNumber: '実行 #{number}',
@@ -58,6 +69,7 @@ export const executionJa = {
   stepNumber: 'ステップ {number}',
   unnamed: '名前なし',
   tools: 'ツール',
+  pending: '待機中',
 
   // Execution Messages
   thisExecutionFailed: 'この実行は失敗しました: {reason}。問題を特定するためにステップタイムラインを確認してください。',

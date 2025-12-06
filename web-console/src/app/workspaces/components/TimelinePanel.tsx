@@ -730,6 +730,55 @@ export default function TimelinePanel({
                     onClick={() => handleExecutionClick(currentExecution.execution_id)}
                     apiUrl={apiUrl}
                     workspaceId={workspaceId}
+                    onUpdate={(updatedExecution, updatedStep) => {
+                      // Update state when SSE events arrive
+                      if (contextData) {
+                        // If using context, refresh executions to get latest data
+                        // Refresh if status, current_step_index, or total_steps changed
+                        if (
+                          updatedExecution.status !== currentExecution.status ||
+                          updatedExecution.current_step_index !== currentExecution.current_step_index ||
+                          updatedExecution.total_steps !== currentExecution.total_steps
+                        ) {
+                          contextData.refreshExecutions();
+                          // If execution completed, also refresh tasks
+                          if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                            contextData.refreshTasks();
+                          }
+                        }
+                      } else {
+                        // If not using context, update local state
+                        setLocalExecutions(prev =>
+                          prev.map(e =>
+                            e.execution_id === updatedExecution.execution_id
+                              ? updatedExecution
+                              : e
+                          )
+                        );
+                        if (updatedStep) {
+                          setExecutionSteps(prev => {
+                            const newMap = new Map(prev);
+                            const existingSteps = newMap.get(currentExecution.execution_id) || [];
+                            const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                            if (stepIndex >= 0) {
+                              existingSteps[stepIndex] = updatedStep;
+                            } else {
+                              existingSteps.push(updatedStep);
+                            }
+                            newMap.set(currentExecution.execution_id, existingSteps);
+                            return newMap;
+                          });
+                        }
+                        // Refresh executions if status, current_step_index, or total_steps changed
+                        if (
+                          updatedExecution.status !== currentExecution.status ||
+                          updatedExecution.current_step_index !== currentExecution.current_step_index ||
+                          updatedExecution.total_steps !== currentExecution.total_steps
+                        ) {
+                          loadExecutions();
+                        }
+                      }
+                    }}
                   />
                 </div>
 
@@ -762,6 +811,55 @@ export default function TimelinePanel({
                               onClick={() => handleExecutionClick(execution.execution_id)}
                               apiUrl={apiUrl}
                               workspaceId={workspaceId}
+                              onUpdate={(updatedExecution, updatedStep) => {
+                                // Update state when SSE events arrive
+                                if (contextData) {
+                                  // If using context, refresh executions to get latest data
+                                  // Refresh if status, current_step_index, or total_steps changed
+                                  if (
+                                    updatedExecution.status !== execution.status ||
+                                    updatedExecution.current_step_index !== execution.current_step_index ||
+                                    updatedExecution.total_steps !== execution.total_steps
+                                  ) {
+                                    contextData.refreshExecutions();
+                                    // If execution completed, also refresh tasks
+                                    if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                                      contextData.refreshTasks();
+                                    }
+                                  }
+                                } else {
+                                  // If not using context, update local state
+                                  setLocalExecutions(prev =>
+                                    prev.map(e =>
+                                      e.execution_id === updatedExecution.execution_id
+                                        ? updatedExecution
+                                        : e
+                                    )
+                                  );
+                                  if (updatedStep) {
+                                    setExecutionSteps(prev => {
+                                      const newMap = new Map(prev);
+                                      const existingSteps = newMap.get(execution.execution_id) || [];
+                                      const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                                      if (stepIndex >= 0) {
+                                        existingSteps[stepIndex] = updatedStep;
+                                      } else {
+                                        existingSteps.push(updatedStep);
+                                      }
+                                      newMap.set(execution.execution_id, existingSteps);
+                                      return newMap;
+                                    });
+                                  }
+                                  // Refresh executions if status, current_step_index, or total_steps changed
+                                  if (
+                                    updatedExecution.status !== execution.status ||
+                                    updatedExecution.current_step_index !== execution.current_step_index ||
+                                    updatedExecution.total_steps !== execution.total_steps
+                                  ) {
+                                    loadExecutions();
+                                  }
+                                }
+                              }}
                             />
                           );
                         } else {
@@ -830,6 +928,55 @@ export default function TimelinePanel({
                                 onClick={() => handleExecutionClick(execution.execution_id)}
                                 apiUrl={apiUrl}
                                 workspaceId={workspaceId}
+                                onUpdate={(updatedExecution, updatedStep) => {
+                                  // Update state when SSE events arrive
+                                  if (contextData) {
+                                    // If using context, refresh executions to get latest data
+                                    // Refresh if status, current_step_index, or total_steps changed
+                                    if (
+                                      updatedExecution.status !== execution.status ||
+                                      updatedExecution.current_step_index !== execution.current_step_index ||
+                                      updatedExecution.total_steps !== execution.total_steps
+                                    ) {
+                                      contextData.refreshExecutions();
+                                      // If execution completed, also refresh tasks
+                                      if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                                        contextData.refreshTasks();
+                                      }
+                                    }
+                                  } else {
+                                    // If not using context, update local state
+                                    setLocalExecutions(prev =>
+                                      prev.map(e =>
+                                        e.execution_id === updatedExecution.execution_id
+                                          ? updatedExecution
+                                          : e
+                                      )
+                                    );
+                                    if (updatedStep) {
+                                      setExecutionSteps(prev => {
+                                        const newMap = new Map(prev);
+                                        const existingSteps = newMap.get(execution.execution_id) || [];
+                                        const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                                        if (stepIndex >= 0) {
+                                          existingSteps[stepIndex] = updatedStep;
+                                        } else {
+                                          existingSteps.push(updatedStep);
+                                        }
+                                        newMap.set(execution.execution_id, existingSteps);
+                                        return newMap;
+                                      });
+                                    }
+                                    // Refresh executions if status, current_step_index, or total_steps changed
+                                    if (
+                                      updatedExecution.status !== execution.status ||
+                                      updatedExecution.current_step_index !== execution.current_step_index ||
+                                      updatedExecution.total_steps !== execution.total_steps
+                                    ) {
+                                      loadExecutions();
+                                    }
+                                  }
+                                }}
                               />
                             );
                           } else {

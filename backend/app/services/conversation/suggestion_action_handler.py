@@ -135,6 +135,16 @@ class SuggestionActionHandler:
             elif action == 'create_intent':
                 return await self._handle_create_intent(ctx, action_params, project_id, message_id)
 
+            elif action == 'add_to_mindscape' or action == 'add_to_intents':
+                # add_to_mindscape is an alias for add_to_intents
+                # Map it to add_to_intents action for consistency
+                return await self._handle_add_to_mindscape(
+                    ctx=ctx,
+                    action_params=action_params,
+                    project_id=project_id,
+                    message_id=message_id
+                )
+
             elif action == 'start_chat':
                 return self._handle_start_chat(ctx.workspace_id)
 
@@ -325,6 +335,137 @@ class SuggestionActionHandler:
             "pending_tasks": [task_result] if task_result else []
         }
 
+    async def _handle_add_to_mindscape(
+        self,
+        ctx: ExecutionContext,
+        action_params: Dict[str, Any],
+        project_id: Optional[str],
+        message_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Handle add_to_mindscape action - add intents to Mindscape
+
+        This is similar to add_to_intents but handles the action from suggestion tasks
+        """
+        try:
+            # Extract intents from action_params
+            intents = action_params.get('intents', [])
+            themes = action_params.get('themes', [])
+
+            if not intents:
+                raise ValueError("No intents provided in action_params")
+
+            from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
+            from datetime import datetime
+            import uuid
+
+            intents_added = []
+            for intent_item in intents[:10]:  # Limit to 10 intents
+                # Handle both string and dict formats
+                if isinstance(intent_item, str):
+                    intent_text = intent_item
+                    intent_title = intent_item
+                elif isinstance(intent_item, dict):
+                    intent_text = intent_item.get('text') or intent_item.get('title') or intent_item.get('intent', '')
+                    intent_title = intent_item.get('title') or intent_text
+                else:
+                    continue
+
+                if not intent_text or not intent_text.strip():
+                    continue
+
+                # Check if intent already exists
+                existing_intents = self.store.list_intents(
+                    profile_id=ctx.actor_id
+                )
+                intent_exists = any(
+                    existing.title == intent_text or existing.title == intent_title
+                    for existing in existing_intents
+                )
+
+                if not intent_exists:
+                    # Create new intent
+                    new_intent = IntentCard(
+                        id=str(uuid.uuid4()),
+                        profile_id=ctx.actor_id,
+                        title=intent_title,
+                        description=f"Added from suggestion action: add_to_mindscape",
+                        status=IntentStatus.ACTIVE,
+                        priority=PriorityLevel.MEDIUM,
+                        tags=[],
+                        category="suggestion_action",
+                        progress_percentage=0,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow(),
+                        started_at=None,
+                        completed_at=None,
+                        due_date=None,
+                        parent_intent_id=None,
+                        child_intent_ids=[],
+                        metadata={
+                            "source": "suggestion_action",
+                            "action": "add_to_mindscape",
+                            "workspace_id": ctx.workspace_id
+                        }
+                    )
+                    self.store.create_intent(new_intent)
+                    intents_added.append(intent_title)
+                    logger.info(f"Created intent from add_to_mindscape: {intent_title[:50]}")
+
+            # Create timeline item for the action
+            from ...models.workspace import TimelineItem, TimelineItemType
+            from ...services.stores.timeline_items_store import TimelineItemsStore
+
+            timeline_items_store = TimelineItemsStore(db_path=self.store.db_path)
+
+            timeline_item = TimelineItem(
+                id=str(uuid.uuid4()),
+                workspace_id=ctx.workspace_id,
+                message_id=message_id or str(uuid.uuid4()),
+                task_id=None,
+                type=TimelineItemType.INTENT_SEEDS,
+                title=f"Added {len(intents_added)} intent(s) to Mindscape",
+                summary=f"Successfully added {len(intents_added)} intent(s) from suggestion",
+                data={
+                    "action": "add_to_mindscape",
+                    "intents_added": intents_added,
+                    "themes": themes
+                },
+                cta=None,
+                created_at=datetime.utcnow()
+            )
+            timeline_items_store.create_timeline_item(timeline_item)
+
+            # Record metrics for Phase 0: Intent Layer v2 refactoring
+            # Track manual confirmation count (Add to Mindscape action)
+            logger.info(
+                f"INTENT_METRICS: manual_confirmation, action=add_to_mindscape, "
+                f"workspace_id={ctx.workspace_id}, profile_id={ctx.actor_id}, "
+                f"intents_added={len(intents_added)}, message_id={message_id}, "
+                f"timestamp={datetime.utcnow().isoformat()}"
+            )
+
+            # Create success response
+            from ...services.i18n_service import get_i18n_service
+            i18n = get_i18n_service(default_locale=self.default_locale)
+
+            success_message = i18n.t(
+                "conversation_orchestrator",
+                "suggestion.add_to_mindscape"
+            ) + f" Added {len(intents_added)} intent(s)."
+
+            return {
+                "workspace_id": ctx.workspace_id,
+                "display_events": [],
+                "triggered_playbook": None,
+                "pending_tasks": [],
+                "message": success_message
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to handle add_to_mindscape action: {e}", exc_info=True)
+            raise ValueError(f"Failed to add intents to Mindscape: {str(e)}")
+
     def _handle_create_intent(
         self,
         ctx: ExecutionContext,
@@ -507,6 +648,68 @@ class SuggestionActionHandler:
                 original_message_id = message_id or str(uuid.uuid4())
                 files = action_params.get('files', [])
                 message = action_params.get('message', '')
+
+            # Check if pack_id is a placeholder for executable_task (suggestion task without playbook)
+            # If so, re-analyze intent using executable_task text
+            if pack_id.startswith('executable_task_') and task:
+                executable_task_text = task.result.get('executable_task') if task.result else None
+                if not executable_task_text:
+                    executable_task_text = task.params.get('executable_task') if task.params else None
+
+                if executable_task_text:
+                    logger.info(f"[SuggestionActionHandler] Re-analyzing intent for executable_task: {executable_task_text[:50]}")
+                    try:
+                        from backend.features.workspace.chat.playbook.executor import execute_playbook_for_hybrid_mode
+
+                        # Get store from execution_coordinator or use self.store
+                        store = self.execution_coordinator.store if hasattr(self.execution_coordinator, 'store') else self.store
+                        if not store:
+                            raise ValueError("Store not available for re-analyzing intent")
+
+                        # Get profile from actor_id (ExecutionContext uses actor_id, not profile_id)
+                        profile_id = ctx.actor_id
+                        profile = None
+                        if profile_id:
+                            try:
+                                profile = await store.get_profile(profile_id)
+                            except Exception as e:
+                                logger.warning(f"Failed to get profile {profile_id}: {e}")
+
+                        # Re-analyze intent and execute playbook
+                        execution_result = await execute_playbook_for_hybrid_mode(
+                            message=executable_task_text,
+                            executable_tasks=[executable_task_text],
+                            workspace_id=ctx.workspace_id,
+                            profile_id=profile_id,
+                            profile=profile,
+                            store=store
+                        )
+
+                        if execution_result:
+                            logger.info(f"[SuggestionActionHandler] Playbook {execution_result['playbook_code']} executed for executable_task")
+                            return {
+                                "workspace_id": ctx.workspace_id,
+                                "display_events": [],
+                                "triggered_playbook": {
+                                    "playbook_code": execution_result['playbook_code'],
+                                    "execution_id": execution_result.get('execution_id'),
+                                    "status": "triggered"
+                                },
+                                "pending_tasks": []
+                            }
+                        else:
+                            logger.warning(f"[SuggestionActionHandler] No playbook found for executable_task: {executable_task_text[:50]}")
+                            return {
+                                "workspace_id": ctx.workspace_id,
+                                "display_events": [],
+                                "triggered_playbook": None,
+                                "pending_tasks": []
+                            }
+                    except Exception as e:
+                        logger.error(f"[SuggestionActionHandler] Failed to re-analyze intent for executable_task: {e}", exc_info=True)
+                        raise ValueError(f"Failed to execute executable task: {str(e)}")
+                else:
+                    raise ValueError("executable_task text not found in task result or params")
 
             from ...services.i18n_service import get_i18n_service
             i18n = get_i18n_service(default_locale=self.default_locale)

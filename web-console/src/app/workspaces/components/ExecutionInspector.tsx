@@ -7,6 +7,7 @@ import ExecutionHeader from './ExecutionHeader';
 import StepTimelineWithDetails from './StepTimelineWithDetails';
 import PlaybookRevisionArea from './PlaybookRevisionArea';
 import WorkflowVisualization from './WorkflowVisualization';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ExecutionSession {
   execution_id: string;
@@ -33,6 +34,7 @@ interface ExecutionStep {
   execution_id: string;
   step_index: number;
   step_name: string;
+  total_steps?: number;  // Add total_steps field
   status: string;
   step_type: string;
   agent_type?: string;
@@ -121,12 +123,20 @@ export default function ExecutionInspector({
   const t = useT();
   const [execution, setExecution] = useState<ExecutionSession | null>(null);
   const [steps, setSteps] = useState<ExecutionStep[]>([]);
-  const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
+  // step_index is 1-based (1, 2, 3, ...), so initialize to 1
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [collaborations, setCollaborations] = useState<AgentCollaboration[]>([]);
   const [stageResults, setStageResults] = useState<StageResult[]>([]);
   const [playbookMetadata, setPlaybookMetadata] = useState<PlaybookMetadata | null>(null);
+  const [playbookStepDefinitions, setPlaybookStepDefinitions] = useState<Array<{
+    step_index: number;
+    step_name: string;
+    description?: string;
+    agent_type?: string;
+    used_tools?: string[];
+  }>>([]);
   const [rightPanelTab, setRightPanelTab] = useState<'info' | 'chat'>('info');
   const [duration, setDuration] = useState<string>('');
   const [stepEvents, setStepEvents] = useState<Array<{
@@ -142,6 +152,9 @@ export default function ExecutionInspector({
     handoff_plan?: any;
   } | null>(null);
   const [isStopping, setIsStopping] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
   // Load execution details
   useEffect(() => {
@@ -153,7 +166,10 @@ export default function ExecutionInspector({
         if (response.ok) {
           const data = await response.json();
           setExecution(data);
-          setCurrentStepIndex(data.current_step_index || 0);
+          // Ensure current_step_index is within valid range (1-based: 1 to total_steps)
+          const maxStepIndex = data.total_steps || (data.current_step_index || 1);
+          const validStepIndex = Math.min(Math.max(1, data.current_step_index || 1), maxStepIndex);
+          setCurrentStepIndex(validStepIndex);
         }
       } catch (err) {
         console.error('Failed to load execution:', err);
@@ -162,7 +178,9 @@ export default function ExecutionInspector({
       }
     };
 
-    loadExecution();
+    if (executionId) {
+      loadExecution();
+    }
   }, [executionId, workspaceId, apiUrl]);
 
   // Load workflow data for multi-step workflows
@@ -248,6 +266,107 @@ export default function ExecutionInspector({
         if (response.ok) {
           const data = await response.json();
           setPlaybookMetadata(data);
+
+          // Extract step definitions from playbook if available
+          const stepDefs: Array<{
+            step_index: number;
+            step_name: string;
+            description?: string;
+            agent_type?: string;
+            used_tools?: string[];
+          }> = [];
+
+          try {
+            // Try to parse steps from various sources
+            let playbookSteps: any[] = [];
+
+            // First, try direct steps array in metadata or root
+            if (Array.isArray(data.steps)) {
+              playbookSteps = data.steps;
+            } else if (data.metadata?.steps && Array.isArray(data.metadata.steps)) {
+              playbookSteps = data.metadata.steps;
+            } else if (data.workflow?.steps && Array.isArray(data.workflow.steps)) {
+              playbookSteps = data.workflow.steps;
+            } else if (data.sop_content) {
+              // sop_content might be JSON string or Markdown text
+              // Only try JSON parse if it looks like JSON (starts with { or [)
+              const sopStr = typeof data.sop_content === 'string' ? data.sop_content.trim() : String(data.sop_content);
+              if (sopStr.startsWith('{') || sopStr.startsWith('[')) {
+                try {
+                  const parsed = JSON.parse(sopStr);
+                  if (parsed.steps && Array.isArray(parsed.steps)) {
+                    playbookSteps = parsed.steps;
+                  }
+                } catch (e) {
+                  // sop_content is not JSON, might be Markdown - skip it
+                  console.debug('sop_content is not JSON format, skipping:', e);
+                }
+              } else {
+                // sop_content is Markdown or other text format - cannot extract steps from it
+                console.debug('sop_content is not JSON format (appears to be text/markdown), skipping step extraction');
+              }
+            }
+
+            // Extract step information from playbook structure
+            playbookSteps.forEach((step: any, index: number) => {
+              // Extract description from inputs.text (contains the step instructions)
+              let description = '';
+              if (step.inputs?.text) {
+                // Format: "{{...}}\n\n{{...}}\n\n[Instruction text]"
+                // Split by double newlines and find the last part that doesn't contain template variables
+                const textParts = step.inputs.text.split('\n\n').map((p: string) => p.trim()).filter((p: string) => p);
+
+                // Find the last part without template variables (usually the instruction)
+                for (let i = textParts.length - 1; i >= 0; i--) {
+                  const part = textParts[i];
+                  if (part && !part.includes('{{') && part.length > 10) {
+                    description = part;
+                    break;
+                  }
+                }
+
+                // If no clean part found, use the last part anyway (might have templates but still useful)
+                if (!description && textParts.length > 0) {
+                  description = textParts[textParts.length - 1];
+                }
+              }
+
+              // Convert step ID to readable name (e.g., "understand_requirements" -> "Understand Requirements")
+              const stepName = step.id
+                ? step.id.split('_').map((word: string) =>
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                  ).join(' ')
+                : step.name || step.step_name || `Step ${index + 1}`;
+
+              stepDefs.push({
+                step_index: index,
+                step_name: stepName,
+                description: description || step.description || step.instructions || step.prompt || '',
+                agent_type: step.agent_type || step.agent,
+                used_tools: step.tool ? [step.tool] : (step.tools || step.used_tools || [])
+              });
+            });
+
+            if (stepDefs.length > 0) {
+              console.log('[ExecutionInspector] Extracted step definitions:', stepDefs.length, 'steps');
+              setPlaybookStepDefinitions(stepDefs);
+            } else {
+              console.debug('[ExecutionInspector] No step definitions extracted. Playbook data structure:', {
+                hasSteps: Array.isArray(data.steps),
+                hasMetadataSteps: Array.isArray(data.metadata?.steps),
+                hasWorkflowSteps: Array.isArray(data.workflow?.steps),
+                hasSopContent: !!data.sop_content,
+                sopContentType: typeof data.sop_content,
+                sopContentPreview: typeof data.sop_content === 'string' ? data.sop_content.substring(0, 50) : 'N/A',
+                dataKeys: Object.keys(data),
+                metadataKeys: data.metadata ? Object.keys(data.metadata) : []
+              });
+              // Clear step definitions if none found (will use execution steps as fallback)
+              setPlaybookStepDefinitions([]);
+            }
+          } catch (e) {
+            console.warn('Failed to extract step definitions from playbook:', e);
+          }
         } else if (response.status === 404) {
           // Endpoint not implemented yet, use basic metadata from execution
           setPlaybookMetadata({
@@ -264,8 +383,10 @@ export default function ExecutionInspector({
       }
     };
 
-    loadPlaybookMetadata();
-  }, [execution?.playbook_code, execution?.playbook_version, apiUrl]);
+    if (execution?.playbook_code) {
+      loadPlaybookMetadata();
+    }
+  }, [execution?.playbook_code, execution?.playbook_version, apiUrl, executionId]);
 
   // Load steps, tool calls, collaborations, and stage results
   useEffect(() => {
@@ -280,9 +401,14 @@ export default function ExecutionInspector({
           const stepsArray = stepsData.steps || [];
           const uniqueSteps = Array.from(
             new Map(stepsArray.map((step: ExecutionStep) => [step.id, step])).values()
-          );
+          ) as ExecutionStep[];
           uniqueSteps.sort((a, b) => a.step_index - b.step_index);
           setSteps(uniqueSteps);
+          // Debug: Log steps and total_steps
+          console.log('[ExecutionInspector] Loaded steps:', uniqueSteps.length, 'steps');
+          if (uniqueSteps.length > 0) {
+            console.log('[ExecutionInspector] Step total_steps values:', uniqueSteps.map(s => ({ step_index: s.step_index, total_steps: (s as any).total_steps })));
+          }
         } else {
           console.error('[ExecutionInspector] Failed to load steps:', stepsResponse.status, stepsResponse.statusText);
         }
@@ -371,7 +497,14 @@ export default function ExecutionInspector({
 
         if (update.type === 'execution_update') {
           setExecution(update.execution);
-          setCurrentStepIndex(update.execution?.current_step_index || 0);
+          // Ensure current_step_index is within valid range (1-based: 1 to total_steps)
+          if (update.execution) {
+            const maxStepIndex = update.execution.total_steps || (update.execution.current_step_index || 1);
+            const validStepIndex = Math.min(Math.max(1, update.execution.current_step_index || 1), maxStepIndex);
+            setCurrentStepIndex(validStepIndex);
+          } else {
+            setCurrentStepIndex(1);
+          }
         } else if (update.type === 'step_update') {
           setSteps(prev => {
             const index = prev.findIndex(s => s.id === update.step.id);
@@ -547,7 +680,7 @@ export default function ExecutionInspector({
         if (execResponse.ok) {
           const execData = await execResponse.json();
           setExecution(execData);
-          setCurrentStepIndex(execData.current_step_index || 0);
+          setCurrentStepIndex(execData.current_step_index || 1);
         }
       }
     } catch (err) {
@@ -570,7 +703,7 @@ export default function ExecutionInspector({
         if (execResponse.ok) {
           const execData = await execResponse.json();
           setExecution(execData);
-          setCurrentStepIndex(execData.current_step_index || 0);
+          setCurrentStepIndex(execData.current_step_index || 1);
         }
       }
     } catch (err) {
@@ -586,10 +719,34 @@ export default function ExecutionInspector({
     );
   }
 
-  // Calculate total steps: use execution.total_steps if available, otherwise use steps.length
-  const totalSteps = (execution && execution.total_steps && execution.total_steps > 0) ? execution.total_steps : (steps.length > 0 ? steps.length : 1);
+  // Calculate total steps:
+  // 1. Use max total_steps from step events (most accurate)
+  // 2. Fallback to execution.total_steps
+  // 3. Fallback to steps.length
+  const maxTotalStepsFromSteps = steps.length > 0
+    ? Math.max(...steps.map(s => s.total_steps || 0).filter(t => t > 0), 0)
+    : 0;
+  const totalSteps = maxTotalStepsFromSteps > 0
+    ? maxTotalStepsFromSteps
+    : ((execution && execution.total_steps && execution.total_steps > 0)
+       ? execution.total_steps
+       : (steps.length > 0 ? steps.length : 1));
+
+  // Debug: Log totalSteps calculation
+  if (steps.length > 0) {
+    console.log('[ExecutionInspector] totalSteps calculation:', {
+      maxTotalStepsFromSteps,
+      execution_total_steps: execution?.total_steps,
+      steps_length: steps.length,
+      final_totalSteps: totalSteps
+    });
+  }
+  // Ensure current_step_index is valid (1-based: 1 to totalSteps)
+  const currentStepIndexValid = execution
+    ? Math.min(Math.max(1, execution.current_step_index ?? 1), Math.max(1, totalSteps))
+    : 1;
   const progressPercentage = execution && totalSteps > 0
-    ? (((execution.current_step_index ?? 0) + 1) / totalSteps) * 100
+    ? (currentStepIndexValid / totalSteps) * 100
     : 0;
 
   const triggerBadge = getTriggerSourceBadge(execution?.trigger_source);
@@ -616,6 +773,11 @@ export default function ExecutionInspector({
             // TODO: Implement retry functionality
           } : undefined}
           isStopping={isStopping}
+          isReloading={isReloading}
+          isRestarting={isRestarting}
+          playbookCode={execution?.playbook_code}
+          apiUrl={apiUrl}
+          workspaceId={workspaceId}
           onStop={execution.status === 'running' ? async () => {
             if (isStopping) return;
             setIsStopping(true);
@@ -651,6 +813,37 @@ export default function ExecutionInspector({
               setIsStopping(false);
             }
           } : undefined}
+          onReloadPlaybook={async () => {
+            if (!execution?.playbook_code) return;
+            setIsReloading(true);
+            try {
+              const response = await fetch(
+                `${apiUrl}/api/v1/playbooks/${execution.playbook_code}/reload?locale=zh-TW`,
+                { method: 'POST' }
+              );
+              if (response.ok) {
+                window.dispatchEvent(new CustomEvent('playbook-reloaded', {
+                  detail: { playbookCode: execution.playbook_code }
+                }));
+                // Reload the page to reflect changes
+                window.location.reload();
+              } else {
+                const error = await response.json().catch(() => ({ detail: 'Failed to reload playbook' }));
+                alert(error.detail || 'Failed to reload playbook');
+              }
+            } catch (error) {
+              console.error('Error reloading playbook:', error);
+              alert('Failed to reload playbook. Please try again.');
+            } finally {
+              setIsReloading(false);
+            }
+          }}
+          onRestartExecution={async () => {
+            if (!execution?.playbook_code || !executionId) return;
+
+            // Show confirmation dialog
+            setShowRestartConfirm(true);
+          }}
         />
       )}
 
@@ -683,6 +876,117 @@ export default function ExecutionInspector({
                   onEditPlaybook={() => {
                     // TODO: Navigate to playbook editor
                   }}
+                  onReloadPlaybook={async () => {
+                    if (!execution?.playbook_code) return;
+                    setIsReloading(true);
+                    try {
+                      const response = await fetch(
+                        `${apiUrl}/api/v1/playbooks/${execution.playbook_code}/reload?locale=zh-TW`,
+                        { method: 'POST' }
+                      );
+                      if (response.ok) {
+                        window.dispatchEvent(new CustomEvent('playbook-reloaded', {
+                          detail: { playbookCode: execution.playbook_code }
+                        }));
+                        // Reload the page to reflect changes
+                        window.location.reload();
+                      } else {
+                        const error = await response.json().catch(() => ({ detail: 'Failed to reload playbook' }));
+                        alert(error.detail || 'Failed to reload playbook');
+                      }
+                    } catch (error) {
+                      console.error('Error reloading playbook:', error);
+                      alert('Failed to reload playbook. Please try again.');
+                    } finally {
+                      setIsReloading(false);
+                    }
+                  }}
+                  onRestartExecution={async () => {
+                    if (!execution?.playbook_code || !executionId) return;
+                    setIsRestarting(true);
+                    try {
+                      // First cancel current execution if running
+                      if (execution.status === 'running') {
+                        await fetch(
+                          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/cancel`,
+                          { method: 'POST' }
+                        );
+                      }
+
+                      // Start new execution with same playbook
+                      const response = await fetch(
+                        `${apiUrl}/api/v1/workspaces/${workspaceId}/playbooks/${execution.playbook_code}/execute`,
+                        {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            inputs: {},
+                            execution_mode: 'async'
+                          })
+                        }
+                      );
+
+                      if (response.ok) {
+                        const result = await response.json();
+                        const newExecutionId = result.execution_id || result.result?.execution_id;
+                        if (newExecutionId) {
+                          // Navigate to new execution
+                          window.location.href = `/workspaces/${workspaceId}/executions/${newExecutionId}`;
+                        } else {
+                          alert('Execution started but failed to get execution ID');
+                        }
+                      } else {
+                        const error = await response.json().catch(() => ({ detail: 'Failed to restart execution' }));
+                        alert(error.detail || 'Failed to restart execution');
+                      }
+                    } catch (error) {
+                      console.error('Error restarting execution:', error);
+                      alert('Failed to restart execution. Please try again.');
+                    } finally {
+                      setIsRestarting(false);
+                    }
+                  }}
+                  onStopExecution={async () => {
+                    if (isStopping) return;
+                    setIsStopping(true);
+                    try {
+                      const response = await fetch(
+                        `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/cancel`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                        }
+                      );
+                      if (response.ok) {
+                        const result = await response.json();
+                        // Reload execution to get updated status
+                        const execResponse = await fetch(
+                          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+                        );
+                        if (execResponse.ok) {
+                          const execData = await execResponse.json();
+                          setExecution(execData);
+                        }
+                      } else {
+                        const errorData = await response.json().catch(() => ({ detail: 'Failed to cancel execution' }));
+                        console.error('Failed to cancel execution:', errorData);
+                        alert(errorData.detail || 'Failed to cancel execution');
+                      }
+                    } catch (error) {
+                      console.error('Error cancelling execution:', error);
+                      alert('Failed to cancel execution. Please try again.');
+                    } finally {
+                      setIsStopping(false);
+                    }
+                  }}
+                  isReloading={isReloading}
+                  isRestarting={isRestarting}
+                  isStopping={isStopping}
+                  executionStatus={execution?.status}
+                  apiUrl={apiUrl}
+                  workspaceId={workspaceId}
                 />
               </div>
               <div className="p-3 overflow-y-auto">
@@ -711,6 +1015,16 @@ export default function ExecutionInspector({
                 currentStepToolCalls={currentStepToolCalls}
                 currentStepCollaborations={currentStepCollaborations}
                 executionStatus={execution?.status}
+                totalSteps={totalSteps}
+                playbookSteps={playbookStepDefinitions.length > 0
+                  ? playbookStepDefinitions
+                  : (steps.length > 0 ? steps.map(s => ({
+                      step_index: s.step_index,
+                      step_name: s.step_name || s.id || `Step ${s.step_index + 1}`,
+                      description: s.description || s.log_summary || '',
+                      agent_type: s.agent_type,
+                      used_tools: s.used_tools || []
+                    })) : [])}
               />
             )}
           </div>
@@ -732,6 +1046,121 @@ export default function ExecutionInspector({
           </div>
         )}
       </div>
+
+      {/* Restart Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showRestartConfirm}
+        onClose={() => setShowRestartConfirm(false)}
+        onConfirm={() => {
+          setShowRestartConfirm(false);
+          if (execution?.playbook_code && executionId) {
+            setIsRestarting(true);
+
+            try {
+              // Immediately navigate back to workspace to avoid long wait
+              // Store restart info in sessionStorage for progress indicator
+              const restartInfo = {
+                playbook_code: execution.playbook_code,
+                workspace_id: workspaceId,
+                timestamp: Date.now()
+              };
+              sessionStorage.setItem('pending_restart', JSON.stringify(restartInfo));
+
+              // Store flag to force refresh executions on workspace page load
+              sessionStorage.setItem('force_refresh_executions', 'true');
+
+              // Navigate to workspace immediately
+              window.location.href = `/workspaces/${workspaceId}`;
+
+              // Start new execution in background (don't wait for response)
+              // Cancel current execution if running (fire and forget)
+              if (execution.status === 'running') {
+                fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/cancel`,
+                  { method: 'POST' }
+                ).catch(err => console.warn('Failed to cancel execution:', err));
+              }
+
+              // Start new execution
+              // Remove execution_id from inputs to ensure a new execution is created
+              const inputs = { ...(execution.execution_context || {}) };
+              delete inputs.execution_id;
+              delete inputs.status;
+              delete inputs.current_step_index;
+
+              fetch(
+                `${apiUrl}/api/v1/workspaces/${workspaceId}/playbooks/${execution.playbook_code}/execute`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    inputs: inputs,
+                    execution_mode: 'async'
+                  })
+                }
+              )
+                .then(async (response) => {
+                  if (response.ok) {
+                    const result = await response.json();
+                    const newExecutionId = result.execution_id || result.result?.execution_id;
+                    if (newExecutionId) {
+                      // Store new execution ID in sessionStorage for notification
+                      sessionStorage.setItem('restart_success', JSON.stringify({
+                        execution_id: newExecutionId,
+                        workspace_id: workspaceId,
+                        playbook_code: execution.playbook_code,
+                        timestamp: Date.now()
+                      }));
+                      // Clear restart info
+                      sessionStorage.removeItem('pending_restart');
+                      // Trigger custom event to show notification in workspace
+                      window.dispatchEvent(new CustomEvent('execution-restarted', {
+                        detail: {
+                          execution_id: newExecutionId,
+                          workspace_id: workspaceId,
+                          playbook_code: execution.playbook_code
+                        }
+                      }));
+                    } else {
+                      sessionStorage.removeItem('pending_restart');
+                      console.error('Execution started but failed to get execution ID');
+                      // Show error notification
+                      window.dispatchEvent(new CustomEvent('execution-restart-error', {
+                        detail: { message: '執行已啟動但無法獲取執行 ID' }
+                      }));
+                    }
+                  } else {
+                    sessionStorage.removeItem('pending_restart');
+                    const error = await response.json().catch(() => ({ detail: 'Failed to restart execution' }));
+                    // Show error notification
+                    window.dispatchEvent(new CustomEvent('execution-restart-error', {
+                      detail: { message: error.detail || '重啟執行失敗' }
+                    }));
+                  }
+                })
+                .catch((error) => {
+                  sessionStorage.removeItem('pending_restart');
+                  console.error('Error restarting execution:', error);
+                  // Show error notification
+                  window.dispatchEvent(new CustomEvent('execution-restart-error', {
+                    detail: { message: '重啟執行失敗，請重試' }
+                  }));
+                });
+            } catch (error) {
+              sessionStorage.removeItem('pending_restart');
+              console.error('Error restarting execution:', error);
+              alert('Failed to restart execution. Please try again.');
+            } finally {
+              setIsRestarting(false);
+            }
+          }
+        }}
+        title={t('confirmRestartExecution') || '確認重啟執行'}
+        message={t('confirmRestartExecution') || '確定要重啟此執行嗎？這將創建一個新的執行並取消當前執行。'}
+        confirmText={t('accept') || '確定'}
+        cancelText={t('cancel') || '取消'}
+        confirmButtonClassName="bg-blue-600 hover:bg-blue-700"
+      />
     </div>
   );
 }
