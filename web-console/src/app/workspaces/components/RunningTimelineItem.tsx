@@ -320,8 +320,12 @@ export default function RunningTimelineItem({
       totalSteps = 1;
     }
   }
+  // Use step_index from latestStep if available, otherwise use currentExecution.current_step_index
+  const currentStepIndex = latestStep?.step_index !== undefined 
+    ? latestStep.step_index 
+    : currentExecution.current_step_index;
   const progressPercentage = totalSteps > 0
-    ? ((currentExecution.current_step_index + 1) / totalSteps) * 100
+    ? ((currentStepIndex + 1) / totalSteps) * 100
     : 0;
 
   return (
