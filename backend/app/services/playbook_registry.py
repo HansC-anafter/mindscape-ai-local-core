@@ -72,7 +72,54 @@ class PlaybookRegistry:
                    f"{len(self.capability_playbooks)} capability packs")
 
     def _load_system_playbooks(self):
-        """Load system-level playbooks from backend/i18n/playbooks/"""
+        """
+        Load system-level playbooks from:
+        1. NPM packages (@mindscape/playbook-*)
+        2. backend/i18n/playbooks/ (backward compatibility)
+        """
+        # First try loading from NPM packages
+        try:
+            from backend.app.services.playbook_loaders.npm_loader import PlaybookNpmLoader
+            packages = PlaybookNpmLoader.find_playbook_packages()
+            
+            supported_locales = ['zh-TW', 'en', 'ja']
+            
+            for package in packages:
+                playbook_code = package["playbook_code"]
+                
+                for locale in supported_locales:
+                    if locale not in self.system_playbooks:
+                        self.system_playbooks[locale] = {}
+                    
+                    # Try to load i18n from NPM package
+                    i18n_content = PlaybookNpmLoader.load_playbook_i18n(playbook_code, locale)
+                    if i18n_content:
+                        try:
+                            from io import StringIO
+                            from backend.app.services.playbook_loaders.file_loader import PlaybookFileLoader
+                            
+                            # Create a temporary file-like object for PlaybookFileLoader
+                            # PlaybookFileLoader expects a Path, so we need to write to temp file
+                            import tempfile
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp_file:
+                                tmp_file.write(i18n_content)
+                                tmp_path = Path(tmp_file.name)
+                            
+                            playbook = PlaybookFileLoader.load_playbook_from_file(tmp_path)
+                            if playbook:
+                                playbook.metadata.locale = locale
+                                if playbook_code not in self.system_playbooks[locale]:
+                                    self.system_playbooks[locale][playbook_code] = playbook
+                                    logger.debug(f"Loaded playbook from NPM package: {playbook_code} ({locale})")
+                            
+                            # Clean up temp file
+                            tmp_path.unlink()
+                        except Exception as e:
+                            logger.warning(f"Failed to load playbook from NPM package {package['name']}: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to load playbooks from NPM packages: {e}")
+
+        # Fallback to core i18n directory (backward compatibility)
         base_dir = Path(__file__).parent.parent.parent.parent
         i18n_dir = base_dir / "backend" / "i18n" / "playbooks"
 
@@ -102,8 +149,10 @@ class PlaybookRegistry:
                         # Ensure locale matches directory
                         playbook.metadata.locale = locale
                         playbook_code = playbook.metadata.playbook_code
-                        self.system_playbooks[locale][playbook_code] = playbook
-                        logger.debug(f"Loaded system playbook: {playbook_code} ({locale})")
+                        # Only add if not already loaded from NPM package
+                        if playbook_code not in self.system_playbooks[locale]:
+                            self.system_playbooks[locale][playbook_code] = playbook
+                            logger.debug(f"Loaded system playbook: {playbook_code} ({locale})")
                 except Exception as e:
                     logger.warning(f"Failed to load system playbook from {md_file}: {e}")
 
@@ -248,4 +297,70 @@ class PlaybookRegistry:
                 return False
 
         return True
+
+    def invalidate_cache(self, playbook_code: Optional[str] = None, locale: Optional[str] = None):
+        """
+        Invalidate playbook cache
+
+        Args:
+            playbook_code: Specific playbook code to invalidate (optional, if None invalidates all)
+            locale: Specific locale to invalidate (optional, if None invalidates all locales)
+        """
+        if playbook_code:
+            # Invalidate specific playbook
+            if locale:
+                if locale in self.system_playbooks and playbook_code in self.system_playbooks[locale]:
+                    del self.system_playbooks[locale][playbook_code]
+                    logger.info(f"Invalidated cache for playbook {playbook_code} (locale: {locale})")
+            else:
+                # Invalidate for all locales
+                for loc in self.system_playbooks:
+                    if playbook_code in self.system_playbooks[loc]:
+                        del self.system_playbooks[loc][playbook_code]
+                logger.info(f"Invalidated cache for playbook {playbook_code} (all locales)")
+        else:
+            # Invalidate all caches
+            self._loaded = False
+            self.system_playbooks.clear()
+            self.capability_playbooks.clear()
+            self.user_playbooks.clear()
+            logger.info("Invalidated all playbook caches")
+
+    async def reload_playbook(self, playbook_code: str, locale: str = "zh-TW"):
+        """
+        Reload a specific playbook from file system
+
+        Args:
+            playbook_code: Playbook code
+            locale: Language locale
+        """
+        # Invalidate cache for this playbook
+        self.invalidate_cache(playbook_code, locale)
+
+        # Reload system playbooks for this locale
+        base_dir = Path(__file__).parent.parent.parent.parent
+        i18n_dir = base_dir / "backend" / "i18n" / "playbooks"
+        locale_dir = i18n_dir / locale
+
+        if locale_dir.exists():
+            if locale not in self.system_playbooks:
+                self.system_playbooks[locale] = {}
+
+            # Find and reload the playbook file
+            for md_file in locale_dir.glob('*.md'):
+                if md_file.name == 'README.md':
+                    continue
+
+                try:
+                    playbook = PlaybookFileLoader.load_playbook_from_file(md_file)
+                    if playbook and playbook.metadata.playbook_code == playbook_code:
+                        playbook.metadata.locale = locale
+                        self.system_playbooks[locale][playbook_code] = playbook
+                        logger.info(f"Reloaded playbook: {playbook_code} ({locale})")
+                        return True
+                except Exception as e:
+                    logger.warning(f"Failed to reload playbook from {md_file}: {e}")
+
+        logger.warning(f"Failed to reload playbook {playbook_code} (locale: {locale})")
+        return False
 

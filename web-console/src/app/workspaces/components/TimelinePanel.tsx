@@ -52,6 +52,15 @@ const fadeInBlinkStyle = `
       padding-bottom: 0;
     }
   }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
 `;
 
 interface TimelineItem {
@@ -147,6 +156,12 @@ export default function TimelinePanel({
   const previousItemsRef = useRef<TimelineItem[]>([]);
   // Track collapsed/expanded state for execution sections
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  // Track pending restart
+  const [pendingRestart, setPendingRestart] = useState<{
+    playbook_code: string;
+    workspace_id: string;
+    timestamp: number;
+  } | null>(null);
 
   // Use context data if available, otherwise use local state
   const executions = contextData?.executions || localExecutions;
@@ -176,6 +191,141 @@ export default function TimelinePanel({
 
   // Track if initial load has been done to prevent duplicate loads
   const hasLoadedRef = useRef<string | null>(null);
+  const executionsLoadedRef = useRef<string | null>(null);
+  const hasCheckedRestartRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Only check once per workspaceId
+    if (hasCheckedRestartRef.current === workspaceId) return;
+    hasCheckedRestartRef.current = workspaceId;
+
+    // Check for force refresh flag
+    const forceRefresh = sessionStorage.getItem('force_refresh_executions');
+    if (forceRefresh === 'true') {
+      sessionStorage.removeItem('force_refresh_executions');
+      // Force refresh executions immediately (with delay to avoid race condition)
+      setTimeout(() => {
+        if (contextData && typeof contextData.refreshExecutions === 'function') {
+          contextData.refreshExecutions();
+        } else {
+          loadExecutions();
+        }
+      }, 100);
+    }
+
+    // Check for pending restart
+    const restartInfo = sessionStorage.getItem('pending_restart');
+    if (restartInfo) {
+      try {
+        const info = JSON.parse(restartInfo);
+        // Only show if it's recent (within 30 seconds)
+        if (Date.now() - info.timestamp < 30000 && info.workspace_id === workspaceId) {
+          setPendingRestart(info);
+        } else {
+          sessionStorage.removeItem('pending_restart');
+        }
+      } catch (e) {
+        sessionStorage.removeItem('pending_restart');
+      }
+    }
+  }, [workspaceId]);
+
+  // Handle execution restarted event and clear pending restart
+  useEffect(() => {
+    const handleExecutionRestarted = (event: CustomEvent) => {
+      const { execution_id, workspace_id, playbook_code } = event.detail;
+      if (workspace_id === workspaceId) {
+        setPendingRestart(null);
+        sessionStorage.removeItem('pending_restart');
+        // Show success notification
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3';
+        notification.innerHTML = `
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <div>
+            <p class="font-medium">執行已重啟</p>
+            <p class="text-sm opacity-90">${playbook_code}</p>
+          </div>
+          <button
+            onclick="window.location.href='/workspaces/${workspace_id}/executions/${execution_id}'"
+            class="ml-2 px-2 py-1 text-xs bg-white/20 hover:bg-white/30 rounded transition-colors"
+          >
+            查看
+          </button>
+          <button
+            onclick="this.parentElement.remove()"
+            class="ml-2 text-white/80 hover:text-white"
+          >
+            ×
+          </button>
+        `;
+        document.body.appendChild(notification);
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+          if (notification.parentElement) {
+            notification.remove();
+          }
+        }, 5000);
+      }
+    };
+
+    const handleExecutionRestartError = (event: CustomEvent) => {
+      const { message } = event.detail;
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3';
+      notification.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+        <div>
+          <p class="font-medium">重啟失敗</p>
+          <p class="text-sm opacity-90">${message}</p>
+        </div>
+        <button
+          onclick="this.parentElement.remove()"
+          class="ml-2 text-white/80 hover:text-white"
+        >
+          ×
+        </button>
+      `;
+      document.body.appendChild(notification);
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+      }, 5000);
+    };
+
+    window.addEventListener('execution-restarted', handleExecutionRestarted as EventListener);
+    window.addEventListener('execution-restart-error', handleExecutionRestartError as EventListener);
+
+    return () => {
+      window.removeEventListener('execution-restarted', handleExecutionRestarted as EventListener);
+      window.removeEventListener('execution-restart-error', handleExecutionRestartError as EventListener);
+    };
+  }, [workspaceId]); // Only depend on workspaceId to prevent infinite loop
+
+  // Clear pending restart when new execution appears (separate effect to avoid dependency issues)
+  // Use a ref to track previous executions length to avoid infinite loop
+  const prevExecutionsLengthRef = useRef<number>(0);
+  useEffect(() => {
+    const currentExecutionsLength = executions.length;
+    // Only check if executions actually changed (length or content)
+    if (pendingRestart && currentExecutionsLength > 0 && currentExecutionsLength !== prevExecutionsLengthRef.current) {
+      const matchingExecution = executions.find(
+        e => e.playbook_code === pendingRestart.playbook_code &&
+        e.created_at && new Date(e.created_at).getTime() > pendingRestart.timestamp
+      );
+      if (matchingExecution) {
+        setPendingRestart(null);
+        sessionStorage.removeItem('pending_restart');
+      }
+      prevExecutionsLengthRef.current = currentExecutionsLength;
+    } else if (currentExecutionsLength !== prevExecutionsLengthRef.current) {
+      prevExecutionsLengthRef.current = currentExecutionsLength;
+    }
+  }, [executions.length, pendingRestart?.playbook_code, pendingRestart?.timestamp]);
 
   useEffect(() => {
     // Only load timeline items once per workspaceId (timeline items are not in context yet)
@@ -184,10 +334,17 @@ export default function TimelinePanel({
       hasLoadedRef.current = workspaceId;
     }
 
-    // Only load executions and workspace if not using context
-    if (!contextData) {
-      loadExecutions();
-      loadWorkspace();
+    // Load executions and workspace - only once per workspaceId
+    if (executionsLoadedRef.current !== workspaceId) {
+      executionsLoadedRef.current = workspaceId;
+
+      // Only load if not using context
+      // If using context, don't trigger refresh here - context will handle it
+      if (!contextData) {
+        // No context, load directly
+        loadExecutions();
+        loadWorkspace();
+      }
     }
 
     // Event handling is done by context when available
@@ -272,9 +429,8 @@ export default function TimelinePanel({
   };
 
   const loadExecutions = async () => {
-    // Skip if using context data
-    if (contextData) return;
-
+    // Always load executions to ensure data is available
+    // Even if contextData exists, we still load to ensure data is fresh and available
     try {
       // Use batch API to get executions with steps in a single request
       // This avoids N+1 queries - steps are included for active executions only
@@ -287,6 +443,9 @@ export default function TimelinePanel({
 
       const data = await response.json();
       const executionsList: ExecutionSession[] = data.executions || [];
+
+      // Update local state regardless of contextData
+      // This ensures executions are always available even if contextData is not ready
       setLocalExecutions(executionsList);
 
       // Extract steps from the batch response (steps are already included in each execution)
@@ -798,8 +957,50 @@ export default function TimelinePanel({
                   <span>{t('timelineRunning')} {runningExecutions.length > 0 && `(${runningExecutions.length})`}</span>
                 </div>
                 {!isSectionCollapsed('running') && (
-                  runningExecutions.length > 0 ? (
-                    runningExecutions.map((execution) => {
+                  <>
+                    {/* Pending Restart Placeholder */}
+                    {pendingRestart && (
+                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-2 shadow-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-blue-900 dark:text-blue-200">
+                              {pendingRestart.playbook_code || 'Playbook Execution'}
+                            </span>
+                            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                              {t('restarting') || '重啟中'}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Progress Bar - Animated */}
+                        <div className="mb-2">
+                          <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="bg-blue-500 dark:bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                              style={{
+                                width: '100%',
+                                background: 'linear-gradient(90deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%)',
+                                backgroundSize: '200% 100%',
+                                animation: 'shimmer 1.5s ease-in-out infinite'
+                              }}
+                            ></div>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="flex-shrink-0 mt-0.5">
+                            <div className="relative w-4 h-4">
+                              <div className="absolute inset-0 border-2 border-blue-300 dark:border-blue-500 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
+                              {t('restartingExecution') || '正在重啟執行，請稍候...'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {runningExecutions.length > 0 ? (
+                      runningExecutions.map((execution) => {
                       const currentStep = getCurrentStep(execution);
                       return (
                         <RunningTimelineItem
@@ -859,7 +1060,8 @@ export default function TimelinePanel({
                     <div className="text-xs text-gray-400 dark:text-gray-300 px-1 py-2">
                       {t('noRunningExecutions')}
                     </div>
-                  )
+                  )}
+                  </>
                 )}
               </div>
 
