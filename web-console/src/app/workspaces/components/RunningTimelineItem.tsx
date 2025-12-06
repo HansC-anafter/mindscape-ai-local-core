@@ -263,21 +263,16 @@ export default function RunningTimelineItem({
       const agentLabel = latestStep.agent_type
         ? `${getAgentLabel(latestStep.agent_type)} · `
         : '';
-      // Use total_steps from execution, but prefer from step if available
-      // If total_steps is 0 or undefined, try to calculate from steps array or use 1 as fallback
+      // Always use total_steps from execution, don't use step's total_steps
+      // step's total_steps might be incorrect or outdated
       let totalSteps = currentExecution.total_steps;
       if (!totalSteps || totalSteps === 0) {
-        // Try to get from step's total_steps if available
-        if (latestStep && latestStep.total_steps) {
-          totalSteps = latestStep.total_steps;
-        } else {
-          // Fallback to 1 only if we really can't determine
-          totalSteps = 1;
-        }
+        // Fallback to 1 only if we really can't determine
+        totalSteps = 1;
       }
       // Use step_index from latestStep if available, otherwise use currentExecution.current_step_index
-      const stepIndex = latestStep.step_index !== undefined 
-        ? latestStep.step_index 
+      const stepIndex = latestStep.step_index !== undefined
+        ? latestStep.step_index
         : currentExecution.current_step_index;
       const stepInfo = `步驟 ${stepIndex + 1}/${totalSteps}`;
 
@@ -309,20 +304,16 @@ export default function RunningTimelineItem({
     return agentLabels[agentType] || agentType;
   };
 
-  // Calculate total_steps: prefer from execution, then from step, then fallback to 1
+  // Always use total_steps from execution, don't use step's total_steps
+  // step's total_steps might be incorrect or outdated
   let totalSteps = currentExecution.total_steps;
   if (!totalSteps || totalSteps === 0) {
-    // Try to get from latest step's total_steps if available
-    if (latestStep && latestStep.total_steps) {
-      totalSteps = latestStep.total_steps;
-    } else {
-      // Fallback to 1 only if we really can't determine
-      totalSteps = 1;
-    }
+    // Fallback to 1 only if we really can't determine
+    totalSteps = 1;
   }
   // Use step_index from latestStep if available, otherwise use currentExecution.current_step_index
-  const currentStepIndex = latestStep?.step_index !== undefined 
-    ? latestStep.step_index 
+  const currentStepIndex = latestStep?.step_index !== undefined
+    ? latestStep.step_index
     : currentExecution.current_step_index;
   const progressPercentage = totalSteps > 0
     ? ((currentStepIndex + 1) / totalSteps) * 100
