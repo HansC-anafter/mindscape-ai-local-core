@@ -132,6 +132,23 @@ See [Port Architecture](./docs/architecture/port-architecture.md) for details.
 
 We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
+## 📧 Contact & Community
+
+Maintainer: [Hans Huang](https://github.com/HansC-anafter)
+
+- 🐞 **Bug report or feature request**
+  → Please open a [GitHub Issue](./issues).
+
+- 💬 **Questions / ideas / sharing your use cases**
+  → Use [GitHub Discussions](./discussions) (recommended).
+
+- 🤝 **Collaboration & commercial use** (agencies, teams, hardware partners, etc.)
+  → Contact: `dev@mindscapeai.app`
+
+> Please avoid sending support requests to personal emails or social media.
+
+> Using Issues/Discussions helps the whole community benefit from the answers.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see [LICENSE](./LICENSE) for details.
