@@ -92,7 +92,8 @@ class MultiAICollaborationService:
                     file_data=file_data,
                     file_name=file_name,
                     profile_id=profile_id,
-                    workspace_id=workspace_id
+                    workspace_id=workspace_id,
+                    file_path=file_path or file_info.get("file_path")
                 ),
                 "daily_planning": await self._analyze_daily_planning(
                     file_info=file_info,
@@ -132,7 +133,8 @@ class MultiAICollaborationService:
         file_data: str,
         file_name: str,
         profile_id: str,
-        workspace_id: str
+        workspace_id: str,
+        file_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """Analyze file for semantic seeds"""
         try:
@@ -152,8 +154,15 @@ class MultiAICollaborationService:
                     # For PDF, try to extract using PyPDF2
                     if file_name.lower().endswith('.pdf'):
                         logger.warning(f"PDF file but no text_content in file_info, attempting direct extraction")
-                        content_preview = await self._extract_pdf_text_direct(file_data, max_length=5000)
-                        logger.info(f"Direct PDF extraction: {len(content_preview) if content_preview else 0} chars")
+                        # Try to extract from file_path first (if available)
+                        pdf_file_path = file_path or file_info.get("file_path")
+                        if pdf_file_path:
+                            content_preview = await self._extract_pdf_from_path(pdf_file_path, max_length=5000)
+                            logger.info(f"PDF extraction from path: {len(content_preview) if content_preview else 0} chars")
+                        else:
+                            # Fallback to extracting from file_data (base64)
+                            content_preview = await self._extract_pdf_text_direct(file_data, max_length=5000)
+                            logger.info(f"Direct PDF extraction from data: {len(content_preview) if content_preview else 0} chars")
                     else:
                         # Fallback to extracting from file_data (for text files)
                         content_preview = self._extract_content_preview(file_data, max_length=5000)
@@ -183,20 +192,61 @@ class MultiAICollaborationService:
                         locale = get_locale_from_context(profile=profile, workspace=workspace) or "en"
 
                         # Initialize LLM provider for SeedExtractor
+                        from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+                        from backend.app.services.system_settings_store import SystemSettingsStore
+                        import json
                         config_store = ConfigStore()
-                        config = config_store.get_or_create_config("default-user")
+                        config = config_store.get_or_create_config(profile_id)
                         openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
                         anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-                        vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-                        vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-                        vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
-                        llm_provider = LLMProviderManager(
+
+                        # Get Vertex AI config from system settings (like core_llm does)
+                        settings_store = SystemSettingsStore()
+                        vertex_service_account_json = None
+                        vertex_project_id = None
+                        try:
+                            service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+                            project_id_setting = settings_store.get_setting("vertex_ai_project_id")
+                            if service_account_setting and service_account_setting.value:
+                                if isinstance(service_account_setting.value, dict):
+                                    vertex_service_account_json = json.dumps(service_account_setting.value)
+                                else:
+                                    vertex_service_account_json = str(service_account_setting.value)
+                            else:
+                                vertex_service_account_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                            vertex_project_id = project_id_setting.value if project_id_setting and project_id_setting.value else os.getenv("GOOGLE_CLOUD_PROJECT")
+                        except Exception as e:
+                            logger.debug(f"Failed to get Vertex AI from system settings: {e}, using env vars")
+                            vertex_service_account_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                            vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+                        # Fallback to user config if system settings not available
+                        if not vertex_service_account_json:
+                            vertex_service_account_json = config.agent_backend.vertex_api_key
+                        if not vertex_project_id:
+                            vertex_project_id = config.agent_backend.vertex_project_id
+
+                        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
+                        llm_manager = create_llm_provider_manager(
                             openai_key=openai_key,
                             anthropic_key=anthropic_key,
-                            vertex_api_key=vertex_api_key,
+                            vertex_api_key=vertex_service_account_json,
                             vertex_project_id=vertex_project_id,
-                            vertex_location=vertex_location
+                            vertex_location=config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
                         )
+                        try:
+                            llm_provider = get_llm_provider_from_settings(llm_manager)
+                        except (ValueError, Exception) as e:
+                            logger.warning(f"Failed to get LLM provider from settings: {e}, trying direct provider")
+                            if vertex_service_account_json and vertex_project_id:
+                                llm_provider = llm_manager.get_provider("vertex-ai")
+                            elif openai_key:
+                                llm_provider = llm_manager.get_provider("openai")
+                            elif anthropic_key:
+                                llm_provider = llm_manager.get_provider("anthropic")
+                            else:
+                                llm_provider = None
 
                         seed_extractor = SeedExtractor(llm_provider=llm_provider)
                         logger.info(f"Initialized SeedExtractor with LLM provider and locale={locale} for file: {file_info.get('name')}")
@@ -392,6 +442,40 @@ class MultiAICollaborationService:
             return None
         except Exception as e:
             logger.warning(f"Failed to extract content preview: {e}")
+            return None
+
+    async def _extract_pdf_from_path(self, file_path: str, max_length: int = 10000) -> Optional[str]:
+        """Extract text from PDF file path"""
+        try:
+            import PyPDF2
+            import os
+
+            if not os.path.exists(file_path):
+                logger.warning(f"PDF file path does not exist: {file_path}")
+                return None
+
+            with open(file_path, 'rb') as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+
+                text_parts = []
+                # Extract text from first 20 pages (to get meaningful content)
+                for page_num in range(min(20, len(pdf_reader.pages))):
+                    page = pdf_reader.pages[page_num]
+                    text = page.extract_text()
+                    if text and text.strip():
+                        text_parts.append(text.strip())
+
+                extracted_text = '\n\n'.join(text_parts)
+                if extracted_text:
+                    logger.info(f"Extracted {len(extracted_text)} chars from PDF file ({len(pdf_reader.pages)} pages)")
+                    return extracted_text[:max_length]
+
+            return None
+        except ImportError:
+            logger.error("PyPDF2 not installed. Cannot extract PDF text.")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to extract PDF text from path {file_path}: {e}")
             return None
 
     async def _extract_pdf_text_direct(self, file_data: str, max_length: int = 10000) -> Optional[str]:

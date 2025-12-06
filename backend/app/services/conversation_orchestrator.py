@@ -162,9 +162,11 @@ class ConversationOrchestrator:
         if not vertex_location:
             vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
 
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
         logger.info(f"ConversationOrchestrator: Vertex AI config: service_account={'set' if vertex_service_account_json else 'not set'}, project_id={vertex_project_id}, location={vertex_location}")
 
-        llm_manager = LLMProviderManager(
+        llm_manager = create_llm_provider_manager(
             openai_key=openai_key,
             anthropic_key=anthropic_key,
             vertex_api_key=vertex_service_account_json,
@@ -649,10 +651,12 @@ class ConversationOrchestrator:
         if vertex_location_setting and vertex_location_setting.value:
             val = str(vertex_location_setting.value).strip()
             vertex_location = val if val else None
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
         if not vertex_location:
             vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
 
-        llm_manager = LLMProviderManager(
+        llm_manager = create_llm_provider_manager(
             openai_key=openai_key,
             anthropic_key=anthropic_key,
             vertex_api_key=vertex_service_account_json,

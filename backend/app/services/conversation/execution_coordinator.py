@@ -633,19 +633,15 @@ class ExecutionCoordinator:
                     from ...services.agent_runner import LLMProviderManager
                     import os
 
-                    # Get LLM API keys from user config (stored in settings), fallback to env vars
+                    # Get LLM API keys from user config (stored in settings), fallback to unified function
+                    from backend.app.shared.llm_provider_helper import create_llm_provider_manager
                     config = self.config_store.get_or_create_config(profile_id)
-                    openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-                    anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-                    vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-                    vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-                    vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
-                    llm_manager = LLMProviderManager(
-                        openai_key=openai_key,
-                        anthropic_key=anthropic_key,
-                        vertex_api_key=vertex_api_key,
-                        vertex_project_id=vertex_project_id,
-                        vertex_location=vertex_location
+                    llm_manager = create_llm_provider_manager(
+                        openai_key=config.agent_backend.openai_api_key,
+                        anthropic_key=config.agent_backend.anthropic_api_key,
+                        vertex_api_key=config.agent_backend.vertex_api_key,
+                        vertex_project_id=config.agent_backend.vertex_project_id,
+                        vertex_location=config.agent_backend.vertex_location
                     )
                     llm_provider = get_llm_provider_from_settings(llm_manager)
 
@@ -672,19 +668,15 @@ class ExecutionCoordinator:
                     from ...services.agent_runner import LLMProviderManager
                     import os
 
-                    # Get LLM API keys from user config (stored in settings), fallback to env vars
+                    # Get LLM API keys from user config (stored in settings), fallback to unified function
+                    from backend.app.shared.llm_provider_helper import create_llm_provider_manager
                     config = self.config_store.get_or_create_config(profile_id)
-                    openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-                    anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-                    vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-                    vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-                    vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
-                    llm_manager = LLMProviderManager(
-                        openai_key=openai_key,
-                        anthropic_key=anthropic_key,
-                        vertex_api_key=vertex_api_key,
-                        vertex_project_id=vertex_project_id,
-                        vertex_location=vertex_location
+                    llm_manager = create_llm_provider_manager(
+                        openai_key=config.agent_backend.openai_api_key,
+                        anthropic_key=config.agent_backend.anthropic_api_key,
+                        vertex_api_key=config.agent_backend.vertex_api_key,
+                        vertex_project_id=config.agent_backend.vertex_project_id,
+                        vertex_location=config.agent_backend.vertex_location
                     )
                     llm_provider = get_llm_provider_from_settings(llm_manager)
 

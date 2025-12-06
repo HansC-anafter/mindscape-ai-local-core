@@ -127,10 +127,14 @@ class PlaybookOptimizationService:
             config_store = ConfigStore()
             config = config_store.get_or_create_config(profile_id)
 
-            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
 
-            llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+            openai_key = config.agent_backend.openai_api_key
+            anthropic_key = config.agent_backend.anthropic_api_key
+            llm_manager = create_llm_provider_manager(
+                openai_key=openai_key,
+                anthropic_key=anthropic_key
+            )
             try:
                 provider = get_llm_provider_from_settings(llm_manager)
             except ValueError as e:

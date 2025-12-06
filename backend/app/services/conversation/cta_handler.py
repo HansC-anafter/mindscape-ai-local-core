@@ -968,9 +968,8 @@ class CTAHandler:
         import os
 
         # Initialize LLM provider
-        openai_key = os.getenv("OPENAI_API_KEY")
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+        llm_manager = create_llm_provider_manager()
         llm_provider = get_llm_provider_from_settings(llm_manager)
 
         # Use MessageGenerator with LLM

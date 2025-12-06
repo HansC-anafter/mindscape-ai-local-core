@@ -323,7 +323,10 @@ class VertexAIProvider(LLMProvider):
     def _build_generation_config(self, temperature: float, max_tokens: Optional[int], max_completion_tokens: Optional[int]):
         """Build generation config for Vertex AI"""
         from vertexai.generative_models import GenerationConfig
-        max_output = max_completion_tokens if max_completion_tokens else (max_tokens if max_tokens else 4096)
+        # Increase max_output_tokens to prevent truncation (Gemini models support up to 8192)
+        max_output = max_completion_tokens if max_completion_tokens else (max_tokens if max_tokens else 8192)
+        # Cap at 8192 for Gemini models
+        max_output = min(max_output, 8192)
         return GenerationConfig(
             temperature=temperature,
             max_output_tokens=max_output
@@ -384,6 +387,13 @@ class VertexAIProvider(LLMProvider):
             for response in responses:
                 if response.candidates and len(response.candidates) > 0:
                     candidate = response.candidates[0]
+                    # Check for finish_reason to detect truncation
+                    if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
+                        finish_reason = candidate.finish_reason
+                        if finish_reason == 1:  # STOP = 1, MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4
+                            logger.warning(f"[VertexAI Streaming] Response stopped early. Finish reason: {finish_reason}")
+                        elif finish_reason == 2:  # MAX_TOKENS
+                            logger.warning(f"[VertexAI Streaming] Response truncated due to max_tokens limit")
                     if candidate.content and candidate.content.parts:
                         for part in candidate.content.parts:
                             if hasattr(part, 'text') and part.text:
@@ -615,9 +625,10 @@ class AgentRunner:
     """Main agent execution service"""
 
     def __init__(self):
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
         self.store = MindscapeStore()
-        # Initialize with environment variables (will be overridden by user config when needed)
-        self.llm_manager = LLMProviderManager()
+        # Initialize with unified configuration (will be overridden by user config when needed)
+        self.llm_manager = create_llm_provider_manager()
         self.prompt_builder = AgentPromptBuilder()
         # Backend manager will be initialized lazily
         self._backend_manager = None

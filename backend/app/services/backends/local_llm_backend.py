@@ -23,7 +23,11 @@ class LocalLLMBackend(AgentBackend):
     """Local LLM-based agent backend"""
 
     def __init__(self, openai_key: Optional[str] = None, anthropic_key: Optional[str] = None):
-        self.llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+        self.llm_manager = create_llm_provider_manager(
+            openai_key=openai_key,
+            anthropic_key=anthropic_key
+        )
         self.prompt_builder = AgentPromptBuilder()
 
     async def run_agent(

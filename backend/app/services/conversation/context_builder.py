@@ -121,7 +121,7 @@ class ContextBuilder:
         # Current tasks - what's in progress (with Intent links)
         if self.store:
             try:
-                from backend.app.stores.tasks_store import TasksStore
+                from backend.app.services.stores.tasks_store import TasksStore
                 from ...models.workspace import TaskStatus
                 tasks_store = TasksStore(self.store.db_path)
 
@@ -652,12 +652,13 @@ class ContextBuilder:
             if not openai_key:
                 openai_key = os.getenv("OPENAI_API_KEY")
 
-            if not openai_key or openai_key == "your-openai-api-key-here":
-                logger.error(f"Invalid or missing OpenAI API key for summary generation. Config has key: {bool(openai_key and openai_key != 'your-openai-api-key-here')}")
-                raise ValueError("OpenAI API key is not configured or is invalid")
+            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
 
-            llm_manager = LLMProviderManager(openai_key=openai_key)
+            llm_manager = create_llm_provider_manager(openai_key=openai_key)
             provider = get_llm_provider_from_settings(llm_manager)
+
+            if not provider:
+                raise ValueError("OpenAI API key is not configured or is invalid")
 
             summary_prompt = f"""Please generate a concise summary of the following conversation history, focusing on:
 1. User's main goals and needs
@@ -1053,7 +1054,7 @@ Please generate the summary in English, keep it within 300 words."""
         active_packs_info = []
         if self.store:
             try:
-                from backend.app.stores.tasks_store import TasksStore
+                from backend.app.services.stores.tasks_store import TasksStore
                 from ...models.workspace import TaskStatus
                 tasks_store = TasksStore(self.store.db_path)
 

@@ -4,6 +4,7 @@ Utility functions for getting LLM provider based on user settings
 """
 
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -116,4 +117,75 @@ def get_model_name_from_chat_model() -> Optional[str]:
         return None
 
     return str(chat_setting.value)
+
+
+def create_llm_provider_manager(
+    openai_key: Optional[str] = None,
+    anthropic_key: Optional[str] = None,
+    vertex_api_key: Optional[str] = None,
+    vertex_project_id: Optional[str] = None,
+    vertex_location: Optional[str] = None
+):
+    """
+    Create LLMProviderManager with unified configuration from system settings
+
+    This function provides a unified way to create LLMProviderManager across the codebase.
+    It reads configuration from system settings first, then falls back to environment variables,
+    and finally uses provided parameters.
+
+    Args:
+        openai_key: OpenAI API key (optional, will be read from system settings or env if not provided)
+        anthropic_key: Anthropic API key (optional, will be read from system settings or env if not provided)
+        vertex_api_key: Vertex AI service account JSON or file path (optional)
+        vertex_project_id: Vertex AI project ID (optional)
+        vertex_location: Vertex AI location (optional, defaults to us-central1)
+
+    Returns:
+        LLMProviderManager instance with all available providers configured
+    """
+    from backend.app.services.agent_runner import LLMProviderManager
+    from backend.app.services.system_settings_store import SystemSettingsStore
+
+    settings_store = SystemSettingsStore()
+
+    # Get OpenAI key: parameter > system settings > environment variable
+    if not openai_key:
+        openai_setting = settings_store.get_setting("openai_api_key")
+        openai_key = openai_setting.value if openai_setting else None
+    if not openai_key:
+        openai_key = os.getenv("OPENAI_API_KEY")
+
+    # Get Anthropic key: parameter > system settings > environment variable
+    if not anthropic_key:
+        anthropic_setting = settings_store.get_setting("anthropic_api_key")
+        anthropic_key = anthropic_setting.value if anthropic_setting else None
+    if not anthropic_key:
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+
+    # Get Vertex AI config: parameter > system settings > environment variable
+    if not vertex_api_key:
+        vertex_service_account = settings_store.get_setting("vertex_ai_service_account")
+        vertex_api_key = vertex_service_account.value if vertex_service_account else None
+    if not vertex_api_key:
+        vertex_api_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+    if not vertex_project_id:
+        vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
+        vertex_project_id = vertex_project_setting.value if vertex_project_setting else None
+    if not vertex_project_id:
+        vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+    if not vertex_location:
+        vertex_location_setting = settings_store.get_setting("vertex_ai_location")
+        vertex_location = vertex_location_setting.value if vertex_location_setting else None
+    if not vertex_location:
+        vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
+
+    return LLMProviderManager(
+        openai_key=openai_key,
+        anthropic_key=anthropic_key,
+        vertex_api_key=vertex_api_key,
+        vertex_project_id=vertex_project_id,
+        vertex_location=vertex_location
+    )
 

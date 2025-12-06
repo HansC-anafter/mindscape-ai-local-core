@@ -51,6 +51,7 @@ from backend.app.services.conversation.execution_coordinator import ExecutionCoo
 from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
 from backend.app.services.conversation.message_generator import MessageGenerator
 from backend.app.services.conversation.intent_extractor import IntentExtractor
+from backend.app.services.conversation.intent_steward import IntentStewardService
 from backend.app.core.execution_context import ExecutionContext
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.core.ports.intent_registry_port import IntentRegistryPort
@@ -98,6 +99,12 @@ class ConversationOrchestrator:
         self.timeline_items_store = TimelineItemsStore(store.db_path)
         self.artifacts_store = ArtifactsStore(store.db_path)
 
+        # Initialize IntentSteward (Phase 1: observation mode)
+        self.intent_steward = IntentStewardService(
+            store=store,
+            default_locale=default_locale
+        )
+
         self.plan_builder = PlanBuilder(store=store, default_locale=default_locale)
         self.task_manager = TaskManager(
             tasks_store=self.tasks_store,
@@ -130,11 +137,9 @@ class ConversationOrchestrator:
             default_locale=default_locale
         )
 
-        from backend.app.services.agent_runner import LLMProviderManager
-        import os
-        openai_key = os.getenv("OPENAI_API_KEY")
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
+        llm_manager = create_llm_provider_manager()
         llm_provider = get_llm_provider_from_settings(llm_manager)
 
         message_generator = MessageGenerator(
@@ -494,6 +499,44 @@ class ConversationOrchestrator:
                 }
                 display_events_dicts.append(event_dict)
 
+            # Phase 1: IntentSteward analysis (observation mode)
+            # Called passively after message processing, only writes logs
+            try:
+                await self.intent_steward.analyze_turn(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    turn_id=user_event.id,
+                    conversation_id=None
+                )
+            except Exception as e:
+                # Don't fail the request if IntentSteward fails
+                logger.warning(f"IntentSteward analysis failed (non-blocking): {e}", exc_info=True)
+
+            # Phase 3: Trigger intent clustering after major playbook execution
+            # Only trigger if a playbook was executed (not for simple QA)
+            if triggered_playbook and triggered_playbook.get("playbook_code"):
+                try:
+                    from ...services.conversation.intent_cluster_service import IntentClusterService
+                    cluster_service = IntentClusterService(store=self.store)
+                    # Trigger clustering in background (non-blocking, fire-and-forget)
+                    # Note: This runs asynchronously but doesn't block the response
+                    import asyncio
+                    async def trigger_clustering():
+                        try:
+                            await cluster_service.cluster_intents(
+                                workspace_id=workspace_id,
+                                profile_id=profile_id
+                            )
+                        except Exception as e:
+                            logger.warning(f"Background intent clustering failed: {e}")
+
+                    # Schedule background task
+                    asyncio.create_task(trigger_clustering())
+                    logger.info(f"Scheduled intent clustering after playbook execution")
+                except Exception as e:
+                    # Don't fail the request if clustering fails
+                    logger.warning(f"Intent clustering trigger failed (non-blocking): {e}", exc_info=True)
+
             return {
                 "workspace_id": workspace_id,
                 "display_events": display_events_dicts,
@@ -590,12 +633,9 @@ class ConversationOrchestrator:
         Returns:
             Natural feedback message text describing what was automatically analyzed
         """
-        from backend.app.services.agent_runner import LLMProviderManager
-        import os
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
 
-        openai_key = os.getenv("OPENAI_API_KEY")
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
+        llm_manager = create_llm_provider_manager()
         llm_provider = get_llm_provider_from_settings(llm_manager)
 
         message_generator = MessageGenerator(

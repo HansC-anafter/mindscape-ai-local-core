@@ -186,51 +186,20 @@ class PlaybookRunner:
 
     def _get_llm_manager(self, profile_id: str) -> LLMProviderManager:
         """Get LLM manager with profile-specific API keys"""
-        # Get user config
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
+        # Get user config (for profile-specific overrides)
         config = self.config_store.get_or_create_config(profile_id)
 
-        # Use user-configured keys, fallback to env vars
-        openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-        anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+        # Use user-configured keys if available, otherwise use unified function
+        openai_key = config.agent_backend.openai_api_key
+        anthropic_key = config.agent_backend.anthropic_api_key
+        vertex_api_key = config.agent_backend.vertex_api_key
+        vertex_project_id = config.agent_backend.vertex_project_id
+        vertex_location = config.agent_backend.vertex_location
 
-        # Get Vertex AI config from system settings first, then user config, then env vars
-        from backend.app.services.system_settings_store import SystemSettingsStore
-        settings_store = SystemSettingsStore()
-        service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
-        vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
-        vertex_location_setting = settings_store.get_setting("vertex_ai_location")
-
-        # Get service account JSON
-        vertex_api_key = None
-        if service_account_setting and service_account_setting.value:
-            val = str(service_account_setting.value).strip()
-            vertex_api_key = val if val else None
-        if not vertex_api_key:
-            vertex_api_key = config.agent_backend.vertex_api_key
-        if not vertex_api_key:
-            vertex_api_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-
-        # Get project ID
-        vertex_project_id = None
-        if vertex_project_setting and vertex_project_setting.value:
-            val = str(vertex_project_setting.value).strip()
-            vertex_project_id = val if val else None
-        if not vertex_project_id:
-            vertex_project_id = config.agent_backend.vertex_project_id
-        if not vertex_project_id:
-            vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-
-        # Get location
-        vertex_location = None
-        if vertex_location_setting and vertex_location_setting.value:
-            val = str(vertex_location_setting.value).strip()
-            vertex_location = val if val else None
-        if not vertex_location:
-            vertex_location = config.agent_backend.vertex_location
-        if not vertex_location:
-            vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
-
-        return LLMProviderManager(
+        # Use unified function with user config as overrides
+        return create_llm_provider_manager(
             openai_key=openai_key,
             anthropic_key=anthropic_key,
             vertex_api_key=vertex_api_key,
