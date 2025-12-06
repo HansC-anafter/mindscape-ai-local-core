@@ -293,8 +293,8 @@ async def get_configured_directories(
             directories_info.append({
                 "connection_id": conn.id,
                 "name": conn.name,
-                "allowed_directories": conn.custom_config.get("allowed_directories", []),
-                "allow_write": conn.custom_config.get("allow_write", False)
+                "allowed_directories": conn.config.get("allowed_directories", []),
+                "allow_write": conn.config.get("allow_write", False)
             })
 
         return {
@@ -1192,13 +1192,25 @@ async def list_tools(
     site_id: Optional[str] = None,
     category: Optional[str] = None,
     enabled_only: bool = True,
+    scope: Optional[str] = Query(None, description="Filter by scope: system, tenant, profile, workspace"),
+    tenant_id: Optional[str] = Query(None, description="Filter by tenant ID"),
+    profile_id: Optional[str] = Query(None, description="Filter by profile ID (for profile-scoped tools)"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID (for applying overlay)"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
-    """List registered tools with optional filters"""
+    """
+    List registered tools with optional filters
+
+    Supports scope filtering and workspace overlay for shared resource architecture.
+    """
     tools = registry.get_tools(
         site_id=site_id,
         category=category,
         enabled_only=enabled_only,
+        scope=scope,
+        tenant_id=tenant_id,
+        profile_id=profile_id,
+        workspace_id=workspace_id,
     )
     return tools
 
@@ -1271,10 +1283,22 @@ async def update_tool(
 @router.get("/agent/{agent_role}", response_model=List[RegisteredTool])
 async def get_tools_for_agent(
     agent_role: str,
+    profile_id: Optional[str] = Query(None, description="Profile ID (for scope filtering)"),
+    tenant_id: Optional[str] = Query(None, description="Tenant ID (for scope filtering)"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID (for applying overlay)"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
-    """Get tools available for a specific agent role"""
-    tools = registry.get_tools_for_agent_role(agent_role)
+    """
+    Get tools available for a specific agent role
+
+    Supports scope filtering and workspace overlay for shared resource architecture.
+    """
+    tools = registry.get_tools_for_agent_role(
+        agent_role,
+        profile_id=profile_id,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id
+    )
     return tools
 
 

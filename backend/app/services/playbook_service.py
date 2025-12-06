@@ -143,6 +143,142 @@ class PlaybookService:
 
         return playbooks
 
+    async def fork_playbook(
+        self,
+        source_playbook_code: str,
+        target_playbook_code: str,
+        workspace_id: str,
+        profile_id: str,
+        locale: str = "zh-TW"
+    ) -> Optional[Playbook]:
+        """
+        Fork a playbook from template to workspace instance
+
+        Creates a workspace-scoped copy of a template playbook (system/tenant/profile).
+        The forked playbook can be fully edited (SOP, resources, etc.).
+
+        Args:
+            source_playbook_code: Source playbook code (template)
+            target_playbook_code: Target playbook code (new instance)
+            workspace_id: Workspace ID for the new instance
+            profile_id: Profile ID (owner)
+            locale: Language locale
+
+        Returns:
+            Forked Playbook instance or None if failed
+        """
+        try:
+            # Get source playbook
+            source_playbook = await self.get_playbook(source_playbook_code, locale, workspace_id)
+            if not source_playbook:
+                logger.error(f"Source playbook not found: {source_playbook_code}")
+                return None
+
+            # Check if source is a template
+            if not source_playbook.metadata.is_template():
+                logger.warning(
+                    f"Cannot fork non-template playbook: {source_playbook_code} "
+                    f"(scope: {source_playbook.metadata.get_scope_level()})"
+                )
+                return None
+
+            # Create new playbook metadata with workspace scope
+            new_metadata = PlaybookMetadata(
+                playbook_code=target_playbook_code,
+                version=source_playbook.metadata.version,
+                locale=locale,
+                name=f"{source_playbook.metadata.name} (Fork)",
+                description=source_playbook.metadata.description,
+                tags=source_playbook.metadata.tags.copy(),
+                language_strategy=source_playbook.metadata.language_strategy,
+                supports_execution_chat=source_playbook.metadata.supports_execution_chat,
+                discussion_agent=source_playbook.metadata.discussion_agent,
+                supported_locales=source_playbook.metadata.supported_locales.copy(),
+                default_locale=source_playbook.metadata.default_locale,
+                auto_localize=source_playbook.metadata.auto_localize,
+                entry_agent_type=source_playbook.metadata.entry_agent_type,
+                onboarding_task=source_playbook.metadata.onboarding_task,
+                icon=source_playbook.metadata.icon,
+                required_tools=source_playbook.metadata.required_tools.copy(),
+                tool_dependencies=source_playbook.metadata.tool_dependencies.copy(),
+                background=source_playbook.metadata.background,
+                optional_tools=source_playbook.metadata.optional_tools.copy(),
+                kind=source_playbook.metadata.kind,
+                interaction_mode=source_playbook.metadata.interaction_mode.copy(),
+                visible_in=source_playbook.metadata.visible_in.copy(),
+                # Set scope to workspace (instance)
+                scope={"visibility": "workspace", "editable": True},
+                owner={"type": "workspace", "workspace_id": workspace_id, "profile_id": profile_id},
+                runtime_handler=source_playbook.metadata.runtime_handler,
+                runtime_tier=source_playbook.metadata.runtime_tier,
+                runtime=source_playbook.metadata.runtime,
+            )
+
+            # Create forked playbook
+            forked_playbook = Playbook(
+                metadata=new_metadata,
+                sop_content=source_playbook.sop_content,
+                user_notes=f"Forked from {source_playbook_code}"
+            )
+
+            # Save forked playbook to database (user playbooks)
+            if self.store:
+                from backend.app.services.playbook_loaders.database_loader import PlaybookDatabaseLoader
+                # TODO: Implement save_playbook in PlaybookDatabaseLoader
+                # For now, we'll need to add this functionality
+                logger.info(
+                    f"Forked playbook {source_playbook_code} -> {target_playbook_code} "
+                    f"for workspace {workspace_id}"
+                )
+
+            # Invalidate cache
+            self.registry.invalidate_cache(target_playbook_code, locale)
+
+            return forked_playbook
+
+        except Exception as e:
+            logger.error(f"Failed to fork playbook {source_playbook_code}: {e}", exc_info=True)
+            return None
+
+    def validate_edit_permission(
+        self,
+        playbook: Playbook,
+        edit_type: str = "sop"
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Validate if a playbook can be edited
+
+        Template playbooks (system/tenant/profile) cannot have their SOP edited directly.
+        Only workspace-scoped instances can be fully edited.
+
+        Args:
+            playbook: Playbook to validate
+            edit_type: Type of edit ("sop", "metadata", "resources")
+
+        Returns:
+            (is_allowed, error_message)
+        """
+        if not playbook:
+            return False, "Playbook not found"
+
+        # Check if it's a template
+        if playbook.metadata.is_template():
+            if edit_type == "sop":
+                return False, (
+                    f"Cannot edit SOP for template playbook. "
+                    f"Please fork to workspace first (scope: {playbook.metadata.get_scope_level()})"
+                )
+            elif edit_type == "resources":
+                return False, (
+                    f"Cannot edit resources for template playbook. "
+                    f"Please fork to workspace first (scope: {playbook.metadata.get_scope_level()})"
+                )
+            # Metadata (name, description, tags) can be edited via overlay
+            return True, None
+
+        # Workspace instances can be fully edited
+        return True, None
+
     async def execute_playbook(
         self,
         playbook_code: str,
@@ -184,10 +320,17 @@ class PlaybookService:
                 locale=locale
             )
 
-            execution_id = execution_result_dict.get('execution_id') or execution_result_dict.get('result', {}).get('execution_id')
+            # Extract execution_id from different possible locations
+            execution_id = (
+                execution_result_dict.get('execution_id') or
+                execution_result_dict.get('result', {}).get('execution_id') if isinstance(execution_result_dict.get('result'), dict) else None
+            )
             if not execution_id:
                 import uuid
                 execution_id = str(uuid.uuid4())
+                logger.warning(f"PlaybookService: No execution_id found in result, generated new one: {execution_id}")
+            else:
+                logger.info(f"PlaybookService: Extracted execution_id={execution_id} from result")
 
             status = execution_result_dict.get('status', 'running')
             if 'execution_mode' in execution_result_dict:

@@ -38,6 +38,15 @@ class RegisteredTool(BaseModel):
     allowed_agent_roles: List[str] = Field(default_factory=list, description="Agent roles allowed to use this tool")
     side_effect_level: Optional[str] = Field(default=None, description="readonly, soft_write, or external_write")
 
+    # Scope (Phase 2.2: support for shared resources)
+    scope: Optional[str] = Field(
+        default="profile",
+        description="Scope level: system, tenant, profile, or workspace. "
+                    "Determines visibility and sharing level of the tool"
+    )
+    tenant_id: Optional[str] = Field(None, description="Tenant ID (for tenant-scoped tools)")
+    owner_profile_id: Optional[str] = Field(None, description="Owner profile ID (for profile-scoped tools)")
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

@@ -205,12 +205,57 @@ class PlaybookMetadata(BaseModel):
     # Scope and Owner
     scope: Optional[Dict[str, Any]] = Field(
         default_factory=lambda: {"visibility": "system", "editable": False},
-        description="Scope configuration (visibility, editable)"
+        description="Scope configuration (visibility, editable). "
+                    "Values: system, tenant, profile, workspace. "
+                    "system/tenant/profile = template (shared), workspace = instance (forked)"
     )
     owner: Optional[Dict[str, Any]] = Field(
         default_factory=lambda: {"type": "system"},
         description="Owner information"
     )
+
+    def get_scope_level(self) -> Optional[str]:
+        """
+        Get scope level as string
+
+        Returns:
+            "system", "tenant", "profile", "workspace", or None
+        """
+        if not self.scope:
+            return None
+        return self.scope.get("visibility") or self.scope.get("scope")
+
+    def is_template(self) -> bool:
+        """
+        Check if this playbook is a template (shared)
+
+        Returns:
+            True if scope is system/tenant/profile (template), False if workspace (instance)
+        """
+        scope_level = self.get_scope_level()
+        return scope_level in ("system", "tenant", "profile")
+
+    def is_instance(self) -> bool:
+        """
+        Check if this playbook is an instance (workspace-scoped)
+
+        Returns:
+            True if scope is workspace (instance), False otherwise
+        """
+        return self.get_scope_level() == "workspace"
+
+    def can_edit_sop(self) -> bool:
+        """
+        Check if SOP can be edited
+
+        Template playbooks (system/tenant/profile) cannot have their SOP edited directly.
+        Only workspace-scoped instances can be fully edited.
+
+        Returns:
+            True if SOP can be edited, False otherwise
+        """
+        # Only workspace-scoped instances can edit SOP
+        return self.is_instance()
 
     # Runtime configuration
     runtime_handler: str = Field(
@@ -297,6 +342,7 @@ class UpdatePlaybookRequest(BaseModel):
     tags: Optional[List[str]] = None
     sop_content: Optional[str] = None
     user_notes: Optional[str] = None
+    playbook_json: Optional[Dict[str, Any]] = None
 
 
 class PlaybookAssociation(BaseModel):

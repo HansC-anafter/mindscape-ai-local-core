@@ -64,9 +64,28 @@ class ToolConnectionStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 x_platform TEXT,
+                data_source_type TEXT,
+                tenant_id TEXT,
+                owner_profile_id TEXT,
                 FOREIGN KEY (profile_id) REFERENCES mindscape_profiles(id)
             )
         """)
+
+        # Migration: Add new columns if they don't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE tool_connections ADD COLUMN data_source_type TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE tool_connections ADD COLUMN tenant_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE tool_connections ADD COLUMN owner_profile_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Indexes
         cursor.execute("""
@@ -98,8 +117,9 @@ class ToolConnectionStore:
                 api_key, api_secret, oauth_token, oauth_refresh_token, base_url,
                 remote_cluster_url, remote_connection_id, config, associated_roles,
                 is_active, is_validated, last_validated_at, validation_error,
-                usage_count, last_used_at, created_at, updated_at, x_platform
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                usage_count, last_used_at, created_at, updated_at, x_platform,
+                data_source_type, tenant_id, owner_profile_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             connection.id,
             connection.profile_id,
@@ -126,6 +146,9 @@ class ToolConnectionStore:
             connection.created_at.isoformat(),
             connection.updated_at.isoformat(),
             json.dumps(connection.x_platform) if connection.x_platform else None,
+            connection.data_source_type,
+            connection.tenant_id,
+            connection.owner_profile_id,
         ))
 
         conn.commit()
@@ -333,4 +356,7 @@ class ToolConnectionStore:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             x_platform=json.loads(row["x_platform"]) if row["x_platform"] else None,
+            data_source_type=row.get("data_source_type"),
+            tenant_id=row.get("tenant_id"),
+            owner_profile_id=row.get("owner_profile_id"),
         )

@@ -18,9 +18,11 @@ from .routes.core import (
     playbook,
     playbook_execution,
     config,
-    system_settings,
     tools,
 )
+from .routes.core.system_settings import router as system_settings_router
+from .routes.core.data_sources import router as data_sources_router
+from .routes.core.workspace_resource_bindings import router as workspace_resource_bindings_router
 
 # Core primitives
 from .routes.core import (
@@ -83,8 +85,10 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])
     app.include_router(config.router, tags=["config"])
-    app.include_router(system_settings.router, tags=["system"])
+    app.include_router(system_settings_router, tags=["system"])
     app.include_router(tools.router, tags=["tools"])
+    app.include_router(data_sources_router, tags=["data-sources"])
+    app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
 
 def register_core_primitives(app: FastAPI) -> None:
     """Register core primitives"""
@@ -142,6 +146,14 @@ async def startup_event():
         logger.info(f"Registered {len(workspace_tools)} workspace tools")
     except Exception as e:
         logger.warning(f"Failed to register workspace tools: {e}", exc_info=True)
+
+    # Register playbook handlers
+    try:
+        from backend.app.routes.core.playbook.handlers import register_playbook_handlers
+        await register_playbook_handlers(app)
+        logger.info("Playbook handlers registered successfully")
+    except Exception as e:
+        logger.warning(f"Failed to register playbook handlers: {e}", exc_info=True)
 
     try:
         from backend.app.capabilities.habit_learning.services.habit_proposal_worker import HabitProposalWorker

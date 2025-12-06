@@ -104,9 +104,34 @@ class ToolRegistryService:
                 read_only INTEGER DEFAULT 0,
                 allowed_agent_roles TEXT DEFAULT '[]',
                 side_effect_level TEXT,
+                scope TEXT DEFAULT 'profile',
+                tenant_id TEXT,
+                owner_profile_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
+        """)
+
+        # Migration: Add new columns if they don't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE tool_registry ADD COLUMN scope TEXT DEFAULT 'profile'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE tool_registry ADD COLUMN tenant_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE tool_registry ADD COLUMN owner_profile_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Index for scope queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_registry_scope
+            ON tool_registry(scope, tenant_id, owner_profile_id)
         """)
 
         # Tool connections table
@@ -163,6 +188,10 @@ class ToolRegistryService:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_tool_registry_site
             ON tool_registry(site_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_registry_scope
+            ON tool_registry(scope, tenant_id, owner_profile_id)
         """)
 
         conn.commit()
@@ -307,8 +336,9 @@ class ToolRegistryService:
                         tool_id, site_id, provider, display_name, origin_capability_id,
                         category, description, endpoint, methods, danger_level,
                         input_schema, enabled, read_only, allowed_agent_roles,
-                        side_effect_level, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        side_effect_level, scope, tenant_id, owner_profile_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     tool.tool_id,
                     tool.site_id,
@@ -325,6 +355,9 @@ class ToolRegistryService:
                     1 if tool.read_only else 0,
                     json.dumps(tool.allowed_agent_roles),
                     tool.side_effect_level,
+                    tool.scope or "profile",
+                    tool.tenant_id,
+                    tool.owner_profile_id,
                     tool.created_at.isoformat(),
                     tool.updated_at.isoformat(),
                 ))
@@ -641,6 +674,22 @@ class ToolRegistryService:
             )
 
             # Convert to RegisteredTool
+            # Determine scope from connection (data_source_type indicates it's a data source)
+            connection_model = self.get_connection(connection_id, profile_id=profile_id)
+            tool_scope = "profile"  # Default scope
+            tool_tenant_id = None
+            tool_owner_profile_id = profile_id  # Default to profile_id
+
+            if connection_model:
+                # If connection has data_source_type, use its scope
+                # Note: ToolConnectionModel doesn't have data_source_type, but we can check via DataSourceService
+                # For now, use profile scope by default
+                tool_scope = "profile"
+                tool_owner_profile_id = connection_model.profile_id
+
+                # TODO: When DataSource is fully integrated, check data_source_type
+                # and set scope accordingly (tenant vs profile)
+
             registered_tool = RegisteredTool(
                 tool_id=tool_id,
                 site_id=connection_id,
@@ -656,6 +705,9 @@ class ToolRegistryService:
                 enabled=True,
                 read_only=(discovered_tool.danger_level == "high"),
                 side_effect_level=side_effect_level,
+                scope=tool_scope,
+                tenant_id=tool_tenant_id,
+                owner_profile_id=tool_owner_profile_id,
             )
 
             self._tools[tool_id] = registered_tool
@@ -678,8 +730,12 @@ class ToolRegistryService:
         key = (profile_id, connection_id)
         if key in self._connections:
             conn = self._connections[key]
+            # Update config with new configuration
+            if config.custom_config:
+                conn.config.update(config.custom_config)
             conn.last_discovery = datetime.utcnow()
             conn.updated_at = datetime.utcnow()
+            self._save_registry()
         else:
             conn = ToolConnectionModel(
                 id=connection_id,
@@ -748,8 +804,26 @@ class ToolRegistryService:
         site_id: Optional[str] = None,
         category: Optional[str] = None,
         enabled_only: bool = True,
+        scope: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> List[RegisteredTool]:
-        """Get registered tools with filters"""
+        """
+        Get registered tools with filters
+
+        Args:
+            site_id: Filter by site/connection ID
+            category: Filter by category
+            enabled_only: Return only enabled tools
+            scope: Filter by scope (system, tenant, profile, workspace)
+            tenant_id: Filter by tenant ID (for tenant-scoped tools)
+            profile_id: Filter by profile ID (for profile-scoped tools)
+            workspace_id: Workspace ID (for applying overlay)
+
+        Returns:
+            List of RegisteredTool objects (with overlay applied if workspace_id provided)
+        """
         tools = list(self._tools.values())
 
         if site_id:
@@ -760,6 +834,33 @@ class ToolRegistryService:
 
         if enabled_only:
             tools = [t for t in tools if t.enabled]
+
+        # Scope filtering
+        if scope:
+            tools = [t for t in tools if t.scope == scope]
+
+        if tenant_id:
+            tools = [t for t in tools if t.tenant_id == tenant_id]
+
+        if profile_id:
+            # Include tools that are accessible to this profile:
+            # - system scope (no owner)
+            # - tenant scope (same tenant)
+            # - profile scope (same profile)
+            tools = [
+                t for t in tools
+                if (
+                    t.scope == "system" or
+                    (t.scope == "tenant" and t.tenant_id == tenant_id) or
+                    (t.scope == "profile" and t.owner_profile_id == profile_id)
+                )
+            ]
+
+        # Apply workspace overlay if workspace_id is provided
+        if workspace_id:
+            from backend.app.services.tool_overlay_service import ToolOverlayService
+            overlay_service = ToolOverlayService()
+            tools = overlay_service.apply_tools_overlay(tools, workspace_id)
 
         return tools
 
@@ -1103,21 +1204,44 @@ class ToolRegistryService:
 
         return templates
 
-    def get_tools_for_agent_role(self, agent_role: str) -> List[RegisteredTool]:
-        """Get tools available for a specific agent role"""
-        tools = []
-        for tool in self._tools.values():
-            if not tool.enabled:
-                continue
+    def get_tools_for_agent_role(
+        self,
+        agent_role: str,
+        profile_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        workspace_id: Optional[str] = None
+    ) -> List[RegisteredTool]:
+        """
+        Get tools available for a specific agent role
 
+        Args:
+            agent_role: Agent role name
+            profile_id: Profile ID (for scope filtering)
+            tenant_id: Tenant ID (for scope filtering)
+            workspace_id: Workspace ID (for applying overlay)
+
+        Returns:
+            List of tools available for the agent role (with overlay applied if workspace_id provided)
+        """
+        # Get tools with scope filtering
+        tools = self.get_tools(
+            enabled_only=True,
+            profile_id=profile_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id
+        )
+
+        # Filter by agent role
+        filtered_tools = []
+        for tool in tools:
             # If tool has allowed_agent_roles, check if role is allowed
             if tool.allowed_agent_roles:
                 if agent_role not in tool.allowed_agent_roles:
                     continue
 
-            tools.append(tool)
+            filtered_tools.append(tool)
 
-        return tools
+        return filtered_tools
 
     def _infer_side_effect_level(
         self,

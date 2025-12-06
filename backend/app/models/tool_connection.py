@@ -76,6 +76,20 @@ class ToolConnection(BaseModel):
     usage_count: int = Field(default=0, description="Number of times used")
     last_used_at: Optional[datetime] = None
 
+    # Data Source fields (Phase 1: declarative approach, not separate table)
+    data_source_type: Optional[str] = Field(
+        None,
+        description="DataSource type if this connection is a data source (e.g., 'wordpress', 'notion', 'google_drive')"
+    )
+    tenant_id: Optional[str] = Field(
+        None,
+        description="Tenant scope for multi-tenant support"
+    )
+    owner_profile_id: Optional[str] = Field(
+        None,
+        description="Owner profile ID (for data source ownership)"
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
