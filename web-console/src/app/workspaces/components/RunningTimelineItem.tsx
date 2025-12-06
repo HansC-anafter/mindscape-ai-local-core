@@ -218,11 +218,12 @@ export default function RunningTimelineItem({
       case 'step_update':
         if (data.step) {
           setLatestStep(data.step);
-          // Update currentExecution's current_step_index if step_index changed
-          if (data.step.step_index !== undefined && currentExecution) {
+          // Update currentExecution's current_step_index from the event
+          // Use data.current_step_index (authoritative) instead of data.step.step_index
+          if (data.current_step_index !== undefined && currentExecution) {
             const updatedExecution = {
               ...currentExecution,
-              current_step_index: data.step.step_index
+              current_step_index: data.current_step_index
             };
             setCurrentExecution(updatedExecution);
             if (onUpdate) {
