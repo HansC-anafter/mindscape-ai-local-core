@@ -160,12 +160,32 @@ export default function ExecutionInspector({
   // Load execution details
   useEffect(() => {
     const loadExecution = async () => {
+      const currentExecutionId = executionId; // Capture executionId for logging
+      console.log('[ExecutionInspector] Loading execution for executionId:', currentExecutionId);
+      
       try {
         const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${currentExecutionId}`
         );
+        console.log('[ExecutionInspector] Execution fetch response status:', response.status, 'for executionId:', currentExecutionId);
+        
         if (response.ok) {
           const data = await response.json();
+          console.log('[ExecutionInspector] Loaded execution data:', {
+            executionId: data.execution_id,
+            last8: data.execution_id?.slice(-8),
+            status: data.status,
+            currentExecutionId
+          });
+          
+          // Verify the loaded execution matches the requested executionId
+          if (data.execution_id !== currentExecutionId) {
+            console.error('[ExecutionInspector] ⚠️ Execution ID mismatch!', {
+              requested: currentExecutionId,
+              received: data.execution_id
+            });
+          }
+          
           setExecution(data);
           // current_step_index is 0-based, convert to 1-based for display
           const maxStepIndex = data.total_steps || ((data.current_step_index || 0) + 1);
@@ -173,9 +193,11 @@ export default function ExecutionInspector({
           const stepIndex1Based = stepIndex0Based + 1;
           const validStepIndex = Math.min(Math.max(1, stepIndex1Based), maxStepIndex);
           setCurrentStepIndex(validStepIndex);
+        } else {
+          console.error('[ExecutionInspector] Failed to load execution:', response.status, 'for executionId:', currentExecutionId);
         }
       } catch (err) {
-        console.error('Failed to load execution:', err);
+        console.error('[ExecutionInspector] Failed to load execution:', err, 'for executionId:', currentExecutionId);
       } finally {
         setLoading(false);
       }
@@ -183,6 +205,10 @@ export default function ExecutionInspector({
 
     if (executionId) {
       loadExecution();
+    } else {
+      console.log('[ExecutionInspector] No executionId provided, clearing execution state');
+      setExecution(null);
+      setLoading(false);
     }
   }, [executionId, workspaceId, apiUrl]);
 
