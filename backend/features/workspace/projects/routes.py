@@ -38,12 +38,12 @@ async def list_projects(
 ):
     """
     List projects in workspace
-    
+
     Args:
         workspace_id: Workspace ID
         state: Optional state filter (open, closed, archived)
         limit: Maximum number of projects to return
-        
+
     Returns:
         List of projects
     """
@@ -69,11 +69,11 @@ async def get_project(
 ):
     """
     Get project details
-    
+
     Args:
         workspace_id: Workspace ID
         project_id: Project ID
-        
+
     Returns:
         Project details
     """
@@ -100,17 +100,17 @@ async def create_project(
 ):
     """
     Create new project
-    
+
     Args:
         workspace_id: Workspace ID
         request: Project creation request (can use suggestion or direct fields)
-        
+
     Returns:
         Created project
     """
     try:
         project_manager = ProjectManager(store)
-        
+
         # If suggestion is provided, use it
         if request.suggestion:
             suggestion = request.suggestion
@@ -119,18 +119,19 @@ async def create_project(
                     status_code=400,
                     detail=f"Invalid suggestion mode: {suggestion.mode}. Expected 'project'"
                 )
-            
+
             if not suggestion.project_type or not suggestion.project_title or not suggestion.flow_id:
                 raise HTTPException(
                     status_code=400,
                     detail="Suggestion must include project_type, project_title, and flow_id"
                 )
-            
+
             # Use default initiator_user_id from identity port
             from backend.app.routes.workspace_dependencies import get_identity_port_or_default
             identity_port = get_identity_port_or_default()
-            initiator_user_id = identity_port.get_current_user_id()
-            
+            context = await identity_port.get_current_context(workspace_id=workspace_id)
+            initiator_user_id = context.actor_id
+
             project = await project_manager.create_project(
                 project_type=suggestion.project_type,
                 title=suggestion.project_title,
@@ -149,11 +150,12 @@ async def create_project(
                     status_code=400,
                     detail="project_type, title, and flow_id are required"
                 )
-            
+
             from backend.app.routes.workspace_dependencies import get_identity_port_or_default
             identity_port = get_identity_port_or_default()
-            initiator_user_id = request.initiator_user_id or identity_port.get_current_user_id()
-            
+            context = await identity_port.get_current_context(workspace_id=workspace_id)
+            initiator_user_id = request.initiator_user_id or context.actor_id
+
             project = await project_manager.create_project(
                 project_type=request.project_type,
                 title=request.title,
@@ -163,7 +165,7 @@ async def create_project(
                 human_owner_user_id=request.human_owner_user_id,
                 ai_pm_id=request.ai_pm_id
             )
-        
+
         return {"project": project.model_dump(mode='json')}
     except HTTPException:
         raise

@@ -23,9 +23,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Get database path from environment or use default
+# Use same database as MindscapeStore: mindscape.db
 data_dir = Path(backend_dir.parent / "data")
 data_dir.mkdir(parents=True, exist_ok=True)
-db_path = data_dir / "my_agent_console.db"
+db_path = data_dir / "mindscape.db"
 
 # Override sqlalchemy.url with absolute path
 config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.absolute()}")
