@@ -5,6 +5,7 @@ Handles Playbook execution with real LLM-powered conversations
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -84,8 +85,8 @@ class PlaybookRunner:
         """
         return await self.tool_executor.execute_tool(
             tool_fqn=tool_fqn,
-            profile_id=profile_id,
-            workspace_id=workspace_id,
+                        profile_id=profile_id,
+                        workspace_id=workspace_id,
             execution_id=execution_id,
             step_id=step_id,
             factory_cluster=factory_cluster,
@@ -98,6 +99,7 @@ class PlaybookRunner:
         profile_id: str,
         inputs: Optional[Dict[str, Any]] = None,
         workspace_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         target_language: Optional[str] = None,
         variant_id: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -153,18 +155,39 @@ class PlaybookRunner:
 
             profile = self.store.get_profile(profile_id)
 
-            project = None
-            if inputs and "project_id" in inputs:
-                pass
+            project_obj = None
+            if project_id:
+                from backend.app.services.project.project_manager import ProjectManager
+                project_manager = ProjectManager(self.store)
+                project_obj = await project_manager.get_project(project_id, workspace_id=workspace_id)
+                if project_obj:
+                    logger.info(f"Playbook execution in Project mode: {project_id}")
+                    # TODO: Use Project sandbox when ProjectSandboxManager is available
+                    # TODO: Read Project artifact registry when needed
+                else:
+                    logger.warning(f"Project {project_id} not found, continuing without Project mode")
+            elif inputs and "project_id" in inputs:
+                # Support legacy project_id in inputs
+                project_id_from_inputs = inputs.get("project_id")
+                if project_id_from_inputs:
+                    from backend.app.services.project.project_manager import ProjectManager
+                    project_manager = ProjectManager(self.store)
+                    project_obj = await project_manager.get_project(
+                        project_id_from_inputs,
+                        workspace_id=workspace_id
+                    )
+                    if project_obj:
+                        project_id = project_id_from_inputs
+                        logger.info(f"Playbook execution in Project mode (from inputs): {project_id}")
 
             execution_id = str(uuid.uuid4())
 
             # Create Task record for execution session (required for ExecutionSession view model)
             if workspace_id:
                 self.task_manager.create_execution_task(
-                    execution_id=execution_id,
+                        execution_id=execution_id,
                     workspace_id=workspace_id,
-                    profile_id=profile_id,
+                        profile_id=profile_id,
                     playbook_code=playbook_code,
                     playbook_name=playbook.metadata.name,
                     inputs=inputs,
@@ -183,7 +206,7 @@ class PlaybookRunner:
             conv_manager = PlaybookConversationManager(
                 playbook=playbook,
                 profile=profile,
-                project=project,
+                project=project_obj,  # Use project_obj from Project Manager
                 locale=final_locale,
                 target_language=final_target_language,
                 workspace_id=workspace_id
@@ -241,9 +264,9 @@ class PlaybookRunner:
             project_id = inputs.get("project_id") if inputs else None
             playbook_code = playbook.metadata.playbook_code if playbook else None
             step_event, total_steps = self.step_recorder.record_initial_step(
-                execution_id=execution_id,
-                profile_id=profile_id,
-                workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    profile_id=profile_id,
+                        workspace_id=workspace_id,
                 playbook_code=playbook_code,
                 conv_manager=conv_manager,
                 assistant_response=assistant_response,
@@ -342,7 +365,7 @@ class PlaybookRunner:
             assistant_response, used_tools = await self.tool_executor.execute_tool_loop(
                 conv_manager=conv_manager,
                 assistant_response=assistant_response,
-                execution_id=execution_id,
+                            execution_id=execution_id,
                 profile_id=profile_id,
                 provider=provider,
                 model_name=model_name
@@ -359,20 +382,20 @@ class PlaybookRunner:
 
             step_event, total_steps = self.step_recorder.record_continuation_step(
                 execution_id=execution_id,
-                profile_id=profile_id,
-                workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    workspace_id=workspace_id,
                 playbook_code=playbook_code,
                 conv_manager=conv_manager,
                 assistant_response=assistant_response,
-                used_tools=used_tools,
+                    used_tools=used_tools,
                 project_id=project_id
-            )
+                )
 
             # Finalize step with structured output if complete
             if is_complete and structured_output and step_event:
                 self.step_recorder.finalize_step_with_output(
                     step_event=step_event,
-                    execution_id=execution_id,
+                        execution_id=execution_id,
                     structured_output=structured_output
                 )
 

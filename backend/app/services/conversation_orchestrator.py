@@ -183,6 +183,12 @@ class ConversationOrchestrator:
         from backend.app.services.playbook_service import PlaybookService
         playbook_service = PlaybookService(store=store)
 
+        # Ensure we use the same PlaybookRunner instance as API routes to share active_conversations
+        # Import the shared instance from playbook_execution module
+        from backend.app.routes.core.playbook_execution import playbook_runner as shared_playbook_runner
+        # Update playbook_runner reference to use shared instance
+        playbook_runner = shared_playbook_runner
+
         self.execution_coordinator = ExecutionCoordinator(
             store=store,
             tasks_store=self.tasks_store,
@@ -229,8 +235,85 @@ class ConversationOrchestrator:
             Response dict with events, triggered_playbook, pending_tasks
         """
         try:
+            # Get workspace if not provided
+            if not workspace:
+                workspace = self.store.get_workspace(workspace_id)
+
+            # If no project_id, check if we need to create a Project
+            if not project_id and workspace:
+                from backend.app.services.project.project_manager import ProjectManager
+                from backend.app.services.project.project_detector import ProjectDetector
+
+                project_manager = ProjectManager(self.store)
+
+                # Check for active projects
+                active_projects = await project_manager.list_projects(
+                    workspace_id=workspace_id,
+                    state="open",
+                    limit=1
+                )
+
+                if not active_projects:
+                    # No active project, detect if we should create one
+                    project_detector = ProjectDetector()
+
+                    # Get recent conversation context
+                    recent_events = self.store.events.get_events(
+                        profile_id=profile_id,
+                        workspace_id=workspace_id,
+                        limit=10
+                    )
+                    conversation_context = [
+                        {
+                            "role": "user" if e.actor == EventActor.USER else "assistant",
+                            "content": e.payload.get("message", "") if e.payload else ""
+                        }
+                        for e in recent_events
+                        if e.event_type == EventType.MESSAGE and e.payload
+                    ]
+
+                    project_suggestion = await project_detector.detect(
+                        message=message,
+                        conversation_context=conversation_context,
+                        workspace=workspace
+                    )
+
+                    if project_suggestion and project_suggestion.mode == "project":
+                        # Create Project
+                        project = await project_manager.create_project(
+                            project_type=project_suggestion.project_type or "general",
+                            title=project_suggestion.project_title or "New Project",
+                            workspace_id=workspace_id,
+                            flow_id=project_suggestion.flow_id or "general_flow",
+                            initiator_user_id=profile_id
+                        )
+
+                        # Project PM assignment
+                        from backend.app.services.project.project_assignment_agent import ProjectAssignmentAgent
+                        assignment_agent = ProjectAssignmentAgent()
+                        assignment = await assignment_agent.suggest_assignment(
+                            project=project,
+                            workspace=workspace
+                        )
+
+                        # Update project with assignments
+                        if assignment.suggested_human_owner:
+                            project.human_owner_user_id = assignment.suggested_human_owner.get("user_id")
+                        if assignment.suggested_ai_pm_id:
+                            project.ai_pm_id = assignment.suggested_ai_pm_id
+                        await project_manager.update_project(project)
+
+                        # Use new project_id
+                        project_id = project.id
+
+                        logger.info(f"Created new project: {project.id} for workspace: {workspace_id}")
+
             file_document_ids = []
             if files:
+                ctx = await self.identity_port.get_current_context(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id
+                )
                 file_document_ids = await self.file_processor.process_files_in_chat_with_ctx(
                     ctx=ctx,
                     files=files
@@ -265,12 +348,33 @@ class ConversationOrchestrator:
                 workspace_id=workspace_id,
                 profile_id=profile_id
             )
+
+            message_with_context = message
+            if project_id:
+                from backend.app.services.project.project_manager import ProjectManager
+                project_manager = ProjectManager(self.store)
+                project = await project_manager.get_project(project_id, workspace_id=workspace_id)
+
+                if project:
+                    # Build Project context string
+                    # TODO: Integrate with Project Memory and Workspace Core Memory when available
+                    project_context = f"""
+[Project Context]
+Project: {project.title} ({project.type})
+Project ID: {project.id}
+
+[User Message]
+{message}
+"""
+                    message_with_context = project_context
+                    logger.info(f"Added Project context for project: {project.id}")
+
             logger.info(f"ConversationOrchestrator: BEFORE calling intent_extractor.extract_and_create_timeline_item")
             import sys
             print(f"ConversationOrchestrator: BEFORE calling intent_extractor.extract_and_create_timeline_item", file=sys.stderr)
             timeline_item = await self.intent_extractor.extract_and_create_timeline_item(
                 ctx=ctx,
-                message=message,
+                message=message_with_context,  # Use message with context
                 message_id=user_event.id,
                 locale=self.default_locale
             )
