@@ -280,8 +280,9 @@ class ConversationOrchestrator:
 
                     if project_suggestion and project_suggestion.mode == "project":
                         # Create Project
+                        from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
                         project = await project_manager.create_project(
-                            project_type=project_suggestion.project_type or "general",
+                            project_type=project_suggestion.project_type or DEFAULT_PROJECT_TYPE,
                             title=project_suggestion.project_title or "New Project",
                             workspace_id=workspace_id,
                             flow_id=project_suggestion.flow_id or "general_flow",
@@ -567,8 +568,7 @@ Project ID: {project.id}
                 if disable_qa:
                     # QA mode disabled for execution/mixed modes - return message indicating no playbook matched
                     logger.info(f"No playbook selected - QA mode is disabled (mode: {mode})")
-                    from ...models.mindscape import MindEvent, EventType, EventActor
-                    from ...services.i18n_service import get_i18n_service
+                    from backend.app.services.i18n_service import get_i18n_service
 
                     i18n = get_i18n_service(default_locale=self.default_locale)
                     assistant_response = i18n.t(

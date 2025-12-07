@@ -13,7 +13,8 @@ from backend.app.models.workspace import Workspace
 from backend.app.services.agent_runner import LLMProviderManager
 from backend.app.shared.llm_provider_helper import (
     get_llm_provider_from_settings,
-    create_llm_provider_manager
+    create_llm_provider_manager,
+    get_model_name_from_chat_model
 )
 
 logger = logging.getLogger(__name__)
@@ -77,16 +78,18 @@ Determine:
    - "project": Requires creating a dedicated project with its own sandbox and flow
 
 2. If mode is "project", provide:
-   - project_type: One of "web_page", "book", "course", "campaign", "video_series"
+   - project_type: A descriptive project type identifier (e.g., "web_page", "book", "course", "campaign", "video_series", or any other appropriate type based on the context)
    - project_title: Suggested project title
-   - flow_id: Suggested flow ID (e.g., "web_page_flow", "book_flow")
+   - flow_id: Suggested flow ID that matches the project type (e.g., "web_page_flow", "book_flow", or a generic "general_flow")
    - initial_spec_md: Initial specification in markdown format
    - confidence: Confidence score (0.0-1.0)
+
+Note: project_type should be descriptive and appropriate for the work item. Common types include "web_page", "book", "course", "campaign", "video_series", but you can suggest other types if they better match the user's intent.
 
 Respond in JSON format:
 {{
     "mode": "quick_task|micro_flow|project",
-    "project_type": "web_page|book|course|campaign|video_series",
+    "project_type": "descriptive_project_type",
     "project_title": "Project title",
     "flow_id": "flow_identifier",
     "initial_spec_md": "Markdown specification",
@@ -106,7 +109,9 @@ Respond in JSON format:
                 }
             ]
 
-            response = await self.llm_provider.chat_completion(messages)
+            # Get model name from system settings
+            model_name = get_model_name_from_chat_model() or "gemini-pro"
+            response = await self.llm_provider.chat_completion(messages, model=model_name)
             result_text = response.content if hasattr(response, 'content') else str(response)
 
             # Parse response
