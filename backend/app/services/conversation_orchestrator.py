@@ -271,29 +271,43 @@ class ConversationOrchestrator:
                 )
 
                 if project_suggestion and project_suggestion.mode == "project":
-                    # Check if a similar project already exists (same type and similar title)
+                    # Check if a duplicate project already exists (same type and very similar/identical title)
                     existing_projects = await project_manager.list_projects(
                         workspace_id=workspace_id,
                         state="open"
                     )
                     
-                    # Check if there's already an active project of the same type
-                    # with a similar title (to avoid duplicates)
                     suggested_type = project_suggestion.project_type or "general"
-                    suggested_title = project_suggestion.project_title or ""
+                    suggested_title = (project_suggestion.project_title or "").lower().strip()
                     
-                    similar_project = None
+                    # Check for duplicates: same type AND very similar/identical title
+                    # Allow different projects of same type with different titles (e.g., 
+                    # "產品 Landing Page" vs "服務介紹 Landing Page" or "Python 課程" vs "JavaScript 課程")
+                    duplicate_project = None
                     for existing_project in existing_projects:
-                        # Same type and title similarity check
                         if existing_project.type == suggested_type:
-                            # Simple similarity check: if titles are very similar, skip
-                            # This is a basic check - could be enhanced with fuzzy matching
-                            if suggested_title.lower().strip() == existing_project.title.lower().strip():
-                                similar_project = existing_project
+                            existing_title = existing_project.title.lower().strip()
+                            # Only consider it a duplicate if titles are identical or very similar
+                            # (exact match or one is a substring of the other with small differences)
+                            if suggested_title == existing_title:
+                                duplicate_project = existing_project
                                 break
+                            # Check for very close similarity (e.g., "Landing Page" vs "Landing Page v2")
+                            # This is a simple check - titles that are essentially the same
+                            if suggested_title and existing_title:
+                                # If one title contains the other (with only version numbers or small additions)
+                                # Consider them duplicates
+                                title_words = set(suggested_title.split())
+                                existing_words = set(existing_title.split())
+                                # If 90%+ of words overlap, consider duplicate
+                                if len(title_words) > 0 and len(existing_words) > 0:
+                                    overlap = len(title_words & existing_words) / max(len(title_words), len(existing_words))
+                                    if overlap >= 0.9 and abs(len(suggested_title) - len(existing_title)) <= 10:
+                                        duplicate_project = existing_project
+                                        break
                     
-                    # Only create if no similar project exists
-                    if not similar_project:
+                    # Only create if no duplicate project exists (different projects of same type are allowed)
+                    if not duplicate_project:
                         # Create Project
                         from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
                         project = await project_manager.create_project(
