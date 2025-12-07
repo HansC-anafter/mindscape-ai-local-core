@@ -138,10 +138,18 @@ export default function ExecutionChatPanel({
         const fetchPromise = fetch(url);
         console.log('[ExecutionChatPanel] Fetch promise created for executionId:', currentExecutionId);
         
-        const response = await fetchPromise;
+        // Add timeout and error handling
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Fetch timeout for executionId: ${currentExecutionId}`));
+          }, 10000); // 10 second timeout
+        });
+        
+        console.log('[ExecutionChatPanel] Waiting for fetch to complete for executionId:', currentExecutionId);
+        const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
         console.log('[ExecutionChatPanel] Fetch completed for executionId:', currentExecutionId, 'status:', response.status);
         console.log('[ExecutionChatPanel] Checking cancelled flag. executionId:', currentExecutionId, 'cancelled:', cancelled);
-        
+
         if (cancelled) {
           console.log('[ExecutionChatPanel] ⚠️ Request cancelled AFTER fetch for executionId:', currentExecutionId);
           return;
@@ -183,8 +191,15 @@ export default function ExecutionChatPanel({
         }
       } catch (err) {
         console.log('[ExecutionChatPanel] ❌ Exception caught. executionId:', currentExecutionId, 'cancelled:', cancelled, 'error:', err);
+        console.log('[ExecutionChatPanel] Error details:', {
+          name: (err as Error)?.name,
+          message: (err as Error)?.message,
+          stack: (err as Error)?.stack?.substring(0, 200)
+        });
         if (!cancelled) {
           console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err, 'for executionId:', currentExecutionId);
+          // Still set loading to false even on error
+          setIsLoading(false);
         }
       } finally {
         console.log('[ExecutionChatPanel] Finally block. executionId:', currentExecutionId, 'cancelled:', cancelled);
