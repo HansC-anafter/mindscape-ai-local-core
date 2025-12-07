@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { useExecutionStream } from '@/hooks/useExecutionStream';
 import ExecutionChatPanel from './ExecutionChatPanel';
 import ExecutionHeader from './ExecutionHeader';
 import StepTimelineWithDetails from './StepTimelineWithDetails';
@@ -166,9 +167,11 @@ export default function ExecutionInspector({
         if (response.ok) {
           const data = await response.json();
           setExecution(data);
-          // Ensure current_step_index is within valid range (1-based: 1 to total_steps)
-          const maxStepIndex = data.total_steps || (data.current_step_index || 1);
-          const validStepIndex = Math.min(Math.max(1, data.current_step_index || 1), maxStepIndex);
+          // current_step_index is 0-based, convert to 1-based for display
+          const maxStepIndex = data.total_steps || ((data.current_step_index || 0) + 1);
+          const stepIndex0Based = data.current_step_index || 0;
+          const stepIndex1Based = stepIndex0Based + 1;
+          const validStepIndex = Math.min(Math.max(1, stepIndex1Based), maxStepIndex);
           setCurrentStepIndex(validStepIndex);
         }
       } catch (err) {
@@ -484,122 +487,92 @@ export default function ExecutionInspector({
     }
   }, [executionId, workspaceId, apiUrl]);
 
-  // Connect to SSE stream for real-time updates
-  useEffect(() => {
-    if (!executionId) return;
-
-    const streamUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/stream`;
-    const eventSource = new EventSource(streamUrl);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-
-        if (update.type === 'execution_update') {
-          setExecution(update.execution);
-          // Ensure current_step_index is within valid range (1-based: 1 to total_steps)
-          if (update.execution) {
-            const maxStepIndex = update.execution.total_steps || (update.execution.current_step_index || 1);
-            const validStepIndex = Math.min(Math.max(1, update.execution.current_step_index || 1), maxStepIndex);
-            setCurrentStepIndex(validStepIndex);
-          } else {
-            setCurrentStepIndex(1);
-          }
-        } else if (update.type === 'step_update') {
-          setSteps(prev => {
-            const index = prev.findIndex(s => s.id === update.step.id);
-            if (index >= 0) {
-              const updated = [...prev];
-              updated[index] = update.step;
-              // Remove duplicates and sort by step_index
-              const uniqueSteps = Array.from(
-                new Map(updated.map((step: ExecutionStep) => [step.id, step])).values()
-              );
-              uniqueSteps.sort((a, b) => a.step_index - b.step_index);
-              return uniqueSteps;
-            } else {
-              const newSteps = [...prev, update.step];
-              // Remove duplicates and sort by step_index
-              const uniqueSteps = Array.from(
-                new Map(newSteps.map((step: ExecutionStep) => [step.id, step])).values()
-              );
-              uniqueSteps.sort((a, b) => a.step_index - b.step_index);
-              return uniqueSteps;
-            }
-          });
-          // Add to step events if it's the current step
-          if (update.step.step_index === currentStepIndex) {
-            setStepEvents(prev => {
-              // Check if event already exists to avoid duplicates
-              const exists = prev.some(e => e.id === update.step.id && e.type === 'step');
-              if (exists) {
-                return prev;
-              }
-              return [...prev, {
-                id: update.step.id,
-                type: 'step',
-                timestamp: new Date(),
-                agent: update.step.agent_type,
-                content: update.step.log_summary || 'Step updated'
-              }];
-            });
-          }
-        } else if (update.type === 'tool_call_update') {
-          // Add tool call event if it belongs to current step
-          if (update.tool_call && currentStep && update.tool_call.step_id === currentStep.id) {
-            setStepEvents(prev => {
-              // Check if event already exists to avoid duplicates
-              const exists = prev.some(e => e.id === update.tool_call.id && e.type === 'tool');
-              if (exists) {
-                return prev;
-              }
-              return [...prev, {
-                id: update.tool_call.id,
-                type: 'tool',
-                timestamp: new Date(),
-                tool: update.tool_call.tool_name,
-                content: `Tool: ${update.tool_call.tool_name} completed, ${update.tool_call.summary || 'execution completed'}`
-              }];
-            });
-          }
-        } else if (update.type === 'collaboration_update') {
-          // Add collaboration event if it belongs to current step
-          if (update.collaboration && currentStep && update.collaboration.step_id === currentStep.id) {
-            setStepEvents(prev => {
-              // Check if event already exists to avoid duplicates
-              const exists = prev.some(e => e.id === update.collaboration.id && e.type === 'collaboration');
-              if (exists) {
-                return prev;
-              }
-              return [...prev, {
-                id: update.collaboration.id,
-                type: 'collaboration',
-                timestamp: new Date(),
-                agent: update.collaboration.participants?.[0] || 'Agent',
-                content: `Collaboration: ${update.collaboration.topic || 'Agent discussion'}`
-              }];
-            });
-          }
-        } else if (update.type === 'execution_completed') {
-          window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+  // Connect to SSE stream for real-time updates using unified stream manager
+  useExecutionStream(
+    executionId,
+    workspaceId,
+    apiUrl,
+    (update) => {
+      if (update.type === 'execution_update') {
+        setExecution(update.execution);
+        // current_step_index is 0-based, convert to 1-based for display
+        if (update.execution) {
+          const maxStepIndex = update.execution.total_steps || ((update.execution.current_step_index || 0) + 1);
+          const stepIndex0Based = update.execution.current_step_index || 0;
+          const stepIndex1Based = stepIndex0Based + 1;
+          const validStepIndex = Math.min(Math.max(1, stepIndex1Based), maxStepIndex);
+          setCurrentStepIndex(validStepIndex);
+        } else {
+          setCurrentStepIndex(1);
         }
-      } catch (err) {
-        console.error('Failed to parse SSE message:', err);
+      } else if (update.type === 'step_update') {
+        setSteps(prev => {
+          const index = prev.findIndex(s => s.id === update.step.id);
+          if (index >= 0) {
+            const updated = [...prev];
+            updated[index] = update.step;
+            // Remove duplicates and sort by step_index
+            const uniqueSteps = Array.from(
+              new Map(updated.map((step: ExecutionStep) => [step.id, step])).values()
+            );
+            uniqueSteps.sort((a, b) => a.step_index - b.step_index);
+            return uniqueSteps;
+          } else {
+            const newSteps = [...prev, update.step];
+            // Remove duplicates and sort by step_index
+            const uniqueSteps = Array.from(
+              new Map(newSteps.map((step: ExecutionStep) => [step.id, step])).values()
+            );
+            uniqueSteps.sort((a, b) => a.step_index - b.step_index);
+            return uniqueSteps;
+          }
+        });
+        // Add to step events if it's the current step (will be handled by useEffect below)
+      } else if (update.type === 'tool_call_update') {
+        // Add tool call event if it belongs to current step (will be handled by useEffect below)
+        setStepEvents(prev => {
+          // Check if event already exists to avoid duplicates
+          const exists = prev.some(e => e.id === update.tool_call?.id && e.type === 'tool');
+          if (exists) {
+            return prev;
+          }
+          const currentStep = steps.find(s => s.step_index === currentStepIndex);
+          if (update.tool_call && currentStep && update.tool_call.step_id === currentStep.id) {
+            return [...prev, {
+              id: update.tool_call.id,
+              type: 'tool',
+              timestamp: new Date(),
+              tool: update.tool_call.tool_name,
+              content: `Tool: ${update.tool_call.tool_name} completed, ${update.tool_call.summary || 'execution completed'}`
+            }];
+          }
+          return prev;
+        });
+      } else if (update.type === 'collaboration_update') {
+        // Add collaboration event if it belongs to current step (will be handled by useEffect below)
+        setStepEvents(prev => {
+          // Check if event already exists to avoid duplicates
+          const exists = prev.some(e => e.id === update.collaboration?.id && e.type === 'collaboration');
+          if (exists) {
+            return prev;
+          }
+          const currentStep = steps.find(s => s.step_index === currentStepIndex);
+          if (update.collaboration && currentStep && update.collaboration.step_id === currentStep.id) {
+            return [...prev, {
+              id: update.collaboration.id,
+              type: 'collaboration',
+              timestamp: new Date(),
+              agent: update.collaboration.participants?.[0] || 'Agent',
+              content: `Collaboration: ${update.collaboration.topic || 'Agent discussion'}`
+            }];
+          }
+          return prev;
+        });
+      } else if (update.type === 'execution_completed') {
+        window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
       }
-    };
-
-    eventSource.onerror = (err) => {
-      // SSE connection errors are common during development, only log if connection was established
-      if (eventSource.readyState === EventSource.OPEN) {
-        console.warn('SSE connection error:', err);
-      }
-      // Don't close on error - EventSource will auto-reconnect
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [executionId, workspaceId, apiUrl]);
+    }
+  );
 
   const currentStep = steps.find(s => s.step_index === currentStepIndex);
   const currentStepToolCalls = toolCalls.filter(tc => tc.step_id === currentStep?.id);
@@ -680,7 +653,8 @@ export default function ExecutionInspector({
         if (execResponse.ok) {
           const execData = await execResponse.json();
           setExecution(execData);
-          setCurrentStepIndex(execData.current_step_index || 1);
+          // current_step_index is 0-based, convert to 1-based for display
+          setCurrentStepIndex((execData.current_step_index || 0) + 1);
         }
       }
     } catch (err) {
@@ -703,7 +677,8 @@ export default function ExecutionInspector({
         if (execResponse.ok) {
           const execData = await execResponse.json();
           setExecution(execData);
-          setCurrentStepIndex(execData.current_step_index || 1);
+          // current_step_index is 0-based, convert to 1-based for display
+          setCurrentStepIndex((execData.current_step_index || 0) + 1);
         }
       }
     } catch (err) {
@@ -735,9 +710,9 @@ export default function ExecutionInspector({
       final_totalSteps: totalSteps
     });
   }
-  // Ensure current_step_index is valid (1-based: 1 to totalSteps)
+  // current_step_index is 0-based, convert to 1-based for display
   const currentStepIndexValid = execution
-    ? Math.min(Math.max(1, execution.current_step_index ?? 1), Math.max(1, totalSteps))
+    ? Math.min(Math.max(1, (execution.current_step_index ?? 0) + 1), Math.max(1, totalSteps))
     : 1;
   const progressPercentage = execution && totalSteps > 0
     ? (currentStepIndexValid / totalSteps) * 100
@@ -1028,6 +1003,7 @@ export default function ExecutionInspector({
         {playbookMetadata?.supports_execution_chat && (
           <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900">
             <ExecutionChatPanel
+              key={executionId}
               executionId={executionId}
               workspaceId={workspaceId}
               apiUrl={apiUrl}

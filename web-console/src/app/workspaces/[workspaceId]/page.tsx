@@ -115,8 +115,9 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   // Listen for open-execution-inspector event
   useEffect(() => {
     const handleOpenExecutionInspector = (event: CustomEvent) => {
-      const { executionId } = event.detail;
-      if (executionId) {
+      const { executionId, workspaceId: eventWorkspaceId } = event.detail;
+      // Only handle events for current workspace
+      if (executionId && (!eventWorkspaceId || eventWorkspaceId === workspaceId)) {
         setSelectedExecutionId(executionId);
         setFocusExecutionId(executionId); // Set focus mode
       }
@@ -134,7 +135,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
       window.removeEventListener('open-execution-inspector', handleOpenExecutionInspector as EventListener);
       window.removeEventListener('clear-execution-focus', handleClearFocus as EventListener);
     };
-  }, []);
+  }, [workspaceId]);
 
   // Load focused execution and playbook metadata when focusExecutionId changes
   useEffect(() => {
@@ -506,6 +507,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
               // Mode B (Playbook Perspective): Show Execution Chat
               <div className="flex-1 overflow-hidden">
                 <ExecutionChatPanel
+                  key={focusExecutionId}
                   executionId={focusExecutionId}
                   workspaceId={workspaceId}
                   apiUrl={API_URL}
