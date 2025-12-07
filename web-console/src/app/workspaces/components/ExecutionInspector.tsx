@@ -128,21 +128,6 @@ export default function ExecutionInspector({
   // step_index is 1-based (1, 2, 3, ...), so initialize to 1
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(1);
   const [loading, setLoading] = useState(true);
-  
-  // Reset all state when executionId changes to ensure UI updates immediately
-  useEffect(() => {
-    setExecution(null);
-    setSteps([]);
-    setCurrentStepIndex(1);
-    setLoading(true);
-    setToolCalls([]);
-    setCollaborations([]);
-    setStageResults([]);
-    setPlaybookMetadata(null);
-    setPlaybookStepDefinitions([]);
-    setStepEvents([]);
-    setWorkflowData(null);
-  }, [executionId]);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [collaborations, setCollaborations] = useState<AgentCollaboration[]>([]);
   const [stageResults, setStageResults] = useState<StageResult[]>([]);
@@ -168,6 +153,21 @@ export default function ExecutionInspector({
     workflow_result?: any;
     handoff_plan?: any;
   } | null>(null);
+  
+  // Reset all state when executionId changes to ensure UI updates immediately
+  useEffect(() => {
+    setExecution(null);
+    setSteps([]);
+    setCurrentStepIndex(1);
+    setLoading(true);
+    setToolCalls([]);
+    setCollaborations([]);
+    setStageResults([]);
+    setPlaybookMetadata(null);
+    setPlaybookStepDefinitions([]);
+    setStepEvents([]);
+    setWorkflowData(null);
+  }, [executionId]);
   const [isStopping, setIsStopping] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
