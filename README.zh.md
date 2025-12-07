@@ -27,6 +27,8 @@
 
 - **意圖提取**：自動從用戶消息中提取意圖和主題
 - **Playbook 執行**：基於意圖執行多步驟工作流（playbooks）
+- **Project + Flow 架構**（v2.0）：專案容器內的多 playbook 協作
+- **分層記憶系統**：Workspace 核心、專案和成員檔案記憶
 - **時間軸視圖**：可視化工作區活動和執行歷史
 - **文件處理**：分析和提取上傳文件的內容
 - **Port 架構**：為未來雲端擴展提供清晰的抽象層
@@ -72,7 +74,19 @@ Mindscape AI Local Core 使用 **Port/Adapter 模式**（六邊形架構）來�
 - 面向人類對話的 **Workspace LLM**
 - 執行多步驟工作流的 **Playbook LLM + 工作流運行時**（`playbook.run = playbook.md + playbook.json`）
 
-詳見 [架構文檔](./docs/architecture/)。
+### Project + Flow + Sandbox 架構（v2.0）
+
+從 v2.0 開始，Mindscape AI 引入了**基於專案的協作模型**：
+
+- **Workspace**：團隊/客戶的長期協作房間
+- **Project**：交付級別的容器，有自己的生命週期（open, closed, archived）
+- **Playbook Flow**：多 playbook 協調，包含依賴關係解析
+- **Project Sandbox**：專案內所有 playbook 共享的統一檔案空間
+- **分層記憶**：Workspace 核心、專案和成員檔案記憶
+
+**核心創新**：專案從對話中自然產生。當對話顯示需要專案時，系統會自動建議創建專案，讓多個 playbook 協作完成同一個交付物。
+
+詳見 [架構文檔](./docs/architecture/) 和 [核心架構文檔](./docs/core-architecture/)。
 
 ## 🚀 快速開始
 
@@ -160,6 +174,12 @@ npm run dev
 - [記憶與意圖架構](./docs/architecture/memory-intent-architecture.md) - 事件、意圖和記憶層設計
 - [本地/雲端邊界](./docs/architecture/local-cloud-boundary.md) - 架構分離原則
 - [執行上下文](./docs/architecture/execution-context.md) - 執行上下文抽象
+
+### 核心架構（v2.0）
+- [核心架構文檔](./docs/core-architecture/README.md) - Project + Flow + Sandbox 架構
+- [版本迭代說明](./docs/core-architecture/version-iteration.md) - v2.0 架構變更
+- [Workspace 生命週期管理](./docs/core-architecture/workspace-lifecycle-management.md) - Workspace 與 Project 生命週期
+- [實作進度報告](./docs/core-architecture/implementation-progress-2025-12-07.md) - 詳細實作記錄
 
 ## 🧩 Port 架構
 

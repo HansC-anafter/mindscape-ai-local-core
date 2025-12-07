@@ -31,6 +31,8 @@ The `mindscape-ai-local-core` repository is the **open-source foundation** of Mi
 
 - **Intent Extraction**: Automatically extract intents and themes from user messages
 - **Playbook Execution**: Execute multi-step workflows (playbooks) based on intents
+- **Project + Flow Architecture** (v2.0): Multi-playbook orchestration within project containers
+- **Layered Memory System**: Workspace core, project, and member profile memories
 - **Timeline View**: Visualize workspace activity and execution history
 - **File Processing**: Analyze and extract content from uploaded files
 - **Port Architecture**: Clean abstraction layer for future cloud extensions
@@ -76,7 +78,19 @@ In addition, `mindscape-ai-local-core` introduces a Playbook-based workflow laye
 - A **Workspace LLM** for human-facing conversations
 - A **Playbook LLM + workflow runtime** for executing multi-step workflows (`playbook.run = playbook.md + playbook.json`)
 
-See [Architecture Documentation](./docs/architecture/) for details.
+### Project + Flow + Sandbox Architecture (v2.0)
+
+Starting from v2.0, Mindscape AI introduces a **Project-based collaboration model**:
+
+- **Workspace**: Long-term collaboration room for teams/clients
+- **Project**: Deliverable-level container with its own lifecycle (open, closed, archived)
+- **Playbook Flow**: Multi-playbook orchestration with dependency resolution
+- **Project Sandbox**: Unified file space shared across all playbooks in a project
+- **Layered Memory**: Workspace core, project, and member profile memories
+
+**Key Innovation**: Projects emerge naturally from conversations. When a conversation indicates a project need, the system automatically suggests creating a Project, allowing multiple playbooks to collaborate on the same deliverable.
+
+See [Architecture Documentation](./docs/architecture/) and [Core Architecture Docs](./docs/core-architecture/) for details.
 
 ## 🚀 Quick Start
 
@@ -164,6 +178,12 @@ For a more detailed setup guide, see [QUICKSTART.md](./QUICKSTART.md) or [Instal
 - [Memory & Intent Architecture](./docs/architecture/memory-intent-architecture.md) - Event, intent, and memory layer design
 - [Local/Cloud Boundary](./docs/architecture/local-cloud-boundary.md) - Architectural separation principles
 - [ExecutionContext](./docs/architecture/execution-context.md) - Execution context abstraction
+
+### Core Architecture (v2.0)
+- [Core Architecture Documentation](./docs/core-architecture/README.md) - Project + Flow + Sandbox architecture
+- [Version Iteration Guide](./docs/core-architecture/version-iteration.md) - v2.0 architecture changes
+- [Workspace Lifecycle Management](./docs/core-architecture/workspace-lifecycle-management.md) - Workspace and Project lifecycle
+- [Implementation Progress](./docs/core-architecture/implementation-progress-2025-12-07.md) - Detailed implementation records
 
 ## 🧩 Port Architecture
 
