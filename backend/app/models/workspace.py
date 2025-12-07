@@ -53,6 +53,7 @@ class TimelineItemType(str, Enum):
     SUMMARY = "SUMMARY"
     DRAFT = "DRAFT"
     ERROR = "ERROR"
+    PROJECT_SUGGESTION = "PROJECT_SUGGESTION"
 
 
 class ArtifactType(str, Enum):
@@ -63,6 +64,13 @@ class ArtifactType(str, Enum):
     CANVA = "canva"
     AUDIO = "audio"
     DOCX = "docx"
+    FILE = "file"
+    LINK = "link"
+    POST = "post"
+    IMAGE = "image"
+    VIDEO = "video"
+    CODE = "code"
+    DATA = "data"
 
 
 class PrimaryActionType(str, Enum):
@@ -71,6 +79,10 @@ class PrimaryActionType(str, Enum):
     DOWNLOAD = "download"
     OPEN_EXTERNAL = "open_external"
     PUBLISH_WP = "publish_wp"
+    NAVIGATE = "navigate"
+    PREVIEW = "preview"
+    EDIT = "edit"
+    SHARE = "share"
 
 
 class ExecutionChatMessageType(str, Enum):
@@ -261,6 +273,7 @@ class WorkspaceChatRequest(BaseModel):
         description="Interaction mode: 'auto' | 'qa_only' | 'force_playbook'"
     )
     stream: bool = Field(default=True, description="Enable streaming response (SSE)")
+    project_id: Optional[str] = Field(None, description="Project ID for project context")
     # CTA trigger fields
     timeline_item_id: Optional[str] = Field(None, description="Timeline item ID for CTA action")
     action: Optional[str] = Field(None, description="Action type: 'add_to_intents' | 'add_to_tasks' | 'publish_to_wordpress' | 'execute_playbook' | 'use_tool' | 'create_intent' | 'start_chat' | 'upload_file'")
@@ -517,8 +530,9 @@ class PlaybookExecutionStep(BaseModel):
     """
     id: str = Field(..., description="Step ID (same as MindEvent.id)")
     execution_id: str = Field(..., description="Associated execution ID")
-    step_index: int = Field(..., description="Step index (0-based)")
+    step_index: int = Field(..., description="Step index (1-based for display)")
     step_name: str = Field(..., description="Step name")
+    total_steps: Optional[int] = Field(None, description="Total number of steps in this execution")
     status: str = Field(..., description="Status: pending/running/completed/failed/waiting_confirmation")
     step_type: str = Field(..., description="Step type: agent_action/tool_call/agent_collaboration/user_confirmation")
     agent_type: Optional[str] = Field(None, description="Agent type: researcher/editor/engineer")
@@ -554,6 +568,7 @@ class PlaybookExecutionStep(BaseModel):
             execution_id=payload.get("execution_id", ""),
             step_index=payload.get("step_index", 0),
             step_name=payload.get("step_name", ""),
+            total_steps=payload.get("total_steps"),  # Extract total_steps from payload
             status=payload.get("status", "pending"),
             step_type=payload.get("step_type", "agent_action"),
             agent_type=payload.get("agent_type"),

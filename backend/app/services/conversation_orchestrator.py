@@ -308,35 +308,90 @@ class ConversationOrchestrator:
                     
                     # Only create if no duplicate project exists (different projects of same type are allowed)
                     if not duplicate_project:
-                        # Create Project
-                        from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
-                        project = await project_manager.create_project(
-                            project_type=project_suggestion.project_type or DEFAULT_PROJECT_TYPE,
-                            title=project_suggestion.project_title or "New Project",
-                            workspace_id=workspace_id,
-                            flow_id=project_suggestion.flow_id or "general_flow",
-                            initiator_user_id=profile_id
-                        )
+                        # Check confidence score to decide if we should create directly or show suggestion
+                        confidence = project_suggestion.confidence or 0.5
+                        HIGH_CONFIDENCE_THRESHOLD = 0.8  # High confidence: create directly
+                        LOW_CONFIDENCE_THRESHOLD = 0.5  # Low confidence: don't suggest
+                        
+                        if confidence >= HIGH_CONFIDENCE_THRESHOLD:
+                            # High confidence: create project directly
+                            from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
+                            project = await project_manager.create_project(
+                                project_type=project_suggestion.project_type or DEFAULT_PROJECT_TYPE,
+                                title=project_suggestion.project_title or "New Project",
+                                workspace_id=workspace_id,
+                                flow_id=project_suggestion.flow_id or "general_flow",
+                                initiator_user_id=profile_id
+                            )
 
-                        # Project PM assignment
-                        from backend.app.services.project.project_assignment_agent import ProjectAssignmentAgent
-                        assignment_agent = ProjectAssignmentAgent()
-                        assignment = await assignment_agent.suggest_assignment(
-                            project=project,
-                            workspace=workspace
-                        )
+                            # Project PM assignment
+                            from backend.app.services.project.project_assignment_agent import ProjectAssignmentAgent
+                            assignment_agent = ProjectAssignmentAgent()
+                            assignment = await assignment_agent.suggest_assignment(
+                                project=project,
+                                workspace=workspace
+                            )
 
-                        # Update project with assignments
-                        if assignment.suggested_human_owner:
-                            project.human_owner_user_id = assignment.suggested_human_owner.get("user_id")
-                        if assignment.suggested_ai_pm_id:
-                            project.ai_pm_id = assignment.suggested_ai_pm_id
-                        await project_manager.update_project(project)
+                            # Update project with assignments
+                            if assignment.suggested_human_owner:
+                                project.human_owner_user_id = assignment.suggested_human_owner.get("user_id")
+                            if assignment.suggested_ai_pm_id:
+                                project.ai_pm_id = assignment.suggested_ai_pm_id
+                            await project_manager.update_project(project)
 
-                        # Use new project_id
-                        project_id = project.id
+                            # Use new project_id
+                            project_id = project.id
 
-                        logger.info(f"Created new project: {project.id} for workspace: {workspace_id}")
+                            logger.info(f"Created new project: {project.id} for workspace: {workspace_id} (confidence: {confidence:.2f})")
+                        elif confidence >= LOW_CONFIDENCE_THRESHOLD:
+                            # Medium confidence: create timeline item for user confirmation
+                            from backend.app.models.workspace import TimelineItem, TimelineItemType
+                            from backend.app.services.i18n_service import get_i18n_service
+                            
+                            i18n = get_i18n_service(default_locale=self.default_locale)
+                            
+                            # Create project suggestion timeline item
+                            suggestion_title = i18n.t(
+                                "project_suggestion",
+                                "new_project_suggestion_title",
+                                default="New Project Suggestion: {project_title}",
+                                project_title=project_suggestion.project_title or "New Project"
+                            )
+                            
+                            suggestion_summary = i18n.t(
+                                "project_suggestion",
+                                "new_project_suggestion_summary",
+                                default="This conversation suggests creating a new {project_type} project: {project_title}",
+                                project_type=project_suggestion.project_type or "general",
+                                project_title=project_suggestion.project_title or "New Project"
+                            )
+                            
+                            timeline_item = TimelineItem(
+                                id=str(uuid.uuid4()),
+                                workspace_id=workspace_id,
+                                type=TimelineItemType.PROJECT_SUGGESTION,
+                                title=suggestion_title,
+                                summary=suggestion_summary,
+                                data={
+                                    "project_suggestion": {
+                                        "project_type": project_suggestion.project_type,
+                                        "project_title": project_suggestion.project_title,
+                                        "flow_id": project_suggestion.flow_id,
+                                        "initial_spec_md": project_suggestion.initial_spec_md,
+                                        "confidence": confidence
+                                    },
+                                    "action": "create_project",
+                                    "requires_confirmation": True
+                                },
+                                created_at=datetime.utcnow(),
+                                updated_at=datetime.utcnow()
+                            )
+                            
+                            self.timeline_items_store.create_timeline_item(timeline_item)
+                            logger.info(f"Created project suggestion timeline item for workspace: {workspace_id} (confidence: {confidence:.2f})")
+                        else:
+                            # Low confidence: don't create or suggest
+                            logger.debug(f"Project suggestion confidence too low ({confidence:.2f}), skipping suggestion")
 
             file_document_ids = []
             if files:
