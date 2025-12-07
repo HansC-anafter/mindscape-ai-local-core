@@ -124,6 +124,12 @@ export default function ExecutionInspector({
   console.log('[ExecutionInspector] Component rendered with executionId:', executionId, 'last8:', executionId?.slice(-8));
   const t = useT();
   const [execution, setExecution] = useState<ExecutionSession | null>(null);
+  
+  // Reset execution state when executionId changes
+  useEffect(() => {
+    setExecution(null);
+    setLoading(true);
+  }, [executionId]);
   const [steps, setSteps] = useState<ExecutionStep[]>([]);
   // step_index is 1-based (1, 2, 3, ...), so initialize to 1
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(1);
@@ -163,13 +169,13 @@ export default function ExecutionInspector({
     const loadExecution = async () => {
       const currentExecutionId = executionId; // Capture executionId for logging
       console.log('[ExecutionInspector] Loading execution for executionId:', currentExecutionId);
-      
+
       try {
         const response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${currentExecutionId}`
         );
         console.log('[ExecutionInspector] Execution fetch response status:', response.status, 'for executionId:', currentExecutionId);
-        
+
         if (response.ok) {
           const data = await response.json();
           console.log('[ExecutionInspector] Loaded execution data:', {
@@ -178,7 +184,7 @@ export default function ExecutionInspector({
             status: data.status,
             currentExecutionId
           });
-          
+
           // Verify the loaded execution matches the requested executionId
           if (data.execution_id !== currentExecutionId) {
             console.error('[ExecutionInspector] ⚠️ Execution ID mismatch!', {
@@ -186,7 +192,7 @@ export default function ExecutionInspector({
               received: data.execution_id
             });
           }
-          
+
           setExecution(data);
           // current_step_index is 0-based, convert to 1-based for display
           const maxStepIndex = data.total_steps || ((data.current_step_index || 0) + 1);
@@ -1029,7 +1035,6 @@ export default function ExecutionInspector({
         {/* 4️⃣ Right: Playbook Inspector / Conversation */}
         {playbookMetadata?.supports_execution_chat && (
           <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900">
-            {console.log('[ExecutionInspector] Rendering ExecutionChatPanel with key:', executionId, 'executionId:', executionId)}
             <ExecutionChatPanel
               key={executionId}
               executionId={executionId}
