@@ -130,11 +130,14 @@ export default function ExecutionChatPanel({
       const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`;
       console.log('[ExecutionChatPanel] Fetching messages from:', url);
       console.log('[ExecutionChatPanel] Request executionId:', executionId);
-      
+
       try {
+        console.log('[ExecutionChatPanel] Starting fetch for executionId:', executionId, 'cancelled:', cancelled);
         const response = await fetch(url);
+        console.log('[ExecutionChatPanel] Fetch completed, checking cancelled. executionId:', executionId, 'cancelled:', cancelled);
+        
         if (cancelled) {
-          console.log('[ExecutionChatPanel] Request cancelled for executionId:', executionId);
+          console.log('[ExecutionChatPanel] Request cancelled AFTER fetch for executionId:', executionId);
           return;
         }
 
@@ -152,7 +155,7 @@ export default function ExecutionChatPanel({
               content: m.content?.substring(0, 50)
             }))
           });
-          
+
           if (!cancelled) {
             setMessages(loadedMessages);
             console.log('[ExecutionChatPanel] State updated with', loadedMessages.length, 'messages for executionId:', executionId);
