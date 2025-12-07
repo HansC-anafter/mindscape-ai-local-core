@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useT } from '@/lib/i18n';
 import { MessageItem } from '@/components/MessageItem';
 import { ChatMessage } from '@/hooks/useChatEvents';
+import { useExecutionStream } from '@/hooks/useExecutionStream';
 
 interface ExecutionChatMessage {
   id: string;
@@ -64,6 +65,7 @@ export default function ExecutionChatPanel({
   const userScrolledRef = useRef(false);
   const autoScrollRef = useRef(true);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollToBottomRef = useRef<((force?: boolean, instant?: boolean) => void) | null>(null);
 
   // Scroll to bottom function - optimized to avoid jumping to top
   const scrollToBottom = useCallback((force: boolean = false, instant: boolean = false) => {
@@ -87,6 +89,11 @@ export default function ExecutionChatPanel({
     }
   }, [messages.length]);
 
+  // Keep scrollToBottom ref in sync
+  useEffect(() => {
+    scrollToBottomRef.current = scrollToBottom;
+  }, [scrollToBottom]);
+
   // Load initial messages
   useEffect(() => {
     const loadMessages = async () => {
@@ -100,8 +107,11 @@ export default function ExecutionChatPanel({
           const loadedMessages = data.messages || [];
           setMessages(loadedMessages);
           // Auto scroll to bottom after loading messages (instant)
+          // Use ref to avoid dependency on scrollToBottom function
           setTimeout(() => {
-            scrollToBottom(true, true);
+            if (scrollToBottomRef.current) {
+              scrollToBottomRef.current(true, true);
+            }
           }, 50);
         } else {
           console.error('Failed to load execution chat messages:', response.status);
@@ -114,83 +124,61 @@ export default function ExecutionChatPanel({
     };
 
     loadMessages();
-  }, [executionId, workspaceId, apiUrl, scrollToBottom]);
-
-  // Connect to SSE stream for real-time updates
-  useEffect(() => {
-    if (!executionId) return;
-
-    const streamUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/stream`;
-    const eventSource = new EventSource(streamUrl);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-
-        if (update.type === 'execution_chat') {
-          const newMessage = update.message as ExecutionChatMessage;
-          setMessages(prev => {
-            // Check if message already exists
-            const exists = prev.some(m => m.id === newMessage.id);
-            if (exists) {
-              // Update existing message (replace thinking placeholder)
-              const updated = prev.map(m => {
-                if (m.id === newMessage.id) {
-                  // Remove thinking state when real message arrives
-                  if (m.id === thinkingMessageIdRef.current) {
-                    setIsWaitingForReply(false);
-                    thinkingMessageIdRef.current = null;
-                  }
-                  return newMessage;
-                }
-                return m;
-              });
-              // Trigger scroll after update
-              setTimeout(() => {
-                if (autoScrollRef.current && !userScrolledRef.current) {
-                  scrollToBottom(false, true);
-                }
-              }, 10);
-              return updated;
-            } else {
-              // Add new message
-              const updated = [...prev, newMessage].sort((a, b) =>
-                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-              );
-              // Remove thinking state when real message arrives
-              if (newMessage.role === 'assistant' && thinkingMessageIdRef.current) {
-                setIsWaitingForReply(false);
-                thinkingMessageIdRef.current = null;
-              }
-              // Trigger scroll after adding new message
-              setTimeout(() => {
-                if (autoScrollRef.current && !userScrolledRef.current) {
-                  scrollToBottom(false, true);
-                }
-              }, 10);
-              return updated;
-            }
-          });
-        }
-      } catch (err) {
-        console.error('Failed to parse SSE message:', err);
-      }
-    };
-
-    eventSource.onerror = (error) => {
-      if (eventSourceRef.current && eventSourceRef.current.readyState === EventSource.CLOSED) {
-        console.warn('SSE connection closed');
-      }
-    };
-
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-    };
   }, [executionId, workspaceId, apiUrl]);
+
+  // Connect to SSE stream for real-time updates using unified stream manager
+  useExecutionStream(
+    executionId,
+    workspaceId,
+    apiUrl,
+    (update) => {
+      if (update.type === 'execution_chat') {
+        const newMessage = update.message as ExecutionChatMessage;
+        setMessages(prev => {
+          // Check if message already exists
+          const exists = prev.some(m => m.id === newMessage.id);
+          if (exists) {
+            // Update existing message (replace thinking placeholder)
+            const updated = prev.map(m => {
+              if (m.id === newMessage.id) {
+                // Remove thinking state when real message arrives
+                if (m.id === thinkingMessageIdRef.current) {
+                  setIsWaitingForReply(false);
+                  thinkingMessageIdRef.current = null;
+                }
+                return newMessage;
+              }
+              return m;
+            });
+            // Trigger scroll after update
+            setTimeout(() => {
+              if (autoScrollRef.current && !userScrolledRef.current && scrollToBottomRef.current) {
+                scrollToBottomRef.current(false, true);
+              }
+            }, 10);
+            return updated;
+          } else {
+            // Add new message
+            const updated = [...prev, newMessage].sort((a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+            // Remove thinking state when real message arrives
+            if (newMessage.role === 'assistant' && thinkingMessageIdRef.current) {
+              setIsWaitingForReply(false);
+              thinkingMessageIdRef.current = null;
+            }
+            // Trigger scroll after adding new message
+            setTimeout(() => {
+              if (autoScrollRef.current && !userScrolledRef.current && scrollToBottomRef.current) {
+                scrollToBottomRef.current(false, true);
+              }
+            }, 10);
+            return updated;
+          }
+        });
+      }
+    }
+  );
 
   // Handle scroll events to detect user manual scrolling
   const handleScroll = useCallback(() => {
@@ -222,8 +210,11 @@ export default function ExecutionChatPanel({
         clearTimeout(scrollTimeoutRef.current);
       }
       // Use instant scroll for better UX
+      // Use ref to avoid dependency on scrollToBottom function
       scrollTimeoutRef.current = setTimeout(() => {
-        scrollToBottom(false, true);
+        if (scrollToBottomRef.current) {
+          scrollToBottomRef.current(false, true);
+        }
       }, 10) as ReturnType<typeof setTimeout>;
     }
     return () => {
@@ -231,7 +222,7 @@ export default function ExecutionChatPanel({
         clearTimeout(scrollTimeoutRef.current);
       }
     };
-  }, [messages.length, scrollToBottom]);
+  }, [messages.length]);
 
   // Cleanup scroll timeout on unmount
   useEffect(() => {
@@ -313,7 +304,9 @@ export default function ExecutionChatPanel({
         userScrolledRef.current = false;
         autoScrollRef.current = true;
         setTimeout(() => {
-          scrollToBottom(true, true);
+          if (scrollToBottomRef.current) {
+            scrollToBottomRef.current(true, true);
+          }
         }, 10);
       }
     } catch (err) {
@@ -490,7 +483,11 @@ export default function ExecutionChatPanel({
         {/* Scroll to bottom button - fixed to visible viewport center bottom */}
         {showScrollToBottom && (
           <button
-            onClick={() => scrollToBottom(true, true)}
+            onClick={() => {
+              if (scrollToBottomRef.current) {
+                scrollToBottomRef.current(true, true);
+              }
+            }}
             className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-full p-1.5 shadow-lg transition-all duration-200 hover:scale-110"
             aria-label="Scroll to bottom"
             title="Scroll to bottom"
