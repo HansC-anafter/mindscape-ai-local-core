@@ -153,7 +153,11 @@ export default function ExecutionInspector({
     workflow_result?: any;
     handoff_plan?: any;
   } | null>(null);
-  
+  const [isStopping, setIsStopping] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+
   // Reset all state when executionId changes to ensure UI updates immediately
   useEffect(() => {
     setExecution(null);
@@ -168,10 +172,6 @@ export default function ExecutionInspector({
     setStepEvents([]);
     setWorkflowData(null);
   }, [executionId]);
-  const [isStopping, setIsStopping] = useState(false);
-  const [isReloading, setIsReloading] = useState(false);
-  const [isRestarting, setIsRestarting] = useState(false);
-  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
   // Load execution details
   useEffect(() => {
