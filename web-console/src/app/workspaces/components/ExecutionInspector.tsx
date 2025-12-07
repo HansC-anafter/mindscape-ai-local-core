@@ -121,6 +121,7 @@ export default function ExecutionInspector({
   apiUrl,
   onClose
 }: ExecutionInspectorProps) {
+  console.log('[ExecutionInspector] Component rendered with executionId:', executionId, 'last8:', executionId?.slice(-8));
   const t = useT();
   const [execution, setExecution] = useState<ExecutionSession | null>(null);
   const [steps, setSteps] = useState<ExecutionStep[]>([]);
