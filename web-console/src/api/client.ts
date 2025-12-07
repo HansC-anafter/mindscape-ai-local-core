@@ -53,7 +53,7 @@ export class MindscapeAPIClient {
     if (this.context.tags?.mode === 'cloud') {
       const token = this.getAuthToken();
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
       }
 
       if (this.context.tags.tenant_id) {
