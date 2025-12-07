@@ -1002,6 +1002,7 @@ export default function ExecutionInspector({
         {/* 4️⃣ Right: Playbook Inspector / Conversation */}
         {playbookMetadata?.supports_execution_chat && (
           <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900">
+            {console.log('[ExecutionInspector] Rendering ExecutionChatPanel with key:', executionId, 'executionId:', executionId)}
             <ExecutionChatPanel
               key={executionId}
               executionId={executionId}

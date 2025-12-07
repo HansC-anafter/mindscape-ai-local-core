@@ -47,6 +47,13 @@ export default function ExecutionChatPanel({
   collapsible = false,
   defaultCollapsed = false,
 }: ExecutionChatPanelProps) {
+  console.log('[ExecutionChatPanel] Component rendered/re-rendered', {
+    executionId,
+    workspaceId,
+    playbookCode: playbookMetadata?.playbook_code,
+    timestamp: new Date().toISOString()
+  });
+
   const t = useT();
   const [messages, setMessages] = useState<ExecutionChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -96,7 +103,15 @@ export default function ExecutionChatPanel({
 
   // Load initial messages
   useEffect(() => {
+    console.log('[ExecutionChatPanel] useEffect triggered', {
+      executionId,
+      workspaceId,
+      apiUrl,
+      timestamp: new Date().toISOString()
+    });
+
     // Reset state when executionId changes
+    console.log('[ExecutionChatPanel] Resetting state for executionId:', executionId);
     setMessages([]);
     setIsLoading(true);
     setIsSending(false);
@@ -112,17 +127,35 @@ export default function ExecutionChatPanel({
     let cancelled = false;
 
     const loadMessages = async () => {
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`;
+      console.log('[ExecutionChatPanel] Fetching messages from:', url);
+      console.log('[ExecutionChatPanel] Request executionId:', executionId);
+      
       try {
-        const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`
-        );
-        if (cancelled) return;
+        const response = await fetch(url);
+        if (cancelled) {
+          console.log('[ExecutionChatPanel] Request cancelled for executionId:', executionId);
+          return;
+        }
+
+        console.log('[ExecutionChatPanel] Response status:', response.status, 'for executionId:', executionId);
 
         if (response.ok) {
           const data = await response.json();
           const loadedMessages = data.messages || [];
+          console.log('[ExecutionChatPanel] Received messages:', {
+            executionId,
+            messageCount: loadedMessages.length,
+            messages: loadedMessages.map((m: any) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content?.substring(0, 50)
+            }))
+          });
+          
           if (!cancelled) {
             setMessages(loadedMessages);
+            console.log('[ExecutionChatPanel] State updated with', loadedMessages.length, 'messages for executionId:', executionId);
             // Auto scroll to bottom after loading messages (instant)
             // Use ref to avoid dependency on scrollToBottom function
             setTimeout(() => {
@@ -133,16 +166,17 @@ export default function ExecutionChatPanel({
           }
         } else {
           if (!cancelled) {
-            console.error('Failed to load execution chat messages:', response.status);
+            console.error('[ExecutionChatPanel] Failed to load execution chat messages:', response.status, 'for executionId:', executionId);
           }
         }
       } catch (err) {
         if (!cancelled) {
-          console.error('Failed to load execution chat messages:', err);
+          console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err, 'for executionId:', executionId);
         }
       } finally {
         if (!cancelled) {
           setIsLoading(false);
+          console.log('[ExecutionChatPanel] Loading completed for executionId:', executionId);
         }
       }
     };
@@ -151,6 +185,7 @@ export default function ExecutionChatPanel({
 
     // Cleanup function to cancel request if executionId changes
     return () => {
+      console.log('[ExecutionChatPanel] Cleanup triggered for executionId:', executionId);
       cancelled = true;
     };
   }, [executionId, workspaceId, apiUrl]);
