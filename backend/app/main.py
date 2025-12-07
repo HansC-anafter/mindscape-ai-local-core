@@ -20,6 +20,10 @@ from .routes.core import (
     config,
     tools,
 )
+from .routes.core.intents import router as intents_router
+from .routes.core.chapters import router as chapters_router
+from .routes.core.artifacts import router as artifacts_router
+from .routes.core.resources import router as resources_router
 from .routes.core.system_settings import router as system_settings_router
 from .routes.core.data_sources import router as data_sources_router
 from .routes.core.workspace_resource_bindings import router as workspace_resource_bindings_router
@@ -90,6 +94,14 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(data_sources_router, tags=["data-sources"])
     app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
 
+    # Generic resource routes (neutral interface)
+    app.include_router(resources_router, tags=["resources"])
+
+    # Legacy specific routes (kept for backward compatibility, will be deprecated)
+    app.include_router(intents_router, tags=["intents"])
+    app.include_router(chapters_router, tags=["chapters"])
+    app.include_router(artifacts_router, tags=["artifacts"])
+
 def register_core_primitives(app: FastAPI) -> None:
     """Register core primitives"""
     app.include_router(vector_db.router, tags=["vector-db"])
@@ -128,6 +140,15 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
 
+    # Initialize resource handlers (for generic resource routing)
+    logger.info("Initializing resource handlers...")
+    try:
+        from .services.resource_handlers.init_handlers import initialize_resource_handlers
+        initialize_resource_handlers()
+        logger.info("Resource handlers initialized successfully")
+    except Exception as e:
+        logger.warning(f"Failed to initialize resource handlers: {e}", exc_info=True)
+
     # Load capability packages
     logger.info("Loading capability packages...")
     try:
@@ -146,6 +167,14 @@ async def startup_event():
         logger.info(f"Registered {len(workspace_tools)} workspace tools")
     except Exception as e:
         logger.warning(f"Failed to register workspace tools: {e}", exc_info=True)
+
+    # Register filesystem tools
+    try:
+        from backend.app.services.tools.registry import register_filesystem_tools
+        filesystem_tools = register_filesystem_tools()
+        logger.info(f"Registered {len(filesystem_tools)} filesystem tools")
+    except Exception as e:
+        logger.warning(f"Failed to register filesystem tools: {e}", exc_info=True)
 
     # Register playbook handlers
     try:

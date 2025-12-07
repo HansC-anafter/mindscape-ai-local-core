@@ -416,6 +416,39 @@ def register_workspace_tools():
     return tools
 
 
+def register_filesystem_tools():
+    """
+    Register all local filesystem tools (builtin, no connection required)
+
+    Returns:
+        List of registered tools
+    """
+    import os
+    from pathlib import Path
+    from backend.app.services.tools.local_filesystem.filesystem_tools import (
+        FilesystemListFilesTool,
+        FilesystemReadFileTool,
+        FilesystemWriteFileTool,
+        FilesystemSearchTool
+    )
+
+    data_dir = os.getenv("DATA_DIR", "./data")
+    default_base_dir = Path(data_dir) / "workspaces"
+
+    tools = [
+        FilesystemListFilesTool(base_directory=str(default_base_dir)),
+        FilesystemReadFileTool(base_directory=str(default_base_dir)),
+        FilesystemWriteFileTool(base_directory=str(default_base_dir)),
+        FilesystemSearchTool(base_directory=str(default_base_dir))
+    ]
+
+    for tool in tools:
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
 def get_tool_metadata(tool_id: str) -> Optional[Dict]:
     """
     獲取工具的 metadata

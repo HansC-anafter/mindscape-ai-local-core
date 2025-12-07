@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional
 import logging
 
 from backend.app.services.tools.base import MindscapeTool
-from backend.app.services.tools.schemas import ToolMetadata, ToolInputSchema
+from backend.app.services.tools.schemas import ToolMetadata, ToolInputSchema, ToolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class FilesystemListFilesTool(MindscapeTool):
                 },
                 required=[]
             ),
-            category="file_management",
+            category=ToolCategory.DATA,
             source_type="builtin",
             provider="local_filesystem",
             danger_level="low"
@@ -121,7 +121,7 @@ class FilesystemReadFileTool(MindscapeTool):
                 },
                 required=["file_path"]
             ),
-            category="file_management",
+            category=ToolCategory.DATA,
             source_type="builtin",
             provider="local_filesystem",
             danger_level="low"
@@ -191,7 +191,7 @@ class FilesystemWriteFileTool(MindscapeTool):
                 },
                 required=["file_path", "content"]
             ),
-            category="file_management",
+            category=ToolCategory.DATA,
             source_type="builtin",
             provider="local_filesystem",
             danger_level="medium"
@@ -256,7 +256,7 @@ class FilesystemSearchTool(MindscapeTool):
                 },
                 required=["query"]
             ),
-            category="file_management",
+            category=ToolCategory.DATA,
             source_type="builtin",
             provider="local_filesystem",
             danger_level="low"
