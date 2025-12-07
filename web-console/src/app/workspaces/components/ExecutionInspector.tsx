@@ -124,16 +124,25 @@ export default function ExecutionInspector({
   console.log('[ExecutionInspector] Component rendered with executionId:', executionId, 'last8:', executionId?.slice(-8));
   const t = useT();
   const [execution, setExecution] = useState<ExecutionSession | null>(null);
-  
-  // Reset execution state when executionId changes
-  useEffect(() => {
-    setExecution(null);
-    setLoading(true);
-  }, [executionId]);
   const [steps, setSteps] = useState<ExecutionStep[]>([]);
   // step_index is 1-based (1, 2, 3, ...), so initialize to 1
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(1);
   const [loading, setLoading] = useState(true);
+  
+  // Reset all state when executionId changes to ensure UI updates immediately
+  useEffect(() => {
+    setExecution(null);
+    setSteps([]);
+    setCurrentStepIndex(1);
+    setLoading(true);
+    setToolCalls([]);
+    setCollaborations([]);
+    setStageResults([]);
+    setPlaybookMetadata(null);
+    setPlaybookStepDefinitions([]);
+    setStepEvents([]);
+    setWorkflowData(null);
+  }, [executionId]);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [collaborations, setCollaborations] = useState<AgentCollaboration[]>([]);
   const [stageResults, setStageResults] = useState<StageResult[]>([]);
