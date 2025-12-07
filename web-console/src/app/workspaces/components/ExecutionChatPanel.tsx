@@ -125,29 +125,36 @@ export default function ExecutionChatPanel({
     setShowScrollToBottom(false);
 
     let cancelled = false;
+    const currentExecutionId = executionId; // Capture executionId for logging
 
     const loadMessages = async () => {
-      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`;
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${currentExecutionId}/chat`;
       console.log('[ExecutionChatPanel] Fetching messages from:', url);
-      console.log('[ExecutionChatPanel] Request executionId:', executionId);
+      console.log('[ExecutionChatPanel] Request executionId:', currentExecutionId);
+      console.log('[ExecutionChatPanel] Cancelled flag at start:', cancelled);
 
       try {
-        console.log('[ExecutionChatPanel] Starting fetch for executionId:', executionId, 'cancelled:', cancelled);
-        const response = await fetch(url);
-        console.log('[ExecutionChatPanel] Fetch completed, checking cancelled. executionId:', executionId, 'cancelled:', cancelled);
+        console.log('[ExecutionChatPanel] Starting fetch for executionId:', currentExecutionId, 'cancelled:', cancelled);
+        const fetchPromise = fetch(url);
+        console.log('[ExecutionChatPanel] Fetch promise created for executionId:', currentExecutionId);
+        
+        const response = await fetchPromise;
+        console.log('[ExecutionChatPanel] Fetch completed for executionId:', currentExecutionId, 'status:', response.status);
+        console.log('[ExecutionChatPanel] Checking cancelled flag. executionId:', currentExecutionId, 'cancelled:', cancelled);
         
         if (cancelled) {
-          console.log('[ExecutionChatPanel] Request cancelled AFTER fetch for executionId:', executionId);
+          console.log('[ExecutionChatPanel] ⚠️ Request cancelled AFTER fetch for executionId:', currentExecutionId);
           return;
         }
 
-        console.log('[ExecutionChatPanel] Response status:', response.status, 'for executionId:', executionId);
+        console.log('[ExecutionChatPanel] Response status:', response.status, 'for executionId:', currentExecutionId);
 
         if (response.ok) {
+          console.log('[ExecutionChatPanel] Parsing JSON for executionId:', currentExecutionId);
           const data = await response.json();
           const loadedMessages = data.messages || [];
           console.log('[ExecutionChatPanel] Received messages:', {
-            executionId,
+            executionId: currentExecutionId,
             messageCount: loadedMessages.length,
             messages: loadedMessages.map((m: any) => ({
               id: m.id,
@@ -156,9 +163,10 @@ export default function ExecutionChatPanel({
             }))
           });
 
+          console.log('[ExecutionChatPanel] Checking cancelled before setState. executionId:', currentExecutionId, 'cancelled:', cancelled);
           if (!cancelled) {
             setMessages(loadedMessages);
-            console.log('[ExecutionChatPanel] State updated with', loadedMessages.length, 'messages for executionId:', executionId);
+            console.log('[ExecutionChatPanel] ✅ State updated with', loadedMessages.length, 'messages for executionId:', currentExecutionId);
             // Auto scroll to bottom after loading messages (instant)
             // Use ref to avoid dependency on scrollToBottom function
             setTimeout(() => {
@@ -168,18 +176,23 @@ export default function ExecutionChatPanel({
             }, 50);
           }
         } else {
+          console.log('[ExecutionChatPanel] Response not OK. executionId:', currentExecutionId, 'status:', response.status, 'cancelled:', cancelled);
           if (!cancelled) {
-            console.error('[ExecutionChatPanel] Failed to load execution chat messages:', response.status, 'for executionId:', executionId);
+            console.error('[ExecutionChatPanel] Failed to load execution chat messages:', response.status, 'for executionId:', currentExecutionId);
           }
         }
       } catch (err) {
+        console.log('[ExecutionChatPanel] ❌ Exception caught. executionId:', currentExecutionId, 'cancelled:', cancelled, 'error:', err);
         if (!cancelled) {
-          console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err, 'for executionId:', executionId);
+          console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err, 'for executionId:', currentExecutionId);
         }
       } finally {
+        console.log('[ExecutionChatPanel] Finally block. executionId:', currentExecutionId, 'cancelled:', cancelled);
         if (!cancelled) {
           setIsLoading(false);
-          console.log('[ExecutionChatPanel] Loading completed for executionId:', executionId);
+          console.log('[ExecutionChatPanel] ✅ Loading completed for executionId:', currentExecutionId);
+        } else {
+          console.log('[ExecutionChatPanel] ⚠️ Loading NOT completed (cancelled) for executionId:', currentExecutionId);
         }
       }
     };
@@ -188,8 +201,9 @@ export default function ExecutionChatPanel({
 
     // Cleanup function to cancel request if executionId changes
     return () => {
-      console.log('[ExecutionChatPanel] Cleanup triggered for executionId:', executionId);
+      console.log('[ExecutionChatPanel] 🧹 Cleanup triggered for executionId:', currentExecutionId);
       cancelled = true;
+      console.log('[ExecutionChatPanel] Cancelled flag set to true for executionId:', currentExecutionId);
     };
   }, [executionId, workspaceId, apiUrl]);
 
