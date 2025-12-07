@@ -13,7 +13,8 @@ from backend.app.models.workspace import Workspace
 from backend.app.services.agent_runner import LLMProviderManager
 from backend.app.shared.llm_provider_helper import (
     get_llm_provider_from_settings,
-    create_llm_provider_manager
+    create_llm_provider_manager,
+    get_model_name_from_chat_model
 )
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,9 @@ Respond in JSON format:
                 }
             ]
 
-            response = await self.llm_provider.chat_completion(messages)
+            # Get model name from system settings
+            model_name = get_model_name_from_chat_model() or "gemini-pro"
+            response = await self.llm_provider.chat_completion(messages, model=model_name)
             result_text = response.content if hasattr(response, 'content') else str(response)
 
             # Parse response
