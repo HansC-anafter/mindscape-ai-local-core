@@ -23,8 +23,8 @@ import ConfirmDialog from '../../../components/ConfirmDialog';
 import HelpIcon from '../../../components/HelpIcon';
 import ExecutionInspector from '../components/ExecutionInspector';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
-import { WorkspaceDataProvider, useWorkspaceData } from '@/contexts/WorkspaceDataContext';
-import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
+import WorkspaceSettingsModal from './components/WorkspaceSettingsModal';
+import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import {
   TrainHeader,
   ExecutionModeSelector,
@@ -96,7 +96,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [focusExecutionId, setFocusExecutionId] = useState<string | null>(null);
   const [focusedExecution, setFocusedExecution] = useState<any>(null);
   const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
-const [showSystemTools, setShowSystemTools] = useState(false);
+  const [showSystemTools, setShowSystemTools] = useState(false);
+  const [showFullSettings, setShowFullSettings] = useState(false);
 
   // Execution state from hook (SSE-driven)
   const executionState = useExecutionState(workspaceId, API_URL);
@@ -401,29 +402,32 @@ const [showSystemTools, setShowSystemTools] = useState(false);
                   >
                     {showSystemTools && (
                       <div className="overflow-y-auto max-h-[400px]">
-                        {/* Data Sources Section */}
-                        <div className="p-3 border-b dark:border-gray-700">
-                          <WorkspaceScopePanel
-                            dataSources={workspace.data_sources}
-                            workspaceId={workspaceId}
-                            apiUrl={API_URL}
-                            workspace={workspace}
-                          />
-                        </div>
-
-                        {/* System Status Section */}
-                        <div className="p-3">
-                          {systemStatus ? (
-                            <IntegratedSystemStatusCard
-                              systemStatus={systemStatus}
-                              workspace={workspace || {}}
+                        {/* Quick Settings View */}
+                        <>
+                          {/* Data Sources Section */}
+                          <div className="p-3 border-b dark:border-gray-700">
+                            <WorkspaceScopePanel
+                              dataSources={workspace.data_sources}
                               workspaceId={workspaceId}
-                              onRefresh={() => contextData.refreshAll()}
+                              apiUrl={API_URL}
+                              workspace={workspace}
                             />
-                          ) : (
-                            <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
-                          )}
-                        </div>
+                          </div>
+
+                          {/* System Status Section */}
+                          <div className="p-3">
+                            {systemStatus ? (
+                              <IntegratedSystemStatusCard
+                                systemStatus={systemStatus}
+                                workspace={workspace || {}}
+                                workspaceId={workspaceId}
+                                onRefresh={() => contextData.refreshAll()}
+                              />
+                            ) : (
+                              <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
+                            )}
+                          </div>
+                        </>
                       </div>
                     )}
                   </div>
@@ -628,11 +632,23 @@ const [showSystemTools, setShowSystemTools] = useState(false);
         cancelText={t('cancel') || '取消'}
         confirmButtonClassName="bg-red-600 hover:bg-red-700"
       />
+
+      {/* Workspace Settings Modal */}
+      <WorkspaceSettingsModal
+        isOpen={showFullSettings}
+        onClose={() => setShowFullSettings(false)}
+        workspace={workspace}
+        workspaceId={workspaceId}
+        apiUrl={API_URL}
+        onUpdate={() => {
+          contextData.refreshWorkspace();
+        }}
+      />
     </div>
   );
 }
 
-// External component that provides Context
+// External component - Context is now provided by layout.tsx
 export default function WorkspacePage() {
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
@@ -648,12 +664,6 @@ export default function WorkspacePage() {
     );
   }
 
-  return (
-    <WorkspaceDataProvider workspaceId={workspaceId}>
-      <ExecutionContextProvider workspaceId={workspaceId}>
-        <WorkspacePageContent workspaceId={workspaceId} />
-      </ExecutionContextProvider>
-    </WorkspaceDataProvider>
-  );
+  return <WorkspacePageContent workspaceId={workspaceId} />;
 }
 
