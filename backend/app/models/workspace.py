@@ -340,7 +340,7 @@ class ExecutionPlan(BaseModel):
     """
     ExecutionPlan model - represents a complete execution plan for a message
 
-    This is the "Chain-of-Thought" (思維鏈) for Execution Mode:
+    This is the "Chain-of-Thought" for Execution Mode:
     - Shows what the LLM decided to do BEFORE doing it
     - Provides structured reasoning for debugging and replay
     - Can be recorded as EXECUTION_PLAN MindEvent for traceability

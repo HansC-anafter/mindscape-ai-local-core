@@ -276,13 +276,13 @@ class ConversationOrchestrator:
                         workspace_id=workspace_id,
                         state="open"
                     )
-                    
+
                     suggested_type = project_suggestion.project_type or "general"
                     suggested_title = (project_suggestion.project_title or "").lower().strip()
-                    
+
                     # Check for duplicates: same type AND very similar/identical title
-                    # Allow different projects of same type with different titles (e.g., 
-                    # "產品 Landing Page" vs "服務介紹 Landing Page" or "Python 課程" vs "JavaScript 課程")
+                    # Allow different projects of same type with different titles
+                    # (e.g., "Product Landing Page" vs "Service Landing Page" or "Python Course" vs "JavaScript Course")
                     duplicate_project = None
                     for existing_project in existing_projects:
                         if existing_project.type == suggested_type:
@@ -305,14 +305,14 @@ class ConversationOrchestrator:
                                     if overlap >= 0.9 and abs(len(suggested_title) - len(existing_title)) <= 10:
                                         duplicate_project = existing_project
                                         break
-                    
+
                     # Only create if no duplicate project exists (different projects of same type are allowed)
                     if not duplicate_project:
                         # Check confidence score to decide if we should create directly or show suggestion
                         confidence = project_suggestion.confidence or 0.5
                         HIGH_CONFIDENCE_THRESHOLD = 0.8  # High confidence: create directly
                         LOW_CONFIDENCE_THRESHOLD = 0.5  # Low confidence: don't suggest
-                        
+
                         if confidence >= HIGH_CONFIDENCE_THRESHOLD:
                             # High confidence: create project directly
                             from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
@@ -609,7 +609,7 @@ Project ID: {project.id}
                 # Check mode to determine if QA should be disabled
                 # QA is disabled only in execution and mixed modes, enabled in conversational mode
                 mode_lower = mode.lower() if mode else ""
-                disable_qa = mode_lower in ["execution", "mixed", "混合", "執行"]
+                disable_qa = mode_lower in ["execution", "mixed"]
 
                 if disable_qa:
                     # QA mode disabled for execution/mixed modes - return message indicating no playbook matched
