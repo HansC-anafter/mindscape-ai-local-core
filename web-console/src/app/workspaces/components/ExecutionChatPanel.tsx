@@ -96,34 +96,63 @@ export default function ExecutionChatPanel({
 
   // Load initial messages
   useEffect(() => {
+    // Reset state when executionId changes
+    setMessages([]);
+    setIsLoading(true);
+    setIsSending(false);
+    setIsWaitingForReply(false);
+    thinkingMessageIdRef.current = null;
+    setInput('');
+    setUserScrolled(false);
+    setAutoScroll(true);
+    userScrolledRef.current = false;
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+
+    let cancelled = false;
+
     const loadMessages = async () => {
       try {
-        setIsLoading(true);
         const response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`
         );
+        if (cancelled) return;
+
         if (response.ok) {
           const data = await response.json();
           const loadedMessages = data.messages || [];
-          setMessages(loadedMessages);
-          // Auto scroll to bottom after loading messages (instant)
-          // Use ref to avoid dependency on scrollToBottom function
-          setTimeout(() => {
-            if (scrollToBottomRef.current) {
-              scrollToBottomRef.current(true, true);
-            }
-          }, 50);
+          if (!cancelled) {
+            setMessages(loadedMessages);
+            // Auto scroll to bottom after loading messages (instant)
+            // Use ref to avoid dependency on scrollToBottom function
+            setTimeout(() => {
+              if (scrollToBottomRef.current && !cancelled) {
+                scrollToBottomRef.current(true, true);
+              }
+            }, 50);
+          }
         } else {
-          console.error('Failed to load execution chat messages:', response.status);
+          if (!cancelled) {
+            console.error('Failed to load execution chat messages:', response.status);
+          }
         }
       } catch (err) {
-        console.error('Failed to load execution chat messages:', err);
+        if (!cancelled) {
+          console.error('Failed to load execution chat messages:', err);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadMessages();
+
+    // Cleanup function to cancel request if executionId changes
+    return () => {
+      cancelled = true;
+    };
   }, [executionId, workspaceId, apiUrl]);
 
   // Connect to SSE stream for real-time updates using unified stream manager
