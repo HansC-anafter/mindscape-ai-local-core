@@ -41,22 +41,15 @@ class ToolExecutor:
         Returns:
             Tool execution result
         """
-        # Step 1: Check if it's a capability package tool (format: capability.tool_name)
         if '.' in tool_name:
             parts = tool_name.split('.', 1)
             if len(parts) == 2:
                 capability, tool = parts
-
-                # Check if it's in the capability package registry
                 tool_info = self.registry.get_tool(tool_name)
                 if tool_info:
-                    # This is a capability package tool, use registry to call
                     logger.debug(f"Calling capability tool: {tool_name}")
                     return await call_tool_async(capability, tool, **kwargs)
 
-        # Step 2: Try to find from MindscapeTool registry
-        # Format: {connection_id}.{tool_type}.{tool_name}
-        # Examples: canva-1.canva.create_design_from_template, wp.site1.post.create_draft
         logger.debug(f"Tool {tool_name} not found in capability registry, trying MindscapeTool registry...")
 
         try:
@@ -66,7 +59,6 @@ class ToolExecutor:
             tool = get_mindscape_tool(tool_name)
             if tool:
                 logger.debug(f"Found MindscapeTool: {tool_name}")
-                # Execute the tool asynchronously
                 if inspect.iscoroutinefunction(tool.execute):
                     result = await tool.execute(**kwargs)
                 else:
@@ -77,10 +69,9 @@ class ToolExecutor:
         except Exception as e:
             logger.warning(f"Error accessing MindscapeTool registry: {e}")
 
-        # Step 3: Tool not found in any registry
         raise ValueError(
             f"Tool {tool_name} not found in any registry. "
-            f"Supported formats: capability.tool_name or {{connection_id}}.{{tool_type}}.{{tool_name}}"
+            f"Supported formats: capability.tool_name, direct tool name (e.g., filesystem_write_file), or {{connection_id}}.{{tool_type}}.{{tool_name}}"
         )
 
     def execute_tool_sync(
@@ -100,7 +91,6 @@ class ToolExecutor:
         Returns:
             Tool execution result
         """
-        # Step 1: Check capability package tools
         if '.' in tool_name:
             parts = tool_name.split('.', 1)
             if len(parts) == 2:
@@ -109,14 +99,12 @@ class ToolExecutor:
                 if tool_info:
                     return call_tool(capability, tool, **kwargs)
 
-        # Step 2: Try MindscapeTool registry
         try:
             from backend.app.services.tools.registry import get_mindscape_tool
 
             tool = get_mindscape_tool(tool_name)
             if tool:
                 logger.debug(f"Found MindscapeTool (sync): {tool_name}")
-                # Execute synchronously
                 result = tool.execute(**kwargs)
                 return result
         except ImportError:
@@ -124,7 +112,6 @@ class ToolExecutor:
         except Exception as e:
             logger.warning(f"Error accessing MindscapeTool registry: {e}")
 
-        # Step 3: Tool not found
         raise ValueError(
             f"Tool {tool_name} not found in any registry. "
             f"Supported formats: capability.tool_name or {{connection_id}}.{{tool_type}}.{{tool_name}}"
