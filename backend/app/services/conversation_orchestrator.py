@@ -345,50 +345,12 @@ class ConversationOrchestrator:
                             logger.info(f"Created new project: {project.id} for workspace: {workspace_id} (confidence: {confidence:.2f})")
                         elif confidence >= LOW_CONFIDENCE_THRESHOLD:
                             # Medium confidence: create timeline item for user confirmation
-                            from backend.app.models.workspace import TimelineItem, TimelineItemType
-                            from backend.app.services.i18n_service import get_i18n_service
-                            
-                            i18n = get_i18n_service(default_locale=self.default_locale)
-                            
-                            # Create project suggestion timeline item
-                            suggestion_title = i18n.t(
-                                "project_suggestion",
-                                "new_project_suggestion_title",
-                                default="New Project Suggestion: {project_title}",
-                                project_title=project_suggestion.project_title or "New Project"
-                            )
-                            
-                            suggestion_summary = i18n.t(
-                                "project_suggestion",
-                                "new_project_suggestion_summary",
-                                default="This conversation suggests creating a new {project_type} project: {project_title}",
-                                project_type=project_suggestion.project_type or "general",
-                                project_title=project_suggestion.project_title or "New Project"
-                            )
-                            
-                            timeline_item = TimelineItem(
-                                id=str(uuid.uuid4()),
-                                workspace_id=workspace_id,
-                                type=TimelineItemType.PROJECT_SUGGESTION,
-                                title=suggestion_title,
-                                summary=suggestion_summary,
-                                data={
-                                    "project_suggestion": {
-                                        "project_type": project_suggestion.project_type,
-                                        "project_title": project_suggestion.project_title,
-                                        "flow_id": project_suggestion.flow_id,
-                                        "initial_spec_md": project_suggestion.initial_spec_md,
-                                        "confidence": confidence
-                                    },
-                                    "action": "create_project",
-                                    "requires_confirmation": True
-                                },
-                                created_at=datetime.utcnow(),
-                                updated_at=datetime.utcnow()
-                            )
-                            
-                            self.timeline_items_store.create_timeline_item(timeline_item)
-                            logger.info(f"Created project suggestion timeline item for workspace: {workspace_id} (confidence: {confidence:.2f})")
+                            # Note: message_id will be set after user_event is created below
+                            # We'll create the timeline item after the user event is created
+                            pending_project_suggestion = {
+                                "suggestion": project_suggestion,
+                                "confidence": confidence
+                            }
                         else:
                             # Low confidence: don't create or suggest
                             logger.debug(f"Project suggestion confidence too low ({confidence:.2f}), skipping suggestion")
