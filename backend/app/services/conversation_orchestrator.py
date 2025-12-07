@@ -246,39 +246,54 @@ class ConversationOrchestrator:
 
                 project_manager = ProjectManager(self.store)
 
-                # Check for active projects
-                active_projects = await project_manager.list_projects(
+                # Detect if we should create a new project
+                project_detector = ProjectDetector()
+
+                # Get recent conversation context
+                recent_events = self.store.events.get_events(
+                    profile_id=profile_id,
                     workspace_id=workspace_id,
-                    state="open",
-                    limit=1
+                    limit=10
+                )
+                conversation_context = [
+                    {
+                        "role": "user" if e.actor == EventActor.USER else "assistant",
+                        "content": e.payload.get("message", "") if e.payload else ""
+                    }
+                    for e in recent_events
+                    if e.event_type == EventType.MESSAGE and e.payload
+                ]
+
+                project_suggestion = await project_detector.detect(
+                    message=message,
+                    conversation_context=conversation_context,
+                    workspace=workspace
                 )
 
-                if not active_projects:
-                    # No active project, detect if we should create one
-                    project_detector = ProjectDetector()
-
-                    # Get recent conversation context
-                    recent_events = self.store.events.get_events(
-                        profile_id=profile_id,
+                if project_suggestion and project_suggestion.mode == "project":
+                    # Check if a similar project already exists (same type and similar title)
+                    existing_projects = await project_manager.list_projects(
                         workspace_id=workspace_id,
-                        limit=10
+                        state="open"
                     )
-                    conversation_context = [
-                        {
-                            "role": "user" if e.actor == EventActor.USER else "assistant",
-                            "content": e.payload.get("message", "") if e.payload else ""
-                        }
-                        for e in recent_events
-                        if e.event_type == EventType.MESSAGE and e.payload
-                    ]
-
-                    project_suggestion = await project_detector.detect(
-                        message=message,
-                        conversation_context=conversation_context,
-                        workspace=workspace
-                    )
-
-                    if project_suggestion and project_suggestion.mode == "project":
+                    
+                    # Check if there's already an active project of the same type
+                    # with a similar title (to avoid duplicates)
+                    suggested_type = project_suggestion.project_type or "general"
+                    suggested_title = project_suggestion.project_title or ""
+                    
+                    similar_project = None
+                    for existing_project in existing_projects:
+                        # Same type and title similarity check
+                        if existing_project.type == suggested_type:
+                            # Simple similarity check: if titles are very similar, skip
+                            # This is a basic check - could be enhanced with fuzzy matching
+                            if suggested_title.lower().strip() == existing_project.title.lower().strip():
+                                similar_project = existing_project
+                                break
+                    
+                    # Only create if no similar project exists
+                    if not similar_project:
                         # Create Project
                         from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
                         project = await project_manager.create_project(
