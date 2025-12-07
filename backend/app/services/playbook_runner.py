@@ -156,14 +156,20 @@ class PlaybookRunner:
             profile = self.store.get_profile(profile_id)
 
             project_obj = None
+            project_sandbox_path = None
             if project_id:
                 from backend.app.services.project.project_manager import ProjectManager
+                from backend.app.services.project.project_sandbox_manager import ProjectSandboxManager
                 project_manager = ProjectManager(self.store)
                 project_obj = await project_manager.get_project(project_id, workspace_id=workspace_id)
                 if project_obj:
                     logger.info(f"Playbook execution in Project mode: {project_id}")
-                    # TODO: Use Project sandbox when ProjectSandboxManager is available
-                    # TODO: Read Project artifact registry when needed
+                    sandbox_manager = ProjectSandboxManager(self.store)
+                    try:
+                        project_sandbox_path = await sandbox_manager.get_sandbox_path(project_id, workspace_id)
+                        logger.info(f"Using project sandbox: {project_sandbox_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to get project sandbox: {e}")
                 else:
                     logger.warning(f"Project {project_id} not found, continuing without Project mode")
             elif inputs and "project_id" in inputs:
@@ -211,6 +217,11 @@ class PlaybookRunner:
                 target_language=final_target_language,
                 workspace_id=workspace_id
             )
+
+            # Set project sandbox path in inputs if available
+            if project_sandbox_path and inputs:
+                inputs["project_sandbox_path"] = str(project_sandbox_path)
+                logger.info(f"Project sandbox path set in inputs: {project_sandbox_path}")
 
             # Preload and cache tools list for this workspace (with Redis cache support)
             if workspace_id:

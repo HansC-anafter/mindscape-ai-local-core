@@ -64,6 +64,7 @@ class ContextBuilder:
         message: str,
         profile_id: Optional[str] = None,
         workspace: Optional[Any] = None,
+        project_id: Optional[str] = None,
         hours: int = 24
     ) -> str:
         """
@@ -74,12 +75,53 @@ class ContextBuilder:
             message: User message
             profile_id: Optional profile ID for retrieving intents
             workspace: Optional workspace object for metadata
+            project_id: Optional project ID for project-specific context
             hours: Hours to look back for context (default 24)
 
         Returns:
             Context string to inject into LLM prompt
         """
         context_parts = []
+
+        # Layered memory system
+        try:
+            from backend.app.services.memory.workspace_core_memory import WorkspaceCoreMemoryService
+            from backend.app.services.memory.project_memory import ProjectMemoryService
+            from backend.app.services.memory.member_profile_memory import MemberProfileMemoryService
+
+            workspace_memory_service = WorkspaceCoreMemoryService(self.store)
+            workspace_core_memory = await workspace_memory_service.get_core_memory(workspace_id)
+            core_memory_context = workspace_memory_service.format_for_context(workspace_core_memory)
+            if core_memory_context:
+                context_parts.append("\n## Workspace Core Memory:")
+                context_parts.append(core_memory_context)
+                logger.info("Injected workspace core memory into QA context")
+
+            if project_id:
+                project_memory_service = ProjectMemoryService(self.store)
+                try:
+                    project_memory = await project_memory_service.get_project_memory(project_id, workspace_id)
+                    project_memory_context = project_memory_service.format_for_context(project_memory)
+                    if project_memory_context:
+                        context_parts.append("\n## Project Memory:")
+                        context_parts.append(project_memory_context)
+                        logger.info(f"Injected project memory for project {project_id} into QA context")
+                except Exception as e:
+                    logger.warning(f"Failed to load project memory: {e}")
+
+            if profile_id:
+                member_memory_service = MemberProfileMemoryService(self.store)
+                try:
+                    member_memory = await member_memory_service.get_member_memory(profile_id, workspace_id)
+                    member_memory_context = member_memory_service.format_for_context(member_memory, include_experiences=True)
+                    if member_memory_context:
+                        context_parts.append("\n## Member Profile:")
+                        context_parts.append(member_memory_context)
+                        logger.info(f"Injected member profile memory for user {profile_id} into QA context")
+                except Exception as e:
+                    logger.warning(f"Failed to load member memory: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to load layered memory: {e}")
 
         # Workspace metadata - highest priority context
         if workspace:
