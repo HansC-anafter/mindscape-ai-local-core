@@ -84,10 +84,34 @@ icon: 🎬
 **輸出**：
 - 完整的 YT 影片腳本，包含時間點和結構化內容
 
+### 階段 5: 文件生成與保存
+
+#### 步驟 5.1: 保存影片腳本
+**必須**使用 `filesystem_write_file` 工具保存完整的影片腳本：
+
+- 文件路徑: `artifacts/yt_script_generation/{{execution_id}}/video_script.md`
+- 內容: 完整的影片腳本，包含開場、主體、結尾和所有段落
+- 格式: Markdown 格式
+
+#### 步驟 5.2: 保存時間戳記（如適用）
+如果腳本包含時間點標註，保存到：
+
+- 文件路徑: `artifacts/yt_script_generation/{{execution_id}}/timestamps.md`
+- 內容: 所有時間點標註，包含時間和對應的內容段落
+- 格式: Markdown 格式
+
+#### 步驟 5.3: 保存關鍵要點
+**必須**使用 `filesystem_write_file` 工具保存關鍵要點：
+
+- 文件路徑: `artifacts/yt_script_generation/{{execution_id}}/key_points.md`
+- 內容: 腳本中的關鍵要點和重點標註
+- 格式: Markdown 格式
+
 ## 注意事項
 
 - 時長控制：生成的腳本時長是估算值，實際錄製可能會有差異
 - 語速考量：腳本長度基於一般語速（約 150-160 字/分鐘）
 - 視覺元素：腳本不包含視覺元素，但可以建議適合的畫面
 - 版權考量：如果來源內容有版權限制，請注意使用範圍
+- 所有生成的腳本內容已保存到文件供後續使用
 

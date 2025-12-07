@@ -76,9 +76,33 @@ icon: 📖
 - 可預覽修改：生成後可以先預覽、修改，再決定要不要匯出
 - 不會自動發佈：不會自動幫你發佈、寄給任何人
 
+### 階段 6: 文件生成與保存
+
+#### 步驟 6.1: 保存年度書籍內容
+**必須**使用 `filesystem_write_file` 工具保存年度書籍內容：
+
+- 文件路徑: `artifacts/yearly_personal_book/{{execution_id}}/yearly_book_content.md`
+- 內容: 完整的年度年鑑內容
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存章節大綱
+**必須**使用 `filesystem_write_file` 工具保存章節大綱：
+
+- 文件路徑: `artifacts/yearly_personal_book/{{execution_id}}/chapters_outline.md`
+- 內容: 12 個月的章節大綱和結構
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存月度章節（如已生成）
+如果已生成月度章節，保存到：
+
+- 文件路徑: `artifacts/yearly_personal_book/{{execution_id}}/month-{01-12}.md`
+- 內容: 每個月的獨立章節內容
+- 格式: Markdown 格式
+
 ## 預期結果
 
-- 一份完整的年度年鑑 markdown 檔案（annual.md）
+- 一份完整的年度年鑑 markdown 檔案（yearly_book_content.md）
 - 12 個月的獨立章節檔案（month-01.md ~ month-12.md）
 - 可以自行潤稿、列印、留給未來的自己
+- 所有文件已保存到 artifacts 目錄供後續使用
 

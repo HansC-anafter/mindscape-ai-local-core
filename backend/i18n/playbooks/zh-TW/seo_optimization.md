@@ -96,6 +96,27 @@ This playbook can work in conjunction with:
 - `content_analysis` - Use content analysis results to inform SEO optimization
 - `content_editing` - Apply SEO optimizations during content editing
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存 SEO 報告
+**必須**使用 `filesystem_write_file` 工具保存完整的 SEO 優化報告：
+
+- 文件路徑: `artifacts/seo_optimization/{{execution_id}}/seo_report.md`
+- 內容: 完整的 SEO 報告，包含：
+  - 關鍵字分析
+  - 競爭對手洞察
+  - 標題和描述優化
+  - 內容結構改進
+  - 行動項目和優先級
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存優化檢查清單
+**必須**使用 `filesystem_write_file` 工具保存優化檢查清單：
+
+- 文件路徑: `artifacts/seo_optimization/{{execution_id}}/optimization_checklist.md`
+- 內容: 實施檢查清單和優化步驟
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Target keywords are identified and analyzed
 - Competitor strategies are understood

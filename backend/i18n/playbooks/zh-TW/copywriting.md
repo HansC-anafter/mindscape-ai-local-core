@@ -93,6 +93,35 @@ Based on user's Mindscape Profile:
 If user has related Active Intent (e.g., "Launch product marketing campaign"), explicitly reference it in responses:
 > "Since you're working towards 'Launch product marketing campaign', I recommend focusing on..."
 
+### Phase 7: 文件生成與保存
+
+#### 步驟 7.1: 保存文案版本
+**必須**使用 `filesystem_write_file` 工具保存所有文案版本：
+
+- 文件路徑: `artifacts/copywriting/{{execution_id}}/copy_variations.md`
+- 內容: 所有生成的文案版本，包含標題、正文和 CTA 選項
+- 格式: Markdown 格式，使用標題和列表組織
+
+#### 步驟 7.2: 保存標題選項
+**必須**使用 `filesystem_write_file` 工具保存標題選項：
+
+- 文件路徑: `artifacts/copywriting/{{execution_id}}/headlines.md`
+- 內容: 所有生成的標題變體（3-5 個選項）
+- 格式: Markdown 格式，每個標題一行
+
+#### 步驟 7.3: 保存 CTA 選項
+**必須**使用 `filesystem_write_file` 工具保存行動呼籲選項：
+
+- 文件路徑: `artifacts/copywriting/{{execution_id}}/ctas.md`
+- 內容: 所有生成的 CTA 選項
+- 格式: Markdown 格式
+
+#### 步驟 7.4: 保存優化建議（如適用）
+如果提供了 A/B 測試建議，保存到：
+
+- 文件路徑: `artifacts/copywriting/{{execution_id}}/ab_testing_recommendations.md`
+- 內容: A/B 測試建議和優化方向
+
 ## Success Criteria
 - Multiple copy versions are generated
 - Copy is tailored to target audience
@@ -101,6 +130,7 @@ If user has related Active Intent (e.g., "Launch product marketing campaign"), e
 - User has options for A/B testing
 - Visual designs are created (if requested) with copy integrated
 - Multiple platform size variants are available (if requested)
+- All generated content is saved to files for future reference
 
 ## Integration with Canva
 

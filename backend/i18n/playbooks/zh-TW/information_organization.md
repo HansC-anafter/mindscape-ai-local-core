@@ -93,6 +93,22 @@ This playbook can work in conjunction with:
 - `research_synthesis` - Use synthesis results to organize knowledge base
 - `note_organization` - Similar process for learning notes
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存知識庫文檔
+**必須**使用 `filesystem_write_file` 工具保存知識庫文檔：
+
+- 文件路徑: `artifacts/information_organization/{{execution_id}}/knowledge_base.md`
+- 內容: 完整的結構化知識庫，包含所有分類、標籤和資訊
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存分類體系
+**必須**使用 `filesystem_write_file` 工具保存分類體系：
+
+- 文件路徑: `artifacts/information_organization/{{execution_id}}/taxonomy.md`
+- 內容: 分類體系和標籤系統的完整文檔
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Scattered information is collected and organized
 - Topics and categories are identified
@@ -100,3 +116,4 @@ This playbook can work in conjunction with:
 - Information is properly categorized and tagged
 - Structured knowledge base is generated
 - User has a searchable and organized knowledge repository
+- All knowledge base documents are saved to files for future reference

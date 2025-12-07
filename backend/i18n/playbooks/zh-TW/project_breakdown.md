@@ -87,8 +87,39 @@ owner:
 如果用戶有相關的 Active Intent，在回應中明確提及：
 > "因為你正在推進「完成三集群冷啟動 MVP」，我會建議你將專案分為三個階段..."
 
+### 階段 6: 文件生成與保存
+
+#### 步驟 6.1: 保存專案結構
+**必須**使用 `filesystem_write_file` 工具保存專案結構：
+
+- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/project_structure.md`
+- 內容: 完整的專案結構，包含所有階段、交付物和依賴關係
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存任務分解
+**必須**使用 `filesystem_write_file` 工具保存任務分解：
+
+- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/task_breakdown.md`
+- 內容: 詳細的任務分解，包含每個階段的具體任務和行動項目
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存時間線
+**必須**使用 `filesystem_write_file` 工具保存時間線：
+
+- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/timeline.md`
+- 內容: 專案時間線，包含所有里程碑的時間節點和驗收標準
+- 格式: Markdown 格式
+
+#### 步驟 6.4: 保存風險分析（如適用）
+如果識別了風險，保存到：
+
+- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/risk_analysis.md`
+- 內容: 風險識別和緩解建議
+- 格式: Markdown 格式
+
 ## 成功標準
 - 專案被清晰分解為階段和里程碑
 - 風險點被識別並有緩解方案
 - 用戶明確知道下一步行動
+- 所有專案規劃文檔已保存到文件供後續參考
 

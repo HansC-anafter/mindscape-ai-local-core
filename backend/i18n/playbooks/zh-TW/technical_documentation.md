@@ -97,6 +97,35 @@ This playbook can work in conjunction with:
 - `code_review` - Use code review results to inform documentation priorities
 - `content_editing` - Edit and refine documentation after generation
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存完整技術文檔
+**必須**使用 `filesystem_write_file` 工具保存完整的技術文檔：
+
+- 文件路徑: `artifacts/technical_documentation/{{execution_id}}/{project_name}_documentation.md`
+- 內容: 完整的技術文檔，包含：
+  - 概述和介紹
+  - 安裝和設置指南
+  - API 參考文檔
+  - 使用範例和教程
+  - 配置和自定義
+  - 故障排除和常見問題
+- 格式: Markdown 格式，使用標題、代碼塊和列表
+
+#### 步驟 6.2: 保存 API 參考（如適用）
+如果生成了 API 參考文檔，保存到：
+
+- 文件路徑: `artifacts/technical_documentation/{{execution_id}}/api_reference.md`
+- 內容: 完整的 API 參考，包含所有函數、類和方法的詳細說明
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存使用範例
+**必須**使用 `filesystem_write_file` 工具保存使用範例：
+
+- 文件路徑: `artifacts/technical_documentation/{{execution_id}}/usage_examples.md`
+- 內容: 所有使用範例，包含常見用例、代碼片段和整合範例
+- 格式: Markdown 格式，包含代碼塊
+
 ## Success Criteria
 - Code structure and functionality are analyzed
 - API and function descriptions are extracted
@@ -104,3 +133,4 @@ This playbook can work in conjunction with:
 - Usage examples are written
 - Complete technical documentation is generated
 - User has comprehensive, well-organized documentation
+- All documentation files are saved for future reference

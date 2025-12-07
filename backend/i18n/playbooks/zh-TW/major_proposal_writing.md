@@ -83,10 +83,30 @@ icon: 📝
 3. 逐節撰寫內容（循環）
 4. 組裝完整文件並匯出
 
+### 階段 6: 文件生成與保存
+
+#### 步驟 6.1: 保存提案草稿
+**必須**使用 `filesystem_write_file` 工具保存提案草稿：
+
+- 文件路徑: `artifacts/major_proposal_writing/{{execution_id}}/proposal_draft.md`
+- 內容: 完整的申請文件草稿（Markdown 格式）
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存提案大綱
+**必須**使用 `filesystem_write_file` 工具保存提案大綱：
+
+- 文件路徑: `artifacts/major_proposal_writing/{{execution_id}}/proposal_outline.md`
+- 內容: 提案結構和大綱，包含所有章節和要點
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存 DOCX 文件（如已生成）
+如果已生成 DOCX 文件，記錄文件路徑到執行摘要中。
+
 ## 注意事項
 
 - 模板解析：系統會自動分析模板結構，但可能需要人工確認和調整
 - 內容生成：AI 生成的內容需要人工審核和調整
 - 格式要求：確保最終文件符合申請單位的格式要求
 - 截止日期：注意申請截止日期，預留足夠時間完成文件
+- 所有生成的提案文件已保存到文件供後續參考
 

@@ -96,6 +96,34 @@ This playbook can work in conjunction with:
 - `technical_documentation` - Generate documentation after code review
 - `content_editing` - Review code comments and documentation
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存審查報告
+**必須**使用 `filesystem_write_file` 工具保存完整的程式碼審查報告：
+
+- 文件路徑: `artifacts/code_review/{{execution_id}}/code_review_report.md`
+- 內容: 完整的審查報告，包含：
+  - 程式碼結構分析
+  - 品質評估
+  - 問題識別和建議
+  - 最佳實踐合規性檢查
+  - 優先級行動項目
+- 格式: Markdown 格式，使用標題、列表和代碼塊
+
+#### 步驟 6.2: 保存問題優先級列表
+**必須**使用 `filesystem_write_file` 工具保存問題優先級列表：
+
+- 文件路徑: `artifacts/code_review/{{execution_id}}/issues_priority.md`
+- 內容: 按優先級排序的問題列表，包含問題描述、嚴重程度和修復建議
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存改進建議
+**必須**使用 `filesystem_write_file` 工具保存詳細的改進建議：
+
+- 文件路徑: `artifacts/code_review/{{execution_id}}/recommendations.md`
+- 內容: 具體的改進建議，包含 before/after 範例（如適用）
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Code structure is thoroughly analyzed
 - Code quality is assessed
@@ -103,3 +131,4 @@ This playbook can work in conjunction with:
 - Best practices compliance is checked
 - Comprehensive review report is generated
 - User has clear, prioritized action items
+- All review findings are saved to files for future reference

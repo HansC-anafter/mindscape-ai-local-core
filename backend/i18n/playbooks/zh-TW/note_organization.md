@@ -81,6 +81,22 @@ Based on user's Mindscape Profile:
 If user has related Active Intent (e.g., "Master machine learning"), explicitly reference it in responses:
 > "Since you're working towards 'Master machine learning', I recommend organizing notes around..."
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存整理後的筆記
+**必須**使用 `filesystem_write_file` 工具保存整理後的筆記：
+
+- 文件路徑: `artifacts/note_organization/{{execution_id}}/organized_notes.md`
+- 內容: 完整的結構化筆記，包含所有章節、概念和關係
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存知識結構
+**必須**使用 `filesystem_write_file` 工具保存知識結構：
+
+- 文件路徑: `artifacts/note_organization/{{execution_id}}/knowledge_structure.md`
+- 內容: 知識架構和概念關係圖
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Notes are organized into a clear structure
 - Core concepts are identified and extracted
@@ -88,3 +104,4 @@ If user has related Active Intent (e.g., "Master machine learning"), explicitly 
 - Structured notes are generated
 - Concept relationships are mapped
 - User has a comprehensive organized note document
+- All organized notes are saved to files for future reference

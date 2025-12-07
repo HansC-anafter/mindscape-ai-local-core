@@ -98,6 +98,28 @@ This playbook can work in conjunction with:
 - `strategy_planning` - Use insights to inform strategy development
 - `market_analysis` - Combine with market insights for comprehensive view
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存洞察報告
+**必須**使用 `filesystem_write_file` 工具保存完整的洞察報告：
+
+- 文件路徑: `artifacts/insight_synthesis/{{execution_id}}/insights_report.md`
+- 內容: 完整的洞察報告，包含：
+  - 執行摘要
+  - 數據綜合概述
+  - 關鍵洞察和發現
+  - 商業影響分析
+  - 行動建議和優先級
+  - 實施路線圖
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存行動項目
+**必須**使用 `filesystem_write_file` 工具保存行動項目：
+
+- 文件路徑: `artifacts/insight_synthesis/{{execution_id}}/action_items.md`
+- 內容: 優先級行動項目和實施指南
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Multiple data sources are synthesized
 - Key insights are identified

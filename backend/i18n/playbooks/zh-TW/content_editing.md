@@ -103,6 +103,22 @@ If content includes audio files or requires audio analysis:
 - Analyze transcribed text for consistency with written content
 - Ensure audio and written content alignment
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存編輯後的內容
+**必須**使用 `filesystem_write_file` 工具保存編輯後的內容：
+
+- 文件路徑: `artifacts/content_editing/{{execution_id}}/edited_content.md`
+- 內容: 優化後的完整內容
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存編輯說明
+**必須**使用 `filesystem_write_file` 工具保存編輯說明：
+
+- 文件路徑: `artifacts/content_editing/{{execution_id}}/editing_notes.md`
+- 內容: 所有編輯建議、改進說明和 before/after 比較
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Content structure and logic are analyzed
 - Tone and style consistency are verified

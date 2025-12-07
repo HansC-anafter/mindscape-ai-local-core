@@ -111,6 +111,22 @@ If content includes audio files:
 - Verify audio quality and accessibility
 - Prepare audio descriptions if needed
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存發布計劃
+**必須**使用 `filesystem_write_file` 工具保存發布計劃：
+
+- 文件路徑: `artifacts/publishing_workflow/{{execution_id}}/publishing_plan.md`
+- 內容: 完整的發布計劃，包含檢查清單、發布說明和時程
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存內容日曆
+**必須**使用 `filesystem_write_file` 工具保存內容日曆：
+
+- 文件路徑: `artifacts/publishing_workflow/{{execution_id}}/content_calendar.md`
+- 內容: 發布時程和內容序列規劃
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Content completeness is verified
 - Format and guidelines are validated
@@ -118,3 +134,4 @@ If content includes audio files:
 - Publishing notes and announcements are prepared
 - Publishing schedule is planned
 - User has clear action items and timeline
+- All publishing workflow documents are saved to files for future reference

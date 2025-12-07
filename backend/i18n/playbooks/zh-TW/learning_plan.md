@@ -82,6 +82,34 @@ Based on user's Mindscape Profile:
 If user has related Active Intent (e.g., "Master Python programming"), explicitly reference it in responses:
 > "Since you're working towards 'Master Python programming', I recommend focusing on..."
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存學習計劃
+**必須**使用 `filesystem_write_file` 工具保存完整的學習計劃：
+
+- 文件路徑: `artifacts/learning_plan/{{execution_id}}/learning_plan.md`
+- 內容: 完整的學習計劃，包含：
+  - 學習目標
+  - 內容分解
+  - 學習路徑
+  - 練習方法
+  - 里程碑和檢查點
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存課程大綱
+**必須**使用 `filesystem_write_file` 工具保存課程大綱：
+
+- 文件路徑: `artifacts/learning_plan/{{execution_id}}/curriculum.md`
+- 內容: 結構化的課程大綱，包含所有模組和主題
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存學習里程碑
+**必須**使用 `filesystem_write_file` 工具保存學習里程碑：
+
+- 文件路徑: `artifacts/learning_plan/{{execution_id}}/milestones.md`
+- 內容: 所有里程碑、檢查點和時間線
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Clear learning objectives are established
 - Content is broken down into manageable modules
@@ -89,3 +117,4 @@ If user has related Active Intent (e.g., "Master Python programming"), explicitl
 - Practice methods are defined
 - Milestones and checkpoints are set
 - User has a comprehensive learning plan document
+- All learning plan documents are saved to files for future reference

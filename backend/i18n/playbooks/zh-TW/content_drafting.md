@@ -70,8 +70,32 @@ icon: ✍️
 如果用戶有相關的 Active Intent（如「完成募資頁內容」），在回應中明確提及：
 > "因為你正在推進「完成募資頁內容」，我會建議你..."
 
+### 階段 5: 文件生成與保存
+
+#### 步驟 5.1: 保存草稿內容
+**必須**使用 `filesystem_write_file` 工具保存起草的內容：
+
+- 文件路徑: `artifacts/content_drafting/{{execution_id}}/draft_content.md`
+- 內容: 完整的草稿內容，包含所有區塊和段落
+- 格式: Markdown 格式
+
+#### 步驟 5.2: 保存內容大綱（如適用）
+如果生成了內容大綱，保存到：
+
+- 文件路徑: `artifacts/content_drafting/{{execution_id}}/outline.md`
+- 內容: 內容結構和大綱，包含各區塊的重點和功能
+- 格式: Markdown 格式
+
+#### 步驟 5.3: 保存優化建議（如適用）
+如果提供了優化建議，保存到：
+
+- 文件路徑: `artifacts/content_drafting/{{execution_id}}/optimization_suggestions.md`
+- 內容: 語氣和風格調整建議、可加強的重點段落、潤飾和優化方向
+- 格式: Markdown 格式
+
 ## 成功標準
 - 內容結構清晰完整
 - 語氣風格符合目標受眾
 - 用戶獲得可用的草稿和優化建議
+- 所有生成的內容已保存到文件供後續參考
 

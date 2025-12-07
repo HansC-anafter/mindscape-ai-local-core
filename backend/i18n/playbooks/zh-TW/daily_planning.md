@@ -77,8 +77,25 @@ owner:
 如果用戶有相關的 Active Intent（如「完成三集群冷啟動 MVP」），在回應中明確提及：
 > "因為你正在推進「完成三集群冷啟動 MVP」，我會建議你..."
 
+### 階段 4: 文件生成與保存
+
+#### 步驟 4.1: 保存每日計劃
+**必須**使用 `filesystem_write_file` 工具保存每日計劃：
+
+- 文件路徑: `artifacts/daily_planning/{{execution_id}}/daily_plan.md`
+- 內容: 完整的每日計劃，包含所有任務和優先級
+- 格式: Markdown 格式
+
+#### 步驟 4.2: 保存任務列表
+**必須**使用 `filesystem_write_file` 工具保存任務列表：
+
+- 文件路徑: `artifacts/daily_planning/{{execution_id}}/task_list.md`
+- 內容: 詳細的任務列表，包含時間估算和執行建議
+- 格式: Markdown 格式
+
 ## 成功標準
 - 用戶理解任務優先級
 - 獲得可執行的任務清單
 - 明確下一步行動
+- 所有計劃文檔已保存到文件供後續參考
 

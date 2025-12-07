@@ -81,10 +81,27 @@ icon: 📱
 **輸出**：
 - 5 篇 IG 貼文，每篇包含文字和 hashtag
 
+### 階段 5: 文件生成與保存
+
+#### 步驟 5.1: 保存貼文列表（JSON 格式）
+**必須**使用 `filesystem_write_file` 工具保存貼文列表（JSON 格式）：
+
+- 文件路徑: `artifacts/ig_post_generation/{{execution_id}}/ig_posts.json`
+- 內容: JSON 格式的貼文列表，包含 text 和 hashtags
+- 格式: JSON 格式，使用 UTF-8 編碼
+
+#### 步驟 5.2: 保存貼文內容（可讀格式）
+**必須**使用 `filesystem_write_file` 工具保存貼文內容（可讀格式）：
+
+- 文件路徑: `artifacts/ig_post_generation/{{execution_id}}/ig_posts.md`
+- 內容: Markdown 格式的貼文內容，方便閱讀和編輯
+- 格式: Markdown 格式
+
 ## 注意事項
 
 - IG 貼文建議字數：2200 字以內
 - 會自動添加相關 hashtag
 - 生成的內容可能需要人工審核和調整
 - 支援多語言內容生成
+- 所有生成的貼文已保存到文件供後續使用
 

@@ -89,6 +89,27 @@ This playbook can work in conjunction with:
 - `project_breakdown` - Use project breakdown results to inform milestone planning
 - `daily_planning` - Convert milestones into daily/weekly tasks
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存里程碑計劃
+**必須**使用 `filesystem_write_file` 工具保存完整的里程碑計劃：
+
+- 文件路徑: `artifacts/milestone_planning/{{execution_id}}/milestone_plan.md`
+- 內容: 完整的里程碑計劃，包含：
+  - 專案目標和範圍
+  - 關鍵節點識別
+  - 里程碑標準定義
+  - 時程設定
+  - 風險和依賴關係
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存時間線
+**必須**使用 `filesystem_write_file` 工具保存時間線：
+
+- 文件路徑: `artifacts/milestone_planning/{{execution_id}}/timeline.md`
+- 內容: 詳細的時間線，包含所有里程碑的目標日期和依賴關係
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Clear project goals and scope are established
 - Critical nodes are identified
@@ -96,3 +117,4 @@ This playbook can work in conjunction with:
 - Realistic timeline is created
 - Risks and dependencies are documented
 - User has a comprehensive milestone plan document
+- All milestone planning documents are saved to files for future reference

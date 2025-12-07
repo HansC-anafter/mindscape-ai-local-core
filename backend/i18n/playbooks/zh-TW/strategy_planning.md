@@ -95,6 +95,34 @@ This playbook can work in conjunction with:
 - `insight_synthesis` - Use business insights to guide strategy development
 - `data_analysis` - Use data analysis to support strategic decisions
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存策略計劃
+**必須**使用 `filesystem_write_file` 工具保存完整的策略計劃：
+
+- 文件路徑: `artifacts/strategy_planning/{{execution_id}}/strategy_plan.md`
+- 內容: 完整的策略計劃，包含：
+  - 商業目標和現狀
+  - 市場和競爭分析
+  - 機會和威脅識別
+  - 策略方向和定位
+  - 執行計劃和行動項目
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存路線圖
+**必須**使用 `filesystem_write_file` 工具保存執行路線圖：
+
+- 文件路徑: `artifacts/strategy_planning/{{execution_id}}/roadmap.md`
+- 內容: 詳細的路線圖，包含時間線、里程碑和交付物
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存里程碑
+**必須**使用 `filesystem_write_file` 工具保存里程碑計劃：
+
+- 文件路徑: `artifacts/strategy_planning/{{execution_id}}/milestones.md`
+- 內容: 所有里程碑、交付物和成功指標
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Business goals and current state are documented
 - Market and competition are analyzed
@@ -102,3 +130,4 @@ This playbook can work in conjunction with:
 - Strategy direction is defined
 - Execution plan is created
 - User has comprehensive strategy document with actionable roadmap
+- All strategy documents are saved to files for future reference

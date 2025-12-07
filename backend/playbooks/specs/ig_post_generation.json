@@ -50,6 +50,27 @@
       "description": "Extracted key topics",
       "source": "step.extract_topics.topics"
     }
-  }
+  },
+  "output_artifacts": [
+    {
+      "id": "instagram_posts",
+      "artifact_type": "post",
+      "primary_action_type": "copy",
+      "title_template": "Instagram 貼文 - {{input.post_count}} 篇",
+      "summary_template": "基於「{{input.source_content}}」生成的 {{input.post_count}} 篇 Instagram 貼文",
+      "source": "step.generate_posts.ig_posts",
+      "file_write": {
+        "enabled": true,
+        "file_name_template": "ig_posts.json",
+        "encoding": "utf-8"
+      },
+      "metadata": {
+        "platform": "instagram",
+        "post_count": "{{input.post_count}}",
+        "navigate_to": "{{execution_id}}",
+        "navigate_type": "execution"
+      }
+    }
+  ]
 }
 

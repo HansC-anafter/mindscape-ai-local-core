@@ -92,10 +92,27 @@ This playbook can work in conjunction with:
 - `product_breakdown` - Use product breakdown results to inform feature-to-story mapping
 - `milestone_planning` - Use story priorities to inform milestone planning
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存用戶故事地圖
+**必須**使用 `filesystem_write_file` 工具保存用戶故事地圖：
+
+- 文件路徑: `artifacts/user_story_mapping/{{execution_id}}/user_story_map.md`
+- 內容: 完整的用戶故事地圖，包含所有故事、優先級和關係
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存故事分解
+**必須**使用 `filesystem_write_file` 工具保存故事分解：
+
+- 文件路徑: `artifacts/user_story_mapping/{{execution_id}}/story_breakdown.md`
+- 內容: 詳細的故事分解，包含功能映射和依賴關係
+- 格式: Markdown 格式
+
 ## Success Criteria
 - User roles and scenarios are clearly identified
 - User stories are generated in standard format
 - Features are mapped to relevant stories
 - Stories are prioritized based on value and impact
 - A comprehensive story map is generated
+- All story mapping documents are saved to files for future reference
 - User has a clear understanding of feature-to-story relationships

@@ -97,6 +97,35 @@ This playbook can work in conjunction with:
 - `information_organization` - Use synthesis results to organize knowledge base
 - `note_organization` - Organize research notes before synthesis
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存研究報告
+**必須**使用 `filesystem_write_file` 工具保存完整的研究報告：
+
+- 文件路徑: `artifacts/research_synthesis/{{execution_id}}/research_report.md`
+- 內容: 完整的研究報告，包含：
+  - 執行摘要
+  - 研究方法和來源
+  - 按主題分類的關鍵發現
+  - 綜合結論
+  - 研究空白和未來方向
+  - 參考資料和引用
+- 格式: Markdown 格式，使用標題、列表和引用
+
+#### 步驟 6.2: 保存關鍵發現
+**必須**使用 `filesystem_write_file` 工具保存關鍵發現：
+
+- 文件路徑: `artifacts/research_synthesis/{{execution_id}}/key_findings.md`
+- 內容: 從所有來源提取的關鍵發現和觀點
+- 格式: Markdown 格式
+
+#### 步驟 6.3: 保存參考資料
+**必須**使用 `filesystem_write_file` 工具保存參考資料：
+
+- 文件路徑: `artifacts/research_synthesis/{{execution_id}}/references.md`
+- 內容: 所有研究來源的參考資料和引用
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Research materials are collected and organized
 - Core viewpoints are extracted from all sources
@@ -104,3 +133,4 @@ This playbook can work in conjunction with:
 - Findings are synthesized into coherent conclusions
 - Comprehensive research report is generated
 - User has clear insights and recommendations
+- All research findings are saved to files for future reference

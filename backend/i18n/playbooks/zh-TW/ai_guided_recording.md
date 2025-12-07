@@ -122,6 +122,22 @@ This playbook deeply integrates with Voice Recording capability pack:
 5. Transcribe and verify content
 6. Merge recordings into final audio file
 
+### Phase 6: 文件生成與保存
+
+#### 步驟 6.1: 保存錄製筆記
+**必須**使用 `filesystem_write_file` 工具保存錄製筆記：
+
+- 文件路徑: `artifacts/ai_guided_recording/{{execution_id}}/recording_notes.md`
+- 內容: 完整的錄製過程記錄，包含參數設定、指導說明和品質檢查結果
+- 格式: Markdown 格式
+
+#### 步驟 6.2: 保存轉錄稿（如已生成）
+如果已生成轉錄稿，保存到：
+
+- 文件路徑: `artifacts/ai_guided_recording/{{execution_id}}/transcript.md`
+- 內容: 完整的音頻轉錄稿
+- 格式: Markdown 格式
+
 ## Success Criteria
 - Course outline and script are prepared
 - Recording parameters are set
