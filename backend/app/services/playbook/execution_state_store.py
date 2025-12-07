@@ -35,7 +35,11 @@ class ExecutionStateStore:
                 execution_context["conversation_state"] = conversation_state_dict
 
                 # Update current_step_index to match conv_manager.current_step
-                execution_context["current_step_index"] = conv_manager.current_step
+                # conv_manager.current_step is 0-based and represents the NEXT step to execute
+                # current_step_index should be 0-based and represent the CURRENT completed step
+                # So we need to subtract 1, but ensure it's not negative
+                current_step_index_0based = max(0, conv_manager.current_step - 1)
+                execution_context["current_step_index"] = current_step_index_0based
 
                 # Calculate dynamic total_steps from existing step events
                 try:
@@ -59,7 +63,7 @@ class ExecutionStateStore:
                         execution_context["total_steps"] = conv_manager.current_step + 1
 
                 tasks_store.update_task(task.id, execution_context=execution_context)
-                logger.info(f"Saved execution state for {execution_id} to database (current_step={conv_manager.current_step}, total_steps={execution_context.get('total_steps')}, conversation_length={len(conversation_state_dict.get('conversation_history', []))})")
+                logger.info(f"Saved execution state for {execution_id} to database (current_step={conv_manager.current_step}, current_step_index={current_step_index_0based}, total_steps={execution_context.get('total_steps')}, conversation_length={len(conversation_state_dict.get('conversation_history', []))})")
             else:
                 logger.warning(f"Cannot save execution state: Task not found for execution_id {execution_id}")
         except Exception as e:
