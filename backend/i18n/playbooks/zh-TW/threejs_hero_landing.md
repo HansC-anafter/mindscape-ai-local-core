@@ -40,7 +40,31 @@ icon: 🎨
 
 ## 執行步驟
 
+### Phase 0: 檢查 Project Context
+
+#### 步驟 0.1: 檢查是否有活躍的 web_page project
+- 檢查 execution context 中是否有 `project_id`
+- 如果有，確認 project type 為 `web_page` 或 `website`
+- 如果沒有，使用現有流程（獨立生成到 artifacts）
+
+#### 步驟 0.2: 獲取 Project Sandbox 路徑（如果有 project）
+- 如果有 project context，使用 `project_sandbox_manager.get_sandbox_path()` 獲取 sandbox 路徑
+- Sandbox 路徑結構：`sandboxes/{workspace_id}/{project_type}/{project_id}/`
+- 確保 `hero/` 目錄存在
+
+#### 步驟 0.3: 讀取頁面規格（如果有 project）
+- 如果有 project context，嘗試讀取 `spec/page.md`（從 `page_outline` playbook）
+- 如果存在，使用 page.md 中的 hero 規劃作為設計參考
+- 如果不存在，使用現有流程（獨立需求收集）
+
 ### Phase 1: 需求收集
+
+#### 如果有 Project Context 且存在 `spec/page.md`：
+- **讀取頁面規格**：從 `spec/page.md` 中提取 hero 區塊的規劃
+- **使用規格中的設計**：使用 page.md 中定義的 hero 類型、內容、風格
+- **補充細節**：如果需要，詢問額外的技術細節（相機行為、互動風格等）
+
+#### 如果沒有 Project Context 或不存在 `spec/page.md`：
 - **設計參考**：詢問設計靈感、情緒板或參考網站
 - **相機行為**：了解期望的相機移動方式（軌道、基於滾動、互動式）
 - **互動風格**：確定使用者互動（滑鼠移動、滾動觸發、點擊事件）
@@ -275,20 +299,44 @@ export default function ComponentName({ ...props }: ComponentNameProps) {
 - "創建一個復古風格的登陸頁面 hero，使用滾動觸發動畫，添加到 index 頁面"
 - "生成一個極簡的 hero 區塊，有 3D 幾何體和溶解過渡效果，整合到 site-brand"
 
-### Phase 6: 執行記錄保存
+### Phase 6: 組件輸出與保存
 
-#### 步驟 6.1: 保存對話歷史
+#### 步驟 6.1: 確定輸出路徑
+**根據是否有 Project Context**：
+
+**如果有 Project Context**：
+- **輸出路徑**：`hero/Hero.tsx`（在 Project Sandbox 中）
+- **完整路徑**：`sandboxes/{workspace_id}/{project_type}/{project_id}/hero/Hero.tsx`
+- **註冊 Artifact**：使用 `artifact_registry.register_artifact` 註冊
+  - `artifact_id`: `hero_component`
+  - `artifact_type`: `react_component`
+  - `path`: `hero/Hero.tsx`
+
+**如果沒有 Project Context**：
+- **輸出路徑**：`artifacts/threejs_hero_landing/{{execution_id}}/ParticleNetworkHero.tsx`
+- 使用現有流程（獨立生成）
+
+#### 步驟 6.2: 保存生成的組件代碼
+**必須**使用 `filesystem_write_file` 工具保存生成的 React Three Fiber 組件：
+
+- **文件路徑**：根據步驟 6.1 確定的路徑
+- **內容**：完整的組件代碼（包含所有導入、類型定義、組件邏輯）
+- **確保文件可以直接在項目中使用**
+
+#### 步驟 6.3: 保存對話歷史
 **必須**使用 `filesystem_write_file` 工具保存完整的對話歷史：
 
-- 文件路徑: `artifacts/threejs_hero_landing/{{execution_id}}/conversation_history.json`
-- 內容: 完整的對話歷史（包含所有 user 和 assistant 消息）
-- 格式: JSON 格式，包含時間戳和角色信息
+- **文件路徑**：
+  - 如果有 Project Context：`artifacts/threejs_hero_landing/{{execution_id}}/conversation_history.json`
+  - 如果沒有 Project Context：`artifacts/threejs_hero_landing/{{execution_id}}/conversation_history.json`
+- **內容**：完整的對話歷史（包含所有 user 和 assistant 消息）
+- **格式**：JSON 格式，包含時間戳和角色信息
 
-#### 步驟 6.2: 保存執行摘要
+#### 步驟 6.4: 保存執行摘要
 **必須**使用 `filesystem_write_file` 工具保存執行摘要：
 
-- 文件路徑: `artifacts/threejs_hero_landing/{{execution_id}}/execution_summary.md`
-- 內容:
+- **文件路徑**：`artifacts/threejs_hero_landing/{{execution_id}}/execution_summary.md`
+- **內容**:
   - 執行時間
   - 執行 ID
   - Playbook 名稱
@@ -296,19 +344,13 @@ export default function ComponentName({ ...props }: ComponentNameProps) {
   - 執行結果摘要
   - 生成的組件名稱和路徑
   - 整合說明和依賴清單
+  - 是否有 Project Context（如果有，記錄 project_id）
 
-#### 步驟 6.3: 保存生成的組件代碼
-**必須**使用 `filesystem_write_file` 工具保存生成的 React Three Fiber 組件：
-
-- 文件路徑: `artifacts/threejs_hero_landing/{{execution_id}}/ParticleNetworkHero.tsx`
-- 內容: 完整的組件代碼（包含所有導入、類型定義、組件邏輯）
-- 確保文件可以直接在項目中使用
-
-#### 步驟 6.4: 保存使用範例（如已生成）
+#### 步驟 6.5: 保存使用範例（如已生成）
 如果生成了使用範例，保存到：
 
-- 文件路徑: `artifacts/threejs_hero_landing/{{execution_id}}/usage-example.tsx`
-- 內容: 完整的使用範例代碼
+- **文件路徑**：`artifacts/threejs_hero_landing/{{execution_id}}/usage-example.tsx`
+- **內容**：完整的使用範例代碼
 
 ## 注意事項
 - 始終首先生成獨立程式碼以便測試
