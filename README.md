@@ -181,9 +181,6 @@ For a more detailed setup guide, see [QUICKSTART.md](./QUICKSTART.md) or [Instal
 
 ### Core Architecture (v2.0)
 - [Core Architecture Documentation](./docs/core-architecture/README.md) - Project + Flow + Sandbox architecture
-- [Version Iteration Guide](./docs/core-architecture/version-iteration.md) - v2.0 architecture changes
-- [Workspace Lifecycle Management](./docs/core-architecture/workspace-lifecycle-management.md) - Workspace and Project lifecycle
-- [Implementation Progress](./docs/core-architecture/implementation-progress-2025-12-07.md) - Detailed implementation records
 
 ## 🧩 Port Architecture
 

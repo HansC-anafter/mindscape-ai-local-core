@@ -177,9 +177,6 @@ npm run dev
 
 ### 核心架構（v2.0）
 - [核心架構文檔](./docs/core-architecture/README.md) - Project + Flow + Sandbox 架構
-- [版本迭代說明](./docs/core-architecture/version-iteration.md) - v2.0 架構變更
-- [Workspace 生命週期管理](./docs/core-architecture/workspace-lifecycle-management.md) - Workspace 與 Project 生命週期
-- [實作進度報告](./docs/core-architecture/implementation-progress-2025-12-07.md) - 詳細實作記錄
 
 ## 🧩 Port 架構
 
