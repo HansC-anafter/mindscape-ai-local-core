@@ -8,7 +8,7 @@
  * This Frontend PlaybookRegistry (TypeScript) handles UI components and layouts.
  */
 
-import { React.ComponentType } from 'react';
+import type { ComponentType } from 'react';
 
 export interface UILayoutConfig {
   type: 'book_writing' | 'course_writing' | 'proposal_drafting' | 'default';
@@ -40,7 +40,7 @@ export interface PlaybookPackage {
   playbookSpec?: PlaybookSpec;
   uiLayout?: UILayoutConfig;
   components?: {
-    [componentName: string]: React.ComponentType<any>;
+    [componentName: string]: ComponentType<any>;
   };
 }
 
@@ -90,7 +90,7 @@ export class PlaybookRegistry {
   getComponent(
     playbookCode: string,
     componentName: string
-  ): React.ComponentType<any> | undefined {
+  ): ComponentType<any> | undefined {
     const playbook = this.get(playbookCode);
     return playbook?.components?.[componentName];
   }

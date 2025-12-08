@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import LeftSidebarTabs from '../../app/workspaces/[workspaceId]/components/LeftSidebarTabs';
-import TimelinePanel from '../../app/workspaces/[workspaceId]/components/TimelinePanel';
+import TimelinePanel from '../../app/workspaces/components/TimelinePanel';
 import OutcomesPanel from '../../app/workspaces/[workspaceId]/components/OutcomesPanel';
 import BackgroundTasksPanel from '../../app/workspaces/components/BackgroundTasksPanel';
 
@@ -14,7 +14,7 @@ interface DefaultLeftSidebarProps {
 
 /**
  * DefaultLeftSidebar - Default left sidebar for workspace
- * 
+ *
  * Shows Timeline, Outcomes, and Background tabs when no playbook is active.
  * This is the default "dispatch center" for general workspace navigation.
  */

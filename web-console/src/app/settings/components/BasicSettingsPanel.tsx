@@ -14,6 +14,7 @@ import { EmbeddingSettings } from './panels/EmbeddingSettings';
 import { LLMChatSettings } from './panels/LLMChatSettings';
 import { BackendStatusSection } from './panels/BackendStatusSection';
 import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSettings';
+import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
@@ -182,6 +183,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         return (
           <div className="space-y-6">
             <LanguagePreferencesSettings />
+          </div>
+        );
+
+      case 'cloud-extension':
+        return (
+          <div className="space-y-6">
+            <CloudExtensionSettings />
           </div>
         );
 

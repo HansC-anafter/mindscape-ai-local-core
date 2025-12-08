@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Header from '../../../components/Header';
 import WorkspaceChat from '../../../components/WorkspaceChat';
 import MindscapeAIWorkbench from '../../../components/MindscapeAIWorkbench';
 import ResearchModePanel from '../../../components/ResearchModePanel';
@@ -261,7 +260,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
           <div className="text-gray-500 dark:text-gray-400">{t('loadingWorkspace')}</div>
         </div>
@@ -272,7 +270,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   if (error || (!workspace && !loading)) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
           <div className="text-center">
             <div className="text-red-500 dark:text-red-400 mb-4">{error || t('workspaceNotFound')}</div>
@@ -294,7 +291,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <Header />
 
       <div className="flex flex-col h-[calc(100vh-48px)]">
         {/* Train Header - Progress Bar with Workspace Name */}
@@ -658,7 +654,6 @@ export default function WorkspacePage() {
   if (!workspaceId) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
           <div className="text-gray-500 dark:text-gray-400">{t('workspaceNotFound')}</div>
         </div>

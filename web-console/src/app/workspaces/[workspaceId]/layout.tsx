@@ -1,11 +1,8 @@
 'use client';
 
 import React from 'react';
-import { usePathname } from 'next/navigation';
 import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
-import { DynamicLeftSidebar } from '@/components/playbooks/DynamicLeftSidebar';
-import { usePlaybookLeftSidebar } from '@/hooks/usePlaybookLeftSidebar';
 import Header from '../../../components/Header';
 
 interface WorkspaceLayoutProps {
@@ -23,15 +20,7 @@ export default function WorkspaceLayout({
   children,
   params
 }: WorkspaceLayoutProps) {
-  const pathname = usePathname();
   const { workspaceId } = params;
-
-  const isPlaybookSurface = pathname?.includes('/playbook/');
-  const playbookCode = isPlaybookSurface
-    ? pathname?.split('/playbook/')[1]?.split('/')[0] || null
-    : null;
-
-  const { config: leftSidebarConfig } = usePlaybookLeftSidebar(playbookCode);
 
   return (
     <WorkspaceDataProvider workspaceId={workspaceId}>
@@ -39,11 +28,6 @@ export default function WorkspaceLayout({
         <div className="flex flex-col h-screen">
           <Header />
           <div className="flex flex-1 overflow-hidden">
-            <DynamicLeftSidebar
-              playbookCode={playbookCode}
-              workspaceId={workspaceId}
-              config={leftSidebarConfig}
-            />
             <main className="flex-1 overflow-hidden">
               {children}
             </main>

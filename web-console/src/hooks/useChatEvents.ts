@@ -113,7 +113,12 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
 
         // Only show if it's a cold start and no user messages yet
         if (isColdStart && !hasUserMessages) {
-          setQuickStartSuggestions(welcomeMessage.suggestions);
+          // Filter out placeholder / malformed suggestions (e.g. "或許可以開始")
+          const cleaned = (welcomeMessage.suggestions || [])
+            .map((s: string) => (s || '').trim())
+            .filter((s: string) => s.length > 0)
+            .filter((s: string) => !/^或許(也)?可以開始/i.test(s) && !/^maybe\s*(we)?\s*can\s*start/i.test(s));
+          setQuickStartSuggestions(cleaned);
         } else {
           setQuickStartSuggestions([]);
         }

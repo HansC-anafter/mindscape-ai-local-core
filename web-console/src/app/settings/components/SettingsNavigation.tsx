@@ -89,6 +89,12 @@ const navigationItems: NavigationItem[] = [
         tab: 'basic',
         section: 'oauth',
       },
+      {
+        id: 'cloud-extension',
+        label: 'cloudExtension',
+        tab: 'basic',
+        section: 'cloud-extension',
+      },
     ],
   },
   {

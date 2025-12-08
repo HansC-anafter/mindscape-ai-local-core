@@ -1187,7 +1187,7 @@ export default function WorkspaceChat({
 
       {/* Quick Start Suggestions - Above input box */}
       {quickStartSuggestions.length > 0 && (
-        <div className="px-4 pt-4 pb-2 border-t bg-gray-50">
+        <div className="px-3 pt-2 pb-1 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
           <div className="flex flex-wrap gap-2">
             {quickStartSuggestions.map((suggestion, idx) => (
               <button
@@ -1202,7 +1202,7 @@ export default function WorkspaceChat({
                     }
                   }, 100);
                 }}
-                className="px-3 py-1.5 text-xs bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 hover:border-blue-400 transition-colors"
+                className="px-2.5 py-1 text-xs bg-white dark:bg-gray-800 border border-blue-300 dark:border-gray-600 text-blue-700 dark:text-gray-100 rounded-md hover:bg-blue-50 dark:hover:bg-gray-700 hover:border-blue-400 transition-colors"
               >
                 {suggestion.startsWith('suggestion.') || suggestion.startsWith('suggestions.') ? t(suggestion as any) || suggestion : suggestion}
               </button>
