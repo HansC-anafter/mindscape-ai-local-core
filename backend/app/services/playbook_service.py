@@ -303,7 +303,8 @@ class PlaybookService:
         workspace_id: str,
         profile_id: str,
         inputs: Dict[str, Any],
-        execution_mode: ExecutionMode = ExecutionMode.ASYNC
+        execution_mode: ExecutionMode = ExecutionMode.ASYNC,
+        locale: str = "zh-TW"
     ) -> ExecutionResult:
         """
         Execute playbook
@@ -314,11 +315,12 @@ class PlaybookService:
             profile_id: Profile ID
             inputs: Input parameters
             execution_mode: Execution mode (sync, async, stream)
+            locale: Language locale (default: zh-TW)
 
         Returns:
             ExecutionResult object
         """
-        playbook = await self.get_playbook(playbook_code, workspace_id=workspace_id)
+        playbook = await self.get_playbook(playbook_code, locale=locale, workspace_id=workspace_id)
         if not playbook:
             raise ValueError(f"Playbook not found: {playbook_code}")
 
@@ -326,7 +328,8 @@ class PlaybookService:
 
         playbook_run_executor = PlaybookRunExecutor()
         executor_inputs = inputs or {}
-        locale = executor_inputs.get('locale') or 'zh-TW'
+        # Use locale from parameter, fallback to inputs, then default
+        executor_locale = locale or executor_inputs.get('locale') or 'zh-TW'
 
         try:
             execution_result_dict = await playbook_run_executor.execute_playbook_run(
@@ -335,7 +338,7 @@ class PlaybookService:
                 inputs=executor_inputs,
                 workspace_id=workspace_id,
                 target_language=executor_inputs.get('target_language'),
-                locale=locale
+                locale=executor_locale
             )
 
             # Extract execution_id from different possible locations
