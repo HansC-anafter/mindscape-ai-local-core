@@ -9,8 +9,8 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.sandbox.sandbox_manager import SandboxManager
 from backend.app.services.project.project_manager import ProjectManager
+# Import SandboxManager lazily to avoid circular import
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ class SandboxPlaybookAdapter:
             store: MindscapeStore instance
         """
         self.store = store
+        # Lazy import to avoid circular dependency
+        from backend.app.services.sandbox.sandbox_manager import SandboxManager
         self.sandbox_manager = SandboxManager(store)
         self.project_manager = ProjectManager(store)
 

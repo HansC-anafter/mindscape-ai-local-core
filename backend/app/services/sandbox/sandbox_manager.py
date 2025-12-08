@@ -14,7 +14,7 @@ from backend.app.services.sandbox.types import get_sandbox_class
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.sandbox.base_sandbox import BaseSandbox
 from backend.app.services.sandbox.storage.local_storage import LocalStorage
-from backend.app.services.project.project_sandbox_manager import ProjectSandboxManager
+# Import ProjectSandboxManager lazily to avoid circular import
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class SandboxManager:
             base_sandbox_dir: Base directory for sandbox storage (default: data/sandboxes)
         """
         self.store = store
-        self.project_sandbox_manager = ProjectSandboxManager(store)
+        self._project_sandbox_manager = None  # Lazy initialization to avoid circular dependency
 
         if base_sandbox_dir:
             self.base_sandbox_dir = Path(base_sandbox_dir)

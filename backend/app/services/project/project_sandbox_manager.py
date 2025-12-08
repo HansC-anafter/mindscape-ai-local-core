@@ -3,6 +3,8 @@ Project Sandbox Manager
 
 Manages sandbox directories for Projects.
 Provides isolated file system spaces for project artifacts.
+
+Now uses unified SandboxManager internally while maintaining backward compatibility.
 """
 
 import os
@@ -12,6 +14,7 @@ import logging
 
 from backend.app.services.project.project_manager import ProjectManager
 from backend.app.services.mindscape_store import MindscapeStore
+# Import SandboxPlaybookAdapter lazily to avoid circular import
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +31,23 @@ class ProjectSandboxManager:
         """
         Initialize Project Sandbox Manager
 
+        Now uses unified SandboxManager internally while maintaining backward compatibility.
+
         Args:
             store: MindscapeStore instance
             base_sandbox_dir: Base directory for sandboxes (default: data/sandboxes)
         """
         self.store = store
         self.project_manager = ProjectManager(store)
+        self._sandbox_adapter = None  # Lazy initialization to avoid circular dependency
+
+    @property
+    def sandbox_adapter(self):
+        """Lazy initialization of SandboxPlaybookAdapter"""
+        if self._sandbox_adapter is None:
+            from backend.app.services.sandbox.playbook_integration import SandboxPlaybookAdapter
+            self._sandbox_adapter = SandboxPlaybookAdapter(self.store)
+        return self._sandbox_adapter
 
         if base_sandbox_dir:
             self.base_sandbox_dir = Path(base_sandbox_dir)
@@ -51,27 +65,35 @@ class ProjectSandboxManager:
         """
         Get or create sandbox directory for a project
 
-        Sandbox path structure: sandboxes/{workspace_id}/{project_type}/{project_id}/
+        Now uses unified SandboxManager internally while maintaining backward compatibility.
+        Returns path to current version of unified sandbox.
 
         Args:
             project_id: Project ID
             workspace_id: Workspace ID (for validation and path isolation)
 
         Returns:
-            Path to project sandbox directory
+            Path to project sandbox directory (current version)
 
         Raises:
             ValueError: If project not found or workspace mismatch
         """
-        project = await self.project_manager.get_project(project_id, workspace_id=workspace_id)
-        if not project:
-            raise ValueError(f"Project {project_id} not found")
+        try:
+            return await self.sandbox_adapter.get_sandbox_path_for_compatibility(
+                project_id=project_id,
+                workspace_id=workspace_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get unified sandbox path, falling back to legacy: {e}")
+            project = await self.project_manager.get_project(project_id, workspace_id=workspace_id)
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
 
-        sandbox_path = self.base_sandbox_dir / workspace_id / project.type / project_id
-        sandbox_path.mkdir(parents=True, exist_ok=True)
+            sandbox_path = self.base_sandbox_dir / workspace_id / project.type / project_id
+            sandbox_path.mkdir(parents=True, exist_ok=True)
 
-        logger.debug(f"Sandbox path for project {project_id} (workspace {workspace_id}): {sandbox_path}")
-        return sandbox_path
+            logger.debug(f"Sandbox path for project {project_id} (workspace {workspace_id}): {sandbox_path}")
+            return sandbox_path
 
     async def get_artifact_path(
         self,

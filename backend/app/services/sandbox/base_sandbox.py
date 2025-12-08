@@ -179,9 +179,34 @@ class BaseSandbox(ABC):
             True if version exists and switch successful, False otherwise
         """
         versions = await self.list_versions()
-        if version in versions:
+        if version not in versions:
+            return False
+
+        success = await self.storage.switch_version(version)
+        if success:
             self.current_version = version
-            return True
+        return success
+
+    async def rollback_to_version(self, version: str) -> bool:
+        """
+        Rollback to a specific version
+
+        Creates a new version from the target version and switches to it.
+
+        Args:
+            version: Version identifier to rollback to
+
+        Returns:
+            True if rollback successful, False otherwise
+        """
+        versions = await self.list_versions()
+        if version not in versions:
+            return False
+
+        rollback_version = f"rollback-{version}"
+        success = await self.create_version(rollback_version, source_version=version)
+        if success:
+            return await self.switch_version(rollback_version)
         return False
 
     @abstractmethod

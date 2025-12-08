@@ -601,7 +601,7 @@ class PlaybookSelector:
         for pb in available_playbooks:
             playbook_info = f"- {pb.playbook_code}: {pb.name}"
             if pb.description:
-                playbook_info += f" ({pb.description[:100]})"
+                playbook_info += f" ({pb.description[:300]})"
             if pb.tags:
                 playbook_info += f" [tags: {', '.join(pb.tags)}]"
             playbook_list.append(playbook_info)
@@ -1059,7 +1059,7 @@ class IntentPipeline:
 
             playbook_info = f"- {playbook_code}: {name}"
             if description:
-                playbook_info += f" ({description[:100]})"
+                playbook_info += f" ({description[:300]})"
             if tags:
                 playbook_info += f" [tags: {', '.join(tags)}]"
             playbook_list.append(playbook_info)
