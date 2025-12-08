@@ -1,0 +1,73 @@
+/**
+ * Major Proposal i18n messages
+ * Major proposal errors and UI strings
+ */
+import type { MessageKey } from '../keys';
+
+export const majorProposalZhTW = {
+  // Major Proposal errors
+  majorProposalDraftGenerated: '章節草稿已生成！',
+  majorProposalGenerateFailed: '生成失敗：{error}',
+  majorProposalAssembleFailed: '組裝失敗：{error}',
+  majorProposalAssembled: '文件已組裝完成！\n\nMarkdown 內容已生成。\nDOCX 檔案路徑: {path}',
+  majorProposalEnterContent: '請至少輸入一些內容',
+  majorProposalSaved: '已儲存',
+  majorProposalSaveFailed: '儲存失敗：{error}',
+  majorProposalSelectTemplate: '請選擇模板',
+  majorProposalEnterProjectName: '請輸入專案名稱',
+  majorProposalCreateProjectFailed: '建立專案失敗：{error}',
+  majorProposalTemplateCreated: '模板已成功建立！ID: {id}',
+  majorProposalUploadFailed: '上傳失敗：{error}',
+  majorProposalSelectAtLeastOneFile: '請選擇至少一個檔案',
+  majorProposalProjectNotFound: '專案不存在',
+  majorProposalTemplateNotFound: '模板不存在',
+  majorProposalAssembling: '組裝中...',
+  majorProposalAssembleComplete: '組裝完整文件',
+  majorProposalGenerating: '生成中...',
+  majorProposalGenerateDraft: '生成章節草稿',
+  majorProposalSaving: '儲存中...',
+  majorProposalSaveEdit: '儲存編輯',
+  majorProposalEnterInfo: '請輸入相關資訊...',
+  majorProposalEnterProjectNamePlaceholder: '例如：我的創業補助申請',
+  majorProposalCreating: '建立中...',
+  majorProposalCreateProject: '建立專案',
+  majorProposalUploading: '上傳中...',
+  majorProposalUpload: '上傳',
+  majorProposalEnterTemplateNamePlaceholder: '例如：2025 年度創業補助申請',
+  majorProposalWordLimit: '字數限制: {min} - {max} 字',
+  majorProposalNoWordLimit: '字數限制: {min} - 無上限 字',
+} as const satisfies Partial<Record<MessageKey, string>>;
+
+export const majorProposalEn = {
+  // Major Proposal errors
+  majorProposalDraftGenerated: 'Chapter draft generated!',
+  majorProposalGenerateFailed: 'Generation failed: {error}',
+  majorProposalAssembleFailed: 'Assembly failed: {error}',
+  majorProposalAssembled: 'File assembly complete!\n\nMarkdown content generated.\nDOCX file path: {path}',
+  majorProposalEnterContent: 'Please enter some content',
+  majorProposalSaved: 'Saved',
+  majorProposalSaveFailed: 'Save failed: {error}',
+  majorProposalSelectTemplate: 'Please select a template',
+  majorProposalEnterProjectName: 'Please enter project name',
+  majorProposalCreateProjectFailed: 'Failed to create project: {error}',
+  majorProposalTemplateCreated: 'Template created successfully! ID: {id}',
+  majorProposalUploadFailed: 'Upload failed: {error}',
+  majorProposalSelectAtLeastOneFile: 'Please select at least one file',
+  majorProposalProjectNotFound: 'Project not found',
+  majorProposalTemplateNotFound: 'Template not found',
+  majorProposalAssembling: 'Assembling...',
+  majorProposalAssembleComplete: 'Assemble Complete File',
+  majorProposalGenerating: 'Generating...',
+  majorProposalGenerateDraft: 'Generate Chapter Draft',
+  majorProposalSaving: 'Saving...',
+  majorProposalSaveEdit: 'Save Edit',
+  majorProposalEnterInfo: 'Please enter relevant information...',
+  majorProposalEnterProjectNamePlaceholder: 'e.g., My startup grant application',
+  majorProposalCreating: 'Creating...',
+  majorProposalCreateProject: 'Create Project',
+  majorProposalUploading: 'Uploading...',
+  majorProposalUpload: 'Upload',
+  majorProposalEnterTemplateNamePlaceholder: 'e.g., 2025 Startup Grant Application',
+  majorProposalWordLimit: 'Word limit: {min} - {max} words',
+  majorProposalNoWordLimit: 'Word limit: {min} - No limit words',
+} as const satisfies Partial<Record<MessageKey, string>>;

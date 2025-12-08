@@ -30,7 +30,7 @@ interface WorkspaceSettingsProps {
 const EXECUTION_MODE_OPTIONS: { value: ExecutionMode; label: string; icon: string; description: string }[] = [
   { value: 'qa', label: '對話模式', icon: '💬', description: '討論為主，執行為輔' },
   { value: 'execution', label: '執行模式', icon: '⚡', description: '行動優先，直接產出' },
-  { value: 'hybrid', label: '混合模式', icon: '🔄', description: '平衡對話與執行' },
+  { value: 'hybrid', label: '邊做邊聊', icon: '🔄', description: '邊聊邊執行，平衡對話與行動' },
 ];
 
 const EXECUTION_PRIORITY_OPTIONS: { value: ExecutionPriority; label: string; description: string }[] = [

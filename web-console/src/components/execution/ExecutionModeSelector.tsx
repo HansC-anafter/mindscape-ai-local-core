@@ -28,9 +28,9 @@ const modeConfig: Record<ExecutionMode, {
     description: '協作模式：行動優先',
   },
   hybrid: {
-    label: '混合模式',
+    label: '邊做邊聊',
     icon: '🔄',
-    description: '混合模式：平衡兩者',
+    description: '邊做邊聊：邊聊邊執行，平衡對話與動作',
   },
 };
 
