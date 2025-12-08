@@ -111,7 +111,7 @@ This local core focuses on:
   * Execution context abstraction
   * Three-layer architecture (Signal, Intent Governance, Execution)
 
-Cloud / multi-tenant console (Console-Kit, Site-Hub, etc.) are **not** part of this repo.
+Cloud / multi-tenant features are provided through separate repositories and are **not** included in this repo.
 
 ---
 

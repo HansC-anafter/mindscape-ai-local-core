@@ -111,7 +111,7 @@ Local Core 的重點放在：
   * 執行上下文抽象
   * 三層架構（Signal、Intent Governance、Execution）
 
-雲端 / 多租戶 Console（Console-Kit、Site-Hub 等）**不在此倉庫**；這裡專注在本地核心。
+雲端 / 多租戶功能透過其他倉庫提供，**不包含在此版本中**；這裡專注在本地核心。
 
 ---
 
