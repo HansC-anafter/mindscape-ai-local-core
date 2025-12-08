@@ -24,6 +24,8 @@ import ExecutionInspector from '../components/ExecutionInspector';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
 import WorkspaceSettingsModal from './components/WorkspaceSettingsModal';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
+import SandboxModal from '@/components/sandbox/SandboxModal';
+import { getSandboxByProject } from '@/lib/sandbox-api';
 import {
   TrainHeader,
   ExecutionModeSelector,
@@ -97,6 +99,9 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
   const [showSystemTools, setShowSystemTools] = useState(false);
   const [showFullSettings, setShowFullSettings] = useState(false);
+  const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [sandboxId, setSandboxId] = useState<string | null>(null);
+  const [sandboxProjectId, setSandboxProjectId] = useState<string | null>(null);
 
   // Execution state from hook (SSE-driven)
   const executionState = useExecutionState(workspaceId, API_URL);
@@ -146,13 +151,33 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
     const loadFocusedExecution = async () => {
       try {
-        // Load execution
+        // Load execution and check for project_id
         const execResponse = await fetch(
           `${API_URL}/api/v1/workspaces/${workspaceId}/executions/${focusExecutionId}`
         );
         if (execResponse.ok) {
           const execData = await execResponse.json();
           setFocusedExecution(execData);
+
+          // Check for project_id and load sandbox
+          const projectId = execData.project_id || execData.execution_context?.project_id;
+          if (projectId) {
+            setSandboxProjectId(projectId);
+            try {
+              const sandbox = await getSandboxByProject(workspaceId, projectId);
+              if (sandbox) {
+                setSandboxId(sandbox.sandbox_id);
+              } else {
+                setSandboxId(null);
+              }
+            } catch (err) {
+              console.error('Failed to load sandbox:', err);
+              setSandboxId(null);
+            }
+          } else {
+            setSandboxProjectId(null);
+            setSandboxId(null);
+          }
 
           // Load playbook metadata if playbook_code exists
           if (execData.playbook_code) {
@@ -546,6 +571,11 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                           onView={(artifact: any) => {
                             setSelectedArtifact(artifact);
                           }}
+                          onViewSandbox={(sandboxId: string) => {
+                            setSandboxId(sandboxId);
+                            setShowSandboxModal(true);
+                          }}
+                          sandboxId={sandboxId || undefined}
                         />
 
                         {/* Pending Tasks Panel */}
@@ -630,6 +660,18 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
         cancelText={t('cancel') || '取消'}
         confirmButtonClassName="bg-red-600 hover:bg-red-700"
       />
+
+      {/* Sandbox Modal */}
+      {showSandboxModal && sandboxId && (
+        <SandboxModal
+          isOpen={showSandboxModal}
+          onClose={() => setShowSandboxModal(false)}
+          workspaceId={workspaceId}
+          sandboxId={sandboxId}
+          projectId={sandboxProjectId || undefined}
+          executionId={focusedExecution?.execution_id || selectedExecutionId || undefined}
+        />
+      )}
 
       {/* Workspace Settings Modal */}
       <WorkspaceSettingsModal

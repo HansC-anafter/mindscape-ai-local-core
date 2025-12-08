@@ -16,4 +16,6 @@ from . import (
     vector_search,
     capability_packs,
     capability_suites,
+    sandbox,
+    deployment,
 )

@@ -266,4 +266,17 @@ export const commonEn = {
   copied: 'Copied',
   user: 'User',
   assistant: 'Assistant',
+
+  // Artifacts
+  artifactsProduced: 'Produced',
+  noArtifactsYet: 'No artifacts yet',
+  view: 'View',
+  viewSandbox: 'View Sandbox',
+
+  // Execution
+  executionStartedButNoId: 'Execution started but failed to get execution ID',
+  restartExecutionFailed: 'Failed to restart execution',
+  restartExecutionFailedRetry: 'Failed to restart execution. Please try again.',
+  confirmRestartExecution: 'Confirm Restart Execution',
+  confirmRestartExecutionMessage: 'Are you sure you want to restart this execution? This will create a new execution and cancel the current one.',
 } as const satisfies Partial<Record<MessageKey, string>>;

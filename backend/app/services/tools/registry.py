@@ -40,6 +40,7 @@ from backend.app.services.tools.github.github_tools import (
     create_github_tools,
     get_github_tool_by_name
 )
+from backend.app.services.tools.providers.sandbox_provider import create_sandbox_tools
 
 # Remote tools are now provided by system capability packs in cloud repo
 # This registry only handles local tools and generic mechanisms
@@ -226,6 +227,31 @@ def register_canva_tools(connection: ToolConnection) -> List[MindscapeTool]:
         # Canva tools are useful for writers (content creators) and planners (presentations)
         # Note: ToolMetadata doesn't have allowed_agent_roles field by default,
         # but we can add it to the metadata if needed for tool filtering
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
+def register_sandbox_tools(store) -> List[MindscapeTool]:
+    """
+    Register all Sandbox tools
+
+    Args:
+        store: MindscapeStore instance
+
+    Returns:
+        List of registered tools
+
+    Example:
+        >>> from backend.app.services.mindscape_store import MindscapeStore
+        >>> store = MindscapeStore()
+        >>> tools = register_sandbox_tools(store)
+        >>> print(f"Registered {len(tools)} sandbox tools")
+    """
+    tools = create_sandbox_tools(store)
+
+    for tool in tools:
+        tool_id = f"sandbox.{tool.metadata.name}"
         register_mindscape_tool(tool_id, tool)
 
     return tools

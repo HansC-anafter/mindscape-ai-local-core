@@ -154,6 +154,19 @@ export const commonZhTW = {
   user: '使用者',
   assistant: '助理',
 
+  // Artifacts
+  artifactsProduced: '已產出',
+  noArtifactsYet: '尚無產出',
+  view: '查看',
+  viewSandbox: '查看 Sandbox',
+
+  // Execution
+  executionStartedButNoId: '執行已啟動但無法獲取執行 ID',
+  restartExecutionFailed: '重啟執行失敗',
+  restartExecutionFailedRetry: '重啟執行失敗，請重試',
+  confirmRestartExecution: '確認重啟執行',
+  confirmRestartExecutionMessage: '確定要重啟此執行嗎？這將創建一個新的執行並取消當前執行。',
+
   // New keys added to fix warnings
   disconnected: '已斷開',
   confirmDelete: '確認刪除',

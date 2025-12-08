@@ -9,6 +9,8 @@ import StepTimelineWithDetails from './StepTimelineWithDetails';
 import PlaybookRevisionArea from './PlaybookRevisionArea';
 import WorkflowVisualization from './WorkflowVisualization';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import SandboxModal from '@/components/sandbox/SandboxModal';
+import { getSandboxByProject } from '@/lib/sandbox-api';
 
 interface ExecutionSession {
   execution_id: string;
@@ -157,6 +159,9 @@ export default function ExecutionInspector({
   const [isReloading, setIsReloading] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [sandboxId, setSandboxId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   // Reset all state when executionId changes to ensure UI updates immediately
   useEffect(() => {
@@ -196,7 +201,7 @@ export default function ExecutionInspector({
 
           // Verify the loaded execution matches the requested executionId
           if (data.execution_id !== currentExecutionId) {
-            console.error('[ExecutionInspector] ⚠️ Execution ID mismatch!', {
+            console.error('[ExecutionInspector] Execution ID mismatch!', {
               requested: currentExecutionId,
               received: data.execution_id
             });
@@ -209,6 +214,12 @@ export default function ExecutionInspector({
           const stepIndex1Based = stepIndex0Based + 1;
           const validStepIndex = Math.min(Math.max(1, stepIndex1Based), maxStepIndex);
           setCurrentStepIndex(validStepIndex);
+
+          // Extract project_id from execution
+          const execProjectId = data.project_id || data.execution_context?.project_id;
+          if (execProjectId) {
+            setProjectId(execProjectId);
+          }
         } else {
           console.error('[ExecutionInspector] Failed to load execution:', response.status, 'for executionId:', currentExecutionId);
         }
@@ -529,6 +540,32 @@ export default function ExecutionInspector({
     }
   }, [executionId, workspaceId, apiUrl]);
 
+  // Load sandbox for project
+  useEffect(() => {
+    const loadSandbox = async () => {
+      if (!projectId) {
+        setSandboxId(null);
+        return;
+      }
+
+      try {
+        const sandbox = await getSandboxByProject(workspaceId, projectId);
+        if (sandbox) {
+          setSandboxId(sandbox.sandbox_id);
+        } else {
+          setSandboxId(null);
+        }
+      } catch (err) {
+        console.error('Failed to load sandbox:', err);
+        setSandboxId(null);
+      }
+    };
+
+    if (projectId) {
+      loadSandbox();
+    }
+  }, [projectId, workspaceId]);
+
   // Connect to SSE stream for real-time updates using unified stream manager
   useExecutionStream(
     executionId,
@@ -775,11 +812,14 @@ export default function ExecutionInspector({
 
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
-      {/* Execution Header */}
+      {/* Execution Header with Sandbox Button */}
       {execution && (
-        <ExecutionHeader
-          execution={execution}
-          playbookTitle={playbookMetadata?.title || playbookMetadata?.playbook_code}
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between px-6 py-2">
+            <div className="flex-1">
+              <ExecutionHeader
+                execution={execution}
+                playbookTitle={playbookMetadata?.title || playbookMetadata?.playbook_code}
           onRetry={execution.status === 'failed' ? () => {
             // TODO: Implement retry functionality
           } : undefined}
@@ -855,7 +895,19 @@ export default function ExecutionInspector({
             // Show confirmation dialog
             setShowRestartConfirm(true);
           }}
-        />
+              />
+            </div>
+            {sandboxId && (
+              <button
+                onClick={() => setShowSandboxModal(true)}
+                className="ml-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                title={t('viewSandbox') || 'View Sandbox'}
+              >
+                {t('viewSandbox') || 'View Sandbox'}
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Main Content Area */}
@@ -1138,7 +1190,7 @@ export default function ExecutionInspector({
                       console.error('Execution started but failed to get execution ID');
                       // Show error notification
                       window.dispatchEvent(new CustomEvent('execution-restart-error', {
-                        detail: { message: '執行已啟動但無法獲取執行 ID' }
+                        detail: { message: t('executionStartedButNoId') || 'Execution started but failed to get execution ID' }
                       }));
                     }
                   } else {
@@ -1146,7 +1198,7 @@ export default function ExecutionInspector({
                     const error = await response.json().catch(() => ({ detail: 'Failed to restart execution' }));
                     // Show error notification
                     window.dispatchEvent(new CustomEvent('execution-restart-error', {
-                      detail: { message: error.detail || '重啟執行失敗' }
+                      detail: { message: error.detail || t('restartExecutionFailed') || 'Failed to restart execution' }
                     }));
                   }
                 })
@@ -1155,7 +1207,7 @@ export default function ExecutionInspector({
                   console.error('Error restarting execution:', error);
                   // Show error notification
                   window.dispatchEvent(new CustomEvent('execution-restart-error', {
-                    detail: { message: '重啟執行失敗，請重試' }
+                    detail: { message: t('restartExecutionFailedRetry') || 'Failed to restart execution. Please try again.' }
                   }));
                 });
             } catch (error) {
@@ -1167,12 +1219,24 @@ export default function ExecutionInspector({
             }
           }
         }}
-        title={t('confirmRestartExecution') || '確認重啟執行'}
-        message={t('confirmRestartExecution') || '確定要重啟此執行嗎？這將創建一個新的執行並取消當前執行。'}
+        title={t('confirmRestartExecution') || 'Confirm Restart Execution'}
+        message={t('confirmRestartExecutionMessage') || 'Are you sure you want to restart this execution? This will create a new execution and cancel the current one.'}
         confirmText={t('accept') || '確定'}
         cancelText={t('cancel') || '取消'}
         confirmButtonClassName="bg-blue-600 hover:bg-blue-700"
       />
+
+      {/* Sandbox Modal */}
+      {showSandboxModal && sandboxId && (
+        <SandboxModal
+          isOpen={showSandboxModal}
+          onClose={() => setShowSandboxModal(false)}
+          workspaceId={workspaceId}
+          sandboxId={sandboxId}
+          projectId={projectId || undefined}
+          executionId={executionId}
+        />
+      )}
     </div>
   );
 }
