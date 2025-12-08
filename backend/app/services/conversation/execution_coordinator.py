@@ -1371,26 +1371,36 @@ class ExecutionCoordinator:
             if ctx.tags:
                 execution_context.update(ctx.tags)
 
-            task = Task(
-                id=str(uuid.uuid4()) if not execution_id else execution_id,
-                workspace_id=ctx.workspace_id,
-                message_id=message_id,
-                execution_id=execution_id or str(uuid.uuid4()),
-                pack_id=playbook_code,
-                task_type="playbook_execution",
-                status=TaskStatus.RUNNING,
-                params={
-                    "playbook_code": playbook_code,
-                    "context": playbook_context
-                },
-                result=None,
-                execution_context=execution_context,
-                created_at=datetime.utcnow(),
-                started_at=datetime.utcnow(),
-                completed_at=None,
-                error=None
-            )
-            self.tasks_store.create_task(task)
+            # Check if task already exists (created by PlaybookService)
+            existing_task = None
+            if execution_id:
+                existing_task = self.tasks_store.get_task(execution_id)
+            
+            if not existing_task:
+                task = Task(
+                    id=str(uuid.uuid4()) if not execution_id else execution_id,
+                    workspace_id=ctx.workspace_id,
+                    message_id=message_id,
+                    execution_id=execution_id or str(uuid.uuid4()),
+                    pack_id=playbook_code,
+                    task_type="playbook_execution",
+                    status=TaskStatus.RUNNING,
+                    params={
+                        "playbook_code": playbook_code,
+                        "context": playbook_context
+                    },
+                    result=None,
+                    execution_context=execution_context,
+                    created_at=datetime.utcnow(),
+                    started_at=datetime.utcnow(),
+                    completed_at=None,
+                    error=None
+                )
+                self.tasks_store.create_task(task)
+            else:
+                # Task already exists, update it if needed
+                task = existing_task
+                logger.info(f"ExecutionCoordinator: Task {task.id} already exists, skipping creation")
 
             # Notify about task creation if callback provided
             if hasattr(self, 'task_event_callback') and self.task_event_callback:
