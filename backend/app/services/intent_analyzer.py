@@ -926,8 +926,12 @@ class IntentPipeline:
                     locale = context.get("locale")
 
                 # Ensure playbook_selector has llm_provider
-                if not self.playbook_selector.llm_provider and self.llm_matcher.llm_provider:
-                    self.playbook_selector.llm_provider = self.llm_matcher.llm_provider
+                if not self.playbook_selector.llm_provider:
+                    if self.llm_matcher.llm_provider:
+                        self.playbook_selector.llm_provider = self.llm_matcher.llm_provider
+                        logger.info("[IntentPipeline] Set playbook_selector.llm_provider from llm_matcher")
+                    else:
+                        logger.warning("[IntentPipeline] Both playbook_selector and llm_matcher have no llm_provider")
 
                 playbook_code, confidence, handoff_plan = await self.playbook_selector.select_playbook(
                     task_domain=result.task_domain,
