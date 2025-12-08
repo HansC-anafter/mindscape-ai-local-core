@@ -1,161 +1,137 @@
 # Mindscape AI Local Core
 
-> **Mindscape AI 的開源、本地版本**
+> **AI 驅動的思維可視化工作流引擎 —— Mindscape AI 的開源、本地版本**
 
 [English](README.md) | [中文](README.zh.md)
 
-這個倉庫（`mindscape-ai-local-core`）是一個乾淨、本地優先的 AI 工作區，透過智能對話介面幫助你整理想法、管理任務、執行工作流。
+`mindscape-ai-local-core` 是 **Mindscape AI** 的開源、本地核心。
 
-## 🧠 什麼是心智空間算法？
+它把你的長期意圖、專案主線、創作主題，整理成一個**可治理、可導航的心智空間（mindscape）**，讓 LLM 不再只是回應單一 prompt，而是圍繞你的長線專案一起思考與行動。
 
-**心智空間算法（Mindscape Algorithm）** 是 Mindscape AI 的核心架構理念。
+---
 
-它把使用者的長期意圖、專案主線、創作主題，整理成一個**可治理、可導航的心智空間**，讓 LLM 不再只是回答單一問題，而是圍繞你的整體人生／工作主線一起思考與行動。
+## 🧠 AI 驅動的思維可視化工作流
 
-📖 了解更多：[心智空間算法](./docs/mindscape-algorithm.md) | [Mindscape AI 官網](https://mindscapeai.app)
+Mindscape AI 並不是一個「打一句話 → 回一句話」的 chat app，而是一套 **AI 驅動的思維可視化工作流**：
 
-## 🎯 什麼是 Mindscape AI Local Core？
+1. **收攏你的心智空間**
 
-`mindscape-ai-local-core` 倉庫是 Mindscape AI 的**開源基礎**。它提供：
+   - 把人生主題、長期專案、反覆出現的工作，變成工作區裡的 **Intent 卡片** 和 **Project**。
 
-- **意圖/工作流引擎**：AI 驅動的意圖提取和 Playbook 執行
-- **Port/Adapter 架構**：核心與外部集成的清晰分離
-- **本地優先設計**：所有數據存儲在本地，無雲端依賴
-- **可擴展性**：通過 adapter 模式準備好雲端擴展
+2. **為每個 Intent 接上 Playbook**
 
-## ✨ 核心功能
+   - 透過可讀又可執行的 **Playbook（Markdown + YAML）**，描述「AI 小隊應該怎麼幫你」。
 
-- **意圖提取**：自動從用戶消息中提取意圖和主題
-- **Playbook 執行**：基於意圖執行多步驟工作流（playbooks）
-- **Project + Flow 架構**（v2.0）：專案容器內的多 playbook 協作
-- **分層記憶系統**：Workspace 核心、專案和成員檔案記憶
-- **時間軸視圖**：可視化工作區活動和執行歷史
-- **文件處理**：分析和提取上傳文件的內容
-- **Port 架構**：為未來雲端擴展提供清晰的抽象層
+3. **讓 AI 小隊實際跑起來、看得見過程**
 
-## 💡 適合誰用？
+   - Playbook 執行時會留下 **Execution Trace**、中間筆記與成果，讓思考與決策過程可回顧、可再利用。
 
-Mindscape AI 適合這樣的人：
+這個 repo 就是把上述這些元件（工作區狀態、Intent、Playbook 執行器、AI 角色、工具連結）包成一個可在本機啟動的核心引擎。
 
-- 常常同時有很多 side project、靈感、長期目標，但很難看清自己現在到底在推哪幾條線
-- 想要的不只是「問 AI 一個問題就拿到一個答案」，而是讓 AI 真的理解：你這段時間在忙什麼、想成為什麼樣的人
-- 喜歡用一步一步的方式改變生活：每次多一點覺知、多一點有意識的選擇，而不是追求一次性的大翻身
+---
 
-如果你覺得這聽起來像你，Mindscape AI Local Core 提供一個本地優先、開源的實驗空間，讓你打造屬於自己的「心智空間」。
+## 🔄 Project / Playbook Flow：從專案到可重複的工作流
 
-## 🏗️ 架構
+在這個倉庫裡，我們刻意用 **Project / Playbook flow** 作為預設心智模型：
 
-### 心智空間架構（三層結構）
-
-Mindscape AI 不是只做一個聊天框，而是圍繞「意圖」設計了三層結構：
-
-1. **Signal Layer — 收集一切線索**
-
-   對話、文件、工具回傳、Playbook 執行結果，都會被轉成輕量的 **IntentSignal**，作為系統理解你在「忙些什麼」的底層訊號。
-
-2. **Intent Governance Layer — 幫你整理主線**
-
-   Signal 會被收斂成 **IntentCard**（長期意圖）與 **短期任務**，並聚成 **IntentCluster**（專案／主題）。這一層就是所謂的「心智空間」，負責維護你的工作與生活主線。
-
-3. **Execution & Semantic Layer — 真的去幹活**
-
-   當某條 Intent 準備好，就交給 Playbook、工具、以及各種語意引擎去執行，包含 RAG 查詢、文件生成、跨工具自動化工作流等。
-
-### 技術架構
-
-Mindscape AI Local Core 使用 **Port/Adapter 模式**（六邊形架構）來維護清晰的邊界：
-
-- **核心領域**：ExecutionContext、Port 介面、核心服務
-- **本地適配器**：單用戶、單工作區的實現
-- **無雲端依賴**：核心完全獨立於雲端/租戶概念
-
-此外，`mindscape-ai-local-core` 引入了基於 Playbook 的工作流層：
-
-- 面向人類對話的 **Workspace LLM**
-- 執行多步驟工作流的 **Playbook LLM + 工作流運行時**（`playbook.run = playbook.md + playbook.json`）
-
-### Project + Flow + Sandbox 架構（v2.0）
-
-從 v2.0 開始，Mindscape AI 引入了**基於專案的協作模型**：
-
-- **Workspace**：團隊/客戶的長期協作房間
-- **Project**：交付級別的容器，有自己的生命週期（open, closed, archived）
-- **Playbook Flow**：多 playbook 協調，包含依賴關係解析
-- **Project Sandbox**：專案內所有 playbook 共享的統一檔案空間
-- **分層記憶**：Workspace 核心、專案和成員檔案記憶
-
-**核心創新**：專案從對話中自然產生。當對話顯示需要專案時，系統會自動建議創建專案，讓多個 playbook 協作完成同一個交付物。
-
-詳見 [架構文檔](./docs/architecture/) 和 [核心架構文檔](./docs/core-architecture/)。
-
-## 🚀 快速開始
-
-### 選項 1：Docker 部署（推薦）
-
-最簡單的開始方式是使用 Docker：
-
-```bash
-# 克隆倉庫
-git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
-cd mindscape-ai-local-core
-
-# （可選）創建 .env 文件並添加你的 API keys
-# 你也可以在啟動服務後通過網頁介面配置 API keys
-cp .env.example .env
-# 編輯 .env 並添加你的 OPENAI_API_KEY 或 ANTHROPIC_API_KEY
-
-# 啟動所有服務
-docker compose up -d
-
-# 查看日誌
-docker compose logs -f
+```text
+Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & Decisions
 ```
 
-訪問應用：
-- **前端**：http://localhost:3001（Docker 部署，類生產環境）
-- **後端 API**：http://localhost:8000
-- **API 文檔**：http://localhost:8000/docs
+* **Project**：一條較長期的主線，例如「2026 年產品發佈」、「每年為自己寫一本書」、「經營內容工作室」。
+* **Intents**：專案底下較具體的目標，例如「整理章節大綱」、「研究競品」、「撰寫募資頁」。
+* **Playbooks**：描述 AI 要怎麼幫你的可重複工作流（步驟、角色、工具）。
+* **AI Team Execution**：多個 AI 角色（planner / writer / analyst …）協作、調用工具，產生草稿 / 計畫 / 清單。
+* **Artifacts & Decisions**：結果被寫回工作區，成為日後可以重用與決策的素材。
 
-詳見 [Docker 部署指南](./docs/getting-started/docker.md)。
+內建的系統 Playbook 範例：
 
-### 選項 2：手動安裝
+* `daily_planning` – 每日規劃與優先順序
+* `content_drafting` – 內容 / 文案起稿
 
-#### 前置需求
+你可以新增自己的 Playbook，將個人 workflow、客戶 SOP、代理商服務流程全部變成可複用的 AI 工作流。
 
-- Python 3.9+
-- Node.js 18+（用於前端）
-- SQLite（Python 已包含）
+---
 
-#### 安裝
+## 🧩 核心概念一覽
 
-```bash
-# 克隆倉庫
-git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
-cd mindscape-ai-local-core
+* **Mindscape（心智空間 / 工作區）**：你正在運作的心智舞台，放專案、Intent、執行軌跡。
+* **Intent（意圖卡）**：把「我現在想完成什麼」變成可追蹤的卡片，幫 LLM 將對話錨定在你的長期目標上。
+* **Project（專案）**：把相關的 Intent 與 Playbook 收攏在一起，例如一個產品發佈、一整年的寫書計畫、一個客戶帳號。
+* **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。
+* **Port/Adapter 架構**：核心與外部集成的清晰分離，實現本地優先設計並支援可選的雲端擴展。
 
-# 安裝後端依賴
-cd backend
-pip install -r requirements.txt
+---
 
-# 安裝前端依賴
-cd ../web-console
-npm install
-```
+## 📖 想了解更底層的「心智空間算法」？
 
-#### 運行
+**心智空間算法（Mindscape Algorithm）** 是這個專案背後的架構理念，用來描述：
 
-```bash
-# 啟動後端（從 backend 目錄）
-uvicorn app.main:app --reload
+* 如何把長期意圖 / 專案主線整理成可治理的「心智空間」
+* AI 如何在這個空間裡「看見」你的上下文，而不是只看單一對話
 
-# 啟動前端（從 web-console 目錄，在新終端）
-cd web-console
-npm run dev
-```
+你可以在這裡看到更完整的說明與設計稿：
 
-訪問 `http://localhost:3000` 來使用網頁介面（本地開發伺服器，前端 `npm run dev`）。
+* [心智空間算法](./docs/mindscape-algorithm.md)
+* [架構文檔](./docs/core-architecture/README.md) - 完整系統架構
+* Mindscape AI 官網：[https://mindscapeai.app](https://mindscapeai.app)
 
-更詳細的設置指南，請參見 [QUICKSTART.md](./QUICKSTART.md) 或 [安裝指南](./docs/getting-started/installation.md)。
+---
+
+## 📦 這個倉庫包含什麼？
+
+Local Core 的重點放在：
+
+* **本地優先的工作區引擎**
+
+  * 透過 Docker 一鍵啟動
+  * 所有資料預設保留在你的機器上
+
+* **Playbook 執行核心**
+
+  * YAML + Markdown Playbook
+  * AI 角色、工具與 Execution Trace
+
+* **Project + Flow + Sandbox 架構（v2.0）**
+
+  * Project 生命週期管理
+  * 多 Playbook 協調，支援依賴關係解析
+  * 每個 Project 的獨立 Sandbox（工作區級隔離）
+  * 自動 Artifact 追蹤與註冊
+
+* **工具與記憶層**
+
+  * 向量搜尋與語意能力
+  * 記憶 / Intent 架構
+  * 工具註冊與執行
+
+* **架構**
+
+  * Port/Adapter 模式，清晰的邊界分離
+  * 執行上下文抽象
+  * 三層架構（Signal、Intent Governance、Execution）
+
+雲端 / 多租戶 Console（Console-Kit、Site-Hub 等）**不在此倉庫**；這裡專注在本地核心。
+
+---
+
+## 🚀 安裝與快速上手
+
+完整步驟請參考：
+
+1. **安裝與環境需求**： [安裝指南](./docs/getting-started/installation.md)
+
+2. **使用 Docker 啟動**： [Docker 部署指南](./docs/getting-started/docker.md) 或 [快速開始](./docs/getting-started/quick-start.md)
+
+啟動完成之後，你可以：
+
+1. 在瀏覽器開啟 web console。
+2. 建立一個工作區與第一個 **Project**（例如「2026 年寫書計畫」）。
+3. 在該 Project 底下新增幾張 **Intent 卡**。
+4. 觸發或掛載一個 **Playbook**（如 `daily_planning` 或 `content_drafting`），讓 AI 小隊開始運作。
+5. 檢視執行軌跡和產出的 Artifacts。
+
+---
 
 ## 📚 文檔
 
@@ -166,7 +142,6 @@ npm run dev
 
 ### 核心概念
 - [心智空間算法](./docs/mindscape-algorithm.md) - 核心理念與三層架構
-- [Mindscape AI 官網](https://mindscapeai.app) - 完整技術白皮書與理念介紹（即將推出）
 
 ### 架構文檔
 - [架構文檔](./docs/core-architecture/README.md) - 完整系統架構，包括：
@@ -177,66 +152,25 @@ npm run dev
   - Playbooks 與工作流
   - Project + Flow + Sandbox（v2.0）
 
-## 🧩 Port 架構
+### Playbook 開發
+- [Playbook 開發](./docs/playbook-development/README.md) - 建立與擴展 Playbook
 
-本地核心（`mindscape-ai-local-core`）使用 Port 介面來實現清晰的分離：
-
-- **IdentityPort**：獲取執行上下文（本地適配器返回單用戶上下文）
-- **IntentRegistryPort**：將用戶輸入解析為意圖（本地適配器使用 LLM）
-- **PlaybookExecutorPort**：執行 Playbook 運行（`playbook.run = md + json`），針對本地或遠程工作流運行時（✅ 已實現）
-
-**未來計劃**：
-- 為 playbook 訂製情境 UI 面板
-
-未來的雲端擴展可以實現這些 Port，而無需修改核心代碼。
-
-詳見 [Port 架構](./docs/architecture/port-architecture.md)。
-
-## 🔬 給開發者 / 研究者
-
-Mindscape AI 把自己定位在「**intent-first 的 LLM agent 架構**」：
-
-* 受 Conceptual Spaces & Cognitive Maps 啟發，我們把 IntentCard / IntentCluster 視為一張可導航的 **意圖地圖**。
-* 受 BDI 與階層式強化學習（options）啟發，我們把 Intent Layer 視為高階決策層，Playbook 與執行引擎則專心做執行。
-* 受 Active Inference 啟發，我們把使用者的偏好與長期目標，收斂成一組能引導「下一步最值得做什麼」的偏好分佈。
-
-如果你對這些主題有興趣，可以參考 [Mindscape AI 官網](https://mindscapeai.app) 了解完整設計與技術白皮書（即將推出）。
-
-## 🤝 貢獻
-
-我們歡迎貢獻！請參見 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解指南。
-
-## 📧 聯絡與社群
-
-維護者：[Hans Huang](https://github.com/HansC-anafter)
-
-- 🐞 **錯誤報告或功能請求**
-  → 請開啟 [GitHub Issue](/issues)。
-
-- 💬 **問題 / 想法 / 分享使用案例**
-  → 使用 [GitHub Discussions](/discussions)（推薦）。
-
-- 🤝 **合作與商業使用**（代理商、團隊、硬體合作夥伴等）
-  → 聯絡：`dev@mindscapeai.app`
-
-> 請避免將支持請求發送到個人電子郵件或社交媒體。
-
-> 使用 Issues/Discussions 有助於整個社群從答案中受益。
-
-## 📄 授權
-
-本專案採用 MIT 授權 - 詳見 [LICENSE](./LICENSE)。
+---
 
 ## 🔗 相關專案
 
-- **Mindscape AI Cloud**（私有）：基於此核心構建的多租戶雲端版本
-- **Mindscape WordPress Plugin**：Mindscape AI 的 WordPress 整合
+* **Mindscape AI Cloud**（私有）：基於此核心構建的多租戶雲端版本。
+* **Mindscape WordPress Plugin**：Mindscape AI 的 WordPress 整合。
+
+---
 
 ## 📝 狀態
 
-這是 Mindscape AI 的**開源、僅本地版本**。雲端 / 多租戶功能通過單獨的倉庫提供，不包含在此版本中。
+這是 Mindscape AI 的 **開源、僅本地版本**：
+
+* ✅ 適合：本地實驗、個人工作流、代理商內部沙盒。
+* 🚧 雲端 / 多租戶功能：透過其他倉庫提供，**不包含在此版本中**。
 
 ---
 
 **由 Mindscape AI 團隊用 ❤️ 構建**
-
