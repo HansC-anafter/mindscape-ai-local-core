@@ -1,15 +1,15 @@
 """
-LangChain 工具適配器
+LangChain tool adapter
 
-提供 LangChain 工具與 Mindscape AI 之間的雙向轉換：
+Provides bidirectional conversion between LangChain tools and Mindscape AI:
 1. LangChain Tool → MindscapeTool (from_langchain)
 2. MindscapeTool → LangChain Tool (to_langchain)
 
-設計原則：
-- 保留工具原始行為
-- 自動轉換 schema（支援 Pydantic v1/v2）
-- 支援同步和異步執行
-- 優雅的錯誤處理和降級
+Design principles:
+- Preserve original tool behavior
+- Automatic schema conversion (supports Pydantic v1/v2)
+- Support synchronous and asynchronous execution
+- Graceful error handling and degradation
 """
 from typing import Dict, Any, Optional, Type, List
 import asyncio
@@ -37,7 +37,7 @@ from backend.app.services.tools.schemas import (
 
 class LangChainToolAdapter(MindscapeTool):
     """
-    將 LangChain BaseTool 包裝為 MindscapeTool
+    Wrap LangChain BaseTool as MindscapeTool
 
     Example:
         >>> from langchain_community.tools import WikipediaQueryRun
@@ -48,14 +48,14 @@ class LangChainToolAdapter(MindscapeTool):
 
     def __init__(self, langchain_tool: Any):
         """
-        初始化 LangChain 工具適配器
+        Initialize LangChain tool adapter
 
         Args:
-            langchain_tool: LangChain BaseTool 實例
+            langchain_tool: LangChain BaseTool instance
 
         Raises:
-            ImportError: 如果 LangChain 未安裝
-            ValueError: 如果不是有效的 LangChain 工具
+            ImportError: If LangChain is not installed
+            ValueError: If not a valid LangChain tool
         """
         if not LANGCHAIN_AVAILABLE:
             raise ImportError(
@@ -113,12 +113,12 @@ class LangChainToolAdapter(MindscapeTool):
 
     def _extract_input_schema(self, lc_tool: Any) -> Dict[str, Any]:
         """
-        提取 LangChain 工具的 input schema
+        Extract input schema from LangChain tool
 
-        LangChain 1.0+ 使用 Pydantic v2 的 args_schema
+        LangChain 1.0+ uses Pydantic v2 args_schema
         """
         try:
-            # LangChain 1.0+: 使用 args_schema
+            # LangChain 1.0+: use args_schema
             if hasattr(lc_tool, 'args_schema') and lc_tool.args_schema:
                 # Pydantic v2: model_json_schema()
                 if hasattr(lc_tool.args_schema, 'model_json_schema'):
@@ -131,7 +131,7 @@ class LangChainToolAdapter(MindscapeTool):
 
                 return schema
 
-            # Fallback: 檢查 args
+            # Fallback: check args
             elif hasattr(lc_tool, 'args'):
                 args = lc_tool.args
                 if isinstance(args, dict):
@@ -141,7 +141,7 @@ class LangChainToolAdapter(MindscapeTool):
                         "required": []
                     }
 
-            # 最後的 fallback: 單個 input 參數
+            # Final fallback: single input parameter
             return {
                 "type": "object",
                 "properties": {
@@ -154,7 +154,7 @@ class LangChainToolAdapter(MindscapeTool):
             }
 
         except Exception as e:
-            # 如果提取失敗，使用最簡單的 schema
+            # If extraction fails, use simplest schema
             return {
                 "type": "object",
                 "properties": {
@@ -168,7 +168,7 @@ class LangChainToolAdapter(MindscapeTool):
 
     def _infer_danger_level(self, name: str, description: str) -> ToolDangerLevel:
         """
-        根據工具名稱和描述推斷危險等級
+        Infer danger level based on tool name and description
         """
         danger_keywords = ['delete', 'remove', 'drop', 'execute', 'run', 'shell']
         moderate_keywords = ['write', 'update', 'modify', 'create', 'send']
@@ -209,7 +209,7 @@ class LangChainToolAdapter(MindscapeTool):
         return ToolCategory.OTHER
 
     def _get_langchain_version(self) -> str:
-        """獲取 LangChain 版本"""
+        """Get LangChain version"""
         try:
             import langchain
             return langchain.__version__
@@ -218,10 +218,10 @@ class LangChainToolAdapter(MindscapeTool):
 
     async def execute(self, input_data: Dict[str, Any]) -> Any:
         """
-        執行 LangChain 工具
+        Execute LangChain tool
 
         Args:
-            input_data: 輸入數據
+            input_data: Input data
 
         Returns:
             Tool execution result
@@ -255,7 +255,7 @@ class LangChainToolAdapter(MindscapeTool):
 
 class MindscapeToLangChainAdapter:
     """
-    將 MindscapeTool 轉換為 LangChain StructuredTool
+    Convert MindscapeTool to LangChain StructuredTool
 
     Example:
         >>> mindscape_tool = WordPressListPostsTool(connection)
@@ -266,16 +266,16 @@ class MindscapeToLangChainAdapter:
     @staticmethod
     def convert(mindscape_tool: MindscapeTool) -> Any:
         """
-        轉換 MindscapeTool 為 LangChain Tool
+        Convert MindscapeTool to LangChain Tool
 
         Args:
-            mindscape_tool: MindscapeTool 實例
+            mindscape_tool: MindscapeTool instance
 
         Returns:
             LangChain StructuredTool
 
         Raises:
-            ImportError: 如果 LangChain 未安裝
+            ImportError: If LangChain is not installed
         """
         if not LANGCHAIN_AVAILABLE:
             raise ImportError(
@@ -283,19 +283,19 @@ class MindscapeToLangChainAdapter:
                 "Install with: pip install 'langchain>=0.1.0'"
             )
 
-        # 創建執行函數
+        # Create execution function
         async def execute_func(**kwargs) -> Any:
-            """執行 Mindscape 工具"""
+            """Execute Mindscape tool"""
             result = await mindscape_tool.safe_execute(kwargs)
             if result.success:
                 return result.result
             else:
                 raise Exception(result.error)
 
-        # 從 Mindscape schema 轉換為 Pydantic model
+        # Convert from Mindscape schema to Pydantic model
         from pydantic import BaseModel, Field, create_model
 
-        # 構建 Pydantic 欄位
+        # Build Pydantic fields
         fields = {}
         schema = mindscape_tool.metadata.input_schema
         properties = schema.get("properties", {})
@@ -308,7 +308,7 @@ class MindscapeToLangChainAdapter:
             field_description = field_info.get("description", "")
             field_default = field_info.get("default", ...)
 
-            # 如果是必填且無默認值
+            # If required and no default value
             if field_name in required and field_default == ...:
                 fields[field_name] = (field_type, Field(description=field_description))
             else:
@@ -317,13 +317,13 @@ class MindscapeToLangChainAdapter:
                     Field(default=field_default, description=field_description)
                 )
 
-        # 創建 Pydantic model
+        # Create Pydantic model
         InputModel = create_model(
             f"{mindscape_tool.name.replace('.', '_')}_Input",
             **fields
         )
 
-        # 創建 LangChain StructuredTool
+        # Create LangChain StructuredTool
         tool = StructuredTool(
             name=mindscape_tool.name.replace(".", "_"),
             description=mindscape_tool.description,
@@ -335,7 +335,7 @@ class MindscapeToLangChainAdapter:
 
     @staticmethod
     def _json_type_to_python(json_type: str) -> Type:
-        """將 JSON Schema 類型轉換為 Python 類型"""
+        """Convert JSON Schema type to Python type"""
         type_map = {
             "string": str,
             "integer": int,
@@ -353,10 +353,10 @@ class MindscapeToLangChainAdapter:
 
 def from_langchain(langchain_tool: Any) -> MindscapeTool:
     """
-    將 LangChain 工具轉換為 MindscapeTool
+    Convert LangChain tool to MindscapeTool
 
     Args:
-        langchain_tool: LangChain BaseTool 實例
+        langchain_tool: LangChain BaseTool instance
 
     Returns:
         MindscapeTool
@@ -372,16 +372,16 @@ def from_langchain(langchain_tool: Any) -> MindscapeTool:
 
 def to_langchain(mindscape_tool: MindscapeTool) -> Any:
     """
-    將 MindscapeTool 轉換為 LangChain StructuredTool
+    Convert MindscapeTool to LangChain StructuredTool
 
     Args:
-        mindscape_tool: MindscapeTool 實例
+        mindscape_tool: MindscapeTool instance
 
     Returns:
         LangChain StructuredTool
 
     Example:
-        >>> from app.services.tools.wordpress.wordpress_tools_v2 import WordPressListPostsTool
+        >>> from app.services.tools.wordpress.wordpress_tools import WordPressListPostsTool
         >>> wp_tool = WordPressListPostsTool(connection)
         >>> lc_tool = to_langchain(wp_tool)
         >>> result = await lc_tool.ainvoke({"per_page": 10})
@@ -390,12 +390,12 @@ def to_langchain(mindscape_tool: MindscapeTool) -> Any:
 
 
 def is_langchain_available() -> bool:
-    """檢查 LangChain 是否可用"""
+    """Check if LangChain is available"""
     return LANGCHAIN_AVAILABLE
 
 
 def get_langchain_version() -> Optional[str]:
-    """獲取 LangChain 版本"""
+    """Get LangChain version"""
     if not LANGCHAIN_AVAILABLE:
         return None
     try:

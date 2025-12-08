@@ -4,20 +4,21 @@ Tool registry for managing tool implementations.
 This registry maps tool types to their implementations (local/remote).
 Also supports dynamic tool registration from ToolRegistryService.
 
-Version 2: 支援新的 MindscapeTool 架構
-- 向後兼容舊的 Tool 類
-- 支援新的 MindscapeTool 工具
+Version 2: Supports new MindscapeTool architecture
+- Backward compatible with legacy Tool class
+- Supports new MindscapeTool implementations
 """
 from typing import Dict, Type, Optional, List, Union
 from backend.app.services.tools.base import Tool, MindscapeTool, ToolConnection
 
 # Import tool implementations (Legacy)
-from backend.app.services.tools.wordpress.wordpress_tool import WordPressTool
+from backend.app.services.tools.wordpress.wordpress_tool_v1 import WordPressTool
 
-# Import v2 tools (New MindscapeTool)
-from backend.app.services.tools.wordpress.wordpress_tools_v2 import (
+# Import WordPress tools (New MindscapeTool)
+from backend.app.services.tools.wordpress.wordpress_tools import (
     create_wordpress_tools,
-    get_wordpress_tool_by_name
+    get_wordpress_tool_by_name,
+    validate_wp_connection
 )
 from backend.app.services.tools.canva.canva_tools import (
     create_canva_tools,
@@ -115,11 +116,11 @@ def get_tool_by_registered_id(registered_tool_id: str) -> Optional[Tool]:
 
 def register_dynamic_tool(registered_tool_id: str, connection: ToolConnection):
     """
-    Register a dynamically discovered tool (向後兼容)
+    Register a dynamically discovered tool (backward compatible)
 
     Args:
-        registered_tool_id: 工具 ID（如 "wp.site1.post.create_draft"）
-        connection: 工具連接配置
+        registered_tool_id: Tool ID (e.g., "wp.site1.post.create_draft")
+        connection: Tool connection configuration
     """
     _dynamic_tools[registered_tool_id] = connection
 
@@ -129,7 +130,7 @@ def unregister_dynamic_tool(registered_tool_id: str):
     Unregister a dynamically discovered tool
 
     Args:
-        registered_tool_id: 工具 ID
+        registered_tool_id: Tool ID
     """
     if registered_tool_id in _dynamic_tools:
         del _dynamic_tools[registered_tool_id]
@@ -139,14 +140,14 @@ def unregister_dynamic_tool(registered_tool_id: str):
 
 def register_mindscape_tool(tool_id: str, tool: MindscapeTool):
     """
-    註冊新版 MindscapeTool 實例
+    Register a new MindscapeTool instance
 
     Args:
-        tool_id: 工具 ID
-        tool: MindscapeTool 實例
+        tool_id: Tool ID
+        tool: MindscapeTool instance
 
     Example:
-        >>> from backend.app.services.tools.wordpress.wordpress_tools_v2 import WordPressListPostsTool
+        >>> from backend.app.services.tools.wordpress.wordpress_tools import WordPressListPostsTool
         >>> tool = WordPressListPostsTool(connection)
         >>> register_mindscape_tool("wordpress.list_posts", tool)
     """
@@ -155,26 +156,26 @@ def register_mindscape_tool(tool_id: str, tool: MindscapeTool):
 
 def get_mindscape_tool(tool_id: str) -> Optional[MindscapeTool]:
     """
-    獲取 MindscapeTool 實例
+    Get MindscapeTool instance
 
     Args:
-        tool_id: 工具 ID
+        tool_id: Tool ID
 
     Returns:
-        MindscapeTool 實例或 None
+        MindscapeTool instance or None
     """
     return _mindscape_tools.get(tool_id)
 
 
 def register_wordpress_v2_tools(connection: ToolConnection) -> List[MindscapeTool]:
     """
-    註冊所有 WordPress v2 工具
+    Register all WordPress tools
 
     Args:
-        connection: WordPress 連接配置
+        connection: WordPress connection configuration
 
     Returns:
-        已註冊的工具列表
+        List of registered tools
 
     Example:
         >>> wp_conn = ToolConnection(
@@ -185,7 +186,7 @@ def register_wordpress_v2_tools(connection: ToolConnection) -> List[MindscapeToo
         ...     api_secret="password"
         ... )
         >>> tools = register_wordpress_v2_tools(wp_conn)
-        >>> print(f"註冊了 {len(tools)} 個工具")
+        >>> print(f"Registered {len(tools)} tools")
     """
     tools = create_wordpress_tools(connection)
 
@@ -198,13 +199,13 @@ def register_wordpress_v2_tools(connection: ToolConnection) -> List[MindscapeToo
 
 def register_canva_tools(connection: ToolConnection) -> List[MindscapeTool]:
     """
-    註冊所有 Canva 工具
+    Register all Canva tools
 
     Args:
-        connection: Canva 連接配置
+        connection: Canva connection configuration
 
     Returns:
-        已註冊的工具列表
+        List of registered tools
 
     Example:
         >>> canva_conn = ToolConnection(
@@ -215,7 +216,7 @@ def register_canva_tools(connection: ToolConnection) -> List[MindscapeTool]:
         ...     base_url="https://api.canva.com/rest/v1"
         ... )
         >>> tools = register_canva_tools(canva_conn)
-        >>> print(f"註冊了 {len(tools)} 個工具")
+        >>> print(f"Registered {len(tools)} tools")
     """
     tools = create_canva_tools(connection)
 
@@ -387,10 +388,10 @@ def get_available_tools() -> Dict[str, Dict[str, bool]]:
 
 def get_all_mindscape_tools() -> Dict[str, MindscapeTool]:
     """
-    獲取所有已註冊的 MindscapeTool
+    Get all registered MindscapeTool instances
 
     Returns:
-        {tool_id: MindscapeTool} 字典
+        Dictionary mapping tool_id to MindscapeTool
     """
     return _mindscape_tools.copy()
 
@@ -451,13 +452,13 @@ def register_filesystem_tools():
 
 def get_tool_metadata(tool_id: str) -> Optional[Dict]:
     """
-    獲取工具的 metadata
+    Get tool metadata
 
     Args:
-        tool_id: 工具 ID
+        tool_id: Tool ID
 
     Returns:
-        工具 metadata dict 或 None
+        Tool metadata dictionary or None
 
     Example:
         >>> metadata = get_tool_metadata("wordpress.list_posts")
