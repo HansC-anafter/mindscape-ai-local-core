@@ -1,0 +1,174 @@
+/**
+ * Common i18n messages (Traditional Chinese)
+ * Shared across all modules
+ */
+
+import type { MessageKey } from '../../keys';
+
+export const commonZhTW = {
+
+  // Status
+  status: '狀態',
+  statusActive: '進行中',
+  statusCompleted: '已完成',
+  statusIdentified: '已識別',
+  statusPendingAdd: '待加入',
+  statusAdded: '已加入',
+  statusPaused: '已暫停',
+  statusArchived: '已封存',
+
+  // Priority
+  priorityLow: '低',
+  priorityMedium: '中',
+  priorityHigh: '高',
+  priorityCritical: '緊急',
+
+  // Actions
+  save: '儲存',
+  cancel: '取消',
+  delete: '刪除',
+  edit: '編輯',
+  create: '建立',
+  update: '更新',
+  search: '搜尋',
+  add: '添加',
+  accept: '接受',
+  skip: '略過',
+  copy: '複製',
+  open: '開啟',
+  download: '下載',
+  sourceIntent: '來源 Intent',
+  noOutcomes: '尚無成果',
+
+  // Common
+  loading: '載入中...',
+  saving: '儲存中...',
+  error: '發生錯誤',
+  success: '成功',
+  noData: '尚無資料',
+  notice: '注意',
+  hint: '提示',
+  times: '次',
+  retryFailed: '重試失敗',
+  unknownError: '未知錯誤',
+  storageLocationNotSpecified: '未指定儲存位置',
+  actionRequired: '需要處理',
+  configureStoragePathNow: '立即配置存儲路徑',
+  retryArtifactCreation: '重試創建產物',
+  llmConfidenceScore: 'LLM 分析置信度: {confidence} (範圍: 0~1)',
+  developerIntegrationsDescription: '需要外部環境或技術協作的進階整合設定，主要提供給技術夥伴使用',
+  requiresExternalSetup: '需要外部設定',
+  generalIntegrations: '一般整合',
+  generalIntegrationsLocalDescription: '常用的工具整合，在本地核心模式下即可正常使用',
+  generalIntegrationsDescription: '常用的工具整合',
+  developerIntegrations: '開發者整合',
+
+  // Modal titles
+  configureTool: '配置工具',
+  configureWorkflow: '配置工作流程',
+  editMCPServer: '編輯 MCP 伺服器',
+  addMCPServer: '新增 MCP 伺服器',
+  closeModal: '關閉彈窗',
+
+  // Modal content
+  unsupportedToolType: '不支持的工具類型',
+  closeButton: '關閉',
+
+  // Pending Tasks
+  intentBasedOnAISuggestion: '基於 AI 推測的意圖：',
+  editIntentLabel: '編輯意圖標籤',
+  backgroundExecution: '背景執行',
+  backgroundExecutionDescription: '此任務會在背景自動執行，無需 LLM 分析',
+  enableBackgroundTask: '啟用背景任務',
+  enableFailed: '啟用失敗',
+  confidence: '信心：',
+  executionSuccessUpdating: '執行成功，正在更新...',
+
+  // Background Tasks
+  disabled: '已停用',
+  runningNormally: '正常運行',
+  executionFailed: '執行失敗',
+  enabled: '已啟用',
+  noBackgroundTasks: '目前沒有背景任務',
+  processing: '處理中...',
+  disable: '停用',
+  enable: '啟用',
+  lastExecution: '上次執行：',
+  nextExecution: '下次執行：',
+  lastExecutionFailed: '最後一次執行失敗',
+  operationFailed: '操作失敗',
+  executionAISuggested: 'AI 建議',
+  executionRequiresConfirmation: '需要確認',
+  executionSelectStepForDetails: '請選擇步驟查看詳情',
+  executionCancel: '取消',
+  executionSummary: '執行摘要',
+  executionWaitingConfirmation: '等待確認',
+  executionConfirmationMessage: '此步驟需要您的確認才能繼續',
+  executionConfirmContinue: '確認並繼續',
+  executionReject: '拒絕',
+  timelineRunning: '執行中',
+  timelinePendingConfirmation: '待確認',
+  timelineArchived: '已存檔',
+  timelineHistory: '歷史',
+  noRunningExecutions: '目前沒有執行中的調度',
+  noPendingConfirmations: '目前沒有待確認的調度',
+  noArchivedExecutions: '目前沒有已存檔的調度',
+  retry: '重試',
+  viewArtifact: '查看成果',
+  timelineItemNotFound: '找不到關聯的 Timeline Item',
+  timelineItemUnavailable: '無法獲取 Timeline Item',
+  ready: '就緒',
+  needsSetup: '需要設定',
+  unsupported: '不支援',
+  toolsNeedConfiguration: '需要配置工具',
+  requiredToolsNotSupported: '所需工具不支援',
+  nextStep: '下一步',
+  startedAt: '開始時間',
+  // Tool Status Labels
+  statusNotConfigured: '未配置',
+  statusNotConnected: '未連接',
+  statusConnected: '已連接',
+  statusEnabled: '已啟用',
+  statusDisabled: '已停用',
+  statusLocalMode: '本地模式',
+  statusNotSupported: '不支援',
+
+  // Sidebar Tabs
+  tabScheduling: '調度',
+  tabOutcomes: '成果',
+  tabBackgroundTasks: '背景任務',
+  backgroundTasksPanel: '背景任務面板',
+  running: '執行中',
+  pending: '等待中',
+  createdAt: '建立時間',
+  activeExecutions: '執行中的任務',
+  backgroundRoutines: '背景任務',
+  systemTools: '系統工具',
+  systemTool: '系統工具',
+
+  // Copy actions
+  copyAll: '複製全部',
+  copyAllMessages: '複製所有訊息',
+  copyMessage: '複製訊息',
+  copied: '已複製',
+  user: '使用者',
+  assistant: '助理',
+
+  // New keys added to fix warnings
+  disconnected: '已斷開',
+  confirmDelete: '確認刪除',
+  deleting: '刪除中',
+  failedToLoad: '載入失敗',
+  dimensions: '維度',
+  contextWindow: '上下文窗口',
+  executionStatusCancelled: '已取消',
+
+  // Common labels
+  name: '名稱',
+  description: '描述',
+  type: '類型',
+  location: '位置',
+  provider: '提供者',
+  override: '覆蓋',
+
+} as const satisfies Partial<Record<MessageKey, string>>;

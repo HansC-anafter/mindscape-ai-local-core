@@ -129,5 +129,13 @@ export const commonJa = {
   copied: 'コピーしました',
   user: 'ユーザー',
   assistant: 'アシスタント',
+  // Common labels
+  name: '名前',
+  description: '説明',
+  type: 'タイプ',
+  location: '場所',
+  provider: 'プロバイダー',
+  override: '上書き',
+
 } as const satisfies Partial<Record<MessageKey, string>>;
 

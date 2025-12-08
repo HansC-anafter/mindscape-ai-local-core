@@ -1,0 +1,47 @@
+/**
+ * Habit-related i18n message keys
+ * Habit detection, confirmation, management, metrics
+ */
+
+export const habitKeys = {
+  habitSuggestions: true,
+  habitSuggestionMessage: true,
+  habitDetected: true,
+  habitConfirmed: true,
+  habitRejected: true,
+  habitPending: true,
+  habitStatus: true,
+  habitManagement: true,
+  habitMetrics: true,
+  habitCandidates: true,
+  habitConfidence: true,
+  habitKey: true,
+  habitValue: true,
+  habitEvidenceCount: true,
+  habitFirstSeenAt: true,
+  habitLastSeenAt: true,
+  habitSuperseded: true,
+  confirmHabit: true,
+  rejectHabit: true,
+  habitConfirmSuccess: true,
+  habitConfirmFailed: true,
+  habitRejectSuccess: true,
+  habitRejectFailed: true,
+  habitRollback: true,
+  habitViewDetails: true,
+  habitViewAuditLogs: true,
+  habitAuditLogs: true,
+  pendingCandidates: true,
+  confirmedCandidates: true,
+  rejectedCandidates: true,
+  noPendingCandidates: true,
+  totalCandidates: true,
+  totalObservations: true,
+  candidateHitRate: true,
+  acceptanceRate: true,
+  enableHabitSuggestions: true,
+  enableHabitSuggestionsDescription: true,
+  habitSuggestionsEnabled: true,
+  habitSuggestionsDisabled: true,
+} as const;
+
