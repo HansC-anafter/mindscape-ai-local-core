@@ -70,7 +70,7 @@ Playbook architecture and workflow execution mechanisms.
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
 
-### Project + Flow + Sandbox Architecture (v2.0) ✅ Implemented
+### Project + Flow + Sandbox Architecture (v2.0)
 
 #### [Sandbox System](./sandbox/)
 System-level Sandbox architecture, unifying all AI write operations.
