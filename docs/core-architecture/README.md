@@ -1,12 +1,12 @@
 # Architecture Documentation
 
-This directory contains the complete architecture documentation for Mindscape AI, including system architecture, core concepts, and implementation status.
+This directory contains the complete architecture documentation for Mindscape AI, including system architecture, core concepts, and architecture status.
 
 ## Start Here
 
 **New to the architecture?** Read [System Overview](./system-overview.md) first to understand how all layers work together to deliver the **AI-driven visible thinking workflow** described in the main README.
 
-## Current Implementation Status
+## Current Architecture Status
 
 **Project + Flow + Sandbox Architecture (v2.0)** - Fully implemented and in production.
 
@@ -26,7 +26,7 @@ This directory contains the complete architecture documentation for Mindscape AI
 - **Memory & Intent Architecture**: Three-layer architecture (Signal, Intent Governance, Execution)
 - **Playbook System**: Multi-step workflow execution
 
-### 📋 Implementation Details
+### Architecture Components
 
 #### Project Model
 - **Location**: `backend/app/models/project.py`
@@ -232,7 +232,7 @@ Shared Sandbox (file world: sandboxes/{workspace_id}/{project_type}/{project_id}
 SandboxManager (system-level)
 ```
 
-## Key Implementation Files
+## Key Code Files
 
 ### Models
 - `backend/app/models/project.py` - Project model
