@@ -28,8 +28,8 @@ interface WorkspaceSettingsProps {
 }
 
 const EXECUTION_MODE_OPTIONS: { value: ExecutionMode; label: string; icon: string; description: string }[] = [
-  { value: 'qa', label: '對話模式', icon: '💬', description: '討論為主，執行為輔' },
-  { value: 'execution', label: '執行模式', icon: '⚡', description: '行動優先，直接產出' },
+  { value: 'qa', label: '對話優先', icon: '💬', description: '討論為主，執行為輔' },
+  { value: 'execution', label: '執行優先', icon: '⚡', description: '行動為主，直接產出' },
   { value: 'hybrid', label: '邊做邊聊', icon: '🔄', description: '邊聊邊執行，平衡對話與行動' },
 ];
 
@@ -312,7 +312,7 @@ export default function WorkspaceSettings({
         {executionMode !== 'qa' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              執行優先級
+              任務自動觸發（信心度）
             </label>
             <div className="flex gap-2">
               {EXECUTION_PRIORITY_OPTIONS.map((option) => (

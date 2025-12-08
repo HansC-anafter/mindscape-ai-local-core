@@ -61,19 +61,19 @@ async def _generate_personalized_suggestions(
             except Exception:
                 pass
 
-        system_prompt = f"""You are a helpful AI assistant suggesting gentle, natural next steps for a user in their workspace.
+        system_prompt = f"""You are an onboarding coach for a new workspace. Give the user concrete, ready-to-click starting actions.
 
-Generate 2-4 personalized suggestions that:
-1. Are natural and gentle - don't assume you know what they want to do
-2. Are based on the workspace context (title, description, active goals)
-3. Use tentative language like "perhaps", "maybe", "if you'd like", "you might consider"
-4. Are conversational and friendly, not pushy
-5. Are written in {target_language} ({locale})
+Guidelines (must follow all):
+- Output 2-4 concise, actionable suggestions (each <= 15 words) in {target_language} ({locale}).
+- Lead with a verb and be specific (e.g., \"生成首頁草稿\" 而非 \"可以開始\").
+- Prefer referencing available playbooks / capabilities explicitly (含代碼) when relevant.
+- If useful, mention uploading/分析檔案、選擇目標、執行特定 playbook、檢視範例等明確行為。
+- Avoid模糊/填充語「或許」「maybe」「let's start」「可以開始」等；避免空泛目標。
+- No numbered list markers; one suggestion per line.
 
 **CRITICAL:**
 {language_instruction}
-Do NOT use generic suggestions like "organize tasks" or "view progress" unless truly relevant.
-Make suggestions feel natural and exploratory, not prescriptive."""
+If nothing relevant, return nothing."""
 
         user_prompt = f"""Workspace Context:
 - Title: {workspace.title}
@@ -83,15 +83,12 @@ Make suggestions feel natural and exploratory, not prescriptive."""
 Active Goals/Intents:
 {chr(10).join([f"- {intent['title']}: {intent['description']}" for intent in active_intents]) if active_intents else "No active intents yet"}
 
-Available Playbooks:
-{chr(10).join([f"- {pb['name']}: {pb['description']}" for pb in available_playbooks[:5]]) if available_playbooks else "Various playbooks available"}
+Available Playbooks (include code for actionable refs):
+{chr(10).join([f"- {pb['name']} ({pb['playbook_code']}): {pb['description']}" for pb in available_playbooks[:5]]) if available_playbooks else "No specific playbooks detected"}
 
 Context: {mindscape_context or "This is a new workspace"}
 
-Generate 2-4 gentle, natural suggestions for what the user might want to explore or do next.
-Format as a simple list, one suggestion per line, in {target_language}.
-Keep each suggestion concise (under 15 words).
-Use tentative, exploratory language."""
+Produce 2-4 actionable starter steps (one per line, no numbering), each <= 15 words, verb-led, specific, in {target_language}. If nothing relevant, return empty."""
 
         result = await generate_text(
             prompt=user_prompt,
@@ -108,15 +105,32 @@ Use tentative, exploratory language."""
 
         # Parse suggestions from text (split by newlines, clean up)
         suggestions = []
+        banned_patterns = [
+            r"^或許(也)?可以開始",          # meaningless filler zh
+            r"^maybe\\s*(we)?\\s*can\\s*start",  # meaningless filler en
+            r"^可以開始",                 # vague zh
+            r"^start\\s*now\\b",          # vague en
+            r"^let'?s\\s*start",          # vague en
+        ]
+        import re
+
         for line in suggestions_text.split('\n'):
             line = line.strip()
             # Remove list markers (-, *, 1., etc.)
             line = line.lstrip('- *•1234567890. ').strip()
-            if line and len(line) > 5:  # Filter out very short lines
-                suggestions.append(line)
+            if not line or len(line) <= 5:
+                continue
+            if any(re.search(p, line, re.IGNORECASE) for p in banned_patterns):
+                continue
+            suggestions.append(line)
 
         # Limit to 4 suggestions max
         suggestions = suggestions[:4]
+
+        # If everything got filtered out, return empty to avoid showing junk in UI
+        if not suggestions:
+            logger.info("Welcome suggestions filtered out (empty after sanitization); returning none.")
+            return []
 
         # If we got suggestions, return them; otherwise return empty
         if suggestions:
@@ -302,8 +316,15 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         available_playbooks=available_playbooks
                     )
                     welcome_message = result.get('text', '') if isinstance(result, dict) else str(result)
+                    # Basic validity: must have some content
                     if not welcome_message or len(welcome_message.strip()) < 10:
                         raise ValueError("LLM generated empty or invalid welcome message")
+                    # If content is too short (likely truncated), fall back to i18n baseline
+                    if len(welcome_message.strip()) < 40:
+                        logger.warning(
+                            f"LLM welcome message too short ({len(welcome_message.strip())} chars); falling back to i18n baseline"
+                        )
+                        welcome_message = i18n.t("workspace", "welcome.new_workspace", workspace_title=workspace.title)
 
                     # Validate that message is in correct language (basic check)
                     # Use language detection to verify the generated message matches the locale

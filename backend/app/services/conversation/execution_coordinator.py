@@ -131,6 +131,37 @@ class ExecutionCoordinator:
         Returns:
             Dict with execution results
         """
+        # Resolve Mind Lens if not already set
+        # Mind Lens is a Cloud extension, accessed via API
+        if ctx.mind_lens is None:
+            try:
+                import os
+                import httpx
+                cloud_api_url = os.getenv("CLOUD_API_URL")
+                if cloud_api_url:
+                    playbook_id = None
+                    if execution_plan.tasks:
+                        first_task = execution_plan.tasks[0]
+                        playbook_id = getattr(first_task, 'playbook_id', None)
+
+                    # Call Cloud API to resolve Mind Lens
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(
+                            f"{cloud_api_url}/mind-lens/resolve",
+                            json={
+                                "user_id": ctx.actor_id,
+                                "workspace_id": ctx.workspace_id,
+                                "playbook_id": playbook_id,
+                                "role_hint": None,
+                            },
+                            timeout=5.0,
+                        )
+                        if response.status_code == 200:
+                            ctx.mind_lens = response.json()
+            except Exception as e:
+                # Mind Lens not available, continue without it
+                logger.debug(f"Mind Lens not available: {e}")
+
         results = {
             "executed_tasks": [],
             "suggestion_cards": [],

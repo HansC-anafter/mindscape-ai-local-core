@@ -23,7 +23,115 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 # Initialize services
 mindscape_store = MindscapeStore()
-playbook_service = PlaybookService(store=mindscape_store)
+
+# Initialize Cloud Extension Manager and register providers
+cloud_extension_manager = None
+try:
+    from ...services.cloud_extension_manager import CloudExtensionManager
+    from ...services.cloud_providers.official import OfficialCloudProvider
+    from ...services.system_settings_store import SystemSettingsStore
+
+    # Get settings store for reading cloud configuration
+    settings_store = SystemSettingsStore()
+
+    # Migrate from old settings format if needed
+    def _migrate_cloud_settings(settings_store: SystemSettingsStore):
+        """
+        Migrate from old cloud settings format to new cloud_providers array
+
+        Old format: cloud_enabled, cloud_api_url, cloud_license_key
+        New format: cloud_providers array
+        """
+        try:
+            # Check if migration is needed
+            providers_config = settings_store.get("cloud_providers", default=[])
+            if providers_config:
+                # Already migrated
+                return
+
+            # Check for old settings
+            old_api_url = settings_store.get("cloud_api_url", default="")
+            old_license_key = settings_store.get("cloud_license_key", default="")
+            old_enabled = settings_store.get("cloud_enabled", default=False)
+
+            if old_api_url and old_license_key and old_enabled:
+                # Migrate to new format
+                logger.info("Migrating cloud settings from old format to new cloud_providers array")
+
+                new_provider = {
+                    "provider_id": "mindscape_official",
+                    "provider_type": "official",
+                    "enabled": True,
+                    "config": {
+                        "api_url": old_api_url,
+                        "license_key": old_license_key
+                    }
+                }
+
+                settings_store.set("cloud_providers", [new_provider])
+                logger.info("Cloud settings migrated successfully")
+        except Exception as e:
+            logger.warning(f"Failed to migrate cloud settings: {e}", exc_info=True)
+
+    _migrate_cloud_settings(settings_store)
+
+    # Initialize Cloud Extension Manager
+    cloud_extension_manager = CloudExtensionManager.instance()
+
+    # Load all providers from system settings (neutral interface - no built-in concept)
+    # All providers (including official cloud) are configured through settings
+    try:
+        providers_config = settings_store.get("cloud_providers", default=[])
+
+        if providers_config:
+            logger.info(f"Loading {len(providers_config)} cloud providers from settings")
+
+            for provider_config in providers_config:
+                if not provider_config.get("enabled", False):
+                    continue
+
+                provider_id = provider_config.get("provider_id")
+                provider_type = provider_config.get("provider_type")
+                config = provider_config.get("config", {})
+
+                try:
+                    if provider_type == "official":
+                        # Official cloud provider (same as others, just a provider type)
+                        provider = OfficialCloudProvider(
+                            api_url=config.get("api_url"),
+                            license_key=config.get("license_key"),
+                            settings_store=settings_store
+                        )
+                    elif provider_type == "generic_http":
+                        # Generic HTTP provider
+                        from ...services.cloud_providers.generic_http import GenericHttpProvider
+                        provider = GenericHttpProvider(
+                            provider_id=provider_id,
+                            provider_name=config.get("name", provider_id),
+                            api_url=config.get("api_url"),
+                            auth_config=config.get("auth", {})
+                        )
+                    else:
+                        logger.warning(f"Unknown provider type: {provider_type}, skipping")
+                        continue
+
+                    cloud_extension_manager.register_provider(provider)
+                    logger.info(f"Registered cloud provider: {provider_id} ({provider_type})")
+
+                except Exception as e:
+                    logger.error(f"Failed to register provider {provider_id}: {e}", exc_info=True)
+        else:
+            logger.debug("No cloud providers configured")
+
+    except Exception as e:
+        logger.warning(f"Failed to load cloud providers from settings: {e}", exc_info=True)
+
+except ImportError:
+    logger.debug("Cloud Extension Manager not available (httpx not installed or module not found)")
+except Exception as e:
+    logger.warning(f"Failed to initialize Cloud Extension Manager: {e}")
+
+playbook_service = PlaybookService(store=mindscape_store, cloud_extension_manager=cloud_extension_manager)
 
 
 @router.get("", response_model=List[Dict[str, Any]])

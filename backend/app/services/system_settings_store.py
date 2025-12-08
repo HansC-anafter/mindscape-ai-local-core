@@ -142,6 +142,32 @@ class SystemSettingsStore:
                 "is_user_editable": True,
                 "default_value": True
             },
+            # Cloud Extension Settings (Neutral - all providers configured here)
+            {
+                "key": "cloud_providers",
+                "value": [],
+                "value_type": SettingType.JSON,
+                "category": "cloud",
+                "description": "List of cloud playbook providers (all providers, including official, are configured here)",
+                "is_sensitive": False,
+                "is_user_editable": True,
+                "default_value": [],
+                "metadata": {
+                    "schema": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "provider_id": {"type": "string"},
+                                "provider_type": {"type": "string", "enum": ["official", "generic_http", "custom"]},
+                                "enabled": {"type": "boolean"},
+                                "config": {"type": "object"}
+                            },
+                            "required": ["provider_id", "provider_type", "enabled", "config"]
+                        }
+                    }
+                }
+            },
             # Google OAuth Settings
             {
                 "key": "google_oauth_client_id",
@@ -221,6 +247,22 @@ class SystemSettingsStore:
             return value_str.lower() in ('true', '1', 'yes', 'on')
         else:
             return value_str
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        Get setting value by key (convenience method)
+
+        Args:
+            key: Setting key
+            default: Default value if setting not found
+
+        Returns:
+            Setting value or default
+        """
+        setting = self.get_setting(key)
+        if setting is None:
+            return default
+        return setting.value
 
     def get_setting(self, key: str) -> Optional[SystemSetting]:
         """Get a single setting by key"""

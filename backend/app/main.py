@@ -27,6 +27,7 @@ from .routes.core.resources import router as resources_router
 from .routes.core.system_settings import router as system_settings_router
 from .routes.core.data_sources import router as data_sources_router
 from .routes.core.workspace_resource_bindings import router as workspace_resource_bindings_router
+from .routes.core.cloud_providers import router as cloud_providers_router
 
 # Core primitives
 from .routes.core import (
@@ -93,6 +94,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(tools.router, tags=["tools"])
     app.include_router(data_sources_router, tags=["data-sources"])
     app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
+    app.include_router(cloud_providers_router, tags=["cloud-providers"])
 
     # Generic resource routes (neutral interface)
     app.include_router(resources_router, tags=["resources"])

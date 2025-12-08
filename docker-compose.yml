@@ -30,6 +30,9 @@ services:
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback
       - PLAYBOOK_DISABLE_LEGACY=${PLAYBOOK_DISABLE_LEGACY:-1}
+      # Cloud Extension (optional - leave empty to disable)
+      - CLOUD_API_URL=${CLOUD_API_URL:-}
+      - CLOUD_LICENSE_KEY=${CLOUD_LICENSE_KEY:-}
       # Timezone
       - TZ=${TZ:-UTC}
     volumes:

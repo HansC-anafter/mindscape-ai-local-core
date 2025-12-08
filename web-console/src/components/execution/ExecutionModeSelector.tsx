@@ -18,18 +18,18 @@ const modeConfig: Record<ExecutionMode, {
   description: string;
 }> = {
   qa: {
-    label: '對話模式',
+    label: '對話優先',
     icon: '💬',
-    description: '對話模式：討論為主',
+    description: '對話優先：討論為主',
   },
   execution: {
-    label: '協作模式',
+    label: '執行優先',
     icon: '⚡',
-    description: '協作模式：行動優先',
+    description: '執行優先：行動為主',
   },
   hybrid: {
     label: '邊做邊聊',
-    icon: '🔄',
+    icon: '🤝',
     description: '邊做邊聊：邊聊邊執行，平衡對話與動作',
   },
 };
@@ -42,18 +42,32 @@ const priorityConfig: Record<ExecutionPriority, {
   low: {
     label: '低',
     indicator: '▽',
-    description: '謹慎執行',
+    description: '高信心(>=0.9)才自動執行',
   },
   medium: {
     label: '中',
     indicator: '◇',
-    description: '平衡',
+    description: '中等信心(>=0.8)觸發',
   },
   high: {
     label: '高',
     indicator: '△',
-    description: '積極執行',
+    description: '較積極(>=0.6)觸發',
   },
+};
+
+// Map enum priority to slider numeric value (0.5 - 1.0)
+const priorityToValue = (p: ExecutionPriority): number => {
+  if (p === 'high') return 1.0;
+  if (p === 'medium') return 0.8;
+  return 0.6;
+};
+
+// Map slider numeric value back to enum (thresholds chosen to keep backward compatibility)
+const valueToPriority = (v: number): ExecutionPriority => {
+  if (v >= 0.9) return 'high';
+  if (v >= 0.7) return 'medium';
+  return 'low';
 };
 
 export default function ExecutionModeSelector({
@@ -64,6 +78,7 @@ export default function ExecutionModeSelector({
 }: ExecutionModeSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [priorityValue, setPriorityValue] = useState<number>(priorityToValue(priority));
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -76,6 +91,11 @@ export default function ExecutionModeSelector({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Sync slider with external priority
+  useEffect(() => {
+    setPriorityValue(priorityToValue(priority));
+  }, [priority]);
 
   const currentMode = modeConfig[mode];
   const currentPriority = priorityConfig[priority];
@@ -98,8 +118,12 @@ export default function ExecutionModeSelector({
           background: 'rgba(139, 92, 246, 0.05)',
           border: '1px solid rgba(139, 92, 246, 0.15)',
         }}
+        title={currentMode.description}
       >
-        {/* Priority indicator - moved to front */}
+        {/* Priority numeric value + indicator */}
+        <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300">
+          {priorityValue.toFixed(1)}
+        </span>
         <span className={`text-[10px] ${
           priority === 'high' ? 'text-amber-500' :
           priority === 'medium' ? 'text-gray-500 dark:text-gray-400' :
@@ -108,7 +132,6 @@ export default function ExecutionModeSelector({
           {currentPriority.indicator}
         </span>
         <span className="text-gray-600 dark:text-gray-400">AI Team</span>
-        <span>{currentMode.icon}</span>
         <span className="text-gray-700 dark:text-gray-300">{currentMode.label}</span>
         {/* More prominent dropdown indicator */}
         <span className="ml-auto text-gray-500 dark:text-gray-400 text-[10px] font-bold">▼</span>
@@ -131,6 +154,7 @@ export default function ExecutionModeSelector({
                 onChange({ mode: m });
                 setIsOpen(false);
               }}
+              title={modeConfig[m].description}
               className={`
                 w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
                 hover:bg-purple-50 dark:hover:bg-purple-900/20
@@ -147,26 +171,39 @@ export default function ExecutionModeSelector({
           <div className="my-2 border-t border-gray-100 dark:border-gray-700" />
 
           {/* Priority section */}
-          <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-            執行優先級
+          <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+            <span>任務自動觸發（信心度）</span>
+            <span className="text-purple-700 dark:text-purple-300 text-[11px] font-bold">
+              {priorityValue.toFixed(1)}
+            </span>
           </div>
-          <div className="px-3 py-1.5 flex gap-2">
-            {(Object.keys(priorityConfig) as ExecutionPriority[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => onChange({ priority: p })}
-                className={`
-                  flex-1 px-2 py-1 rounded text-xs font-medium transition-all
-                  ${priority === p
-                    ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-transparent hover:border-gray-300 dark:hover:border-gray-600'
-                  }
-                `}
-                title={priorityConfig[p].description}
-              >
-                {priorityConfig[p].label} {priorityConfig[p].indicator}
-              </button>
-            ))}
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <span>0.5</span>
+              <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+              <span>1.0</span>
+            </div>
+            <input
+              type="range"
+              min={0.5}
+              max={1.0}
+              step={0.1}
+              value={priorityValue}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setPriorityValue(v);
+                onChange({ priority: valueToPriority(v) });
+              }}
+              className="w-full accent-purple-600"
+            />
+            <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+              {[0.5, 0.6, 0.7, 0.8, 0.9, 1.0].map(v => (
+                <span key={v}>{v.toFixed(1)}</span>
+              ))}
+            </div>
+            <div className="mt-1 text-xs text-purple-700 dark:text-purple-300 font-medium">
+              {priorityValue.toFixed(1)} ・ {priorityConfig[valueToPriority(priorityValue)].label}
+            </div>
           </div>
         </div>
       )}

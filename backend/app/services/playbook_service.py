@@ -45,15 +45,33 @@ class PlaybookService:
     Similar to Intent Server, provides unified API interface
     """
 
-    def __init__(self, store=None):
+    def __init__(self, store=None, cloud_client=None, cloud_extension_manager=None):
         """
         Initialize PlaybookService
 
         Args:
             store: MindscapeStore instance (optional, for user playbooks and state management)
+            cloud_client: CloudPlaybookClient instance (optional, deprecated - use cloud_extension_manager)
+            cloud_extension_manager: CloudExtensionManager instance (optional, for cloud playbooks from multiple providers)
         """
         self.store = store
-        self.registry = PlaybookRegistry(store)
+
+        # Support both old cloud_client and new cloud_extension_manager for backward compatibility
+        if cloud_extension_manager:
+            self.cloud_extension_manager = cloud_extension_manager
+        elif cloud_client:
+            # Legacy support: wrap old cloud_client in extension manager
+            from ...services.cloud_extension_manager import CloudExtensionManager
+            from ...services.cloud_providers.official import OfficialCloudProvider
+
+            self.cloud_extension_manager = CloudExtensionManager.instance()
+            # Create a provider wrapper for the old client
+            # This is a temporary bridge for backward compatibility
+            logger.warning("Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager.")
+        else:
+            self.cloud_extension_manager = None
+
+        self.registry = PlaybookRegistry(store, cloud_extension_manager=self.cloud_extension_manager)
 
     async def get_playbook(
         self,

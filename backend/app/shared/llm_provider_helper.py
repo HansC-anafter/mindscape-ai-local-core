@@ -164,7 +164,8 @@ def create_llm_provider_manager(
 
     # Get Vertex AI config: parameter > system settings > environment variable
     if not vertex_api_key:
-        vertex_service_account = settings_store.get_setting("vertex_ai_service_account")
+        # UI / settings route writes the JSON credential to vertex_ai_service_account_json
+        vertex_service_account = settings_store.get_setting("vertex_ai_service_account_json")
         vertex_api_key = vertex_service_account.value if vertex_service_account else None
     if not vertex_api_key:
         vertex_api_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")

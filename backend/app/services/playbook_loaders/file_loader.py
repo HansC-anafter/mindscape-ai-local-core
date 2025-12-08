@@ -118,3 +118,79 @@ class PlaybookFileLoader:
             logger.error(f"Failed to load playbook from {file_path}: {e}")
             return None
 
+    @staticmethod
+    def load_playbook_from_content(
+        content: str,
+        playbook_code: Optional[str] = None,
+        locale: Optional[str] = None
+    ) -> Optional[Playbook]:
+        """
+        Load a Playbook from markdown content string
+
+        Args:
+            content: Markdown content with YAML frontmatter
+            playbook_code: Optional playbook code (if not in frontmatter)
+            locale: Optional locale (if not in frontmatter)
+
+        Returns:
+            Playbook instance or None if failed
+        """
+        try:
+            frontmatter, sop_content = PlaybookFileLoader.parse_frontmatter(content)
+
+            # Use provided playbook_code or get from frontmatter
+            if not playbook_code:
+                playbook_code = frontmatter.get('playbook_code')
+                if not playbook_code:
+                    logger.warning("No playbook_code provided or found in frontmatter")
+                    return None
+
+            # Use provided locale or get from frontmatter
+            if not locale:
+                locale = frontmatter.get('locale', 'zh-TW')
+
+            if locale not in ['zh-TW', 'en', 'ja']:
+                logger.warning(f"Unsupported locale {locale} for {playbook_code}, defaulting to zh-TW")
+                locale = 'zh-TW'
+
+            kind_value = frontmatter.get('kind')
+            if kind_value:
+                try:
+                    kind = PlaybookKind(kind_value)
+                except ValueError:
+                    kind = PlaybookKind.USER_WORKFLOW
+            else:
+                kind = PlaybookKind.USER_WORKFLOW
+
+            metadata = PlaybookMetadata(
+                playbook_code=playbook_code,
+                version=frontmatter.get('version', '1.0.0'),
+                locale=locale,
+                name=frontmatter.get('name', playbook_code),
+                description=frontmatter.get('description', ''),
+                tags=frontmatter.get('tags', []),
+                kind=kind,
+                language_strategy=frontmatter.get('language_strategy', 'model_native'),
+                entry_agent_type=frontmatter.get('entry_agent_type'),
+                onboarding_task=frontmatter.get('onboarding_task'),
+                icon=frontmatter.get('icon'),
+                required_tools=frontmatter.get('required_tools', []),
+                background=frontmatter.get('background', False),
+                optional_tools=frontmatter.get('optional_tools', []),
+                scope=frontmatter.get('scope'),
+                owner=frontmatter.get('owner'),
+                runtime_tier=frontmatter.get('runtime_tier'),
+                runtime=frontmatter.get('runtime'),
+            )
+
+            playbook = Playbook(
+                metadata=metadata,
+                sop_content=sop_content.strip()
+            )
+
+            return playbook
+
+        except Exception as e:
+            logger.error(f"Failed to load playbook from content: {e}")
+            return None
+
