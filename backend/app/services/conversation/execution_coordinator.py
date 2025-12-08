@@ -1375,7 +1375,7 @@ class ExecutionCoordinator:
             existing_task = None
             if execution_id:
                 existing_task = self.tasks_store.get_task(execution_id)
-            
+
             if not existing_task:
                 task = Task(
                     id=str(uuid.uuid4()) if not execution_id else execution_id,

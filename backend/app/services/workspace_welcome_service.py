@@ -122,7 +122,7 @@ Produce 2-4 actionable starter steps (one per line, no numbering), each <= 15 wo
                 continue
             if any(re.search(p, line, re.IGNORECASE) for p in banned_patterns):
                 continue
-            suggestions.append(line)
+                suggestions.append(line)
 
         # Limit to 4 suggestions max
         suggestions = suggestions[:4]

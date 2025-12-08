@@ -60,9 +60,21 @@ def _init_installed_packs_table():
 _init_installed_packs_table()
 
 
+def _load_manifest_file(manifest_path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            pack_meta = yaml.safe_load(f)
+            if pack_meta and isinstance(pack_meta, dict):
+                pack_meta['_file_path'] = str(manifest_path)
+                return pack_meta
+    except Exception as e:
+        logger.warning(f"Failed to load pack file {manifest_path}: {e}")
+    return None
+
+
 def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
     """
-    Scan for pack YAML files in /packs directory
+    Scan for pack YAML files in /packs directory and cloud capability manifests
 
     Returns:
         List of pack metadata dictionaries
@@ -92,14 +104,45 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
 
     # Scan for .yaml files
     for pack_file in packs_dir.glob("*.yaml"):
-        try:
-            with open(pack_file, 'r', encoding='utf-8') as f:
-                pack_meta = yaml.safe_load(f)
-                if pack_meta and isinstance(pack_meta, dict):
-                    pack_meta['_file_path'] = str(pack_file)
-                    packs.append(pack_meta)
-        except Exception as e:
-            logger.warning(f"Failed to load pack file {pack_file}: {e}")
+        meta = _load_manifest_file(pack_file)
+        if meta:
+            packs.append(meta)
+
+    # Also scan cloud capabilities manifests (mindscape-ai-cloud/capabilities/*/manifest.yaml)
+    cloud_root_candidates = [
+        Path("/mindscape-ai-cloud/capabilities"),
+        packs_dir.parent.parent / "mindscape-ai-cloud" / "capabilities",
+        Path(__file__).parent.parent.parent.parent.parent / "mindscape-ai-cloud" / "capabilities",
+    ]
+    for cloud_root in cloud_root_candidates:
+        if not cloud_root.exists():
+            continue
+        for cap_dir in cloud_root.iterdir():
+            manifest_path = cap_dir / "manifest.yaml"
+            if manifest_path.exists():
+                meta = _load_manifest_file(manifest_path)
+                if not meta:
+                    continue
+                # Map manifest fields to pack meta fields expected by API
+                code = meta.get("code")
+                name = meta.get("display_name") or meta.get("name") or code
+                description = meta.get("description", "")
+                # Attach playbook codes for visibility (if present)
+                playbooks = []
+                for pb in meta.get("playbooks", []):
+                    if isinstance(pb, dict) and pb.get("code"):
+                        playbooks.append(pb["code"])
+                    elif isinstance(pb, str):
+                        playbooks.append(pb)
+                meta_mapped = {
+                    "id": code or cap_dir.name,
+                    "name": name or cap_dir.name,
+                    "description": description,
+                    "version": meta.get("version", "1.0.0"),
+                    "playbooks": playbooks,
+                    "_file_path": str(manifest_path),
+                }
+                packs.append(meta_mapped)
 
     return packs
 

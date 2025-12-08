@@ -147,65 +147,33 @@ class QAResponseGenerator:
                 enhanced_prompt += f"\n\n{system_suggestion}"
 
             # Get available playbooks for workspace capability awareness
-            # Merge playbooks from file system (system defaults) and database (user-imported)
+            # Use PlaybookService to get all playbooks (system, capability, user)
             available_playbooks = []
-            playbook_codes_seen = set()
 
             try:
-                # First, load from file system (system defaults)
-                from ...services.playbook_loader import PlaybookLoader
-                playbook_loader = PlaybookLoader()
-                file_playbooks = playbook_loader.load_all_playbooks()
+                from ...services.playbook_service import PlaybookService
+                playbook_service = PlaybookService(store=self.store)
+                playbook_metadatas = await playbook_service.list_playbooks(
+                    workspace_id=workspace_id,
+                    locale=self.default_locale
+                )
 
-                for pb in file_playbooks:
-                    metadata = pb.metadata if hasattr(pb, 'metadata') else None
-                    if metadata and metadata.playbook_code:
-                        # Extract output_types from playbook manifest or metadata
-                        output_types = []
-                        if hasattr(pb, 'manifest') and pb.manifest:
-                            output_types = pb.manifest.get('output_types', []) or []
-                        elif hasattr(metadata, 'output_types'):
-                            output_types = metadata.output_types or []
-
-                        available_playbooks.append({
-                            'playbook_code': metadata.playbook_code,
-                            'name': metadata.name,
-                            'description': metadata.description or '',
-                            'tags': metadata.tags or [],
-                            'output_type': output_types[0] if output_types else None,
-                            'output_types': output_types
-                        })
-                        playbook_codes_seen.add(metadata.playbook_code)
-            except Exception as e:
-                logger.warning(f"Failed to load playbooks from file system: {e}", exc_info=True)
-
-            try:
-                # Then, load from database (user-imported and personalized)
-                from ...services.playbook_store import PlaybookStore
-                playbook_store = PlaybookStore(self.store.db_path)
-                db_playbooks = playbook_store.list_playbooks()
-
-                for pb in db_playbooks:
-                    # Skip if already loaded from file system
-                    if pb.playbook_code in playbook_codes_seen:
-                        continue
-
-                    # Extract output_types (database playbooks may have different structure)
-                    output_types = getattr(pb, 'output_types', []) or []
+                for metadata in playbook_metadatas:
+                    # Extract output_types from metadata
+                    output_types = getattr(metadata, 'output_types', []) or []
                     if isinstance(output_types, str):
                         output_types = [output_types] if output_types else []
 
                     available_playbooks.append({
-                        'playbook_code': pb.playbook_code,
-                        'name': pb.name,
-                        'description': pb.description or '',
-                        'tags': pb.tags or [],
+                        'playbook_code': metadata.playbook_code,
+                        'name': metadata.name,
+                        'description': metadata.description or '',
+                        'tags': getattr(metadata, 'tags', []) or [],
                         'output_type': output_types[0] if output_types else None,
                         'output_types': output_types
                     })
-                    playbook_codes_seen.add(pb.playbook_code)
             except Exception as e:
-                logger.warning(f"Failed to load playbooks from database: {e}", exc_info=True)
+                logger.warning(f"Failed to load playbooks from PlaybookService: {e}", exc_info=True)
 
             result = await generate_text(
                 prompt=enhanced_prompt,

@@ -21,6 +21,78 @@ from backend.app.services.mindscape_store import MindscapeStore
 logger = logging.getLogger(__name__)
 
 
+def _parse_json_from_response(response_text: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse JSON from LLM response, handling markdown code blocks
+
+    Args:
+        response_text: Raw response text from LLM
+
+    Returns:
+        Parsed JSON dict, or None if parsing fails
+    """
+    import json
+    import re
+
+    if not response_text or not response_text.strip():
+        return None
+
+    # First, try direct JSON parsing
+    try:
+        return json.loads(response_text.strip())
+    except json.JSONDecodeError:
+        pass
+
+    # Try to extract JSON from markdown code blocks
+    # Pattern 1: ```json ... ```
+    json_block_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+    match = re.search(json_block_pattern, response_text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Pattern 2: ``` ... ``` (without json label)
+    code_block_pattern = r'```\s*(\{.*?\})\s*```'
+    match = re.search(code_block_pattern, response_text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Pattern 3: Remove markdown markers and try again
+    cleaned = re.sub(r'^```(?:json)?\s*', '', response_text, flags=re.MULTILINE)
+    cleaned = re.sub(r'^```\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = cleaned.strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Pattern 4: Find the largest JSON object in the text
+    # Match balanced braces
+    brace_count = 0
+    start_idx = -1
+    for i, char in enumerate(response_text):
+        if char == '{':
+            if brace_count == 0:
+                start_idx = i
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0 and start_idx >= 0:
+                json_str = response_text[start_idx:i+1]
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    continue
+
+    logger.warning(f"Failed to parse JSON from response. Response preview: {response_text[:500]}")
+    return None
+
+
 class InteractionType(str, Enum):
     """Layer 1: Interaction type classification"""
     QA = "qa"                    # Pure Q&A (no playbook needed)
@@ -290,20 +362,9 @@ Return in JSON format:
 
             # Parse JSON response
             import json
-            try:
-                result = json.loads(response_text)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:500]}")
-                # Try to extract JSON from markdown code blocks
-                import re
-                json_match = re.search(r'\{[^{}]*"interaction_type"[^{}]*\}', response_text)
-                if json_match:
-                    try:
-                        result = json.loads(json_match.group())
-                    except:
-                        return InteractionType.UNKNOWN, 0.0
-                else:
-                    return InteractionType.UNKNOWN, 0.0
+            result = _parse_json_from_response(response_text)
+            if not result:
+                return InteractionType.UNKNOWN, 0.0
 
             interaction_type_str = result.get("interaction_type", "unknown")
             confidence = float(result.get("confidence", 0.0))
@@ -396,20 +457,9 @@ Return in JSON format:
                 return TaskDomain.UNKNOWN, 0.0
 
             import json
-            try:
-                result = json.loads(response_text)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:500]}")
-                # Try to extract JSON from markdown code blocks
-                import re
-                json_match = re.search(r'\{[^{}]*"task_domain"[^{}]*\}', response_text)
-                if json_match:
-                    try:
-                        result = json.loads(json_match.group())
-                    except:
-                        return TaskDomain.UNKNOWN, 0.0
-                else:
-                    return TaskDomain.UNKNOWN, 0.0
+            result = _parse_json_from_response(response_text)
+            if not result:
+                return TaskDomain.UNKNOWN, 0.0
 
             domain_str = result.get("task_domain", "unknown")
             confidence = float(result.get("confidence", 0.0))
@@ -613,29 +663,9 @@ If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, 
 
             logger.info(f"LLM response text: {response_text[:200]}...")
 
-            import json
-            try:
-                result = json.loads(response_text)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:500]}")
-                # Try to extract JSON from markdown code blocks
-                import re
-                # Remove markdown code block markers
-                cleaned_text = re.sub(r'^```json\s*', '', response_text, flags=re.MULTILINE)
-                cleaned_text = re.sub(r'^```\s*$', '', cleaned_text, flags=re.MULTILINE)
-                cleaned_text = cleaned_text.strip()
-                try:
-                    result = json.loads(cleaned_text)
-                except:
-                    # Try to find JSON object in the text
-                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
-                    if json_match:
-                        try:
-                            result = json.loads(json_match.group())
-                        except:
-                            return None
-                    else:
-                        return None
+            result = _parse_json_from_response(response_text)
+            if not result:
+                return None
 
             selected_code = result.get("playbook_code")
 
@@ -1076,23 +1106,35 @@ Return only valid JSON or null.
 """
 
         try:
-            from backend.app.shared.llm_utils import call_llm
+            from backend.app.shared.llm_utils import call_llm, build_prompt
             import json
 
-            response = await call_llm(
-                self.llm_matcher.llm_provider,
-                prompt,
-                model="gpt-4o-mini"
+            if not self.llm_matcher.llm_provider:
+                logger.warning("Multi-step detection: llm_provider not available")
+                return None
+
+            messages = build_prompt(user_prompt=prompt)
+            if not messages:
+                logger.warning("Multi-step detection: build_prompt returned empty messages")
+                return None
+            response_dict = await call_llm(
+                messages=messages,
+                llm_provider=self.llm_matcher.llm_provider,
+                model=None
             )
 
-            result = json.loads(response.strip())
-            if result.get('is_multi_step'):
+            response_text = response_dict.get("text", "")
+            if not response_text:
+                return None
+
+            result = _parse_json_from_response(response_text)
+            if result and result.get('is_multi_step'):
                 logger.info(f"Detected multi-step workflow with {len(result.get('workflow_steps', []))} steps")
                 return result
             return None
 
         except Exception as e:
-            logger.warning(f"Multi-step detection failed: {e}")
+            logger.warning(f"Multi-step detection failed: {e}", exc_info=True)
             return None
 
     async def _check_execution_status_query(
@@ -1143,17 +1185,19 @@ Return only valid JSON or null.
 """
 
             try:
-                from backend.app.shared.llm_utils import call_llm
-                import json
+                from backend.app.shared.llm_utils import call_llm, build_prompt
 
-                response = await call_llm(
-                    self.llm_matcher.llm_provider,
-                    llm_prompt + "\n\nReturn JSON: {\"is_progress_query\": true/false}",
-                    model="gpt-4o-mini"
+                full_prompt = llm_prompt + "\n\nReturn JSON: {\"is_progress_query\": true/false}"
+                messages = build_prompt(full_prompt)
+                response_dict = await call_llm(
+                    messages=messages,
+                    llm_provider=self.llm_matcher.llm_provider,
+                    model=None
                 )
 
-                result = json.loads(response.strip())
-                if result.get("is_progress_query"):
+                response_text = response_dict.get("text", "")
+                result = _parse_json_from_response(response_text)
+                if result and result.get("is_progress_query"):
                     available_playbooks = "筆記組織、IG 貼文生成、PDF OCR 處理等"
                     return {
                         "confidence": 0.9,
@@ -1164,7 +1208,7 @@ Return only valid JSON or null.
                         "handoff_plan": None
                     }
             except Exception as e:
-                logger.warning(f"Failed to check execution status query (no active tasks): {e}")
+                logger.warning(f"Failed to check execution status query (no active tasks): {e}", exc_info=True)
 
         if has_active_tasks:
             current_tasks_snapshot = self._build_current_tasks_snapshot(pending_tasks, running_tasks)
@@ -1187,18 +1231,20 @@ Return only valid JSON or null.
 """
 
             try:
-                from backend.app.shared.llm_utils import call_llm
-                import json
+                from backend.app.shared.llm_utils import call_llm, build_prompt
                 from backend.app.models.playbook import HandoffPlan, WorkflowStep
 
-                response = await call_llm(
-                    self.llm_matcher.llm_provider,
-                    llm_prompt + "\n\nReturn JSON: {\"is_progress_query\": true/false, \"confidence\": 0.0-1.0}",
-                    model="gpt-4o-mini"
+                full_prompt = llm_prompt + "\n\nReturn JSON: {\"is_progress_query\": true/false, \"confidence\": 0.0-1.0}"
+                messages = build_prompt(full_prompt)
+                response_dict = await call_llm(
+                    messages=messages,
+                    llm_provider=self.llm_matcher.llm_provider,
+                    model=None
                 )
 
-                result = json.loads(response.strip())
-                if result.get("is_progress_query"):
+                response_text = response_dict.get("text", "")
+                result = _parse_json_from_response(response_text)
+                if result and result.get("is_progress_query"):
                     confidence = float(result.get("confidence", 0.8))
 
                     workflow_step = WorkflowStep(
