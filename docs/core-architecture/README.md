@@ -70,8 +70,6 @@ Playbook architecture and workflow execution mechanisms.
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
 
-### Project + Flow + Sandbox Architecture (v2.0)
-
 #### [Sandbox System](./sandbox/)
 System-level Sandbox architecture, unifying all AI write operations.
 
@@ -79,16 +77,12 @@ System-level Sandbox architecture, unifying all AI write operations.
 - [Sandbox System Implementation Steps](./sandbox/sandbox-system-implementation-steps.md)
 - [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
 
-**Implementation Status**: Project sandbox management implemented with workspace isolation
-
 #### [Project + Flow](./project-flow/)
 Project and Playbook Flow architecture for multi-playbook collaboration.
 
 - [Project + Flow Architecture](./project-flow/project-flow-architecture.md)
 - [Project + Flow Implementation Steps](./project-flow/project-flow-implementation-steps.md)
 - [Project + Flow Summary](./project-flow/project-flow-summary.md)
-
-**Implementation Status**: Complete implementation with FlowExecutor, dependency resolution, and checkpointing
 
 #### [Three.js Sandbox](./threejs/)
 Three.js Hero scene Sandbox implementation planning and examples.
@@ -108,7 +102,7 @@ Three.js Hero scene Sandbox implementation planning and examples.
 2. **Intent Governance Layer** - Organizes signals into IntentCards and IntentClusters
 3. **Execution & Semantic Layer** - Executes playbooks, tools, and semantic engines
 
-### Project + Flow + Sandbox Architecture
+### Project + Flow + Sandbox Architecture (v2.0)
 
 **Project**: Deliverable-level container with its own lifecycle (open, closed, archived)
 - **Auto-detection**: Projects emerge naturally from conversations
