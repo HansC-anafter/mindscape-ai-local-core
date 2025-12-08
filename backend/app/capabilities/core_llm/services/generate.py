@@ -238,8 +238,8 @@ def _detect_prompt_language(text: str) -> Optional[str]:
     has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
     if has_chinese:
         # Check for traditional vs simplified (rough heuristic)
-        # Traditional characters: 請、說、這
-        # Simplified characters: 请、说、这
+        # Traditional characters examples: qing (請), shuo (說), zhe (這)
+        # Simplified characters examples: qing (请), shuo (说), zhe (这)
         if any(char in text for char in ['請', '說', '這', '為', '與']):
             return "zh-TW"
         else:
