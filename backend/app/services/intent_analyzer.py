@@ -558,10 +558,12 @@ class PlaybookSelector:
 
         playbooks_text = "\n".join(playbook_list)
 
-        prompt = f"""Given the user request and task domain, select the most appropriate playbook from the available list.
+        # Playbook selection should be based on user_input, not limited by hardcoded task_domain
+        # task_domain is only used as a hint, not a requirement
+        task_domain_hint = f" (Task domain hint: {task_domain.value})" if task_domain != TaskDomain.UNKNOWN else ""
+        prompt = f"""Given the user request, select the most appropriate playbook from the available list.
 
-User request: "{user_input}"
-Task domain: {task_domain.value}
+User request: "{user_input}"{task_domain_hint}
 
 Available playbooks:
 {playbooks_text}
@@ -587,16 +589,17 @@ If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, 
                 user_prompt=prompt
             )
 
-            # Get model name from system settings
-            from backend.app.services.system_settings_store import SystemSettingsStore
+            # Get model name from system settings, or use None to let llm_provider use its default
             from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
 
+            model_name = None
             try:
-                model_name = get_model_name_from_chat_model() or "gpt-4o-mini"
-            except:
-                model_name = "gpt-4o-mini"
+                model_name = get_model_name_from_chat_model()
+            except Exception as e:
+                logger.debug(f"Failed to get model name from chat_model: {e}, using llm_provider default")
 
             # Use unified call_llm tool with existing llm_provider
+            # If model_name is None, call_llm will use llm_provider's default model
             response_dict = await call_llm(
                 messages=messages,
                 llm_provider=self.llm_provider,
@@ -894,19 +897,26 @@ class IntentPipeline:
         logger.info(f"[IntentPipeline] Layer 1 result: {result.interaction_type.value} (confidence: {result.interaction_confidence:.2f}, method: {method})")
 
         # Layer 2: Task Domain (only if START_PLAYBOOK)
+        # task_domain is optional and only used as a hint, not a requirement for playbook selection
         if result.interaction_type == InteractionType.START_PLAYBOOK:
-            logger.info(f"[IntentPipeline] Layer 2: Determining task domain...")
+            logger.info(f"[IntentPipeline] Layer 2: Determining task domain (optional hint)...")
 
-            task_domain, confidence = await self.llm_matcher.determine_task_domain(
-                user_input, active_intents
-            )
-            result.task_domain = task_domain
-            result.task_domain_confidence = confidence
-            result.pipeline_steps["layer2_method"] = "llm_based"
+            try:
+                task_domain, confidence = await self.llm_matcher.determine_task_domain(
+                    user_input, active_intents
+                )
+                result.task_domain = task_domain
+                result.task_domain_confidence = confidence
+                result.pipeline_steps["layer2_method"] = "llm_based"
+                logger.info(f"[IntentPipeline] Layer 2 result: {result.task_domain.value} (confidence: {confidence:.2f})")
+            except Exception as e:
+                logger.warning(f"[IntentPipeline] Layer 2: Failed to determine task domain: {e}, continuing without it")
+                result.task_domain = TaskDomain.UNKNOWN
+                result.task_domain_confidence = 0.0
 
-            logger.info(f"[IntentPipeline] Layer 2 result: {result.task_domain.value} (confidence: {confidence:.2f})")
-
-            if result.task_domain != TaskDomain.UNKNOWN:
+            # Always proceed to Layer 3 for START_PLAYBOOK
+            # Playbook selection is based on user_input, task_domain is only a hint
+            if True:
                 logger.info(f"[IntentPipeline] Layer 3: Selecting playbook...")
 
                 locale = None
