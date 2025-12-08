@@ -172,15 +172,14 @@ For a more detailed setup guide, see [QUICKSTART.md](./QUICKSTART.md) or [Instal
 - [The Mindscape Algorithm](./docs/mindscape-algorithm.md) - Core philosophy and 3-layer architecture
 - [Mindscape AI Website](https://mindscapeai.app) - Complete technical whitepaper and product introduction (coming soon)
 
-### Technical Architecture
-- [Architecture Overview](./docs/architecture/port-architecture.md) - System architecture and design patterns
-- [Playbooks & Multi-step Workflows](./docs/architecture/playbooks-and-workflows.md) - Playbook architecture and workflow execution
-- [Memory & Intent Architecture](./docs/architecture/memory-intent-architecture.md) - Event, intent, and memory layer design
-- [Local/Cloud Boundary](./docs/architecture/local-cloud-boundary.md) - Architectural separation principles
-- [ExecutionContext](./docs/architecture/execution-context.md) - Execution context abstraction
-
-### Core Architecture (v2.0)
-- [Core Architecture Documentation](./docs/core-architecture/README.md) - Project + Flow + Sandbox architecture
+### Architecture Documentation
+- [Architecture Documentation](./docs/core-architecture/README.md) - Complete system architecture, including:
+  - Port/Adapter Architecture
+  - Memory & Intent Architecture
+  - Execution Context
+  - Local/Cloud Boundary
+  - Playbooks & Workflows
+  - Project + Flow + Sandbox (v2.0)
 
 ## 🧩 Port Architecture
 

@@ -168,15 +168,14 @@ npm run dev
 - [心智空間算法](./docs/mindscape-algorithm.md) - 核心理念與三層架構
 - [Mindscape AI 官網](https://mindscapeai.app) - 完整技術白皮書與理念介紹（即將推出）
 
-### 技術架構
-- [架構概覽](./docs/architecture/port-architecture.md) - 系統架構與設計模式
-- [Playbooks 與多步驟工作流](./docs/architecture/playbooks-and-workflows.md) - Playbook 架構與工作流執行
-- [記憶與意圖架構](./docs/architecture/memory-intent-architecture.md) - 事件、意圖和記憶層設計
-- [本地/雲端邊界](./docs/architecture/local-cloud-boundary.md) - 架構分離原則
-- [執行上下文](./docs/architecture/execution-context.md) - 執行上下文抽象
-
-### 核心架構（v2.0）
-- [核心架構文檔](./docs/core-architecture/README.md) - Project + Flow + Sandbox 架構
+### 架構文檔
+- [架構文檔](./docs/core-architecture/README.md) - 完整系統架構，包括：
+  - Port/Adapter 架構
+  - 記憶與意圖架構
+  - 執行上下文
+  - 本地/雲端邊界
+  - Playbooks 與工作流
+  - Project + Flow + Sandbox（v2.0）
 
 ## 🧩 Port 架構
 
