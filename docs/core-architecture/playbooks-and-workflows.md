@@ -11,7 +11,7 @@ This document explains how **Playbooks** and **multi-step workflows** work insid
 
 If you've used tools like LangChain, Claude Skills, GitHub Actions, or n8n, the ideas here should feel familiar: we separate "talking to humans" from "running workflows", and we make those workflows **explicit and reusable** via Playbooks.
 
-This doc is meant for **open-source contributors and plugin authors**. If you're looking for the low-level internal spec, see the internal design doc `MULTI_STEP_WORKFLOW_ARCHITECTURE_2025-12-01.md` (kept out of the public repo).
+This doc is meant for **open-source contributors and plugin authors**. For additional implementation details, see the architecture documentation index.
 
 ---
 

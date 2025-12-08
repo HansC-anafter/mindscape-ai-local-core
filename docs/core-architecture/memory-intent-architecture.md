@@ -1042,9 +1042,7 @@ class EventEmbeddingGenerator:
 
 ## References
 
-- [Embedding, Memory, Intent Coverage Audit](../../docs-internal/implementation/EMBEDDING_MEMORY_INTENT_COVERAGE_AUDIT.md)
-- [Developer Guide](../../docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md)
-- [Habit Learning Implementation](../../docs-internal/implementation/HABIT_LEARNING_IMPLEMENTATION_DETAILS.md)
+For additional implementation details and developer guidelines, see the architecture documentation index.
 
 ## Related Code Files
 

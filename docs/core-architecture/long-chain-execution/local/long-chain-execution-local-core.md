@@ -462,4 +462,3 @@ See unit tests and integration tests for each service.
 **Last Updated**: 2025-12-05
 **Maintainer**: Mindscape AI Development Team
 **Related Documentation**:
-- [Local Core Implementation Tasks](../../../docs-internal/implementation/2025-12-05/playbook-extension/long-chain-execution-local-todos-2025-12-05.md)

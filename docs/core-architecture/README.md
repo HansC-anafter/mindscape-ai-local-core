@@ -2,6 +2,10 @@
 
 This directory contains the complete architecture documentation for Mindscape AI, including system architecture, core concepts, and implementation status.
 
+## Start Here
+
+**New to the architecture?** Read [System Overview](./system-overview.md) first to understand how all layers work together to deliver the **AI-driven visible thinking workflow** described in the main README.
+
 ## Current Implementation Status
 
 **Project + Flow + Sandbox Architecture (v2.0)** - Fully implemented and in production.
@@ -48,6 +52,11 @@ This directory contains the complete architecture documentation for Mindscape AI
 
 ## Directory Structure
 
+### System Overview
+
+#### [System Overview: AI-Driven Visible Thinking Workflow](./system-overview.md)
+Complete flow from user to artifact, showing how all architectural layers work together. Maps the README's "AI-driven visible thinking workflow" concept to actual system components.
+
 ### Core System Architecture
 
 #### [Port Architecture](./port-architecture.md)
@@ -71,26 +80,13 @@ Long-chain execution patterns for complex workflows.
 #### [Sandbox System](./sandbox/)
 System-level Sandbox architecture, unifying all AI write operations.
 
-- [Sandbox System Architecture](./sandbox/sandbox-system-architecture.md)
-- [Sandbox System Implementation Steps](./sandbox/sandbox-system-implementation-steps.md)
 - [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
 
 #### [Project + Flow](./project-flow/)
 Project and Playbook Flow architecture for multi-playbook collaboration.
 
-- [Project + Flow Architecture](./project-flow/project-flow-architecture.md)
-- [Project + Flow Implementation Steps](./project-flow/project-flow-implementation-steps.md)
 - [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
-#### [Three.js Sandbox](./threejs/)
-Three.js Hero scene Sandbox implementation planning and examples.
-
-- [Three.js Sandbox Index](./threejs/threejs-sandbox-index.md)
-- [Three.js Sandbox Implementation Plan](./threejs/threejs-sandbox-implementation-plan.md)
-- [Three.js Sandbox Implementation Steps](./threejs/threejs-sandbox-implementation-steps.md)
-- [Three.js Sandbox Code Examples](./threejs/threejs-sandbox-code-examples.md)
-- [Three.js Sandbox Quick Start](./threejs/threejs-sandbox-quick-start.md)
-- [Three.js Sandbox Summary](./threejs/threejs-sandbox-summary.md)
 
 ## Core Concepts
 
@@ -201,23 +197,24 @@ CREATE TABLE playbook_flows (
 ## Reading Guide
 
 ### Quick Overview
-1. [Port Architecture](./port-architecture.md) - System design patterns
-2. [Memory & Intent Architecture](./memory-intent-architecture.md) - Three-layer architecture
-3. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
-4. [Project + Flow Summary](./project-flow/project-flow-summary.md)
+1. [System Overview](./system-overview.md) - **Start here**: Complete flow from user to artifact
+2. [Port Architecture](./port-architecture.md) - System design patterns
+3. [Memory & Intent Architecture](./memory-intent-architecture.md) - Three-layer architecture
+4. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
+5. [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
 ### Deep Dive
 1. [Port Architecture](./port-architecture.md) - Hexagonal architecture patterns
 2. [Execution Context](./execution-context.md) - Context flow
 3. [Local/Cloud Boundary](./local-cloud-boundary.md) - Separation principles
 4. [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) - Workflow execution
-5. [Sandbox System Architecture](./sandbox/sandbox-system-architecture.md)
-6. [Project + Flow Architecture](./project-flow/project-flow-architecture.md)
+5. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
+6. [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
 ### Getting Started
-1. [Sandbox System Implementation Steps](./sandbox/sandbox-system-implementation-steps.md)
-2. [Project + Flow Implementation Steps](./project-flow/project-flow-implementation-steps.md)
-3. [Three.js Sandbox Quick Start](./threejs/threejs-sandbox-quick-start.md)
+1. [System Overview](./system-overview.md) - Complete workflow overview
+2. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
+3. [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
 ## Architecture Relationship
 
@@ -265,5 +262,48 @@ SandboxManager (system-level)
 - `backend/app/services/conversation_orchestrator.py` - Project detection integration
 - `backend/app/services/playbook_runner.py` - Project mode support
 - `backend/app/services/conversation/context_builder.py` - Memory layering integration
+
+## Mapping: README Concepts to Architecture
+
+The main README describes two key concepts:
+
+1. **AI-driven visible thinking workflow** = Signal → Intent Governance → Project/Flow → Playbooks → Sandbox → Memory
+   - See [System Overview](./system-overview.md) for the complete flow
+
+2. **Project / Playbook flow** = Project → Intents → Playbooks → AI Team Execution → Artifacts
+   - See [Project + Flow Architecture](./project-flow/project-flow-architecture.md) for technical details
+   - See [System Overview](./system-overview.md) for examples and mental model
+
+## For Contributors: How to Extend
+
+### Adding a New Playbook
+
+1. Create `playbook.md` (human-readable workflow) and `playbook.json` (machine-executable config)
+2. Define steps, AI roles, tools, and expected outputs
+3. Register in playbook registry
+4. See [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) for detailed guide
+
+### Adding a New Port / Adapter
+
+1. Define Port interface in `backend/app/ports/`
+2. Implement Local adapter in `backend/app/services/adapters/`
+3. Inject Port into core services via dependency injection
+4. See [Port Architecture](./port-architecture.md) for patterns and examples
+
+### Adding a New Memory Model / Event Type
+
+1. Define new EventType enum in `backend/app/models/workspace.py`
+2. Add schema to `events` table if needed (via Alembic migration)
+3. Update `should_generate_embedding()` logic if embedding is needed
+4. Implement memory service if workspace/project/member-specific
+5. Integrate into ContextBuilder for LLM context
+6. See [Memory & Intent Architecture](./memory-intent-architecture.md) for schema and patterns
+
+### Adding a New Tool / Integration
+
+1. Implement tool provider in `backend/app/services/tools/providers/`
+2. Register in tool registry
+3. Add to playbook tool list if needed
+4. See tool registry documentation for details
 
 ---

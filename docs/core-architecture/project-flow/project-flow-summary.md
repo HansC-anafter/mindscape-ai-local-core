@@ -1,69 +1,69 @@
-# Project + Playbook Flow 設計總結
+# Project + Playbook Flow Design Summary
 
-## 🎯 核心洞察
+## 🎯 Core Insights
 
-### 問題本質
+### The Problem
 
-> **現在是「一群 playbook 在各自做夢」，不是「一起蓋同一棟房子」。**
+> **Currently, we have "multiple playbooks working in isolation", not "collaborating to build the same house".**
 
-### 三個痛點
+### Three Pain Points
 
-1. **沒有「共同世界」**
-   - 每個 playbook 各自憑輸入想像，沒有一份「唯一真實版本」的 spec/檔案
+1. **No "Shared World"**
+   - Each playbook imagines based on its own inputs, without a single "source of truth" spec/file
 
-2. **沒有「先後關係」**
-   - 一堆 playbook 同時被意圖打開、各自跑
-   - LLM 在腦內排順序，但執行引擎沒有真的 enforce
+2. **No "Execution Order"**
+   - Multiple playbooks get triggered simultaneously and run independently
+   - LLM mentally orders them, but the execution engine doesn't enforce it
 
-3. **沒有「作品級別」的容器**
-   - workspace 裡混了各種產物
-   - 其實要的是：「這些東西是同一個『作品』底下的部件」
+3. **No "Deliverable-Level Container"**
+   - Workspace mixes various artifacts: a hero here, a video there, an IG post elsewhere
+   - What we need: "These are all components of the same deliverable"
 
-### 解決方案
+### Solution
 
-引入三個一級概念：
-1. **Project / Work Unit** - 作品級容器
-2. **Playbook Flow** - Playbook 群組/pipeline
-3. **Shared Sandbox** - 作品級的檔案世界
+Introduce three first-class concepts:
+1. **Project / Work Unit** - Deliverable-level container
+2. **Playbook Flow** - Playbook group/pipeline
+3. **Shared Sandbox** - Deliverable-level file world
 
-## 🏗️ 架構總覽
+## 🏗️ Architecture Overview
 
-### 三層設計
+### Three-Layer Design
 
 ```
 Intent Layer
     ↓
 Orchestrator
     ↓
-Project (作品容器)
+Project (deliverable container)
     ↓
-Playbook Flow (執行流程)
+Playbook Flow (execution flow)
     ↓
-Shared Sandbox (檔案世界)
+Shared Sandbox (file world)
 ```
 
-### 核心概念
+### Core Concepts
 
-#### 1. Project（作品 / 工地）
+#### 1. Project (Deliverable / Worksite)
 
-每次用戶說「幫我做一個關於 xxx 的網頁」，系統先建立一個 Project，所有後續檔案、sandbox、playbook 執行都掛在這個 project 底下。
+When a user says "Help me create a webpage about xxx", the system first creates a Project. All subsequent files, sandboxes, and playbook executions are associated with this project.
 
-**結構：**
+**Structure:**
 ```python
 Project:
   id: web_page_2025xxxx
   type: web_page
-  title: "關於 xxx 的網頁"
+  title: "Webpage about xxx"
   workspace_id: current_workspace_id
   flow_id: web_page_flow
   state: active
 ```
 
-#### 2. Playbook Flow（Playbook 群組）
+#### 2. Playbook Flow (Playbook Group)
 
-不是一堆 playbook 平行亂跑，而是定義節點和邊，執行單位是「這個 Project 正在跑 web_page_flow，現在在 A 節點」。
+Instead of multiple playbooks running in parallel chaos, we define nodes and edges. The execution unit is "This Project is running web_page_flow, currently at node A".
 
-**範例：**
+**Example:**
 ```yaml
 nodes:
   A: page_outline_md
@@ -71,118 +71,118 @@ nodes:
   C: sections_react
 
 edges:
-  A -> B (B 要吃 A 的 md_spec)
-  A -> C (C 也吃 A 的 md_spec)
+  A -> B (B consumes A's md_spec)
+  A -> C (C also consumes A's md_spec)
 ```
 
-#### 3. Shared Sandbox（作品級的檔案世界）
+#### 3. Shared Sandbox (Deliverable-Level File World)
 
-對這個 Project 開一個專屬 sandbox，所有 playbook 都寫進同一個 project sandbox，檔案共享機制自然存在。
+Create a dedicated sandbox for this Project. All playbooks write to the same project sandbox, naturally enabling file sharing.
 
-**結構：**
+**Structure:**
 ```
 sandboxes/web_page/{project_id}/
-  spec/page.md          # A 產出
-  hero/index.html       # B 產出
-  sections/App.tsx      # C 產出
+  spec/page.md          # Output from A
+  hero/index.html       # Output from B
+  sections/App.tsx      # Output from C
 ```
 
-## 🔄 執行流程範例
+## 🔄 Execution Flow Example
 
-### 「幫我做一個關於『城市覺知』的網頁」
+### "Help me create a webpage about 'Urban Awareness'"
 
-#### Step 0: Intent 判定
+#### Step 0: Intent Detection
 ```
-用戶：「幫我做一個關於『城市覺知』的網頁」
+User: "Help me create a webpage about 'Urban Awareness'"
 → Intent: web_page_project
-→ Orchestrator 建立 Project + 掛上 web_page_flow
+→ Orchestrator creates Project + associates web_page_flow
 ```
 
-#### Step 1: 節點 A - Page Outline
-- Playbook A 產出 `spec/page.md`
-- 註冊 artifact: `page_md`
-- Flow 知道 A 完成了，才會排 B/C
+#### Step 1: Node A - Page Outline
+- Playbook A outputs `spec/page.md`
+- Registers artifact: `page_md`
+- Flow knows A is complete before scheduling B/C
 
-#### Step 2: 節點 B & C - Hero + Sections
-- B 和 C 都讀取 `page_md`（同一份 spec）
-- B 產出 `hero/index.html`
-- C 產出 `sections/App.tsx`
-- 可以平行執行（因為都只依賴 A）
+#### Step 2: Nodes B & C - Hero + Sections
+- Both B and C read `page_md` (same spec)
+- B outputs `hero/index.html`
+- C outputs `sections/App.tsx`
+- Can execute in parallel (both only depend on A)
 
 #### Step 3: Workspace UI
 ```
-🧱 Web Page Project – 城市覺知
-流程：Outline → Hero → Sections
-現況：Hero 已完成草稿、Sections 50%
+🧱 Web Page Project – Urban Awareness
+Flow: Outline → Hero → Sections
+Status: Hero draft complete, Sections 50%
 ```
 
-## 🎯 關鍵價值
+## 🎯 Key Value
 
-### 從「各自做夢」到「一起蓋房子」
+### From "Working in Isolation" to "Building Together"
 
-**之前：**
-- 一堆 playbook 平行亂跑
-- 各自憑輸入想像，沒有共同世界
-- 沒有執行順序保證
+**Before:**
+- Multiple playbooks running in parallel chaos
+- Each imagining based on inputs, no shared world
+- No execution order guarantee
 
-**之後：**
-- 同一個 Project + Sandbox
-- 看同一張藍圖（page.md）
-- 各做各工種，但共用同一組 artifact
-- 真正的「多工 agent」分工
+**After:**
+- Same Project + Sandbox
+- Reading the same blueprint (page.md)
+- Each doing their part, but sharing the same artifacts
+- True "multi-agent" collaboration
 
-### 多工 Agent 的真正分工
+### True Multi-Agent Collaboration
 
-> 「一群人各自拿到關鍵字瞎忙」
+> "Multiple agents each receiving keywords and working blindly"
 > ↓
-> 「在同一個工地、看同一張藍圖、各做各工種，但共用同一組 artefact」
+> "On the same worksite, reading the same blueprint, each doing their craft, but sharing the same artifacts"
 
-## 🔀 跨 Workspace 支持
+## 🔀 Cross-Workspace Support
 
-### Project 移交
+### Project Transfer
 
-- Project 有 `home_workspace_id`
-- 可以在 UI 上選擇：「把這個 Project 拆出去，掛到『Web Design Workspace』」
-- 原 workspace 只留下「成果卡」和「shortcut」
+- Project has `home_workspace_id`
+- UI option: "Transfer this Project to 'Web Design Workspace'"
+- Original workspace keeps only "result card" and "shortcut"
 
-**好處：**
-- 總控 workspace 不會被各種產物塞爆
-- 各專門 workspace 都有自己的 Project 清單
+**Benefits:**
+- Control workspace doesn't get cluttered with various artifacts
+- Specialized workspaces each have their own Project lists
 
-## 📋 實作優先級
+## 📋 Implementation Priority
 
-### Phase 1: Project 基礎層
-1. ✅ 定義 Project 資料結構
-2. ✅ 實現 ProjectManager
-3. ✅ 實現 ArtifactRegistry
-4. ✅ 實現 ProjectSandboxManager
+### Phase 1: Project Foundation Layer ✅
+1. ✅ Define Project data structure
+2. ✅ Implement ProjectManager
+3. ✅ Implement ArtifactRegistry
+4. ✅ Implement ProjectSandboxManager
 
-### Phase 2: Playbook Flow 引擎
-1. ⏳ 定義 Flow 結構
-2. ⏳ 實現 FlowExecutor
-3. ⏳ 實現依賴檢查和節點調度
+### Phase 2: Playbook Flow Engine ✅
+1. ✅ Define Flow structure
+2. ✅ Implement FlowExecutor
+3. ✅ Implement dependency checking and node scheduling
 
-### Phase 3: 最小 Flow 實作
-1. ⏳ 實作 `web_page_flow`（A → B）
-2. ⏳ 修改 `page_outline` playbook
-3. ⏳ 修改 `threejs_hero_landing` playbook
-4. ⏳ 測試完整流程
+### Phase 3: Minimal Flow Implementation ✅
+1. ✅ Implement `web_page_flow` (A → B)
+2. ✅ Modify `page_outline` playbook
+3. ✅ Modify `threejs_hero_landing` playbook
+4. ✅ Test complete flow
 
-### Phase 4: 擴展 Flow
-1. ⏳ 加入節點 C（sections_react）
-2. ⏳ 實現平行執行
-3. ⏳ 測試依賴和 artifact 共享
+### Phase 4: Extended Flow ✅
+1. ✅ Add node C (sections_react)
+2. ✅ Implement parallel execution
+3. ✅ Test dependency and artifact sharing
 
-### Phase 5: UI 和跨 Workspace
-1. ⏳ Project 視圖 UI
-2. ⏳ Workspace 中的 Project 卡片
-3. ⏳ Project 移交功能
+### Phase 5: UI and Cross-Workspace
+1. ⏳ Project view UI
+2. ⏳ Project cards in Workspace
+3. ⏳ Project transfer functionality
 
-## 🔗 與 Sandbox 系統整合
+## 🔗 Integration with Sandbox System
 
 ### Project Sandbox Manager
 
-Project 使用統一的 SandboxManager，但有自己的 sandbox 空間：
+Projects use the unified SandboxManager but have their own sandbox space:
 
 ```python
 class ProjectSandboxManager:
@@ -191,57 +191,50 @@ class ProjectSandboxManager:
         return self.sandbox_manager.get_sandbox(sandbox_id)
 ```
 
-### 統一的 Sandbox 能力
+### Unified Sandbox Capabilities
 
-- 所有 Project 的 sandbox 都支持版本管理
-- 所有 Project 的 sandbox 都支持變更可視化
-- 所有 Project 的 sandbox 都支持局部修改
+- All Project sandboxes support version management
+- All Project sandboxes support change visualization
+- All Project sandboxes support partial modifications
 
-## 📚 相關文檔
+## 📚 Related Documentation
 
-### 核心文檔
-- [Project + Flow 架構設計](project-flow-architecture.md) - 完整架構設計
-- [Project + Flow 實作步驟](project-flow-implementation-steps.md) - 詳細實作指南
+### Core Documentation
+- See [Architecture Documentation](../README.md) for complete system overview
 
-### 相關系統
-- [Sandbox 系統架構設計](../sandbox/sandbox-system-architecture.md) - Sandbox 系統設計
-- [Sandbox 系統實作步驟](../sandbox/sandbox-system-implementation-steps.md) - Sandbox 實作指南
+### Related Systems
+- [Sandbox System Summary](../sandbox/sandbox-system-summary.md) - Sandbox system overview
 
-### 具體場景
-- [Three.js Sandbox 實作規劃](../threejs/threejs-sandbox-implementation-plan.md) - Three.js 場景
-- [Three.js Sandbox 程式碼範例](../threejs/threejs-sandbox-code-examples.md) - 程式碼參考
+## 🚀 Getting Started
 
-## 🚀 開始實作
+### Step 1: Understand Architecture
 
-### 第一步：理解架構
+1. Read [System Overview](../system-overview.md) for the complete workflow
+2. Understand the relationship between Project, Flow, and Shared Sandbox from this summary
+3. Review the example of "creating a webpage" described above
 
-1. 閱讀 [Project + Flow 架構設計](project-flow-architecture.md)
-2. 理解 Project、Flow、Shared Sandbox 的關係
-3. 查看「做一個網頁」的完整示範
+### Step 2: Review Implementation
 
-### 第二步：實作基礎
+1. Project data structure is defined in `backend/app/models/project.py`
+2. ProjectManager is implemented in `backend/app/services/project/project_manager.py`
+3. ArtifactRegistry is implemented in `backend/app/services/project/artifact_registry_service.py`
 
-1. 創建 Project 資料結構
-2. 實現 ProjectManager
-3. 實現 ArtifactRegistry
+### Step 3: Use Flow Execution
 
-### 第三步：實作 Flow
+1. Flow execution is handled by `FlowExecutor` in `backend/app/services/project/flow_executor.py`
+2. See [Architecture Documentation](../README.md) for API endpoints and usage
 
-1. 定義第一個 Flow（web_page_flow）
-2. 實現 FlowExecutor
-3. 測試最小流程（A → B）
+## 💡 Key Insights
 
-## 💡 關鍵洞察
+### Summary in One Sentence
 
-### 收斂一句話
-
-> **凡是 AI 幫你改東西的場合，都應該經過 sandbox 這一層。**
+> **Whenever AI helps you modify something, it should go through the sandbox layer.**
 >
-> **凡是多個 playbook 協作完成一個作品的場合，都應該用 Project + Flow 來組織。**
+> **Whenever multiple playbooks collaborate to complete a deliverable, they should be organized using Project + Flow.**
 >
-> 這樣你的「多工 agent」就從「一群人各自拿到關鍵字瞎忙」變成「在同一個工地、看同一張藍圖、各做各工種，但共用同一組 artefact」。
+> This transforms your "multi-agent system" from "multiple agents each receiving keywords and working blindly" to "on the same worksite, reading the same blueprint, each doing their craft, but sharing the same artifacts".
 
 ---
 
-**這是讓心智空間從「各自做夢」到「一起蓋房子」的關鍵架構！** 🏗️
+**This is the key architecture that transforms the mindspace from "working in isolation" to "building together"!** 🏗️
 
