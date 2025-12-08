@@ -1,9 +1,10 @@
 """
-Shared 層
-工具函式、LLM adapter、DB、config 等共用功能
+Shared layer
+
+Common utilities including tool functions, LLM adapters, database, and configuration.
 """
 
-# 暫時 re-export，之後慢慢整理
+# Temporary re-export, will be refactored later
 from backend.app.core.security import security_monitor
 from backend.app.services.backend_manager import BackendManager
 from backend.app.services.unified_tool_executor import UnifiedToolExecutor

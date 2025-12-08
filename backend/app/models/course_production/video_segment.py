@@ -99,37 +99,37 @@ class VideoSegment(BaseModel):
 
 
 class CreateVideoSegmentRequest(BaseModel):
-    """創建視頻片段請求"""
-    instructor_id: str = Field(..., description="講師 ID")
-    course_id: Optional[str] = Field(None, description="課程 ID")
-    source_video_path: str = Field(..., description="源視頻文件路徑")
-    source_video_id: str = Field(..., description="源視頻 ID")
-    start_time: float = Field(..., ge=0.0, description="開始時間（秒）")
-    end_time: float = Field(..., ge=0.0, description="結束時間（秒）")
-    tags: Optional[List[str]] = Field(default_factory=list, description="標籤")
+    """Request model for creating a video segment"""
+    instructor_id: str = Field(..., description="Instructor ID")
+    course_id: Optional[str] = Field(None, description="Course ID")
+    source_video_path: str = Field(..., description="Source video file path")
+    source_video_id: str = Field(..., description="Source video ID")
+    start_time: float = Field(..., ge=0.0, description="Start time in seconds")
+    end_time: float = Field(..., ge=0.0, description="End time in seconds")
+    tags: Optional[List[str]] = Field(default_factory=list, description="Tags")
 
 
 class UpdateVideoSegmentRequest(BaseModel):
-    """更新視頻片段請求"""
-    tags: Optional[List[str]] = Field(None, description="標籤")
-    action_names: Optional[List[str]] = Field(None, description="動作名稱")
-    intent_tags: Optional[List[str]] = Field(None, description="意圖標籤")
-    shot_type: Optional[ShotType] = Field(None, description="鏡頭類型")
-    quality_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="品質分數")
-    quality_level: Optional[SegmentQuality] = Field(None, description="品質等級")
+    """Request model for updating a video segment"""
+    tags: Optional[List[str]] = Field(None, description="Tags")
+    action_names: Optional[List[str]] = Field(None, description="Action names")
+    intent_tags: Optional[List[str]] = Field(None, description="Intent tags")
+    shot_type: Optional[ShotType] = Field(None, description="Shot type")
+    quality_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Quality score")
+    quality_level: Optional[SegmentQuality] = Field(None, description="Quality level")
 
 
 class AnalyzeSegmentRequest(BaseModel):
-    """分析片段請求"""
-    analyze_cv: bool = Field(True, description="是否進行 CV 分析")
-    analyze_stt: bool = Field(True, description="是否進行 STT 分析")
-    align_to_script: bool = Field(False, description="是否對齊到腳本")
-    script_lines: Optional[List[Dict[str, Any]]] = Field(None, description="腳本行列表（如果對齊）")
+    """Request model for analyzing a video segment"""
+    analyze_cv: bool = Field(True, description="Whether to perform CV analysis")
+    analyze_stt: bool = Field(True, description="Whether to perform STT analysis")
+    align_to_script: bool = Field(False, description="Whether to align to script")
+    script_lines: Optional[List[Dict[str, Any]]] = Field(None, description="Script lines list (if aligning)")
 
 
 class BatchAnalyzeRequest(BaseModel):
-    """批量分析請求"""
-    video_path: str = Field(..., description="視頻文件路徑")
-    script_lines: Optional[List[Dict[str, Any]]] = Field(None, description="腳本行列表")
-    instructor_id: str = Field(..., description="講師 ID")
-    course_id: Optional[str] = Field(None, description="課程 ID")
+    """Request model for batch analyzing video segments"""
+    video_path: str = Field(..., description="Video file path")
+    script_lines: Optional[List[Dict[str, Any]]] = Field(None, description="Script lines list")
+    instructor_id: str = Field(..., description="Instructor ID")
+    course_id: Optional[str] = Field(None, description="Course ID")

@@ -193,9 +193,9 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     if not backend_path:
         raise ValueError(f"Tool {tool_name} has no backend defined")
 
-    # 解析 backend 路徑
-    # 格式1: 'module.path:function' - 模組級函數
-    # 格式2: 'module.path:Class.method' - 類方法
+    # Parse backend path
+    # Format 1: 'module.path:function' - module-level function
+    # Format 2: 'module.path:Class.method' - class method
     module_path, target = backend_path.rsplit(':', 1)
 
     try:

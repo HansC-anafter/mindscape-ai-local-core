@@ -1,14 +1,14 @@
 """
-WordPress 工具集合（v2 架構）
+WordPress Tools Collection (v2 Architecture)
 
-使用新的 MindscapeTool 接口，將單一 WordPressTool 拆分為多個專注的工具類別。
-每個工具對應一個具體的 WordPress 操作。
+Uses the new MindscapeTool interface, splitting the monolithic WordPressTool into multiple focused tool classes.
+Each tool corresponds to a specific WordPress operation.
 
-設計原則：
-- 單一職責：每個工具只做一件事
-- 標準化 Schema：使用 ToolMetadata 定義
-- 類型安全：完整的類型提示
-- 統一錯誤處理：使用 safe_execute 包裝
+Design Principles:
+- Single Responsibility: Each tool does one thing
+- Standardized Schema: Uses ToolMetadata definition
+- Type Safety: Complete type hints
+- Unified Error Handling: Uses safe_execute wrapper
 """
 from typing import Dict, Any, List
 import aiohttp
@@ -26,38 +26,38 @@ from backend.app.services.tools.schemas import (
 
 
 class WordPressListPostsTool(MindscapeTool):
-    """列出 WordPress 文章"""
+    """List WordPress posts"""
 
     def __init__(self, connection: ToolConnection):
         metadata = create_simple_tool_metadata(
             name="wordpress.list_posts",
-            description="列出 WordPress 文章，支援分頁、狀態過濾和搜尋功能",
+            description="List WordPress posts with pagination, status filtering, and search",
             category=ToolCategory.CONTENT,
             source_type=ToolSourceType.LOCAL,
             danger_level=ToolDangerLevel.SAFE,
             properties={
                 "per_page": {
                     "type": "integer",
-                    "description": "每頁顯示文章數量",
+                    "description": "Number of posts per page",
                     "default": 10,
                     "minimum": 1,
                     "maximum": 100
                 },
                 "page": {
                     "type": "integer",
-                    "description": "頁碼（從 1 開始）",
+                    "description": "Page number (starts from 1)",
                     "default": 1,
                     "minimum": 1
                 },
                 "status": {
                     "type": "string",
-                    "description": "文章狀態篩選",
+                    "description": "Post status filter",
                     "enum": ["publish", "draft", "pending", "private", "any"],
                     "default": "publish"
                 },
                 "search": {
                     "type": "string",
-                    "description": "搜尋關鍵字（搜尋標題和內容）"
+                    "description": "Search keyword (searches title and content)"
                 }
             },
             required=[]
@@ -67,7 +67,7 @@ class WordPressListPostsTool(MindscapeTool):
         self._init_wp_client()
 
     def _init_wp_client(self):
-        """初始化 WordPress REST API 客戶端"""
+        """Initialize WordPress REST API client"""
         self.wp_base_url = (
             self.connection.base_url or
             os.getenv("WORDPRESS_URL", "http://wordpress:80")
@@ -144,24 +144,24 @@ class WordPressListPostsTool(MindscapeTool):
                 else:
                     error_text = await response.text()
                     raise Exception(
-                        f"WordPress API 錯誤 {response.status}: {error_text}"
+                        f"WordPress API error {response.status}: {error_text}"
                     )
 
 
 class WordPressGetPostTool(MindscapeTool):
-    """取得單篇 WordPress 文章"""
+    """Get a single WordPress post"""
 
     def __init__(self, connection: ToolConnection):
         metadata = create_simple_tool_metadata(
             name="wordpress.get_post",
-            description="根據 ID 取得單篇 WordPress 文章的完整資訊",
+            description="Get complete information of a WordPress post by ID",
             category=ToolCategory.CONTENT,
             source_type=ToolSourceType.LOCAL,
             danger_level=ToolDangerLevel.SAFE,
             properties={
                 "post_id": {
                     "type": "integer",
-                    "description": "文章 ID",
+                    "description": "Post ID",
                     "minimum": 1
                 }
             },
@@ -172,7 +172,7 @@ class WordPressGetPostTool(MindscapeTool):
         self._init_wp_client()
 
     def _init_wp_client(self):
-        """同 WordPressListPostsTool"""
+        """Same as WordPressListPostsTool"""
         self.wp_base_url = (
             self.connection.base_url or
             os.getenv("WORDPRESS_URL", "http://wordpress:80")
@@ -188,7 +188,7 @@ class WordPressGetPostTool(MindscapeTool):
             self.auth_header = None
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """執行：取得文章"""
+        """Execute: Get post"""
         post_id = input_data["post_id"]
 
         async with aiohttp.ClientSession() as session:
@@ -212,36 +212,36 @@ class WordPressGetPostTool(MindscapeTool):
                 else:
                     error_text = await response.text()
                     raise Exception(
-                        f"無法取得文章 {post_id}: {response.status} - {error_text}"
+                        f"Failed to get post {post_id}: {response.status} - {error_text}"
                     )
 
 
 class WordPressCreateDraftTool(MindscapeTool):
-    """創建 WordPress 草稿文章"""
+    """Create a WordPress draft post"""
 
     def __init__(self, connection: ToolConnection):
         metadata = create_simple_tool_metadata(
             name="wordpress.create_draft",
-            description="在 WordPress 創建草稿文章（不會發佈，需手動審核後發佈）",
+            description="Create a draft post in WordPress (not published, requires manual review before publishing)",
             category=ToolCategory.CONTENT,
             source_type=ToolSourceType.LOCAL,
             danger_level=ToolDangerLevel.SAFE,
             properties={
                 "title": {
                     "type": "string",
-                    "description": "文章標題",
+                    "description": "Post title",
                 },
                 "content": {
                     "type": "string",
-                    "description": "文章內容（支援 HTML）",
+                    "description": "Post content (HTML supported)",
                 },
                 "excerpt": {
                     "type": "string",
-                    "description": "文章摘要"
+                    "description": "Post excerpt"
                 },
                 "meta": {
                     "type": "object",
-                    "description": "自訂 Meta 欄位"
+                    "description": "Custom meta fields"
                 }
             },
             required=["title", "content"]
@@ -251,7 +251,7 @@ class WordPressCreateDraftTool(MindscapeTool):
         self._init_wp_client()
 
     def _init_wp_client(self):
-        """同上"""
+        """Same as above"""
         self.wp_base_url = (
             self.connection.base_url or
             os.getenv("WORDPRESS_URL", "http://wordpress:80")
@@ -267,7 +267,7 @@ class WordPressCreateDraftTool(MindscapeTool):
             self.auth_header = None
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """執行：創建草稿"""
+        """Execute: Create draft"""
         title = input_data["title"]
         content = input_data["content"]
         excerpt = input_data.get("excerpt", "")
@@ -307,41 +307,41 @@ class WordPressCreateDraftTool(MindscapeTool):
                 else:
                     error_text = await response.text()
                     raise Exception(
-                        f"創建草稿失敗: {response.status} - {error_text}"
+                        f"Failed to create draft: {response.status} - {error_text}"
                     )
 
 
 class WordPressUpdatePostTool(MindscapeTool):
-    """更新 WordPress 文章"""
+    """Update WordPress post"""
 
     def __init__(self, connection: ToolConnection):
         metadata = create_simple_tool_metadata(
             name="wordpress.update_post",
-            description="更新現有的 WordPress 文章內容、標題或其他屬性",
+            description="Update existing WordPress post content, title, or other attributes",
             category=ToolCategory.CONTENT,
             source_type=ToolSourceType.LOCAL,
             danger_level=ToolDangerLevel.MODERATE,  # Content modification has moderate risk
             properties={
                 "post_id": {
                     "type": "integer",
-                    "description": "要更新的文章 ID",
+                    "description": "Post ID to update",
                     "minimum": 1
                 },
                 "title": {
                     "type": "string",
-                    "description": "新的文章標題（可選）"
+                    "description": "New post title (optional)"
                 },
                 "content": {
                     "type": "string",
-                    "description": "新的文章內容（可選）"
+                    "description": "New post content (optional)"
                 },
                 "excerpt": {
                     "type": "string",
-                    "description": "新的文章摘要（可選）"
+                    "description": "New post excerpt (optional)"
                 },
                 "status": {
                     "type": "string",
-                    "description": "文章狀態（可選）",
+                    "description": "Post status (optional)",
                     "enum": ["draft", "pending", "publish"]
                 }
             },
@@ -352,7 +352,7 @@ class WordPressUpdatePostTool(MindscapeTool):
         self._init_wp_client()
 
     def _init_wp_client(self):
-        """同上"""
+        """Same as above"""
         self.wp_base_url = (
             self.connection.base_url or
             os.getenv("WORDPRESS_URL", "http://wordpress:80")
@@ -408,45 +408,45 @@ class WordPressUpdatePostTool(MindscapeTool):
                 else:
                     error_text = await response.text()
                     raise Exception(
-                        f"更新文章失敗: {response.status} - {error_text}"
+                        f"Failed to update post: {response.status} - {error_text}"
                     )
 
 
 class WordPressListOrdersTool(MindscapeTool):
-    """列出 WooCommerce 訂單"""
+    """List WooCommerce orders"""
 
     def __init__(self, connection: ToolConnection):
         metadata = create_simple_tool_metadata(
             name="wordpress.list_orders",
-            description="列出 WooCommerce 訂單，支援狀態和日期範圍篩選",
+            description="List WooCommerce orders with status and date range filtering",
             category=ToolCategory.COMMERCE,
             source_type=ToolSourceType.LOCAL,
             danger_level=ToolDangerLevel.SAFE,
             properties={
                 "per_page": {
                     "type": "integer",
-                    "description": "每頁訂單數量",
+                    "description": "Number of orders per page",
                     "default": 10,
                     "minimum": 1,
                     "maximum": 100
                 },
                 "page": {
                     "type": "integer",
-                    "description": "頁碼",
+                    "description": "Page number",
                     "default": 1
                 },
                 "status": {
                     "type": "string",
-                    "description": "訂單狀態篩選",
+                    "description": "Order status filter",
                     "enum": ["pending", "processing", "completed", "cancelled", "refunded", "any"]
                 },
                 "after": {
                     "type": "string",
-                    "description": "起始日期 (ISO 8601 格式)"
+                    "description": "Start date (ISO 8601 format)"
                 },
                 "before": {
                     "type": "string",
-                    "description": "結束日期 (ISO 8601 格式)"
+                    "description": "End date (ISO 8601 format)"
                 }
             },
             required=[]
@@ -456,7 +456,7 @@ class WordPressListOrdersTool(MindscapeTool):
         self._init_wp_client()
 
     def _init_wp_client(self):
-        """同上"""
+        """Same as above"""
         self.wp_base_url = (
             self.connection.base_url or
             os.getenv("WORDPRESS_URL", "http://wordpress:80")
@@ -472,7 +472,7 @@ class WordPressListOrdersTool(MindscapeTool):
             self.auth_header = None
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """執行：列出訂單"""
+        """Execute: List orders"""
         per_page = input_data.get("per_page", 10)
         page = input_data.get("page", 1)
         status = input_data.get("status")
@@ -512,7 +512,7 @@ class WordPressListOrdersTool(MindscapeTool):
                 else:
                     error_text = await response.text()
                     raise Exception(
-                        f"WooCommerce API 錯誤: {response.status} - {error_text}"
+                        f"WooCommerce API error: {response.status} - {error_text}"
                     )
 
 
@@ -529,12 +529,12 @@ class WordPressUpdateOrderStatusTool(MindscapeTool):
             properties={
                 "order_id": {
                     "type": "integer",
-                    "description": "訂單 ID",
+                    "description": "Order ID",
                     "minimum": 1
                 },
                 "status": {
                     "type": "string",
-                    "description": "新的訂單狀態",
+                    "description": "New order status",
                     "enum": ["pending", "processing", "completed", "cancelled", "refunded"]
                 }
             },
@@ -545,7 +545,7 @@ class WordPressUpdateOrderStatusTool(MindscapeTool):
         self._init_wp_client()
 
     def _init_wp_client(self):
-        """同上"""
+        """Same as above"""
         self.wp_base_url = (
             self.connection.base_url or
             os.getenv("WORDPRESS_URL", "http://wordpress:80")
@@ -562,9 +562,9 @@ class WordPressUpdateOrderStatusTool(MindscapeTool):
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        執行：更新訂單狀態
+        Execute: Update order status
 
-        ⚠️ 注意：此操作應該在 UI 層要求用戶確認
+        Note: This operation should require user confirmation at the UI layer
         """
         order_id = input_data["order_id"]
         status = input_data["status"]
@@ -588,7 +588,7 @@ class WordPressUpdateOrderStatusTool(MindscapeTool):
                     return {
                         "success": True,
                         "data": order,
-                        "message": f"訂單 #{order_id} 狀態已更新為 {status}"
+                        "message": f"Order #{order_id} status updated to {status}"
                     }
                 else:
                     error_text = await response.text()
@@ -640,17 +640,17 @@ def get_wordpress_tool_by_name(
     tool_name: str
 ) -> MindscapeTool:
     """
-    根據名稱獲取特定的 WordPress 工具
+    Get a specific WordPress tool by name
 
     Args:
-        connection: WordPress 連接
-        tool_name: 工具名稱（如 "wordpress.list_posts"）
+        connection: WordPress connection
+        tool_name: Tool name (e.g., "wordpress.list_posts")
 
     Returns:
-        工具實例
+        Tool instance
 
     Raises:
-        ValueError: 未知的工具名稱
+        ValueError: Unknown tool name
     """
     tool_map = {
         "wordpress.list_posts": WordPressListPostsTool,
@@ -665,8 +665,8 @@ def get_wordpress_tool_by_name(
     if not tool_class:
         available = list(tool_map.keys())
         raise ValueError(
-            f"未知的工具名稱: {tool_name}。"
-            f"可用工具: {', '.join(available)}"
+            f"Unknown tool name: {tool_name}. "
+            f"Available tools: {', '.join(available)}"
         )
 
     return tool_class(connection)
