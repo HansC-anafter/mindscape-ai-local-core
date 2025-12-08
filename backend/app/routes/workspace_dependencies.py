@@ -46,9 +46,8 @@ def get_intent_pipeline(store: MindscapeStore = Depends(get_store)) -> IntentPip
         # Try to get llm_provider dynamically
         llm_provider = None
         try:
-            from ..shared.llm_provider_helper import get_llm_provider_from_settings
-            from ..services.agent_runner import LLMProviderManager
-            llm_manager = LLMProviderManager()
+            from ..shared.llm_provider_helper import get_llm_provider_from_settings, create_llm_provider_manager
+            llm_manager = create_llm_provider_manager()
             llm_provider = get_llm_provider_from_settings(llm_manager)
             logger.info(f"IntentPipeline: Successfully obtained llm_provider from settings: {type(llm_provider).__name__}")
         except Exception as e:
