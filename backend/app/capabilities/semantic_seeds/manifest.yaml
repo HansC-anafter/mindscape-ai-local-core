@@ -1,0 +1,48 @@
+code: semantic_seeds
+display_name: "Semantic Seeds"
+version: "1.0.0"
+description: "Extract semantic seeds from content and generate mindscape update suggestions"
+side_effect_level: "readonly"
+
+tools:
+  - name: extract_seeds_from_content
+    description: "Extract semantic seeds from content using LLM"
+    backend: "app.capabilities.semantic_seeds.services.seed_extractor:SeedExtractor.extract_seeds_from_content"
+    input_schema:
+      type: object
+      properties:
+        user_id:
+          type: string
+        content:
+          type: string
+        source_type:
+          type: string
+          enum: ["execution", "conversation", "tool_call", "file_upload"]
+        source_id:
+          type: string
+          required: false
+        source_context:
+          type: string
+          required: false
+        locale:
+          type: string
+          required: false
+          description: "Locale code for i18n (e.g., 'zh-TW', 'en')"
+
+  - name: generate_suggestions
+    description: "Generate mindscape update suggestions from recent seeds"
+    backend: "app.capabilities.semantic_seeds.services.suggestion_generator:SuggestionGenerator.generate_suggestions"
+    input_schema:
+      type: object
+      properties:
+        user_id:
+          type: string
+        days_back:
+          type: integer
+          default: 7
+          minimum: 1
+          maximum: 30
+        max_suggestions:
+          type: integer
+          default: 3
+

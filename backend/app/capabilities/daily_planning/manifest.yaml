@@ -1,0 +1,27 @@
+code: daily_planning
+display_name: "Daily Planning"
+version: "1.0.0"
+description: "Extract tasks from messages and files, create task plans"
+side_effect_level: "soft_write"
+
+tools:
+  - name: extract_tasks_from_content
+    description: "Extract tasks from content using LLM"
+    backend: "app.capabilities.daily_planning.services.task_extractor:TaskExtractor.extract_tasks_from_content"
+    input_schema:
+      type: object
+      properties:
+        profile_id:
+          type: string
+        content:
+          type: string
+        source_type:
+          type: string
+          enum: ["message", "file", "conversation"]
+        source_id:
+          type: string
+          required: false
+        source_context:
+          type: string
+          required: false
+

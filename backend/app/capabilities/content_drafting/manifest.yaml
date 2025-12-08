@@ -1,0 +1,50 @@
+code: content_drafting
+display_name: "Content Drafting"
+version: "1.0.0"
+description: "Generate summaries and drafts from content"
+side_effect_level: "external_write"
+
+tools:
+  - name: generate_summary
+    description: "Generate summary from content using LLM"
+    backend: "app.capabilities.content_drafting.services.content_generator:ContentGenerator.generate_summary"
+    input_schema:
+      type: object
+      properties:
+        profile_id:
+          type: string
+        content:
+          type: string
+        source_type:
+          type: string
+          enum: ["message", "file", "conversation"]
+        source_id:
+          type: string
+          required: false
+        source_context:
+          type: string
+          required: false
+
+  - name: generate_draft
+    description: "Generate draft content using LLM"
+    backend: "app.capabilities.content_drafting.services.content_generator:ContentGenerator.generate_draft"
+    input_schema:
+      type: object
+      properties:
+        profile_id:
+          type: string
+        content:
+          type: string
+        format:
+          type: string
+          enum: ["blog_post", "article", "report", "summary"]
+        source_type:
+          type: string
+          enum: ["message", "file", "conversation"]
+        source_id:
+          type: string
+          required: false
+        source_context:
+          type: string
+          required: false
+
