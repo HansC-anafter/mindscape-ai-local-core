@@ -16,6 +16,7 @@ import LeftSidebarTabs from './components/LeftSidebarTabs';
 import OutcomesPanel, { Artifact } from './components/OutcomesPanel';
 import OutcomeDetailModal from '../components/OutcomeDetailModal';
 import BackgroundTasksPanel from '../components/BackgroundTasksPanel';
+import { ThinkingPanel } from '../../../components/workspace/ThinkingPanel';
 import { WorkspaceMode } from '../../../components/WorkspaceModeSelector';
 import { t } from '@/lib/i18n';
 import ConfirmDialog from '../../../components/ConfirmDialog';
@@ -387,9 +388,10 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   />
                 }
                 backgroundContent={
-                  <BackgroundTasksPanel
+                  <ThinkingPanel
                     workspaceId={workspaceId}
                     apiUrl={API_URL}
+                    storyThreadId={workspace?.primary_project_id ? undefined : undefined}
                   />
                 }
               />

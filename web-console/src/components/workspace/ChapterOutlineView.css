@@ -1,0 +1,123 @@
+.chapter-outline-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.outline-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  gap: 16px;
+  height: 100%;
+  padding: 16px;
+}
+
+.chapters-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border, #e5e7eb);
+  padding-right: 16px;
+}
+
+.tree-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #111827);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.chapter-tree-item {
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border: 1px solid transparent;
+}
+
+.chapter-tree-item:hover {
+  background-color: var(--color-surface-secondary, #f9fafb);
+}
+
+.chapter-tree-item.selected {
+  background-color: var(--color-surface-accent, #f3f4f6);
+  border-color: var(--color-accent, #6366f1);
+}
+
+.chapter-tree-item.planned {
+  opacity: 0.7;
+}
+
+.chapter-tree-item.in_progress {
+  border-left: 3px solid var(--color-accent, #6366f1);
+}
+
+.chapter-tree-item.completed {
+  opacity: 0.8;
+}
+
+.chapter-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chapter-number {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.chapter-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+}
+
+.chapter-progress {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #9ca3af);
+  margin-top: 4px;
+}
+
+.status-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: var(--color-accent-10, #eef2ff);
+  color: var(--color-accent, #6366f1);
+  margin-top: 4px;
+}
+
+.chapter-detail {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.chapter-intents {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-left: 1px solid var(--color-border, #e5e7eb);
+  padding-left: 16px;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.empty-state .hint {
+  font-size: 13px;
+}
+

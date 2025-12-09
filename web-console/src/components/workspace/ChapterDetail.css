@@ -1,0 +1,129 @@
+.chapter-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.detail-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #111827);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.playbook-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.execution-record-item {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background-color: var(--color-surface, #ffffff);
+  transition: background-color 0.2s;
+}
+
+.execution-record-item:hover {
+  background-color: var(--color-surface-secondary, #f9fafb);
+}
+
+.execution-record-item.running {
+  border-left: 3px solid var(--color-accent, #6366f1);
+}
+
+.execution-record-item.paused {
+  border-left: 3px solid var(--color-warning, #f59e0b);
+}
+
+.execution-record-item.completed {
+  border-left: 3px solid var(--color-success, #10b981);
+}
+
+.execution-record-item.failed {
+  border-left: 3px solid var(--color-danger, #ef4444);
+}
+
+.execution-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.playbook-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+}
+
+.status-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.status-badge.running {
+  background-color: var(--color-accent-10, #eef2ff);
+  color: var(--color-accent, #6366f1);
+}
+
+.status-badge.paused {
+  background-color: var(--color-warning-10, #fef3c7);
+  color: var(--color-warning, #f59e0b);
+}
+
+.status-badge.completed {
+  background-color: var(--color-success-10, #d1fae5);
+  color: var(--color-success, #10b981);
+}
+
+.status-badge.failed {
+  background-color: var(--color-danger-10, #fee2e2);
+  color: var(--color-danger, #ef4444);
+}
+
+.execution-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  margin-bottom: 4px;
+}
+
+.run-number {
+  font-weight: 500;
+}
+
+.progress {
+  color: var(--color-accent, #6366f1);
+  font-weight: 500;
+}
+
+.started-at {
+  margin-left: auto;
+}
+
+.artifacts-count {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #9ca3af);
+  margin-top: 4px;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.empty-state .hint {
+  font-size: 13px;
+}
+

@@ -2,8 +2,23 @@
 
 import React, { useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
+import { EmptyState } from '../ui/EmptyState';
 import './IntentCardPanel.css';
 
+// Backend API response format
+interface BackendIntent {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description?: string;
+  status: 'CANDIDATE' | 'CONFIRMED' | 'REJECTED';
+  parent_id?: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+// Frontend display format
 export interface IntentCard {
   id: string;
   title: string;
@@ -17,6 +32,28 @@ export interface IntentCard {
     selectedOption?: string;
   }>;
   createdAt?: string;
+}
+
+// Map backend status to frontend status
+function mapBackendStatus(status: string): 'pending_decision' | 'confirmed' | 'rejected' {
+  switch (status) {
+    case 'CANDIDATE': return 'pending_decision';
+    case 'CONFIRMED': return 'confirmed';
+    case 'REJECTED': return 'rejected';
+    default: return 'pending_decision';
+  }
+}
+
+// Convert backend intent to frontend format
+function convertIntent(intent: BackendIntent): IntentCard {
+  return {
+    id: intent.id,
+    title: intent.title,
+    description: intent.description,
+    status: mapBackendStatus(intent.status),
+    priority: intent.metadata?.priority || 'medium',
+    createdAt: intent.created_at,
+  };
 }
 
 interface IntentCardPanelProps {
@@ -36,13 +73,17 @@ export function IntentCardPanel({ workspaceId, apiUrl }: IntentCardPanelProps) {
   const loadIntentCards = async () => {
     try {
       setLoading(true);
+      // Use the correct backend API endpoint: /intents (not /intent-cards)
       const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/intent-cards?status=all`
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/intents`
       );
       if (response.ok) {
         const data = await response.json();
-        setIntentCards(data.intentCards || []);
+        // Convert backend intents to frontend format
+        const cards = (data.intents || []).map(convertIntent);
+        setIntentCards(cards);
       } else {
+        console.warn(`Failed to load intents: ${response.status}`);
         setIntentCards([]);
       }
     } catch (err) {
@@ -61,9 +102,7 @@ export function IntentCardPanel({ workspaceId, apiUrl }: IntentCardPanelProps) {
   if (loading) {
     return (
       <div className="intent-card-panel">
-        <div className="empty-state">
-          <span className="hint">Loading...</span>
-        </div>
+        <EmptyState customMessage="Loading..." />
       </div>
     );
   }
@@ -84,9 +123,7 @@ export function IntentCardPanel({ workspaceId, apiUrl }: IntentCardPanelProps) {
 
       <div className="pending-intents">
         {pendingCards.length === 0 ? (
-          <div className="empty-state">
-            <span className="hint">No pending decisions</span>
-          </div>
+          <EmptyState type="intents" />
         ) : (
           pendingCards.map(card => (
             <IntentCardItem key={card.id} card={card} />

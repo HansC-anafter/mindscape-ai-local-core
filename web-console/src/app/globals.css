@@ -8,6 +8,39 @@
     --color-scrollbar-thumb: rgba(168, 85, 247, 0.4);
     --color-scrollbar-thumb-hover: rgba(168, 85, 247, 0.6);
     --color-scrollbar-track: transparent;
+
+    /* Visual rhythm elevation variables - three layers */
+    /* Layer 1: Message bubbles (highest contrast) */
+    --elevation-message: 0 2px 8px rgba(0, 0, 0, 0.1);
+    --bg-message-user: rgba(99, 102, 241, 0.1);
+    --bg-message-assistant: #ffffff;
+
+    /* Layer 2: Suggestion chips / Intent Cards (medium contrast) */
+    --elevation-card: 0 1px 4px rgba(0, 0, 0, 0.05);
+    --bg-suggestion: #f9fafb;
+    --bg-intent: #f3f4f6;
+
+    /* Layer 3: List rows (lowest contrast) */
+    --elevation-row: none;
+    --bg-row: transparent;
+    --bg-row-hover: #f9fafb;
+
+    /* Color system variables */
+    --color-surface: #ffffff;
+    --color-surface-secondary: #f9fafb;
+    --color-surface-accent: #f3f4f6;
+    --color-accent: #6366f1;
+    --color-accent-10: rgba(99, 102, 241, 0.1);
+    --color-border: #e5e7eb;
+    --color-text-primary: #111827;
+    --color-text-secondary: #6b7280;
+    --color-text-tertiary: #9ca3af;
+    --color-warning: #f59e0b;
+    --color-warning-10: rgba(245, 158, 11, 0.1);
+    --color-success: #10b981;
+    --color-success-10: rgba(16, 185, 129, 0.1);
+    --color-danger: #ef4444;
+    --color-danger-10: rgba(239, 68, 68, 0.1);
   }
 
   .dark {
@@ -15,6 +48,36 @@
     --color-scrollbar-thumb: rgba(196, 181, 253, 0.5);
     --color-scrollbar-thumb-hover: rgba(196, 181, 253, 0.7);
     --color-scrollbar-track: transparent;
+
+    /* Visual rhythm elevation variables - dark mode */
+    --elevation-message: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --bg-message-user: rgba(99, 102, 241, 0.2);
+    --bg-message-assistant: #1f2937;
+
+    --elevation-card: 0 1px 4px rgba(0, 0, 0, 0.2);
+    --bg-suggestion: #111827;
+    --bg-intent: #1f2937;
+
+    --elevation-row: none;
+    --bg-row: transparent;
+    --bg-row-hover: #111827;
+
+    /* Color system variables - dark mode */
+    --color-surface: #1f2937;
+    --color-surface-secondary: #111827;
+    --color-surface-accent: #374151;
+    --color-accent: #818cf8;
+    --color-accent-10: rgba(129, 140, 248, 0.2);
+    --color-border: #374151;
+    --color-text-primary: #f9fafb;
+    --color-text-secondary: #d1d5db;
+    --color-text-tertiary: #9ca3af;
+    --color-warning: #fbbf24;
+    --color-warning-10: rgba(251, 191, 36, 0.2);
+    --color-success: #34d399;
+    --color-success-10: rgba(52, 211, 153, 0.2);
+    --color-danger: #f87171;
+    --color-danger-10: rgba(248, 113, 113, 0.2);
   }
 
   /* Global scrollbar styling */

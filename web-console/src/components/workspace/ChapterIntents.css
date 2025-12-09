@@ -1,0 +1,95 @@
+.chapter-intents-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.intents-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #111827);
+  margin-bottom: 4px;
+}
+
+.intents-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.intents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intent-card-item {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background-color: var(--color-surface, #ffffff);
+  transition: background-color 0.2s;
+}
+
+.intent-card-item:hover {
+  background-color: var(--color-surface-secondary, #f9fafb);
+}
+
+.intent-card-item.high {
+  border-left: 3px solid var(--color-danger, #ef4444);
+}
+
+.intent-card-item.medium {
+  border-left: 3px solid var(--color-warning, #f59e0b);
+}
+
+.intent-card-item.low {
+  border-left: 3px solid var(--color-text-tertiary, #9ca3af);
+}
+
+.intent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.intent-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+  flex: 1;
+}
+
+.priority-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+}
+
+.intent-description {
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.intent-status {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #9ca3af);
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.empty-state .hint {
+  font-size: 13px;
+}
+
