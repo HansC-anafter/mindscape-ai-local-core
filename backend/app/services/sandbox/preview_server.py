@@ -2,17 +2,18 @@
 Preview server for dynamic web page sandboxes
 
 Provides development mode preview server for React components and web pages.
-Handles port conflicts by automatically finding available ports.
+Uses centralized PortManager for port allocation.
 """
 
 import asyncio
 import logging
-import socket
 from pathlib import Path
 from typing import Optional, Dict, Any
 import subprocess
 import signal
 import os
+
+from backend.app.services.sandbox.port_manager import port_manager
 
 logger = logging.getLogger(__name__)
 
@@ -22,65 +23,31 @@ class SandboxPreviewServer:
     Preview server for sandbox web pages
 
     Provides development mode server for real-time preview of React components.
+    Uses centralized PortManager for port allocation.
     """
 
-    def __init__(self, sandbox_path: Path, port: int = 3000):
+    def __init__(self, sandbox_id: str, sandbox_path: Path, preferred_port: Optional[int] = None):
         """
         Initialize preview server
 
         Args:
+            sandbox_id: Unique sandbox identifier (for port allocation)
             sandbox_path: Path to sandbox directory
-            port: Port number for preview server (will auto-find available port if conflict)
+            preferred_port: Optional preferred port (uses PortManager range if not specified)
         """
+        self.sandbox_id = sandbox_id
         self.sandbox_path = sandbox_path
-        self.port = port
+        self.preferred_port = preferred_port
         self.actual_port: Optional[int] = None
         self.process: Optional[subprocess.Popen] = None
         self.is_running = False
         self.error_message: Optional[str] = None
 
-    @staticmethod
-    def _is_port_available(port: int) -> bool:
-        """
-        Check if a port is available
-
-        Args:
-            port: Port number to check
-
-        Returns:
-            True if port is available, False otherwise
-        """
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                result = s.connect_ex(('localhost', port))
-                return result != 0
-        except Exception:
-            return False
-
-    @staticmethod
-    def _find_available_port(start_port: int, max_attempts: int = 10) -> Optional[int]:
-        """
-        Find an available port starting from start_port
-
-        Args:
-            start_port: Starting port number
-            max_attempts: Maximum number of ports to try
-
-        Returns:
-            Available port number or None if not found
-        """
-        for i in range(max_attempts):
-            port = start_port + i
-            if SandboxPreviewServer._is_port_available(port):
-                return port
-        return None
-
     async def start(self) -> Dict[str, Any]:
         """
         Start preview server
 
-        Automatically handles port conflicts by finding an available port.
+        Uses PortManager for centralized port allocation.
 
         Returns:
             Dictionary with status information:
@@ -88,13 +55,13 @@ class SandboxPreviewServer:
             - port: Actual port number used
             - url: Preview server URL
             - error: Error message if failed
-            - port_conflict: True if original port was in use
+            - port_conflict: True if preferred port was not available
         """
         if self.is_running:
             logger.warning("Preview server is already running")
             return {
                 "success": True,
-                "port": self.actual_port or self.port,
+                "port": self.actual_port,
                 "url": self.get_preview_url(),
                 "error": None,
                 "port_conflict": False,
@@ -114,27 +81,21 @@ class SandboxPreviewServer:
                     "port_conflict": False,
                 }
 
-            port_conflict = False
-            actual_port = self.port
-
-            if not self._is_port_available(self.port):
-                logger.warning(f"Port {self.port} is in use, finding available port...")
-                port_conflict = True
-                available_port = self._find_available_port(self.port)
-                if available_port:
-                    actual_port = available_port
-                    logger.info(f"Found available port: {actual_port}")
-                else:
-                    error_msg = f"Could not find available port starting from {self.port}"
-                    logger.error(error_msg)
-                    self.error_message = error_msg
-                    return {
-                        "success": False,
-                        "port": None,
-                        "url": None,
-                        "error": error_msg,
-                        "port_conflict": True,
-                    }
+            # Allocate port via PortManager
+            allocated_port = port_manager.allocate(self.sandbox_id, self.preferred_port)
+            if not allocated_port:
+                error_msg = f"No available ports in range {port_manager.port_start}-{port_manager.port_end}"
+                logger.error(error_msg)
+                self.error_message = error_msg
+                return {
+                    "success": False,
+                    "port": None,
+                    "url": None,
+                    "error": error_msg,
+                    "port_conflict": True,
+                }
+            
+            port_conflict = self.preferred_port and allocated_port != self.preferred_port
 
             # Check if node_modules exists, install if not
             node_modules = self.sandbox_path / "node_modules"
@@ -147,6 +108,7 @@ class SandboxPreviewServer:
                     timeout=120  # 2 minute timeout for npm install
                 )
                 if install_result.returncode != 0:
+                    port_manager.release(self.sandbox_id)  # Release on failure
                     error_output = install_result.stderr.decode('utf-8', errors='ignore')
                     error_msg = f"npm install failed: {error_output[:200]}"
                     logger.error(error_msg)
@@ -161,7 +123,7 @@ class SandboxPreviewServer:
                 logger.info("Dependencies installed successfully")
 
             env = os.environ.copy()
-            env["PORT"] = str(actual_port)
+            env["PORT"] = str(allocated_port)
 
             self.process = subprocess.Popen(
                 ["npm", "run", "dev"],
@@ -177,18 +139,19 @@ class SandboxPreviewServer:
 
             if self.process.poll() is None:
                 self.is_running = True
-                self.actual_port = actual_port
-                logger.info(f"Preview server started on port {actual_port}")
+                self.actual_port = allocated_port
+                logger.info(f"Preview server started on port {allocated_port}")
                 if port_conflict:
-                    logger.info(f"Note: Original port {self.port} was in use, using port {actual_port} instead")
+                    logger.info(f"Note: Preferred port {self.preferred_port} was in use, using port {allocated_port}")
                 return {
                     "success": True,
-                    "port": actual_port,
-                    "url": f"http://localhost:{actual_port}",
+                    "port": allocated_port,
+                    "url": f"http://localhost:{allocated_port}",
                     "error": None,
                     "port_conflict": port_conflict,
                 }
             else:
+                port_manager.release(self.sandbox_id)  # Release on failure
                 stdout, stderr = self.process.communicate()
                 error_output = stderr.decode('utf-8', errors='ignore') if stderr else ""
                 error_msg = f"Preview server failed to start: {error_output[:200]}"
@@ -216,12 +179,14 @@ class SandboxPreviewServer:
 
     async def stop(self) -> bool:
         """
-        Stop preview server
+        Stop preview server and release port allocation.
 
         Returns:
             True if stopped successfully, False otherwise
         """
         if not self.is_running or not self.process:
+            # Still release port even if not running
+            port_manager.release(self.sandbox_id)
             return True
 
         try:
@@ -233,11 +198,18 @@ class SandboxPreviewServer:
                 self.process.wait()
 
             self.is_running = False
-            logger.info("Preview server stopped")
+            self.actual_port = None
+            
+            # Release port allocation
+            port_manager.release(self.sandbox_id)
+            
+            logger.info(f"Preview server stopped for sandbox {self.sandbox_id}")
             return True
 
         except Exception as e:
             logger.error(f"Failed to stop preview server: {e}")
+            # Still try to release port
+            port_manager.release(self.sandbox_id)
             return False
 
     def get_preview_url(self) -> str:

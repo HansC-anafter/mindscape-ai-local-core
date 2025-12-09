@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.sandbox.sandbox_manager import SandboxManager
 from backend.app.services.sandbox.preview_server import SandboxPreviewServer
+from backend.app.services.sandbox.port_manager import port_manager
 from backend.app.services.sandbox.workspace_sync import get_workspace_sync_service
 from pathlib import Path
 
@@ -404,12 +405,16 @@ async def ensure_preview_ready(
                 "synced_files": result.get("synced_files", [])
             }
 
-        preview_server = SandboxPreviewServer(sandbox_path, request.port)
+        preview_server = SandboxPreviewServer(
+            sandbox_id=sandbox_id,
+            sandbox_path=sandbox_path,
+            preferred_port=request.port
+        )
         server_result = await preview_server.start()
 
         if server_result["success"]:
             _preview_servers[server_key] = preview_server
-            logger.info(f"Started preview server for {workspace_id} on port {server_result['port']}")
+            logger.info(f"Started preview server for {workspace_id}:{sandbox_id} on port {server_result['port']}")
 
         return {
             "success": server_result["success"],
@@ -470,11 +475,11 @@ async def start_preview_server(
             if existing_server.is_running:
                 return {
                     "success": True,
-                    "port": existing_server.actual_port or existing_server.port,
+                    "port": existing_server.actual_port,
                     "url": existing_server.get_preview_url(),
                     "error": None,
                     "port_conflict": False,
-                    "message": "Preview server already running"
+                    "message": "Preview already running"
                 }
 
         # Get sandbox path
@@ -489,7 +494,11 @@ async def start_preview_server(
             }
 
         # Create and start preview server
-        preview_server = SandboxPreviewServer(sandbox_path, request.port)
+        preview_server = SandboxPreviewServer(
+            sandbox_id=sandbox_id,
+            sandbox_path=sandbox_path,
+            preferred_port=request.port
+        )
         result = await preview_server.start()
 
         if result["success"]:
@@ -661,7 +670,7 @@ async def get_preview_server_status(
 
         return {
             "running": preview_server.is_running,
-            "port": preview_server.actual_port or preview_server.port if preview_server.is_running else None,
+            "port": preview_server.actual_port if preview_server.is_running else None,
             "url": preview_server.get_preview_url() if preview_server.is_running else None,
             "error": preview_server.error_message
         }
@@ -674,4 +683,37 @@ async def get_preview_server_status(
             "url": None,
             "error": str(e)
         }
+
+
+# Port Manager API
+@router.get("/ports/status", response_model=Dict[str, Any])
+async def get_port_manager_status(
+    workspace_id: str = PathParam(..., description="Workspace identifier")
+):
+    """
+    Get port manager status
+    
+    Returns current port allocation status including:
+    - Configured port range
+    - Number of allocated/available ports
+    - Current allocations (sandbox_id -> port mapping)
+    """
+    return port_manager.get_status()
+
+
+@router.post("/ports/cleanup", response_model=Dict[str, Any])
+async def cleanup_stale_ports(
+    workspace_id: str = PathParam(..., description="Workspace identifier")
+):
+    """
+    Cleanup stale port allocations
+    
+    Removes allocations for ports that are no longer in use.
+    Useful after server restarts or crashes.
+    """
+    cleaned = port_manager.cleanup_stale()
+    return {
+        "cleaned": cleaned,
+        "status": port_manager.get_status()
+    }
 
