@@ -103,14 +103,12 @@ export default function MindscapeAIWorkbench({
     let isRefreshing = false;
 
     const handleWorkbenchRefresh = () => {
-      console.log('[MindscapeAIWorkbench] workbench-refresh event received');
       // Debounce: only refresh after 1.5 seconds of no events
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
       debounceTimer = setTimeout(() => {
         if (!isRefreshing) {
-          console.log('[MindscapeAIWorkbench] Debounce triggered, refreshing...');
           isRefreshing = true;
           loadWorkbenchData().finally(() => {
             isRefreshing = false;
@@ -159,15 +157,12 @@ export default function MindscapeAIWorkbench({
 
   const loadWorkbenchData = async () => {
     try {
-      console.log('[MindscapeAIWorkbench] loadWorkbenchData: Starting...');
       setError(null);
       const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/workbench`);
       if (response.ok) {
         const data = await response.json();
-        console.log('[MindscapeAIWorkbench] Data loaded, suggestions:', data.suggested_next_steps?.length || 0);
         setWorkbenchData(data);
       } else {
-        console.error('[MindscapeAIWorkbench] API error:', response.status, response.statusText);
         setError('Failed to load workbench data');
       }
     } catch (err) {

@@ -357,9 +357,6 @@ export default function TimelinePanel({
     let isPending = false;
 
     const handleChatUpdate = () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('TimelinePanel: Received workspace-chat-updated event, scheduling refresh');
-      }
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
@@ -466,9 +463,6 @@ export default function TimelinePanel({
     try {
       setLoading(true);
       setError(null);
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`TimelinePanel: Loading timeline items for workspace ${workspaceId}`);
-      }
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/timeline?limit=50`
       );
@@ -478,18 +472,10 @@ export default function TimelinePanel({
       }
 
       const data = await response.json();
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`TimelinePanel: Received data:`, data);
-        console.log(`TimelinePanel: timeline_items count: ${data.timeline_items?.length || 0}`);
-        console.log(`TimelinePanel: events count: ${data.events?.length || 0}`);
-      }
 
       // Use timeline_items (primary) or events (backward compatibility)
       // timeline_items are the result cards from Pack executions
       const items = data.timeline_items || data.events || [];
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`TimelinePanel: Setting ${items.length} timeline items`);
-      }
 
       // Identify new items (not in previous list)
       const previousIds = new Set(previousItemsRef.current.map((item: TimelineItem) => item.id));
@@ -541,8 +527,6 @@ export default function TimelinePanel({
     }
 
     // CTA actions removed - Timeline items are completed, no actions needed
-    // All items in Timeline are already executed
-    console.log('CTA action called but Timeline items are completed - no action needed');
   };
 
   const getTypeLabel = (type: string): string => {

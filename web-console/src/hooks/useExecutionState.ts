@@ -170,15 +170,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         break;
 
       case 'execution_plan':
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[useExecutionState] Processing execution_plan event:', {
-            plan_id: event.plan.id,
-            plan_summary: event.plan.summary,
-            steps_count: event.plan.steps.length,
-            steps: event.plan.steps,
-            has_ai_team_members: !!(event.plan.ai_team_members && event.plan.ai_team_members.length > 0)
-          });
-        }
         setState(prev => {
           const newRunId = event.plan.id || `plan-${Date.now()}`;
 
@@ -197,10 +188,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             name: s.name,
             status: (s.status as TreeStep['status']) || 'pending',
           }));
-
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[useExecutionState] Created executionTree with', treeSteps.length, 'steps:', treeSteps);
-          }
 
           const newTimelineEntry: TimelineEntry = {
             id: `plan-${Date.now()}`,
@@ -222,22 +209,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
               }))
             : (isNewRun ? [] : prev.aiTeamMembers); // Reset for new run, keep for same run
 
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[useExecutionState] Received ai_team_members:', event.plan.ai_team_members, 'mapped to:', aiTeamMembers);
-            console.log('[useExecutionState] isNewRun:', isNewRun, 'prev.currentRunId:', prev.currentRunId, 'newRunId:', newRunId);
-            if (event.plan.ai_team_members && event.plan.ai_team_members.length > 0) {
-              console.log('[useExecutionState] AI team members details:', JSON.stringify(event.plan.ai_team_members, null, 2));
-              console.log('[useExecutionState] Mapped AI team members:', JSON.stringify(aiTeamMembers, null, 2));
-            } else {
-              console.warn('[useExecutionState] No ai_team_members in event.plan!', {
-                plan_keys: Object.keys(event.plan),
-                plan_id: event.plan.id,
-                isNewRun: isNewRun,
-                keeping_existing: !isNewRun && prev.aiTeamMembers.length > 0
-              });
-            }
-          }
-
           const newState = {
             ...prev,
             currentRunId: newRunId,
@@ -253,10 +224,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
               ? [newTimelineEntry, ...prev.thinkingTimeline].slice(0, 10)
               : prev.thinkingTimeline, // Only add timeline entry for new runs
           };
-
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[useExecutionState] Updated state with executionTree:', newState.executionTree, 'runId:', newRunId, 'aiTeamMembers.length:', newState.aiTeamMembers.length);
-          }
 
           return newState;
         });
@@ -687,13 +654,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           isExecuting,
         }));
 
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[useExecutionState] Restored execution state from backend:', {
-            treeStepsCount: treeSteps.length,
-            timelineEntriesCount: timelineEntries.length,
-            isExecuting,
-          });
-        }
       } catch (err) {
         console.error('[useExecutionState] Failed to load execution state:', err);
       }
