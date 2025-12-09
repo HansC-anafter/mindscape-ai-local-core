@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { checkVersions, type VersionCheckResponse, type ClientUpdateInfo } from '@/lib/sync-api';
+import { checkVersions, getSyncStatus, type VersionCheckResponse, type ClientUpdateInfo } from '@/lib/sync-api';
 import { t } from '@/lib/i18n';
 
 interface UpdateBannerProps {
@@ -21,9 +21,29 @@ export default function UpdateBanner({
   const [loading, setLoading] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [cloudConfigured, setCloudConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const checkForUpdates = async () => {
+      if (!isMounted) return;
+
+      try {
+        const syncStatus = await getSyncStatus();
+        if (isMounted) {
+          setCloudConfigured(syncStatus.configured);
+        }
+        if (!syncStatus.configured) {
+          return;
+        }
+      } catch {
+        if (isMounted) {
+          setCloudConfigured(false);
+        }
+        return;
+      }
+
       setLoading(true);
       try {
         const response = await checkVersions({
@@ -31,17 +51,26 @@ export default function UpdateBanner({
           capabilities,
           assets,
         });
-        setUpdateInfo(response);
-      } catch (error) {
-        console.error('Failed to check for updates:', error);
+        if (isMounted) {
+          setUpdateInfo(response);
+        }
+      } catch {
+        // Optional feature - silent fail
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
-    checkForUpdates();
+    const initialDelay = setTimeout(checkForUpdates, 2000);
     const interval = setInterval(checkForUpdates, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialDelay);
+      clearInterval(interval);
+    };
   }, [clientVersion, capabilities, assets]);
 
   if (dismissed || !updateInfo) {

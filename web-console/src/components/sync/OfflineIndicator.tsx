@@ -16,23 +16,48 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchStatus = async () => {
+      if (!isMounted) return;
+
       try {
-        const [statusData, summaryData] = await Promise.all([
-          getSyncStatus(),
-          getChangeSummary(),
-        ]);
+        const statusData = await getSyncStatus();
+
+        if (!isMounted) return;
+
+        if (!statusData.configured) {
+          setStatus(null);
+          return;
+        }
+
         setStatus(statusData);
-        setSummary(summaryData);
-      } catch (error) {
-        console.error('Failed to fetch sync status:', error);
-        setStatus({ configured: false, online: false, pending_changes: 0 });
+
+        if (statusData.configured) {
+          try {
+            const summaryData = await getChangeSummary();
+            if (isMounted) {
+              setSummary(summaryData);
+            }
+          } catch {
+            // Optional feature - silent fail
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setStatus(null);
+        }
       }
     };
 
-    fetchStatus();
+    const initialDelay = setTimeout(fetchStatus, 1500);
     const interval = setInterval(fetchStatus, 30000);
-    return () => clearInterval(interval);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialDelay);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleSync = async () => {
@@ -54,19 +79,8 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
     }
   };
 
-  if (!status) {
+  if (!status || !status.configured) {
     return null;
-  }
-
-  if (!status.configured) {
-    return (
-      <div className={`flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ${className}`}>
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clipRule="evenodd" />
-        </svg>
-        <span>{t('syncNotConfigured')}</span>
-      </div>
-    );
   }
 
   const isOffline = !status.online;

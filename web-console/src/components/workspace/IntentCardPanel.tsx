@@ -73,13 +73,11 @@ export function IntentCardPanel({ workspaceId, apiUrl }: IntentCardPanelProps) {
   const loadIntentCards = async () => {
     try {
       setLoading(true);
-      // Use the correct backend API endpoint: /intents (not /intent-cards)
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/intents`
       );
       if (response.ok) {
         const data = await response.json();
-        // Convert backend intents to frontend format
         const cards = (data.intents || []).map(convertIntent);
         setIntentCards(cards);
       } else {
