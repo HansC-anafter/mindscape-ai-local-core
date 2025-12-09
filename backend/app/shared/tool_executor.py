@@ -22,20 +22,28 @@ class ToolExecutor:
 
     def __init__(self):
         self.registry = get_registry()
-        self._filesystem_tools_registered = False
 
     def _ensure_filesystem_tools_registered(self):
         """Ensure filesystem tools are registered (lazy initialization for worker processes)"""
-        if not self._filesystem_tools_registered:
-            try:
-                from backend.app.services.tools.registry import register_filesystem_tools, _mindscape_tools
-                # Only register if not already done
-                if "filesystem_list_files" not in _mindscape_tools:
-                    register_filesystem_tools()
-                    logger.debug("Lazy-registered filesystem tools")
-                self._filesystem_tools_registered = True
-            except Exception as e:
-                logger.warning(f"Failed to lazy-register filesystem tools: {e}")
+        # Always check _mindscape_tools dict, not just the flag
+        # because dict may be cleared in different worker contexts
+        try:
+            from backend.app.services.tools.registry import register_filesystem_tools, _mindscape_tools
+            # Check if ALL filesystem tools are registered
+            required_tools = ["filesystem_list_files", "filesystem_read_file", "filesystem_write_file", "filesystem_search"]
+            missing = [t for t in required_tools if t not in _mindscape_tools]
+            logger.debug(f"_ensure_filesystem_tools_registered: current tools={list(_mindscape_tools.keys())}, missing={missing}")
+            if missing:
+                logger.info(f"Lazy-registering filesystem tools (missing: {missing})")
+                register_filesystem_tools()
+                # Verify
+                still_missing = [t for t in required_tools if t not in _mindscape_tools]
+                if still_missing:
+                    logger.error(f"Failed to register filesystem tools: {still_missing}")
+                else:
+                    logger.info(f"Successfully registered filesystem tools: {list(_mindscape_tools.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to lazy-register filesystem tools: {e}", exc_info=True)
 
     async def execute_tool(
         self,
@@ -141,6 +149,7 @@ _tool_executor = ToolExecutor()
 
 async def execute_tool(tool_name: str, **kwargs) -> Any:
     """Convenience function: Execute tool"""
+    logger.info(f"shared.execute_tool called: {tool_name}")
     return await _tool_executor.execute_tool(tool_name, **kwargs)
 
 

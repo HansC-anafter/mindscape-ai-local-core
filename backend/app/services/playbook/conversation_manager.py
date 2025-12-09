@@ -200,6 +200,104 @@ class PlaybookConversationManager:
             logger.error(f"Failed to extract structured output: {e}")
             return None
 
+    def _normalize_tool_call_json(self, parsed_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Normalize various incorrect tool call formats to standard format.
+
+        Handles:
+        - tool_call: standard format
+        - tool_code: LLM sometimes uses this instead
+        - tool_command: another variant
+        - tool_calls: array format (returns first item)
+        """
+        # Standard format
+        if "tool_call" in parsed_json:
+            return parsed_json["tool_call"]
+
+        # Common mistakes: tool_code, tool_command
+        for alt_key in ["tool_code", "tool_command", "function_call", "call"]:
+            if alt_key in parsed_json:
+                data = parsed_json[alt_key]
+                if isinstance(data, dict) and "tool_name" in data:
+                    logger.info(f"Normalized '{alt_key}' to 'tool_call'")
+                    return data
+
+        # tool_calls array format (LLM sometimes outputs this)
+        if "tool_calls" in parsed_json:
+            calls = parsed_json["tool_calls"]
+            if isinstance(calls, list) and len(calls) > 0:
+                first = calls[0]
+                if isinstance(first, dict):
+                    if "tool_name" in first:
+                        logger.info("Normalized 'tool_calls' array to single tool_call")
+                        return first
+                    elif "tool_call" in first:
+                        return first["tool_call"]
+
+        return None
+
+    def _parse_python_style_tool_call(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Parse Python-style function calls like:
+        - filesystem_read_file('path')
+        - print(filesystem_list_files(path='.'))
+        - fs.read_file('path') -> maps to filesystem_read_file
+        """
+        import re
+        tool_calls = []
+
+        # Tool name mappings (aliases -> canonical name)
+        tool_aliases = {
+            "filesystem_list_files": "filesystem_list_files",
+            "filesystem_read_file": "filesystem_read_file",
+            "filesystem_write_file": "filesystem_write_file",
+            "filesystem_search": "filesystem_search",
+            # Common aliases LLM might use
+            "fs.list_files": "filesystem_list_files",
+            "fs.read_file": "filesystem_read_file",
+            "fs.write_file": "filesystem_write_file",
+            "fs.search": "filesystem_search",
+            "list_files": "filesystem_list_files",
+            "read_file": "filesystem_read_file",
+            "write_file": "filesystem_write_file",
+        }
+
+        for alias, canonical_name in tool_aliases.items():
+            # Escape dots for regex
+            escaped_alias = alias.replace(".", r"\.")
+            # Match: alias('arg') or alias(key='value', key2='value2')
+            pattern = rf"{escaped_alias}\s*\(([^)]*)\)"
+            matches = re.findall(pattern, text)
+
+            for args_str in matches:
+                parameters = {}
+                # Parse simple string args: 'value' or "value"
+                simple_match = re.match(r"^\s*['\"]([^'\"]+)['\"]\s*$", args_str)
+                if simple_match:
+                    # Single positional arg - assume it's 'path' for filesystem tools
+                    parameters["path"] = simple_match.group(1)
+                else:
+                    # Parse keyword args: key='value' or key="value"
+                    kv_pattern = r"(\w+)\s*=\s*['\"]([^'\"]+)['\"]"
+                    kv_matches = re.findall(kv_pattern, args_str)
+                    for key, value in kv_matches:
+                        parameters[key] = value
+
+                    # Also handle: key=True/False
+                    bool_pattern = r"(\w+)\s*=\s*(True|False)"
+                    bool_matches = re.findall(bool_pattern, args_str)
+                    for key, value in bool_matches:
+                        parameters[key] = value == "True"
+
+                if parameters:
+                    tool_calls.append({
+                        "tool_name": canonical_name,
+                        "parameters": parameters
+                    })
+                    logger.info(f"Parsed Python-style tool call: {alias} -> {canonical_name}({parameters})")
+
+        return tool_calls
+
     def parse_tool_calls_from_response(self, assistant_message: str) -> List[Dict[str, Any]]:
         """
         Parse tool calls from LLM response.
@@ -208,6 +306,8 @@ class PlaybookConversationManager:
         1. JSON object with tool_call field: {"tool_call": {"tool_name": "...", "parameters": {...}}}
         2. JSON in markdown code blocks: ```json\n{"tool_call": {...}}\n```
         3. Array of tool calls: [{"tool_call": {...}}, ...]
+        4. (Fallback) Incorrect formats: tool_code, tool_command, tool_calls
+        5. (Fallback) Python-style calls: filesystem_read_file('path')
 
         Returns:
             List of tool call dictionaries, each containing:
@@ -223,6 +323,16 @@ class PlaybookConversationManager:
             parsed_json = parse_json_from_llm_response(assistant_message)
 
             if parsed_json:
+                # Try to normalize various formats
+                normalized = self._normalize_tool_call_json(parsed_json)
+                if normalized and isinstance(normalized, dict) and "tool_name" in normalized:
+                    tool_calls.append({
+                        "tool_name": normalized["tool_name"],
+                        "parameters": normalized.get("parameters", normalized.get("args", {}))
+                    })
+                    logger.info(f"Parsed 1 tool call (normalized): {normalized.get('tool_name')}")
+                    return tool_calls
+
                 # Check if it's a tool call format: {"tool_call": {...}}
                 if "tool_call" in parsed_json:
                     tool_call_data = parsed_json["tool_call"]
@@ -279,6 +389,15 @@ class PlaybookConversationManager:
             for match in matches:
                 parsed = parse_json_from_llm_response(match)
                 if parsed:
+                    # Try normalized format first
+                    normalized = self._normalize_tool_call_json(parsed)
+                    if normalized and isinstance(normalized, dict) and "tool_name" in normalized:
+                        tool_calls.append({
+                            "tool_name": normalized["tool_name"],
+                            "parameters": normalized.get("parameters", normalized.get("args", {}))
+                        })
+                        continue
+
                     # Check for tool_call format
                     if "tool_call" in parsed:
                         tool_call_data = parsed["tool_call"]
@@ -298,6 +417,13 @@ class PlaybookConversationManager:
             if tool_calls:
                 logger.info(f"Parsed {len(tool_calls)} tool call(s) from markdown code blocks")
                 return tool_calls
+
+            # Final fallback: try to parse Python-style function calls
+            # e.g., filesystem_read_file('path') or print(filesystem_list_files(path='.'))
+            python_calls = self._parse_python_style_tool_call(assistant_message)
+            if python_calls:
+                logger.info(f"Parsed {len(python_calls)} tool call(s) from Python-style syntax (fallback)")
+                return python_calls
 
         except Exception as e:
             logger.warning(f"Failed to parse tool calls from response: {e}", exc_info=True)

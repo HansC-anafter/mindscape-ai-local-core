@@ -14,9 +14,42 @@ from backend.app.services.conversation.workflow_tracker import WorkflowTracker
 
 logger = logging.getLogger(__name__)
 
+# Ensure filesystem tools are registered
+def _init_filesystem_tools():
+    """Register filesystem tools if any are missing (lazy initialization for worker processes)"""
+    try:
+        from backend.app.services.tools.registry import register_filesystem_tools, _mindscape_tools
+        required = ["filesystem_list_files", "filesystem_read_file", "filesystem_write_file", "filesystem_search"]
+        missing = [t for t in required if t not in _mindscape_tools]
+        if missing:
+            logger.info(f"PlaybookToolExecutor: Registering filesystem tools (missing: {missing})")
+            register_filesystem_tools()
+            # Verify registration
+            still_missing = [t for t in required if t not in _mindscape_tools]
+            if still_missing:
+                logger.error(f"PlaybookToolExecutor: Failed to register tools: {still_missing}")
+            else:
+                logger.info(f"PlaybookToolExecutor: Successfully registered all filesystem tools")
+    except Exception as e:
+        logger.error(f"PlaybookToolExecutor: Failed to init filesystem tools: {e}", exc_info=True)
+
+_init_filesystem_tools()
+
 
 class PlaybookToolExecutor:
     """Handles tool execution for Playbook runs"""
+
+    # Patterns that indicate LLM tried to call tools but used wrong format
+    TOOL_INTENT_PATTERNS = [
+        (r'tool_code', "使用了 'tool_code' 而非 'tool_call'"),
+        (r'tool_command', "使用了 'tool_command' 而非 'tool_call'"),
+        (r'function_call', "使用了 'function_call' 而非 'tool_call'"),
+        (r'fs\.read_file', "使用了 'fs.read_file' 而非 'filesystem_read_file'"),
+        (r'fs\.write_file', "使用了 'fs.write_file' 而非 'filesystem_write_file'"),
+        (r'fs\.list_files', "使用了 'fs.list_files' 而非 'filesystem_list_files'"),
+        (r'print\s*\(\s*filesystem_', "使用了 Python print() 語法調用工具"),
+        (r'await\s+filesystem_', "使用了 async/await 語法調用工具"),
+    ]
 
     def __init__(
         self,
@@ -25,6 +58,52 @@ class PlaybookToolExecutor:
     ):
         self.store = store
         self.workflow_tracker = workflow_tracker
+        self.execution_context: Dict[str, Any] = {}
+
+    def _detect_tool_call_intent(self, response: str) -> Optional[str]:
+        """
+        Detect if LLM intended to call tools but used wrong format.
+
+        Returns:
+            Error description if wrong format detected, None otherwise
+        """
+        import re
+
+        if not response:
+            return None
+
+        for pattern, error_msg in self.TOOL_INTENT_PATTERNS:
+            if re.search(pattern, response, re.IGNORECASE):
+                logger.debug(f"Detected tool intent pattern: {pattern}")
+                return error_msg
+
+        return None
+
+    def _build_format_correction_message(self, error: str) -> str:
+        """Build a message asking LLM to correct the tool call format."""
+        return f"""⚠️ **工具調用格式錯誤**
+
+{error}
+
+請使用正確的 JSON 格式重新調用工具：
+
+```json
+{{
+  "tool_call": {{
+    "tool_name": "filesystem_read_file",
+    "parameters": {{
+      "path": "檔案路徑"
+    }}
+  }}
+}}
+```
+
+**注意**：
+- 必須使用 `tool_call`（不是 `tool_code`）
+- 必須使用 `filesystem_read_file`（不是 `fs.read_file`）
+- 值必須是 JSON 對象（不是 Python 代碼字符串）
+
+請重新調用工具。"""
 
     async def execute_tool(
         self,
@@ -87,6 +166,16 @@ class PlaybookToolExecutor:
             if tool_fqn == "filesystem_write_file" and "path" in normalized_kwargs and "file_path" not in normalized_kwargs:
                 normalized_kwargs["file_path"] = normalized_kwargs.pop("path")
                 logger.debug(f"Normalized parameter 'path' -> 'file_path' for {tool_fqn}")
+
+            if tool_fqn.startswith("sandbox."):
+                execution_sandbox_id = self.execution_context.get("sandbox_id")
+                execution_workspace_id = workspace_id or self.execution_context.get("workspace_id")
+                if execution_sandbox_id and execution_workspace_id:
+                    if "sandbox_id" not in normalized_kwargs:
+                        normalized_kwargs["sandbox_id"] = execution_sandbox_id
+                    if "workspace_id" not in normalized_kwargs:
+                        normalized_kwargs["workspace_id"] = execution_workspace_id
+                    logger.debug(f"Auto-injected sandbox_id={execution_sandbox_id} and workspace_id={execution_workspace_id} for {tool_fqn}")
 
             result = await execute_tool(tool_fqn, **normalized_kwargs)
 
@@ -189,7 +278,9 @@ class PlaybookToolExecutor:
         profile_id: str,
         provider: Any,
         model_name: Optional[str] = None,
-        max_iterations: int = 5
+        max_iterations: int = 5,
+        workspace_id: Optional[str] = None,
+        sandbox_id: Optional[str] = None
     ) -> tuple[str, List[str]]:
         """
         Execute tool calls in a loop until no more tools are found or max iterations reached.
@@ -202,22 +293,61 @@ class PlaybookToolExecutor:
             provider: LLM provider instance
             model_name: Model name for LLM calls
             max_iterations: Maximum number of tool execution iterations
+            workspace_id: Workspace ID (for sandbox tools auto-injection)
+            sandbox_id: Sandbox ID (for sandbox tools auto-injection)
 
         Returns:
             Tuple of (final_assistant_response, used_tools_list)
         """
+        # Ensure filesystem tools are registered (may have been missed at import)
+        _init_filesystem_tools()
+
+        if workspace_id or sandbox_id:
+            self.execution_context["workspace_id"] = workspace_id
+            self.execution_context["sandbox_id"] = sandbox_id
+            logger.debug(f"Set execution context: workspace_id={workspace_id}, sandbox_id={sandbox_id}")
+
         max_tool_iterations = max_iterations
         tool_iteration = 0
         used_tools = []
         current_response = assistant_response
+        format_retry_count = 0
+        max_format_retries = 2  # Max retries for format errors
 
         while tool_iteration < max_tool_iterations:
             # Parse tool calls from current assistant response
+            logger.debug(f"PlaybookToolExecutor: Parsing tool calls from response (length={len(current_response) if current_response else 0})")
             tool_calls = conv_manager.parse_tool_calls_from_response(current_response)
 
             if not tool_calls:
+                # Check if LLM intended to call tools but used wrong format
+                format_error = self._detect_tool_call_intent(current_response)
+
+                if format_error and format_retry_count < max_format_retries:
+                    # LLM tried to call tools but format was wrong - ask to retry
+                    format_retry_count += 1
+                    logger.warning(f"PlaybookToolExecutor: Detected tool call intent with wrong format, asking LLM to retry ({format_retry_count}/{max_format_retries})")
+
+                    # Add correction message to conversation
+                    correction_msg = self._build_format_correction_message(format_error)
+                    conv_manager.add_tool_call_results([{
+                        "tool_name": "system",
+                        "result": correction_msg,
+                        "success": False,
+                        "error": "格式錯誤"
+                    }])
+
+                    # Get LLM to retry with correct format
+                    messages = conv_manager.get_messages_for_llm()
+                    current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+                    conv_manager.add_assistant_message(current_response)
+                    continue  # Try parsing again
+
+                logger.info(f"PlaybookToolExecutor: No tool calls found in iteration {tool_iteration + 1}, exiting loop")
                 break  # No tool calls found, exit loop
 
+            # Reset format retry counter on successful parse
+            format_retry_count = 0
             logger.info(f"PlaybookToolExecutor: Found {len(tool_calls)} tool call(s) in iteration {tool_iteration + 1}")
 
             # Execute all tool calls
