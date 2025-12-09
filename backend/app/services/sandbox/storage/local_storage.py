@@ -67,14 +67,19 @@ class LocalStorage(BaseStorage):
             file_path: Relative file path
 
         Returns:
-            Normalized Path object
+            Normalized Path object (relative path, not absolute)
 
         Raises:
             ValueError: If path is invalid or contains directory traversal
         """
-        normalized = Path(file_path).resolve()
+        # Remove leading slashes and normalize
+        clean_path = file_path.lstrip("/\\")
+        normalized = Path(clean_path)
+        
+        # Check for directory traversal attempts
         if ".." in str(normalized):
             raise ValueError(f"Invalid path: {file_path}")
+        
         return normalized
 
     async def read_file(self, file_path: str, version: Optional[str] = None) -> str:
@@ -253,4 +258,31 @@ class LocalStorage(BaseStorage):
         })
 
         return metadata
+
+    async def switch_version(self, version: str) -> bool:
+        """
+        Switch current version to a specific version
+
+        Copies all files from the specified version to the current directory.
+
+        Args:
+            version: Version identifier to switch to
+
+        Returns:
+            True if switch successful, False otherwise
+        """
+        version_path = self.versions_path / version
+        if not version_path.exists():
+            return False
+
+        try:
+            if self.current_path.exists():
+                shutil.rmtree(self.current_path)
+            self.current_path.mkdir(parents=True, exist_ok=True)
+
+            shutil.copytree(version_path, self.current_path, dirs_exist_ok=True)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to switch version: {e}")
+            return False
 

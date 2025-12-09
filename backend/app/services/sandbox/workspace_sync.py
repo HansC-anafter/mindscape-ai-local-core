@@ -114,6 +114,12 @@ class WorkspaceSandboxSync:
                 sandbox_id = existing_sandbox["sandbox_id"]
                 logger.info(f"Found existing sandbox: {sandbox_id}")
 
+                # Ensure template is initialized (may be missing after restart)
+                sandbox = await self.sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+                if sandbox and hasattr(sandbox, "initialize_template"):
+                    await sandbox.initialize_template()
+                    logger.info(f"Ensured template initialized for sandbox {sandbox_id}")
+
                 # Sync latest workspace changes
                 synced = await self.sync_workspace_to_sandbox(workspace_id, sandbox_id)
 
@@ -151,34 +157,34 @@ class WorkspaceSandboxSync:
     def _get_sync_directories(self, sandbox_type: str) -> Optional[List[str]]:
         """
         Get sync directories for sandbox type.
-        
+
         Args:
             sandbox_type: Type of sandbox
-            
+
         Returns:
             List of directories to sync, or None to sync all non-protected files
         """
         return DEFAULT_SYNC_DIRECTORIES.get(sandbox_type)
-    
+
     def _should_sync_file(self, file_path: str, sync_dirs: Optional[List[str]]) -> bool:
         """
         Check if file should be synced based on directory whitelist.
-        
+
         Args:
             file_path: Relative file path
             sync_dirs: List of allowed directories, or None for all
-            
+
         Returns:
             True if file should be synced
         """
         # Always skip protected patterns
         if self._is_protected(file_path):
             return False
-        
+
         # If no whitelist, sync all non-protected files
         if sync_dirs is None:
             return True
-        
+
         # Check if file is in whitelisted directory
         for dir_name in sync_dirs:
             if file_path.startswith(dir_name + "/") or file_path.startswith(dir_name + "\\"):
@@ -186,7 +192,7 @@ class WorkspaceSandboxSync:
             # Also allow files directly named with directory prefix
             if file_path == dir_name or file_path.startswith(dir_name):
                 return True
-        
+
         return False
 
     async def sync_workspace_to_sandbox(
@@ -197,45 +203,45 @@ class WorkspaceSandboxSync:
     ) -> List[str]:
         """
         Sync workspace files to sandbox.
-        
+
         Copies files from workspace to sandbox based on sandbox type's sync directories.
-        
+
         Args:
             workspace_id: Workspace identifier
             sandbox_id: Sandbox identifier
             directories: Optional override for directories to sync
-            
+
         Returns:
             List of synced file paths
         """
         synced_files = []
-        
+
         try:
             sandbox = await self.sandbox_manager.get_sandbox(sandbox_id, workspace_id)
             if not sandbox:
                 logger.error(f"Sandbox not found: {sandbox_id}")
                 return []
-            
+
             workspace_path = self.get_workspace_path(workspace_id)
-            
+
             # Get sync directories from sandbox type or override
             sync_dirs = directories or self._get_sync_directories(sandbox.sandbox_type)
-            
+
             if sync_dirs:
                 # Sync specific directories
                 for dir_name in sync_dirs:
                     source_dir = workspace_path / dir_name
                     if not source_dir.exists():
                         continue
-                    
+
                     for root, _, files in os.walk(source_dir):
                         for filename in files:
                             source_file = Path(root) / filename
                             relative_path = source_file.relative_to(workspace_path)
-                            
+
                             if not self._should_sync_file(str(relative_path), sync_dirs):
                                 continue
-                            
+
                             try:
                                 content = source_file.read_text(encoding="utf-8")
                                 await sandbox.write_file(str(relative_path), content)
@@ -250,10 +256,10 @@ class WorkspaceSandboxSync:
                         for filename in files:
                             source_file = Path(root) / filename
                             relative_path = source_file.relative_to(workspace_path)
-                            
+
                             if not self._should_sync_file(str(relative_path), None):
                                 continue
-                            
+
                             try:
                                 content = source_file.read_text(encoding="utf-8")
                                 await sandbox.write_file(str(relative_path), content)
@@ -261,15 +267,15 @@ class WorkspaceSandboxSync:
                                 logger.debug(f"Synced: {relative_path}")
                             except Exception as e:
                                 logger.warning(f"Failed to sync {relative_path}: {e}")
-            
+
             # Post-sync hooks for specific sandbox types
             if sandbox.sandbox_type == "web_page":
                 if hasattr(sandbox, "sync_pages_to_app"):
                     await sandbox.sync_pages_to_app()
-            
+
             logger.info(f"Synced {len(synced_files)} files to sandbox {sandbox_id}")
             return synced_files
-            
+
         except Exception as e:
             logger.error(f"Sync failed: {e}")
             return synced_files
@@ -320,48 +326,48 @@ class WorkspaceSandboxSync:
     ) -> Dict[str, Any]:
         """
         Sync sandbox files back to workspace (for persistence).
-        
+
         This is the "save" operation - takes sandbox changes and persists them.
         Creates backup of existing files before overwriting.
-        
+
         Args:
             workspace_id: Workspace identifier
             sandbox_id: Sandbox identifier
             create_backup: Whether to backup existing files before overwriting
             directories: Optional override for directories to sync
-            
+
         Returns:
             Dict with synced_files, backed_up_files, status
         """
         synced_files = []
         backed_up_files = []
-        
+
         try:
             sandbox = await self.sandbox_manager.get_sandbox(sandbox_id, workspace_id)
             if not sandbox:
                 return {"synced_files": [], "backed_up_files": [], "status": "error", "error": "Sandbox not found"}
-            
+
             workspace_path = self.get_workspace_path(workspace_id)
             workspace_path.mkdir(parents=True, exist_ok=True)
-            
+
             # Get sync directories from sandbox type or override
             sync_dirs = directories or self._get_sync_directories(sandbox.sandbox_type)
-            
+
             # Get all files in sandbox
             sandbox_files = await sandbox.list_files()
-            
+
             for file_info in sandbox_files:
                 file_path = file_info["path"]
-                
+
                 # Check if file should be synced
                 if not self._should_sync_file(file_path, sync_dirs):
                     logger.debug(f"Skipping file (not in sync dirs or protected): {file_path}")
                     continue
-                
+
                 try:
                     content = await sandbox.read_file(file_path)
                     target_path = workspace_path / file_path
-                    
+
                     # Create backup if file exists and backup is enabled
                     if create_backup and target_path.exists():
                         backup_path = target_path.with_suffix(target_path.suffix + ".backup")
@@ -369,25 +375,25 @@ class WorkspaceSandboxSync:
                         shutil.copy2(target_path, backup_path)
                         backed_up_files.append(str(file_path))
                         logger.debug(f"Backed up: {file_path}")
-                    
+
                     # Ensure parent directory exists
                     target_path.parent.mkdir(parents=True, exist_ok=True)
-                    
+
                     # Write file
                     target_path.write_text(content, encoding="utf-8")
                     synced_files.append(file_path)
                     logger.debug(f"Synced to workspace: {file_path}")
-                    
+
                 except Exception as e:
                     logger.warning(f"Failed to sync {file_path} to workspace: {e}")
-            
+
             logger.info(f"Synced {len(synced_files)} files from sandbox to workspace")
             return {
                 "synced_files": synced_files,
                 "backed_up_files": backed_up_files,
                 "status": "success"
             }
-            
+
         except Exception as e:
             logger.error(f"Sync to workspace failed: {e}")
             return {
@@ -413,14 +419,14 @@ class WorkspaceSandboxSync:
     ) -> Dict[str, Any]:
         """
         Get diff between workspace and sandbox files.
-        
+
         Useful for showing user what will change before sync.
-        
+
         Args:
             workspace_id: Workspace identifier
             sandbox_id: Sandbox identifier
             directories: Optional override for directories to compare
-            
+
         Returns:
             Dict with added, modified, deleted files
         """
@@ -428,19 +434,19 @@ class WorkspaceSandboxSync:
             sandbox = await self.sandbox_manager.get_sandbox(sandbox_id, workspace_id)
             if not sandbox:
                 return {"error": "Sandbox not found"}
-            
+
             workspace_path = self.get_workspace_path(workspace_id)
-            
+
             # Get sync directories from sandbox type or override
             sync_dirs = directories or self._get_sync_directories(sandbox.sandbox_type)
-            
+
             # Get sandbox files (filtered by sync dirs)
             sandbox_files = await sandbox.list_files()
             sandbox_paths = {
-                f["path"] for f in sandbox_files 
+                f["path"] for f in sandbox_files
                 if self._should_sync_file(f["path"], sync_dirs)
             }
-            
+
             # Get workspace files
             workspace_paths = set()
             if sync_dirs:
@@ -460,11 +466,11 @@ class WorkspaceSandboxSync:
                             rel_path = str(Path(root).relative_to(workspace_path) / f)
                             if self._should_sync_file(rel_path, None):
                                 workspace_paths.add(rel_path)
-            
+
             added = sandbox_paths - workspace_paths
             deleted = workspace_paths - sandbox_paths
             common = sandbox_paths & workspace_paths
-            
+
             # Check for modifications
             modified = []
             for path in common:
@@ -475,7 +481,7 @@ class WorkspaceSandboxSync:
                         modified.append(path)
                 except Exception:
                     pass
-            
+
             return {
                 "added": list(added),
                 "modified": modified,
@@ -484,7 +490,7 @@ class WorkspaceSandboxSync:
                 "sandbox_type": sandbox.sandbox_type,
                 "sync_directories": sync_dirs
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get sync diff: {e}")
             return {"error": str(e)}

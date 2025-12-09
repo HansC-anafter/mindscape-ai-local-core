@@ -393,7 +393,8 @@ async def ensure_preview_ready(
                 }
 
         # Get sandbox path and start server
-        sandbox_path = Path(sandbox.base_path) / sandbox.current_version
+        # Use storage.base_path and current directory
+        sandbox_path = sandbox.storage.current_path
         if not sandbox_path.exists():
             return {
                 "success": False,
@@ -477,7 +478,7 @@ async def start_preview_server(
                 }
 
         # Get sandbox path
-        sandbox_path = Path(sandbox.base_path) / sandbox.current_version
+        sandbox_path = sandbox.storage.current_path
         if not sandbox_path.exists():
             return {
                 "success": False,
@@ -548,10 +549,10 @@ async def get_sync_diff(
 ):
     """
     Get diff between workspace and sandbox.
-    
+
     Shows what files would change if syncing sandbox to workspace.
     Useful for user confirmation before save.
-    
+
     Returns:
         - added: Files in sandbox but not workspace
         - modified: Files that differ
@@ -581,13 +582,13 @@ async def sync_sandbox_to_workspace(
 ):
     """
     Save sandbox files to workspace (persist changes).
-    
+
     This is the "save" operation. Syncs sandbox changes back to workspace.
     Creates backups of existing files by default.
-    
+
     **Safety**: Requires `confirmed: true` to proceed.
     Call GET /sync/diff first to preview changes.
-    
+
     Returns:
         - synced_files: Files saved to workspace
         - backed_up_files: Files that were backed up
@@ -603,7 +604,7 @@ async def sync_sandbox_to_workspace(
                 "message": "Please review changes and set confirmed=true",
                 "diff": diff
             }
-        
+
         sync_service = get_workspace_sync_service(store)
         result = await sync_service.sync_sandbox_to_workspace(
             workspace_id=workspace_id,
@@ -611,7 +612,7 @@ async def sync_sandbox_to_workspace(
             create_backup=request.create_backup
         )
         return result
-        
+
     except Exception as e:
         logger.error(f"Failed to sync to workspace: {e}")
         return {"status": "error", "error": str(e)}
