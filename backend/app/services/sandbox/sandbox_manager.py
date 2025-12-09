@@ -125,6 +125,7 @@ class SandboxManager:
         Returns:
             Sandbox instance or None if not found
         """
+        # Check cache first
         if sandbox_id in self._sandboxes:
             sandbox = self._sandboxes[sandbox_id]
             if workspace_id and sandbox.workspace_id != workspace_id:
@@ -132,8 +133,72 @@ class SandboxManager:
                 return None
             return sandbox
 
-        logger.warning(f"Sandbox {sandbox_id} not found in cache")
+        # Not in cache, try to load from filesystem
+        sandbox = await self._load_sandbox_from_disk(sandbox_id, workspace_id)
+        if sandbox:
+            self._sandboxes[sandbox_id] = sandbox
+            return sandbox
+
+        logger.warning(f"Sandbox {sandbox_id} not found")
         return None
+
+    async def _load_sandbox_from_disk(
+        self,
+        sandbox_id: str,
+        workspace_id: Optional[str] = None
+    ) -> Optional[BaseSandbox]:
+        """
+        Load sandbox from disk (when not in cache).
+        
+        Searches filesystem for sandbox directory and reconstructs sandbox instance.
+        """
+        try:
+            # Find sandbox in filesystem
+            search_path = self.base_sandbox_dir
+            if workspace_id:
+                search_path = search_path / workspace_id
+            
+            if not search_path.exists():
+                return None
+            
+            # Search for sandbox_id in directory structure
+            for ws_dir in (search_path.iterdir() if not workspace_id else [search_path]):
+                if workspace_id:
+                    ws_id = workspace_id
+                    type_search_path = search_path
+                else:
+                    if not ws_dir.is_dir():
+                        continue
+                    ws_id = ws_dir.name
+                    type_search_path = ws_dir
+                
+                for type_dir in type_search_path.iterdir():
+                    if not type_dir.is_dir():
+                        continue
+                    
+                    sandbox_path = type_dir / sandbox_id
+                    if sandbox_path.exists() and sandbox_path.is_dir():
+                        # Found it! Reconstruct sandbox instance
+                        sandbox_type = type_dir.name
+                        storage = LocalStorage(sandbox_path)
+                        
+                        sandbox_class = get_sandbox_class(sandbox_type)
+                        sandbox = sandbox_class(
+                            sandbox_id=sandbox_id,
+                            sandbox_type=sandbox_type,
+                            workspace_id=ws_id,
+                            storage=storage,
+                            metadata={}
+                        )
+                        
+                        logger.info(f"Loaded sandbox {sandbox_id} from disk")
+                        return sandbox
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to load sandbox from disk: {e}")
+            return None
 
     async def list_sandboxes(
         self,
@@ -149,43 +214,64 @@ class SandboxManager:
 
         Returns:
             List of sandbox metadata dictionaries
+        
+        Directory structure: base_sandbox_dir / workspace_id / sandbox_type / sandbox_id
         """
         sandboxes = []
-        workspace_path = self.base_sandbox_dir
-
-        if workspace_id:
-            workspace_path = workspace_path / workspace_id
-            if not workspace_path.exists():
-                return []
 
         try:
-            for ws_dir in workspace_path.iterdir():
-                if not ws_dir.is_dir():
-                    continue
-
-                ws_id = ws_dir.name
-                if workspace_id and ws_id != workspace_id:
-                    continue
-
-                for type_dir in ws_dir.iterdir():
+            if workspace_id:
+                # List sandboxes for specific workspace
+                workspace_path = self.base_sandbox_dir / workspace_id
+                if not workspace_path.exists():
+                    return []
+                
+                for type_dir in workspace_path.iterdir():
                     if not type_dir.is_dir():
                         continue
-
+                    
                     type_name = type_dir.name
                     if sandbox_type and type_name != sandbox_type:
                         continue
-
+                    
                     for sandbox_dir in type_dir.iterdir():
                         if not sandbox_dir.is_dir():
                             continue
-
+                        
                         sandbox_id = sandbox_dir.name
                         sandboxes.append({
                             "sandbox_id": sandbox_id,
                             "sandbox_type": type_name,
-                            "workspace_id": ws_id,
+                            "workspace_id": workspace_id,
                             "path": str(sandbox_dir),
                         })
+            else:
+                # List all sandboxes across all workspaces
+                for ws_dir in self.base_sandbox_dir.iterdir():
+                    if not ws_dir.is_dir():
+                        continue
+                    
+                    ws_id = ws_dir.name
+                    
+                    for type_dir in ws_dir.iterdir():
+                        if not type_dir.is_dir():
+                            continue
+                        
+                        type_name = type_dir.name
+                        if sandbox_type and type_name != sandbox_type:
+                            continue
+                        
+                        for sandbox_dir in type_dir.iterdir():
+                            if not sandbox_dir.is_dir():
+                                continue
+                            
+                            sandbox_id = sandbox_dir.name
+                            sandboxes.append({
+                                "sandbox_id": sandbox_id,
+                                "sandbox_type": type_name,
+                                "workspace_id": ws_id,
+                                "path": str(sandbox_dir),
+                            })
         except Exception as e:
             logger.error(f"Failed to list sandboxes: {e}")
 
