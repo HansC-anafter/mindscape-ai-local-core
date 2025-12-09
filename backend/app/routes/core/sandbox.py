@@ -330,15 +330,15 @@ async def ensure_preview_ready(
 ):
     """
     Ensure preview is ready - create/sync sandbox and start server.
-    
+
     This is the main entry point for preview. It will:
     1. Find or create a web_page sandbox
     2. Sync workspace files to sandbox
     3. Initialize Next.js template if needed
     4. Start preview server
-    
+
     If sandbox is corrupted, it will be rebuilt from workspace files.
-    
+
     Returns:
         - sandbox_id: Sandbox identifier
         - synced_files: List of synced files
@@ -347,13 +347,13 @@ async def ensure_preview_ready(
     """
     try:
         sync_service = get_workspace_sync_service(store)
-        
+
         # Step 1: Ensure sandbox exists and is synced
         result = await sync_service.ensure_sandbox_for_preview(
             workspace_id=workspace_id,
             project_id=request.project_id
         )
-        
+
         if result.get("status") == "error":
             return {
                 "success": False,
@@ -362,9 +362,9 @@ async def ensure_preview_ready(
                 "preview_url": None,
                 "synced_files": []
             }
-        
+
         sandbox_id = result["sandbox_id"]
-        
+
         # Step 2: Start preview server
         sandbox = await sandbox_manager.get_sandbox(sandbox_id, workspace_id)
         if not sandbox:
@@ -375,9 +375,9 @@ async def ensure_preview_ready(
                 "preview_url": None,
                 "synced_files": result.get("synced_files", [])
             }
-        
+
         server_key = _get_preview_server_key(workspace_id, sandbox_id)
-        
+
         # Check if server already running
         if server_key in _preview_servers:
             existing_server = _preview_servers[server_key]
@@ -391,7 +391,7 @@ async def ensure_preview_ready(
                     "status": "ready",
                     "message": "Preview already running"
                 }
-        
+
         # Get sandbox path and start server
         sandbox_path = Path(sandbox.base_path) / sandbox.current_version
         if not sandbox_path.exists():
@@ -402,14 +402,14 @@ async def ensure_preview_ready(
                 "preview_url": None,
                 "synced_files": result.get("synced_files", [])
             }
-        
+
         preview_server = SandboxPreviewServer(sandbox_path, request.port)
         server_result = await preview_server.start()
-        
+
         if server_result["success"]:
             _preview_servers[server_key] = preview_server
             logger.info(f"Started preview server for {workspace_id} on port {server_result['port']}")
-        
+
         return {
             "success": server_result["success"],
             "sandbox_id": sandbox_id,
@@ -420,7 +420,7 @@ async def ensure_preview_ready(
             "error": server_result.get("error"),
             "port_conflict": server_result.get("port_conflict", False)
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to ensure preview: {e}")
         return {
@@ -539,6 +539,82 @@ async def stop_preview_server(
     except Exception as e:
         logger.error(f"Failed to stop preview server: {e}")
         return {"success": False, "error": str(e)}
+
+
+@router.get("/{sandbox_id}/sync/diff", response_model=Dict[str, Any])
+async def get_sync_diff(
+    workspace_id: str = PathParam(..., description="Workspace identifier"),
+    sandbox_id: str = PathParam(..., description="Sandbox identifier")
+):
+    """
+    Get diff between workspace and sandbox.
+    
+    Shows what files would change if syncing sandbox to workspace.
+    Useful for user confirmation before save.
+    
+    Returns:
+        - added: Files in sandbox but not workspace
+        - modified: Files that differ
+        - deleted: Files in workspace but not sandbox
+        - unchanged: Files that are identical
+    """
+    try:
+        sync_service = get_workspace_sync_service(store)
+        diff = await sync_service.get_sync_diff(workspace_id, sandbox_id)
+        return diff
+    except Exception as e:
+        logger.error(f"Failed to get sync diff: {e}")
+        return {"error": str(e)}
+
+
+class SyncToWorkspaceRequest(BaseModel):
+    """Request for syncing sandbox to workspace"""
+    create_backup: bool = Field(True, description="Backup existing files before overwriting")
+    confirmed: bool = Field(False, description="User has confirmed the sync")
+
+
+@router.post("/{sandbox_id}/sync/to-workspace", response_model=Dict[str, Any])
+async def sync_sandbox_to_workspace(
+    workspace_id: str = PathParam(..., description="Workspace identifier"),
+    sandbox_id: str = PathParam(..., description="Sandbox identifier"),
+    request: SyncToWorkspaceRequest = Body(...)
+):
+    """
+    Save sandbox files to workspace (persist changes).
+    
+    This is the "save" operation. Syncs sandbox changes back to workspace.
+    Creates backups of existing files by default.
+    
+    **Safety**: Requires `confirmed: true` to proceed.
+    Call GET /sync/diff first to preview changes.
+    
+    Returns:
+        - synced_files: Files saved to workspace
+        - backed_up_files: Files that were backed up
+        - status: success/error
+    """
+    try:
+        if not request.confirmed:
+            # Return diff instead of syncing
+            sync_service = get_workspace_sync_service(store)
+            diff = await sync_service.get_sync_diff(workspace_id, sandbox_id)
+            return {
+                "status": "confirmation_required",
+                "message": "Please review changes and set confirmed=true",
+                "diff": diff
+            }
+        
+        sync_service = get_workspace_sync_service(store)
+        result = await sync_service.sync_sandbox_to_workspace(
+            workspace_id=workspace_id,
+            sandbox_id=sandbox_id,
+            create_backup=request.create_backup
+        )
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to sync to workspace: {e}")
+        return {"status": "error", "error": str(e)}
 
 
 @router.get("/{sandbox_id}/preview/status", response_model=Dict[str, Any])
