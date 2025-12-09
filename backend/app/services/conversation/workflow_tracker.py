@@ -198,7 +198,7 @@ class WorkflowTracker:
             step_id: Step ID (MindEvent.id)
             tool_name: Tool name (e.g., 'canva.create_design')
             parameters: Tool call parameters
-            factory_cluster: Factory cluster (e.g., 'local_mcp', 'sem-hub')
+            factory_cluster: Factory cluster name (e.g., 'local_mcp', or custom cluster identifier)
 
         Returns:
             Created ToolCall record
@@ -208,16 +208,55 @@ class WorkflowTracker:
 
         # Determine factory_cluster if not provided
         if not factory_cluster:
-            if "mcp" in tool_name.lower() or tool_name.startswith("local_"):
-                factory_cluster = "local_mcp"
-            elif "sem-" in tool_name.lower():
-                factory_cluster = "sem-hub"
-            elif "wp" in tool_name.lower() or "wordpress" in tool_name.lower():
-                factory_cluster = "wp-hub"
-            elif "n8n" in tool_name.lower():
-                factory_cluster = "n8n"
+            # Try to get default_cluster from task execution_context
+            default_cluster = None
+            try:
+                from backend.app.services.stores.tasks_store import TasksStore
+                tasks_store = TasksStore(db_path=self.store.db_path)
+                task = tasks_store.get_task_by_execution_id(execution_id)
+                if task and task.execution_context:
+                    default_cluster = task.execution_context.get("default_cluster")
+            except Exception as e:
+                logger.debug(f"Failed to get default_cluster from task: {e}")
+
+            if default_cluster:
+                factory_cluster = default_cluster
             else:
-                factory_cluster = "local_mcp"  # default
+                # Try to extract connection_id from tool_name (format: {connection_id}.{tool_type}.{tool_name})
+                # and get cluster from tool connection
+                connection_id = None
+                if "." in tool_name:
+                    parts = tool_name.split(".", 1)
+                    if len(parts) >= 1:
+                        potential_connection_id = parts[0]
+                        # Check if this looks like a connection_id (not a capability package name)
+                        if potential_connection_id and not potential_connection_id.startswith(("filesystem_", "sandbox.", "capability.")):
+                            connection_id = potential_connection_id
+
+                if connection_id:
+                    try:
+                        from backend.app.services.tool_registry import ToolRegistryService
+                        registry = ToolRegistryService(db_path=self.store.db_path)
+                        connection = registry.get_connection(connection_id)
+                        if connection and connection.remote_cluster_url:
+                            # Extract cluster name from URL or use a generic identifier
+                            factory_cluster = connection.connection_type or "remote"
+                        elif connection:
+                            # Local connection, use local_mcp
+                            factory_cluster = "local_mcp"
+                        else:
+                            # Fallback: use default from workspace or local_mcp
+                            factory_cluster = default_cluster or "local_mcp"
+                    except Exception as e:
+                        logger.debug(f"Failed to get cluster from connection {connection_id}: {e}")
+                        factory_cluster = default_cluster or "local_mcp"
+                else:
+                    # For built-in tools (filesystem, sandbox, etc.), use local_mcp
+                    if tool_name.startswith(("filesystem_", "sandbox.", "local_")) or "mcp" in tool_name.lower():
+                        factory_cluster = "local_mcp"
+                    else:
+                        # Default fallback
+                        factory_cluster = default_cluster or "local_mcp"
 
         tool_call = ToolCall(
             id=tool_call_id,

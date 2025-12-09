@@ -475,7 +475,7 @@ class ExecutionSession(BaseModel):
     initiator_user_id: Optional[str] = Field(None, description="Initiator user ID")
     failure_type: Optional[str] = Field(None, description="Failure type if failed")
     failure_reason: Optional[str] = Field(None, description="Failure reason if failed")
-    default_cluster: Optional[str] = Field(None, description="Default cluster: local_mcp/sem-hub/wp-hub/n8n")
+    default_cluster: Optional[str] = Field(None, description="Default cluster identifier for tool execution (e.g., 'local_mcp' or custom cluster name)")
 
     # Checkpoint and resume support
     last_checkpoint: Optional[Dict[str, Any]] = Field(

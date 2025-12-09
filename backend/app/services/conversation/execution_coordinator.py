@@ -1349,6 +1349,22 @@ class ExecutionCoordinator:
                         logger.warning(f"Failed to get step count from playbook: {e}")
                         total_steps = 1  # Default to 1 if we can't determine
 
+            # Get default_cluster from playbook_context, or fallback to workspace configuration
+            default_cluster = playbook_context.get("default_cluster")
+            if not default_cluster:
+                # Try to get default_cluster from workspace configuration
+                try:
+                    workspace = self.store.get_workspace(ctx.workspace_id)
+                    if workspace and workspace.default_cluster:
+                        default_cluster = workspace.default_cluster
+                        logger.debug(f"Using default_cluster from workspace: {workspace.default_cluster}")
+                except Exception as e:
+                    logger.debug(f"Failed to get default_cluster from workspace: {e}")
+
+            # Fallback to "local_mcp" if still not set
+            if not default_cluster:
+                default_cluster = "local_mcp"
+
             # Build execution_context
             execution_context = {
                 "playbook_code": playbook_code,
@@ -1364,7 +1380,7 @@ class ExecutionCoordinator:
                 "initiator_user_id": ctx.actor_id,
                 "failure_type": None,
                 "failure_reason": None,
-                "default_cluster": playbook_context.get("default_cluster", "local_mcp")
+                "default_cluster": default_cluster
             }
 
             # Merge ctx.tags if available (for future cloud support)
