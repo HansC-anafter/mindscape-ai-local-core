@@ -21,6 +21,7 @@ from .routes.core import (
     tools,
     sandbox,
 )
+from .routes.core import cloud_sync
 from .routes.core.intents import router as intents_router
 from .routes.core.chapters import router as chapters_router
 from .routes.core.artifacts import router as artifacts_router
@@ -99,6 +100,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(data_sources_router, tags=["data-sources"])
     app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
     app.include_router(cloud_providers_router, tags=["cloud-providers"])
+    app.include_router(cloud_sync.router, tags=["cloud-sync"])
 
     # Generic resource routes (neutral interface)
     app.include_router(resources_router, tags=["resources"])
@@ -145,6 +147,27 @@ async def startup_event():
         logger.info("Mindscape tables initialized successfully")
     except Exception as e:
         logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
+
+    # Initialize cloud sync service
+    logger.info("Initializing cloud sync service...")
+    try:
+        from backend.app.services.cloud_sync.service import initialize_cloud_sync_service
+        import os
+
+        base_url = os.getenv("CLOUD_SYNC_BASE_URL")
+        api_key = os.getenv("CLOUD_SYNC_API_KEY")
+
+        if base_url and api_key:
+            initialize_cloud_sync_service(
+                base_url=base_url,
+                api_key=api_key,
+                auto_start=True,
+            )
+            logger.info("Cloud sync service initialized successfully")
+        else:
+            logger.info("Cloud sync service not configured (CLOUD_SYNC_BASE_URL or CLOUD_SYNC_API_KEY not set)")
+    except Exception as e:
+        logger.warning(f"Failed to initialize cloud sync service: {e}")
 
     # Initialize resource handlers (for generic resource routing)
     logger.info("Initializing resource handlers...")

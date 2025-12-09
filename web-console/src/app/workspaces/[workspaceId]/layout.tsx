@@ -4,6 +4,7 @@ import React from 'react';
 import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
 import Header from '../../../components/Header';
+import UpdateBanner from '../../../components/sync/UpdateBanner';
 
 interface WorkspaceLayoutProps {
   children: React.ReactNode;
@@ -27,6 +28,7 @@ export default function WorkspaceLayout({
       <ExecutionContextProvider workspaceId={workspaceId}>
         <div className="flex flex-col h-screen">
           <Header />
+          <UpdateBanner clientVersion="1.0.0" />
           <div className="flex flex-1 overflow-hidden">
             <main className="flex-1 overflow-hidden">
               {children}

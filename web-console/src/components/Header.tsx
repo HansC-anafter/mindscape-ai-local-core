@@ -10,6 +10,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { t, useLocale, type Locale } from '../lib/i18n';
 import { useTheme } from 'next-themes';
+import OfflineIndicator from './sync/OfflineIndicator';
 
 export default function Header() {
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
@@ -95,6 +96,7 @@ export default function Header() {
 
           {/* Right: Mindscape + Playbooks + System Management */}
           <nav className="flex items-center space-x-4 pr-4 flex-shrink-0 ml-auto" suppressHydrationWarning>
+            <OfflineIndicator className="mr-2" />
             <a
               href="/mindscape"
               className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded-md text-xs font-medium"
