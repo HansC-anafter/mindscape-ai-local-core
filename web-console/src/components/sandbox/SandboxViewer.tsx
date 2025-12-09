@@ -151,6 +151,11 @@ export default function SandboxViewer({
     return null;
   }
 
+  const openInNewWindow = () => {
+    const url = `/workspaces/${workspaceId}/sandbox/${sandboxId}`;
+    window.open(url, '_blank', 'width=1400,height=900,menubar=no,toolbar=no');
+  };
+
   return (
     <div className="sandbox-viewer h-full flex flex-col">
       <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 p-4">
@@ -160,12 +165,21 @@ export default function SandboxViewer({
           </h2>
           <p className="text-sm text-gray-500">ID: {sandboxId}</p>
         </div>
-        <button
-          onClick={() => setShowDeployModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Deploy
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={openInNewWindow}
+            className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            title="Open in new window (persists when switching playbooks)"
+          >
+            ↗️ New Window
+          </button>
+          <button
+            onClick={() => setShowDeployModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Deploy
+          </button>
+        </div>
       </div>
 
       <div className="flex border-b border-gray-200 dark:border-gray-800">
