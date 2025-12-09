@@ -83,9 +83,11 @@ class ExecutionStateStore:
                 logger.debug(f"Task not found for execution_id: {execution_id}")
                 return None
 
-            # Only restore if task is still running
-            if task.status != TaskStatus.RUNNING:
-                logger.debug(f"Task {task.id} is not running (status: {task.status}), cannot restore execution state")
+            # Allow restore for RUNNING or SUCCEEDED tasks (to support conversational playbooks)
+            # Conversational playbooks may complete initial LLM call but still need user interaction
+            allowed_statuses = [TaskStatus.RUNNING, TaskStatus.SUCCEEDED]
+            if task.status not in allowed_statuses:
+                logger.debug(f"Task {task.id} status {task.status} not in allowed statuses {allowed_statuses}, cannot restore execution state")
                 return None
 
             execution_context = task.execution_context or {}

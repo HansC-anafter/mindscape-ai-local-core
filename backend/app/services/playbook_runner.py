@@ -444,11 +444,13 @@ class PlaybookRunner:
             # Parse and execute tool calls (with loop support for multiple iterations)
             # Use tool executor for tool execution loop
             model_name = self.llm_provider_manager.get_model_name()
-            sandbox_id_from_context = context.get("sandbox_id") if context else None
+            workspace_id = conv_manager.workspace_id
+            # Get sandbox_id from conv_manager's execution context if available
+            sandbox_id_from_context = getattr(conv_manager, 'sandbox_id', None)
             assistant_response, used_tools = await self.tool_executor.execute_tool_loop(
                 conv_manager=conv_manager,
                 assistant_response=assistant_response,
-                            execution_id=execution_id,
+                execution_id=execution_id,
                 profile_id=profile_id,
                 provider=provider,
                 model_name=model_name,
