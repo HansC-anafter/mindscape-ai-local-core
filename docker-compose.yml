@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+      - "3002-3010:3002-3010"  # Preview server ports
     environment:
       - ENVIRONMENT=development
       - HOST=0.0.0.0
