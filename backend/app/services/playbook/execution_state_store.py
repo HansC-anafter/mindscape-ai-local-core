@@ -135,6 +135,47 @@ class ExecutionStateStore:
             logger.error(f"Failed to restore execution state for {execution_id}: {e}", exc_info=True)
             return None
 
+    async def get_execution_state(self, execution_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get execution state (inputs and context) from database.
+
+        Args:
+            execution_id: Execution ID
+
+        Returns:
+            Dict with execution state including inputs, or None if not found
+        """
+        try:
+            tasks_store = TasksStore(db_path=self.store.db_path)
+            task = tasks_store.get_task_by_execution_id(execution_id)
+
+            if not task:
+                logger.debug(f"Task not found for execution_id: {execution_id}")
+                return None
+
+            execution_context = task.execution_context or {}
+
+            # Extract inputs from params if available
+            inputs = {}
+            if task.params and isinstance(task.params, dict):
+                if "context" in task.params:
+                    context = task.params["context"]
+                    if isinstance(context, dict):
+                        inputs = context
+                elif "inputs" in task.params:
+                    inputs = task.params.get("inputs", {})
+
+            return {
+                "execution_id": execution_id,
+                "inputs": inputs,
+                "execution_context": execution_context,
+                "status": task.status.value if task.status else None,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get execution state for {execution_id}: {e}", exc_info=True)
+            return None
+
     def update_task_step_info(
         self,
         execution_id: str,

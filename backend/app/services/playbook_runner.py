@@ -315,7 +315,12 @@ class PlaybookRunner:
             # Get model name from system settings
             model_name = self.llm_provider_manager.get_model_name()
             logger.info(f"PlaybookRunner: Calling LLM for playbook {playbook_code}, model={model_name}, messages_count={len(messages)}")
-            assistant_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+            # Use max_tokens=8192 to prevent response truncation (especially for auto_execute mode)
+            assistant_response = await provider.chat_completion(
+                messages,
+                model=model_name if model_name else None,
+                max_tokens=8192  # Ensure sufficient output for tool calls + explanations
+            )
             logger.info(f"PlaybookRunner: LLM response received for playbook {playbook_code}, response_length={len(assistant_response) if assistant_response else 0}")
 
             conv_manager.add_assistant_message(assistant_response)
@@ -478,7 +483,12 @@ class PlaybookRunner:
             messages = conv_manager.get_messages_for_llm()
             # Get model name from system settings
             model_name = self.llm_provider_manager.get_model_name()
-            assistant_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+            # Use max_tokens=8192 to prevent response truncation
+            assistant_response = await provider.chat_completion(
+                messages,
+                model=model_name if model_name else None,
+                max_tokens=8192
+            )
 
             conv_manager.add_assistant_message(assistant_response)
 

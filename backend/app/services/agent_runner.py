@@ -349,7 +349,33 @@ class VertexAIProvider(LLMProvider):
                 generation_config=generation_config
             )
 
-            return response.text
+            # Handle multi-part responses (Vertex AI may return multiple content parts)
+            # This fixes "Multiple content parts are not supported" error
+            if response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if candidate.content and candidate.content.parts:
+                    # Concatenate all text parts
+                    text_parts = []
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+                    if text_parts:
+                        return "".join(text_parts)
+
+            # Fallback to response.text (may raise error if multi-part)
+            try:
+                return response.text
+            except Exception as text_error:
+                logger.warning(f"Vertex AI response.text failed: {text_error}, attempting manual extraction")
+                # Last resort: try to get any text from the response
+                if hasattr(response, 'candidates') and response.candidates:
+                    for candidate in response.candidates:
+                        if hasattr(candidate, 'content') and candidate.content:
+                            if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                                texts = [p.text for p in candidate.content.parts if hasattr(p, 'text') and p.text]
+                                if texts:
+                                    return "".join(texts)
+                raise text_error
 
         except ImportError:
             raise Exception("Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai")

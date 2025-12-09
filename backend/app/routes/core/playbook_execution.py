@@ -28,31 +28,53 @@ class StartExecutionRequest(BaseModel):
     inputs: Optional[dict] = None
     target_language: Optional[str] = None
     variant_id: Optional[str] = None
+    auto_execute: Optional[bool] = None  # If True, skip confirmations and execute tools directly
 
 
 @router.post("/execute/start")
 async def start_playbook_execution(
     playbook_code: str = Query(..., description="Playbook code to execute"),
     profile_id: str = Query("default-user", description="Profile ID"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID for state persistence (required for multi-turn conversations)"),
+    project_id: Optional[str] = Query(None, description="Project ID for sandbox context"),
     target_language: Optional[str] = Query(None, description="Target language for output (e.g., 'zh-TW', 'en')"),
     variant_id: Optional[str] = Query(None, description="Optional personalized variant ID to use"),
+    auto_execute: Optional[bool] = Query(None, description="If true, skip confirmations and execute tools directly"),
     request: Optional[StartExecutionRequest] = Body(None, description="Optional inputs for the playbook")
 ):
     """
     Start a new Playbook execution
 
     Returns the execution_id and initial assistant message
+
+    Note: workspace_id is required for multi-turn conversations to persist execution state.
+    Without it, /continue calls will fail with "Execution not found".
+
+    Set auto_execute=true to skip confirmations and execute tools directly (useful for automated testing).
     """
     try:
         inputs = request.inputs if request else None
         final_target_language = target_language or (request.target_language if request else None)
         final_variant_id = variant_id or (request.variant_id if request else None)
+        final_auto_execute = auto_execute or (request.auto_execute if request else None)
+
+        # Extract workspace_id and project_id from inputs if not provided as query params
+        final_workspace_id = workspace_id or (inputs.get("workspace_id") if inputs else None)
+        final_project_id = project_id or (inputs.get("project_id") if inputs else None)
+
+        # Inject auto_execute into inputs for downstream processing
+        if final_auto_execute and inputs:
+            inputs["auto_execute"] = True
+        elif final_auto_execute:
+            inputs = {"auto_execute": True}
 
         # Use unified executor (automatically selects execution mode)
         result = await playbook_executor.execute_playbook_run(
             playbook_code=playbook_code,
             profile_id=profile_id,
             inputs=inputs,
+            workspace_id=final_workspace_id,
+            project_id=final_project_id,
             target_language=final_target_language,
             variant_id=final_variant_id
         )

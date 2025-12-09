@@ -24,12 +24,14 @@ class PlaybookConversationManager:
         project: Optional[Any] = None,
         locale: Optional[str] = None,
         target_language: Optional[str] = None,
-        workspace_id: Optional[str] = None
+        workspace_id: Optional[str] = None,
+        auto_execute: bool = False
     ):
         self.playbook = playbook
         self.profile = profile
         self.project = project
         self.workspace_id = workspace_id
+        self.auto_execute = auto_execute  # If True, skip confirmations and execute tools directly
         if target_language:
             self.target_language = target_language
             self.locale = target_language
@@ -95,6 +97,16 @@ class PlaybookConversationManager:
         prompt_parts.append("\n[EXECUTION_INSTRUCTIONS]")
         prompt_parts.append("Follow the SOP steps exactly as described.")
         prompt_parts.append("At the end, output structured JSON with the key 'STRUCTURED_OUTPUT'.")
+
+        # Auto-execute mode: skip confirmations and execute tools directly
+        if self.auto_execute:
+            prompt_parts.append("\n⚡ **AUTO-EXECUTE MODE ENABLED**:")
+            prompt_parts.append("- Do NOT ask for user confirmation before executing tools")
+            prompt_parts.append("- Execute all tool calls immediately and directly")
+            prompt_parts.append("- Skip any 'needs_review' or 'confirmation' steps")
+            prompt_parts.append("- Complete all SOP phases in a single response if possible")
+            prompt_parts.append("- Generate all required output files without waiting for user input")
+
         prompt_parts.append("[/EXECUTION_INSTRUCTIONS]")
 
         # Available tools (using cached tool list if available)
@@ -221,6 +233,14 @@ class PlaybookConversationManager:
                 if isinstance(data, dict) and "tool_name" in data:
                     logger.info(f"Normalized '{alt_key}' to 'tool_call'")
                     return data
+                # Handle string value containing Python-style tool call
+                # e.g., {"tool_code": "filesystem_write_file('path', 'content')"}
+                elif isinstance(data, str) and any(tool in data for tool in ["filesystem_", "read_file", "write_file", "list_files"]):
+                    logger.info(f"Found Python-style tool call in '{alt_key}' string, attempting to parse")
+                    parsed_calls = self._parse_python_style_tool_call(data)
+                    if parsed_calls:
+                        logger.info(f"Successfully parsed Python-style tool call from '{alt_key}': {parsed_calls[0].get('tool_name')}")
+                        return parsed_calls[0]
 
         # tool_calls array format (LLM sometimes outputs this)
         if "tool_calls" in parsed_json:

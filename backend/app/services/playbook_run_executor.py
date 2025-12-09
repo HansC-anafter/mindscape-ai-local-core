@@ -71,6 +71,7 @@ class PlaybookRunExecutor:
         profile_id: str,
         inputs: Optional[Dict[str, Any]] = None,
         workspace_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         target_language: Optional[str] = None,
         variant_id: Optional[str] = None,
         locale: Optional[str] = None
@@ -82,7 +83,8 @@ class PlaybookRunExecutor:
             playbook_code: Playbook code
             profile_id: User profile ID
             inputs: Execution inputs
-            workspace_id: Optional workspace ID
+            workspace_id: Optional workspace ID (required for multi-turn conversations)
+            project_id: Optional project ID for sandbox context
             target_language: Target language for output
             variant_id: Optional personalized variant ID
             locale: Preferred locale for playbook.md
@@ -249,13 +251,14 @@ class PlaybookRunExecutor:
             }
 
         else:
-            logger.info(f"Executing {playbook_code} using PlaybookRunner (LLM conversation mode)")
+            logger.info(f"Executing {playbook_code} using PlaybookRunner (LLM conversation mode), workspace_id={workspace_id}, project_id={project_id}")
 
             result = await self.playbook_runner.start_playbook_execution(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
                 inputs=inputs,
                 workspace_id=workspace_id,
+                project_id=project_id,
                 target_language=target_language,
                 variant_id=variant_id
             )
