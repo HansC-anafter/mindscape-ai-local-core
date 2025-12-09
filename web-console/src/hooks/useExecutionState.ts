@@ -321,11 +321,29 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           pipelineStage: null,
           aiTeamMembers: [],
         }));
+        window.dispatchEvent(new CustomEvent('execution-event', {
+          detail: {
+            type: 'execution_started',
+            data: {
+              executionId: event.run_id,
+              playbookCode: prev.trainSteps[0]?.name || '',
+              runNumber: parseInt(event.run_id.split('-').pop() || '1', 10),
+            },
+          },
+        }));
         break;
 
       case 'run_completed':
         setState(prev => {
           if (event.run_id === prev.currentRunId) {
+            window.dispatchEvent(new CustomEvent('execution-event', {
+              detail: {
+                type: 'execution_completed',
+                data: {
+                  executionId: event.run_id,
+                },
+              },
+            }));
             return {
               ...prev,
               pipelineStage: {
@@ -342,6 +360,15 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
       case 'run_failed':
         setState(prev => {
           if (event.run_id === prev.currentRunId) {
+            window.dispatchEvent(new CustomEvent('execution-event', {
+              detail: {
+                type: 'execution_failed',
+                data: {
+                  executionId: event.run_id,
+                  error: event.error,
+                },
+              },
+            }));
             return {
               ...prev,
               pipelineStage: {
@@ -384,12 +411,31 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
               ? { ...s, detail: event.message, status: 'in_progress' as const }
               : s
           );
+          const progress = calculateProgress(newSteps);
+
+          if (prev.currentRunId) {
+            window.dispatchEvent(new CustomEvent('execution-event', {
+              detail: {
+                type: 'execution_concurrent_update',
+                data: {
+                  playbookCode: prev.trainSteps[0]?.name || '',
+                  executions: [{
+                    executionId: prev.currentRunId,
+                    runNumber: parseInt(prev.currentRunId.split('-').pop() || '1', 10),
+                    status: 'running',
+                    progress: progress,
+                  }],
+                },
+              },
+            }));
+          }
+
           return {
             ...prev,
             trainSteps: newSteps,
             executionTree: newTree,
             currentTaskMessage: event.message,
-            overallProgress: calculateProgress(newSteps),
+            overallProgress: progress,
           };
         });
         break;

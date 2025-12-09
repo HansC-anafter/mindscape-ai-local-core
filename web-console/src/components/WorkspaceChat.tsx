@@ -5,6 +5,8 @@ import { t } from '@/lib/i18n';
 import SystemHealthCard from './SystemHealthCard';
 import MultiAICollaborationCard from './MultiAICollaborationCard';
 import { MessageItem } from './MessageItem';
+import { MessageWithSuggestions } from './workspace/MessageWithSuggestions';
+import type { Suggestion } from './workspace/SuggestionChip';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
@@ -12,6 +14,8 @@ import { useExecutionState } from '@/hooks/useExecutionState';
 import IntentChips from '../app/workspaces/components/IntentChips';
 import { useEnabledModels } from '../app/settings/hooks/useEnabledModels';
 import { ExecutionTree } from './execution';
+import { CurrentExecutionBar } from './workspace/CurrentExecutionBar';
+import { useCurrentExecution } from '@/hooks/useCurrentExecution';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
 
@@ -83,6 +87,12 @@ export default function WorkspaceChat({
   } = useSendMessage(workspaceId, apiUrl);
 
   const executionState = useExecutionState(workspaceId, apiUrl);
+  const {
+    currentExecution,
+    handleViewDetail,
+    handlePause,
+    handleCancel,
+  } = useCurrentExecution(workspaceId, apiUrl);
 
   const fileUpload = useFileUpload(workspaceId, apiUrl);
   const {
@@ -1070,13 +1080,44 @@ export default function WorkspaceChat({
             </div>
           ) : (
             <div className="space-y-2 pb-4">
-              {messages.map((message) => (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  onCopy={handleMessageCopy}
-                />
-              ))}
+              {messages.map((message) => {
+                const suggestions: Suggestion[] | undefined = message.suggestions
+                  ? message.suggestions.map((s, idx) => {
+                      if (typeof s === 'string') {
+                        return {
+                          id: `suggestion-${message.id}-${idx}`,
+                          title: s,
+                          playbookCode: s,
+                        };
+                      }
+                      return s as Suggestion;
+                    })
+                  : undefined;
+
+                const handleExecuteSuggestion = async (suggestion: Suggestion) => {
+                  try {
+                    await sendMessage({
+                      action: 'execute_playbook',
+                      action_params: {
+                        playbook_code: suggestion.playbookCode || suggestion.title,
+                      },
+                      mode: 'auto',
+                      stream: true,
+                    });
+                  } catch (err) {
+                    console.error('Failed to execute suggestion:', err);
+                  }
+                };
+
+                return (
+                  <MessageWithSuggestions
+                    key={message.id}
+                    message={message}
+                    suggestions={suggestions}
+                    onExecuteSuggestion={handleExecuteSuggestion}
+                  />
+                );
+              })}
 
               {/* Execution Tree - Display at the end of conversation */}
               {executionState.executionTree.length > 0 && (
@@ -1184,6 +1225,14 @@ export default function WorkspaceChat({
           <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
+
+      {/* Current Execution Bar - Above input box */}
+      <CurrentExecutionBar
+        execution={currentExecution}
+        onViewDetail={handleViewDetail}
+        onPause={handlePause}
+        onCancel={handleCancel}
+      />
 
       {/* Quick Start Suggestions - Above input box */}
       {quickStartSuggestions.length > 0 && (

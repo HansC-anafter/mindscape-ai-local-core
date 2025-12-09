@@ -36,6 +36,7 @@ import {
 } from '../../../components/execution';
 import AITeamPanel from '../../../components/execution/AITeamPanel';
 import { useExecutionState } from '@/hooks/useExecutionState';
+import { IntentCardPanel } from '../../../components/workspace/IntentCardPanel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -536,60 +537,63 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 />
               </div>
             ) : (
-              // Mode A (Workspace Overview): Show Workspace Tools
               <div className="flex-1 flex flex-col overflow-hidden">
-                {/* AI Team Collaboration Panel - Top */}
-                <div className="flex-1 border-b dark:border-gray-700 bg-blue-50/30 dark:bg-blue-900/10 overflow-y-auto min-h-0">
-                  <div className="p-3">
-                    {/* Thinking Context - AI's thought process */}
-                    {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') &&
-                     executionState.isExecuting && (
-                      <>
-                        <ThinkingContext
-                          summary={executionState.thinkingSummary}
-                          pipelineStage={executionState.pipelineStage}
-                          isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
-                        />
+                <section className="sidebar-section ai-team-section border-b dark:border-gray-700">
+                  <div className="section-header neutral bg-gray-50 dark:bg-gray-800 px-3 py-2">
+                    <span className="title text-xs font-semibold">AI Collaboration Team</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto min-h-0 bg-blue-50/30 dark:bg-blue-900/10">
+                    <div className="p-3">
+                      {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') &&
+                       executionState.isExecuting && (
+                        <>
+                          <ThinkingContext
+                            summary={executionState.thinkingSummary}
+                            pipelineStage={executionState.pipelineStage}
+                            isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
+                          />
 
-                        {/* AI Team Panel - Only show if there are members and not in no_action_needed/no_playbook_found stage */}
-                        {executionState.aiTeamMembers.length > 0 &&
-                         executionState.pipelineStage?.stage !== 'no_action_needed' &&
-                         executionState.pipelineStage?.stage !== 'no_playbook_found' && (
-                          <div className="mt-3">
-                            <AITeamPanel
-                              members={executionState.aiTeamMembers}
-                              isLoading={executionState.isExecuting}
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
+                          {executionState.aiTeamMembers.length > 0 &&
+                           executionState.pipelineStage?.stage !== 'no_action_needed' &&
+                           executionState.pipelineStage?.stage !== 'no_playbook_found' && (
+                            <div className="mt-3">
+                              <AITeamPanel
+                                members={executionState.aiTeamMembers}
+                                isLoading={executionState.isExecuting}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
 
-                        {/* Produced Artifacts */}
-                        <ArtifactsList
-                          artifacts={executionState.producedArtifacts}
-                          onView={(artifact: any) => {
-                            setSelectedArtifact(artifact);
-                          }}
-                          onViewSandbox={(sandboxId: string) => {
-                            setSandboxId(sandboxId);
-                            setShowSandboxModal(true);
-                          }}
-                          sandboxId={sandboxId || undefined}
-                        />
+                      <ArtifactsList
+                        artifacts={executionState.producedArtifacts}
+                        onView={(artifact: any) => {
+                          setSelectedArtifact(artifact);
+                        }}
+                        onViewSandbox={(sandboxId: string) => {
+                          setSandboxId(sandboxId);
+                          setShowSandboxModal(true);
+                        }}
+                        sandboxId={sandboxId || undefined}
+                      />
 
-                        {/* Pending Tasks Panel */}
-                        <PendingTasksPanel
-                          workspaceId={workspaceId}
-                          apiUrl={API_URL}
-                          onViewArtifact={setSelectedArtifact}
-                          onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
-                          workspace={workspace ? {
-                            playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config
-                          } : undefined}
-                        />
-                      </div>
+                      <PendingTasksPanel
+                        workspaceId={workspaceId}
+                        apiUrl={API_URL}
+                        onViewArtifact={setSelectedArtifact}
+                        onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
+                        workspace={workspace ? {
+                          playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config
+                        } : undefined}
+                      />
                     </div>
+                  </div>
+                </section>
+
+                <section className="sidebar-section intent-section flex-1 overflow-hidden flex flex-col">
+                  <IntentCardPanel workspaceId={workspaceId} apiUrl={API_URL} />
+                </section>
                     {/* AI Workbench Section - Bottom */}
                     <div className="flex-1 overflow-y-auto min-h-0">
                       <div className="p-4">

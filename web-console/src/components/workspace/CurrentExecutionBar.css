@@ -1,0 +1,80 @@
+.current-execution-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--color-surface-accent, #f0f4ff);
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  font-size: 13px;
+  gap: 12px;
+}
+
+.execution-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.playbook-name {
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-number {
+  color: var(--color-text-secondary, #6b7280);
+  white-space: nowrap;
+}
+
+.progress {
+  color: var(--color-accent, #3b82f6);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.progress-bar {
+  flex: 1;
+  max-width: 200px;
+  height: 4px;
+  background: var(--color-surface-secondary, #f3f4f6);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-accent, #3b82f6);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.execution-actions {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.action-link {
+  color: var(--color-accent, #3b82f6);
+  font-size: 12px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.action-link:hover {
+  text-decoration: underline;
+}
+
+.action-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

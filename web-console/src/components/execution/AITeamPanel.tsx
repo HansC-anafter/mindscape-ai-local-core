@@ -77,7 +77,17 @@ export default function AITeamPanel({
               key={member.id}
               className="flex items-start gap-2 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
             >
-              <div className="flex-shrink-0 text-lg">{member.icon}</div>
+              <div className="flex-shrink-0 text-lg relative">
+                {member.icon}
+                <span
+                  className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border-2 border-white dark:border-gray-800 ${
+                    member.status === 'in_progress' ? 'bg-blue-500 animate-pulse' :
+                    member.status === 'completed' ? 'bg-green-500' :
+                    member.status === 'error' ? 'bg-red-500' :
+                    'bg-gray-400'
+                  }`}
+                />
+              </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">

@@ -1,0 +1,188 @@
+.intent-card-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #111827);
+}
+
+.section-header.priority {
+  background: var(--color-surface-accent, #fef2f2);
+  border-left: 3px solid var(--color-danger, #ef4444);
+}
+
+.section-header.priority.has-high-priority {
+  background: var(--color-danger-5, #fef2f2);
+}
+
+.panel-header .icon {
+  font-size: 16px;
+}
+
+.panel-header .title {
+  flex: 1;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+.badge.pending {
+  background: var(--color-accent, #3b82f6);
+  color: white;
+}
+
+.badge.high-priority {
+  background: var(--color-danger, #ef4444);
+  color: white;
+}
+
+.pending-intents {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.history-intents {
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--color-surface-secondary, #f3f4f6);
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  transition: background 0.2s;
+}
+
+.history-toggle:hover {
+  background: var(--color-surface-accent, #f0f4ff);
+}
+
+.history-toggle .chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent var(--color-text-secondary, #6b7280);
+  transition: border-width 0.2s, border-color 0.2s;
+}
+
+.history-toggle.expanded .chevron {
+  border-width: 6px 4px 0 4px;
+  border-color: var(--color-text-secondary, #6b7280) transparent transparent transparent;
+}
+
+.history-list {
+  padding: 8px 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.intent-card-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 6px;
+  border-left: 3px solid var(--color-border, #e5e7eb);
+}
+
+.intent-card-item.high {
+  border-left-color: var(--color-danger, #ef4444);
+}
+
+.intent-card-item.medium {
+  border-left-color: var(--color-warning, #f59e0b);
+}
+
+.intent-card-item.low {
+  border-left-color: var(--color-muted, #6b7280);
+}
+
+.intent-card-item.collapsed {
+  padding: 8px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+}
+
+.card-description {
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  margin-bottom: 12px;
+}
+
+.decisions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.decision-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.decision-question {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+}
+
+.decision-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.option-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  cursor: pointer;
+}
+
+.empty-state {
+  padding: 24px;
+  text-align: center;
+}
+
+.empty-state .hint {
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+}
+

@@ -1,0 +1,34 @@
+.message-with-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inline-suggestions {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--color-surface-secondary, #f9fafb);
+  border-radius: 8px;
+  border: 1px solid var(--color-border-light, #e5e7eb);
+}
+
+.suggestions-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.suggestions-header .icon {
+  font-size: 14px;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
