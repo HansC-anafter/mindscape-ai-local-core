@@ -23,6 +23,7 @@ from backend.app.services.playbook import (
     ToolListLoader,
     PlaybookTaskManager
 )
+from backend.app.services.story_thread.context_injector import StoryThreadContextInjector
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class PlaybookRunner:
         )
         self.llm_provider_manager = PlaybookLLMProviderManager(self.config_store)
         self.task_manager = PlaybookTaskManager(self.store)
+        self.context_injector = StoryThreadContextInjector()
 
 
     async def _run_tool(
@@ -114,6 +116,15 @@ class PlaybookRunner:
             variant_id: Optional personalized variant ID to use
         """
         try:
+            # Inject Story Thread context if thread_id is provided
+            thread_id = inputs.get("thread_id") if inputs else None
+            if thread_id and inputs:
+                inputs = await self.context_injector.inject_context(
+                    execution_id="",  # Will be set later
+                    thread_id=thread_id,
+                    inputs=inputs,
+                )
+
             # Use PlaybookService to get playbook
             locale = inputs.get("locale") if inputs else None
             if not locale and workspace_id:
@@ -203,6 +214,15 @@ class PlaybookRunner:
 
             execution_id = str(uuid.uuid4())
 
+            # Re-inject context with execution_id if thread_id exists
+            thread_id = inputs.get("thread_id") if inputs else None
+            if thread_id and inputs:
+                inputs = await self.context_injector.inject_context(
+                    execution_id=execution_id,
+                    thread_id=thread_id,
+                    inputs=inputs,
+                )
+
             # Create Task record for execution session (required for ExecutionSession view model)
             if workspace_id:
                 self.task_manager.create_execution_task(
@@ -224,14 +244,21 @@ class PlaybookRunner:
                 inputs.get("locale") if inputs else None
             )
 
+            # Check for auto_execute mode in inputs
+            auto_execute = inputs.get("auto_execute", False) if inputs else False
+
             conv_manager = PlaybookConversationManager(
                 playbook=playbook,
                 profile=profile,
                 project=project_obj,  # Use project_obj from Project Manager
                 locale=final_locale,
                 target_language=final_target_language,
-                workspace_id=workspace_id
+                workspace_id=workspace_id,
+                auto_execute=auto_execute
             )
+
+            if auto_execute:
+                logger.info(f"PlaybookRunner: Auto-execute mode enabled for execution {execution_id}")
 
             # Set project sandbox path in inputs if available
             if project_sandbox_path and inputs:
@@ -363,7 +390,7 @@ class PlaybookRunner:
             except Exception as e:
                 logger.warning(f"Failed to save initial execution state: {e}", exc_info=True)
 
-            return {
+            result = {
                 "execution_id": execution_id,
                 "playbook_code": playbook_code,
                 "playbook_name": playbook.metadata.name,
@@ -371,6 +398,20 @@ class PlaybookRunner:
                 "is_complete": is_complete,
                 "conversation_history": conv_manager.conversation_history
             }
+
+            # Extract and update Story Thread context if thread_id exists
+            thread_id = inputs.get("thread_id") if inputs else None
+            if thread_id:
+                try:
+                    await self.context_injector.extract_context_updates(
+                        execution_id=execution_id,
+                        thread_id=thread_id,
+                        execution_result=result,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to extract Story Thread context updates: {e}", exc_info=True)
+
+            return result
 
         except Exception as e:
             logger.error(f"Failed to start playbook execution: {e}", exc_info=True)
@@ -529,13 +570,29 @@ class PlaybookRunner:
             # Save execution state to database after each interaction
             await self.state_store.save_execution_state(execution_id, conv_manager)
 
-            return {
+            result = {
                 "execution_id": execution_id,
                 "message": assistant_response,
                 "is_complete": is_complete,
                 "structured_output": structured_output,
                 "conversation_history": conv_manager.conversation_history
             }
+
+            # Extract and update Story Thread context if thread_id exists
+            execution_state = await self.state_store.get_execution_state(execution_id)
+            if execution_state and execution_state.get("inputs"):
+                thread_id = execution_state["inputs"].get("thread_id")
+                if thread_id:
+                    try:
+                        await self.context_injector.extract_context_updates(
+                            execution_id=execution_id,
+                            thread_id=thread_id,
+                            execution_result=result,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to extract Story Thread context updates: {e}", exc_info=True)
+
+            return result
 
         except Exception as e:
             logger.error(f"Failed to continue playbook execution: {e}")
