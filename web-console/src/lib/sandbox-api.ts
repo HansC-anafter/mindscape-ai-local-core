@@ -254,3 +254,125 @@ export async function getSandboxByProject(
   return data || null;
 }
 
+export interface PreviewServerStatus {
+  success: boolean;
+  port: number | null;
+  url: string | null;
+  error: string | null;
+  port_conflict: boolean;
+  message?: string;
+}
+
+export interface EnsurePreviewResult {
+  success: boolean;
+  sandbox_id: string | null;
+  preview_url: string | null;
+  port: number | null;
+  synced_files: string[];
+  status: 'ready' | 'error' | 'synced' | 'created';
+  error?: string | null;
+  port_conflict?: boolean;
+}
+
+/**
+ * Ensure preview is ready (one-click preview setup)
+ * 
+ * This is the main entry point for preview. It will:
+ * 1. Find or create a web_page sandbox
+ * 2. Sync workspace files to sandbox
+ * 3. Initialize Next.js template if needed
+ * 4. Start preview server
+ */
+export async function ensurePreviewReady(
+  workspaceId: string,
+  projectId?: string,
+  port: number = 3000
+): Promise<EnsurePreviewResult> {
+  const response = await fetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/sandboxes/preview/ensure`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: projectId, port }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      sandbox_id: null,
+      preview_url: null,
+      port: null,
+      synced_files: [],
+      status: 'error',
+      error: error.detail || 'Failed to ensure preview',
+    };
+  }
+  return response.json();
+}
+
+export async function startPreviewServer(
+  workspaceId: string,
+  sandboxId: string,
+  port: number = 3000
+): Promise<PreviewServerStatus> {
+  const response = await fetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/sandboxes/${sandboxId}/preview/start`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      port: null,
+      url: null,
+      error: error.detail || 'Failed to start preview server',
+      port_conflict: false,
+    };
+  }
+  return response.json();
+}
+
+export async function stopPreviewServer(
+  workspaceId: string,
+  sandboxId: string
+): Promise<{ success: boolean }> {
+  const response = await fetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/sandboxes/${sandboxId}/preview/stop`,
+    {
+      method: 'POST',
+    }
+  );
+  if (!response.ok) {
+    throw new Error('Failed to stop preview server');
+  }
+  return response.json();
+}
+
+export async function getPreviewServerStatus(
+  workspaceId: string,
+  sandboxId: string
+): Promise<{
+  running: boolean;
+  port: number | null;
+  url: string | null;
+  error: string | null;
+}> {
+  const response = await fetch(
+    `${API_URL}/api/v1/workspaces/${workspaceId}/sandboxes/${sandboxId}/preview/status`
+  );
+  if (!response.ok) {
+    return {
+      running: false,
+      port: null,
+      url: null,
+      error: 'Failed to get preview server status',
+    };
+  }
+  return response.json();
+}
+
