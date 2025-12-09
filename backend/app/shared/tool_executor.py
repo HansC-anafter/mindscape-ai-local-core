@@ -22,6 +22,20 @@ class ToolExecutor:
 
     def __init__(self):
         self.registry = get_registry()
+        self._filesystem_tools_registered = False
+
+    def _ensure_filesystem_tools_registered(self):
+        """Ensure filesystem tools are registered (lazy initialization for worker processes)"""
+        if not self._filesystem_tools_registered:
+            try:
+                from backend.app.services.tools.registry import register_filesystem_tools, _mindscape_tools
+                # Only register if not already done
+                if "filesystem_list_files" not in _mindscape_tools:
+                    register_filesystem_tools()
+                    logger.debug("Lazy-registered filesystem tools")
+                self._filesystem_tools_registered = True
+            except Exception as e:
+                logger.warning(f"Failed to lazy-register filesystem tools: {e}")
 
     async def execute_tool(
         self,
@@ -51,6 +65,9 @@ class ToolExecutor:
                     return await call_tool_async(capability, tool, **kwargs)
 
         logger.debug(f"Tool {tool_name} not found in capability registry, trying MindscapeTool registry...")
+
+        # Ensure filesystem tools are registered (lazy init for worker processes)
+        self._ensure_filesystem_tools_registered()
 
         try:
             from backend.app.services.tools.registry import get_mindscape_tool
