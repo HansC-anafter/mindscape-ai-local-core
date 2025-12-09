@@ -13,6 +13,7 @@ import WorkspaceScopePanel from '../components/WorkspaceScopePanel';
 import TimelinePanel from '../components/TimelinePanel';
 import PendingTasksPanel from '../components/PendingTasksPanel';
 import LeftSidebarTabs from './components/LeftSidebarTabs';
+import ProjectCard from './components/ProjectCard';
 import OutcomesPanel, { Artifact } from './components/OutcomesPanel';
 import OutcomeDetailModal from '../components/OutcomeDetailModal';
 import BackgroundTasksPanel from '../components/BackgroundTasksPanel';
@@ -38,6 +39,7 @@ import {
 import AITeamPanel from '../../../components/execution/AITeamPanel';
 import { useExecutionState } from '@/hooks/useExecutionState';
 import { IntentCardPanel } from '../../../components/workspace/IntentCardPanel';
+import { Project } from '@/types/project';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -104,6 +106,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [showSandboxModal, setShowSandboxModal] = useState(false);
   const [sandboxId, setSandboxId] = useState<string | null>(null);
   const [sandboxProjectId, setSandboxProjectId] = useState<string | null>(null);
+  const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [isLoadingProject, setIsLoadingProject] = useState(false);
 
   // Execution state from hook (SSE-driven)
   const executionState = useExecutionState(workspaceId, API_URL);
@@ -215,6 +219,71 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
     loadFocusedExecution();
   }, [focusExecutionId, workspaceId]);
+
+  // Load current project when workspace.primary_project_id changes
+  useEffect(() => {
+    if (!workspace?.primary_project_id) {
+      // If no primary_project_id, try to get the first active project
+      const loadFirstProject = async () => {
+        try {
+          const response = await fetch(
+            `${API_URL}/api/v1/workspaces/${workspaceId}/projects?state=open&limit=1`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.projects && data.projects.length > 0) {
+              setCurrentProject(data.projects[0]);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load projects:', err);
+        }
+        setCurrentProject(null);
+      };
+      loadFirstProject();
+      return;
+    }
+
+    const loadProject = async () => {
+      setIsLoadingProject(true);
+      try {
+        const response = await fetch(
+          `${API_URL}/api/v1/workspaces/${workspaceId}/projects/${workspace.primary_project_id}`
+        );
+        if (response.ok) {
+          const projectData = await response.json();
+          setCurrentProject(projectData);
+        } else {
+          // If primary project not found, try to get first active project
+          try {
+            const fallbackResponse = await fetch(
+              `${API_URL}/api/v1/workspaces/${workspaceId}/projects?state=open&limit=1`
+            );
+            if (fallbackResponse.ok) {
+              const data = await fallbackResponse.json();
+              if (data.projects && data.projects.length > 0) {
+                setCurrentProject(data.projects[0]);
+              } else {
+                setCurrentProject(null);
+              }
+            } else {
+              setCurrentProject(null);
+            }
+          } catch (err) {
+            setCurrentProject(null);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load project:', err);
+        setCurrentProject(null);
+      } finally {
+        setIsLoadingProject(false);
+      }
+    };
+
+    loadProject();
+  }, [workspace?.primary_project_id, workspaceId]);
 
   // Workspace loading is handled by WorkspaceDataContext - no need for useEffect here
 
@@ -344,8 +413,45 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
-                    {/* Timeline Panel - Main content (has its own scroll) */}
-                    <div className="flex-1 min-h-0">
+                    {/* Project Card or Placeholder - According to spec 2.2.1-2.2.3 */}
+                    <div className="flex-shrink-0 border-b dark:border-gray-700">
+                      {isLoadingProject ? (
+                        <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                          載入中...
+                        </div>
+                      ) : currentProject ? (
+                        <div className="px-3 py-2">
+                          <ProjectCard
+                            project={currentProject}
+                            workspaceId={workspaceId}
+                            apiUrl={API_URL}
+                            defaultExpanded={true}
+                            onOpenExecution={(executionId) => {
+                              console.log('[WorkspacePage] onOpenExecution called with executionId:', executionId);
+                              setFocusExecutionId(executionId);
+                              setSelectedExecutionId(executionId);
+                              setLeftSidebarTab('timeline');
+                              console.log('[WorkspacePage] focusExecutionId and selectedExecutionId set to:', executionId, 'leftSidebarTab set to: timeline');
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2">
+                          <div className="project-placeholder text-center py-8">
+                            <div className="text-2xl mb-2">📁</div>
+                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              尚無進行中的專案
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              開始對話後，系統會自動建立專案
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Collapsible Timeline - According to spec 2.2.4 */}
+                    <div className="flex-1 min-h-0 overflow-y-auto">
                       <TimelinePanel
                         workspaceId={workspaceId}
                         apiUrl={API_URL}
@@ -354,23 +460,11 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                         onClearFocus={() => {
                           setFocusExecutionId(null);
                           setSelectedExecutionId(null);
-                          // Also dispatch event to ensure all components are notified
                           window.dispatchEvent(new CustomEvent('clear-execution-focus'));
                         }}
                         onArtifactClick={setSelectedArtifact}
                       />
                     </div>
-
-                    {/* Thinking Timeline - Recent execution history (below TimelinePanel) */}
-                    {executionState.thinkingTimeline.length > 0 && (
-                      <div className="border-t dark:border-gray-700 flex-shrink-0">
-                        <ThinkingTimeline
-                          entries={executionState.thinkingTimeline}
-                          maxEntries={3}
-                          isCollapsed={false}
-                        />
-                      </div>
-                    )}
                   </div>
                 }
                 outcomesContent={
@@ -679,11 +773,14 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
         />
       )}
 
-      {/* Workspace Settings Modal */}
       <WorkspaceSettingsModal
         isOpen={showFullSettings}
         onClose={() => setShowFullSettings(false)}
-        workspace={workspace}
+        workspace={workspace ? {
+          ...workspace,
+          execution_mode: workspace.execution_mode ?? undefined,
+          execution_priority: workspace.execution_priority ?? undefined
+        } : null}
         workspaceId={workspaceId}
         apiUrl={API_URL}
         onUpdate={() => {

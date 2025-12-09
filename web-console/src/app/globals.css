@@ -179,6 +179,20 @@
     animation: progressBar 2s ease-in-out infinite;
   }
 
+  /* Progress bar shimmer effect */
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+  }
+
   .laser-text {
     position: relative;
     color: rgba(255, 255, 255, 0.65);
