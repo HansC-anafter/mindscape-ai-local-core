@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.sandbox.sandbox_manager import SandboxManager
 from backend.app.services.sandbox.preview_server import SandboxPreviewServer
+from backend.app.services.sandbox.workspace_sync import get_workspace_sync_service
 from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/sandboxes", tags=["sandboxes"])
@@ -314,6 +315,121 @@ async def get_sandbox_by_project(
 class StartPreviewRequest(BaseModel):
     """Request model for starting preview server"""
     port: int = Field(3000, description="Port number for preview server")
+
+
+class EnsurePreviewRequest(BaseModel):
+    """Request model for ensuring preview is ready"""
+    project_id: Optional[str] = Field(None, description="Optional project ID")
+    port: int = Field(3000, description="Port number for preview server")
+
+
+@router.post("/preview/ensure", response_model=Dict[str, Any])
+async def ensure_preview_ready(
+    workspace_id: str = PathParam(..., description="Workspace identifier"),
+    request: EnsurePreviewRequest = Body(...)
+):
+    """
+    Ensure preview is ready - create/sync sandbox and start server.
+    
+    This is the main entry point for preview. It will:
+    1. Find or create a web_page sandbox
+    2. Sync workspace files to sandbox
+    3. Initialize Next.js template if needed
+    4. Start preview server
+    
+    If sandbox is corrupted, it will be rebuilt from workspace files.
+    
+    Returns:
+        - sandbox_id: Sandbox identifier
+        - synced_files: List of synced files
+        - preview_url: Preview server URL
+        - status: Current status
+    """
+    try:
+        sync_service = get_workspace_sync_service(store)
+        
+        # Step 1: Ensure sandbox exists and is synced
+        result = await sync_service.ensure_sandbox_for_preview(
+            workspace_id=workspace_id,
+            project_id=request.project_id
+        )
+        
+        if result.get("status") == "error":
+            return {
+                "success": False,
+                "error": result.get("error", "Failed to ensure sandbox"),
+                "sandbox_id": None,
+                "preview_url": None,
+                "synced_files": []
+            }
+        
+        sandbox_id = result["sandbox_id"]
+        
+        # Step 2: Start preview server
+        sandbox = await sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+        if not sandbox:
+            return {
+                "success": False,
+                "error": "Sandbox not found after creation",
+                "sandbox_id": sandbox_id,
+                "preview_url": None,
+                "synced_files": result.get("synced_files", [])
+            }
+        
+        server_key = _get_preview_server_key(workspace_id, sandbox_id)
+        
+        # Check if server already running
+        if server_key in _preview_servers:
+            existing_server = _preview_servers[server_key]
+            if existing_server.is_running:
+                return {
+                    "success": True,
+                    "sandbox_id": sandbox_id,
+                    "preview_url": existing_server.get_preview_url(),
+                    "port": existing_server.actual_port or existing_server.port,
+                    "synced_files": result.get("synced_files", []),
+                    "status": "ready",
+                    "message": "Preview already running"
+                }
+        
+        # Get sandbox path and start server
+        sandbox_path = Path(sandbox.base_path) / sandbox.current_version
+        if not sandbox_path.exists():
+            return {
+                "success": False,
+                "error": f"Sandbox path does not exist: {sandbox_path}",
+                "sandbox_id": sandbox_id,
+                "preview_url": None,
+                "synced_files": result.get("synced_files", [])
+            }
+        
+        preview_server = SandboxPreviewServer(sandbox_path, request.port)
+        server_result = await preview_server.start()
+        
+        if server_result["success"]:
+            _preview_servers[server_key] = preview_server
+            logger.info(f"Started preview server for {workspace_id} on port {server_result['port']}")
+        
+        return {
+            "success": server_result["success"],
+            "sandbox_id": sandbox_id,
+            "preview_url": server_result.get("url"),
+            "port": server_result.get("port"),
+            "synced_files": result.get("synced_files", []),
+            "status": "ready" if server_result["success"] else "error",
+            "error": server_result.get("error"),
+            "port_conflict": server_result.get("port_conflict", False)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to ensure preview: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "sandbox_id": None,
+            "preview_url": None,
+            "synced_files": []
+        }
 
 
 def _get_preview_server_key(workspace_id: str, sandbox_id: str) -> str:
