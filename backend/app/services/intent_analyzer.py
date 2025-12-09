@@ -733,11 +733,12 @@ If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, 
         Prepare initial context for playbook execution
 
         Returns:
-            Context dictionary with project_id, locale, etc.
+            Context dictionary with project_id, locale, message, etc.
         """
         context = {
             "locale": None,
             "project_id": None,
+            "message": user_input,  # Pass user's original message to playbook
         }
 
         # Determine locale from profile

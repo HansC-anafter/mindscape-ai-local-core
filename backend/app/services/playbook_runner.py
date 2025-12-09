@@ -159,17 +159,32 @@ class PlaybookRunner:
             project_sandbox_path = None
             if project_id:
                 from backend.app.services.project.project_manager import ProjectManager
-                from backend.app.services.project.project_sandbox_manager import ProjectSandboxManager
+                from backend.app.services.sandbox.playbook_integration import SandboxPlaybookAdapter
                 project_manager = ProjectManager(self.store)
                 project_obj = await project_manager.get_project(project_id, workspace_id=workspace_id)
                 if project_obj:
                     logger.info(f"Playbook execution in Project mode: {project_id}")
-                    sandbox_manager = ProjectSandboxManager(self.store)
+                    sandbox_adapter = SandboxPlaybookAdapter(self.store)
                     try:
-                        project_sandbox_path = await sandbox_manager.get_sandbox_path(project_id, workspace_id)
-                        logger.info(f"Using project sandbox: {project_sandbox_path}")
+                        sandbox_id = await sandbox_adapter.get_or_create_sandbox_for_project(
+                            project_id=project_id,
+                            workspace_id=workspace_id
+                        )
+                        project_sandbox_path = await sandbox_adapter.get_sandbox_path_for_compatibility(
+                            project_id=project_id,
+                            workspace_id=workspace_id
+                        )
+                        logger.info(f"Using unified sandbox {sandbox_id} for project {project_id}: {project_sandbox_path}")
+                        context["sandbox_id"] = sandbox_id
                     except Exception as e:
-                        logger.warning(f"Failed to get project sandbox: {e}")
+                        logger.warning(f"Failed to get unified sandbox, falling back to legacy: {e}")
+                        from backend.app.services.project.project_sandbox_manager import ProjectSandboxManager
+                        sandbox_manager = ProjectSandboxManager(self.store)
+                        try:
+                            project_sandbox_path = await sandbox_manager.get_sandbox_path(project_id, workspace_id)
+                            logger.info(f"Using legacy project sandbox: {project_sandbox_path}")
+                        except Exception as e2:
+                            logger.warning(f"Failed to get project sandbox: {e2}")
                 else:
                     logger.warning(f"Project {project_id} not found, continuing without Project mode")
             elif inputs and "project_id" in inputs:
@@ -232,6 +247,9 @@ class PlaybookRunner:
                 )
                 if cached_tools_str:
                     conv_manager.cached_tools_str = cached_tools_str
+                    logger.info(f"PlaybookRunner: Loaded {len(cached_tools_str)} characters of tools list for workspace {workspace_id}")
+                else:
+                    logger.warning(f"PlaybookRunner: Failed to load tools list for workspace {workspace_id}, playbook may not have access to tools")
 
             # Store variant info in conversation manager for later use
             if variant:
@@ -252,15 +270,19 @@ class PlaybookRunner:
             provider = self.llm_provider_manager.get_llm_provider(llm_manager)
 
             # Add a user message to start the conversation
-            # Use a minimal message for LLM, but don't show "Starting Playbook execution" in UI
+            # Priority: user's original message > i18n string > default
             from backend.app.shared.i18n_loader import load_i18n_string
-            start_message = load_i18n_string(
+            default_start_message = load_i18n_string(
                 "playbook.start_execution",
                 locale=conv_manager.locale,
                 default="Starting Playbook execution."
             )
-            # Add a minimal message to conversation for LLM context (required for execution)
-            conv_manager.add_user_message("開始執行")  # Minimal message in Chinese
+            # Use user's original message if provided in inputs, otherwise use i18n default
+            user_message = None
+            if inputs:
+                user_message = inputs.get("user_message") or inputs.get("message") or inputs.get("original_message")
+            initial_message = user_message if user_message else default_start_message
+            conv_manager.add_user_message(initial_message)
 
             messages = conv_manager.get_messages_for_llm()
             # Get model name from system settings
@@ -270,6 +292,33 @@ class PlaybookRunner:
             logger.info(f"PlaybookRunner: LLM response received for playbook {playbook_code}, response_length={len(assistant_response) if assistant_response else 0}")
 
             conv_manager.add_assistant_message(assistant_response)
+
+            # Parse and execute tool calls (with loop support for multiple iterations)
+            # Use tool executor for tool execution loop
+            logger.info(f"PlaybookRunner: Starting tool execution loop for {execution_id}")
+            model_name = self.llm_provider_manager.get_model_name()
+            context = inputs or {}
+            sandbox_id_from_context = context.get("sandbox_id")
+            try:
+                assistant_response, used_tools = await self.tool_executor.execute_tool_loop(
+                    conv_manager=conv_manager,
+                    assistant_response=assistant_response,
+                    execution_id=execution_id,
+                    profile_id=profile_id,
+                    provider=provider,
+                    model_name=model_name,
+                    workspace_id=workspace_id,
+                    sandbox_id=sandbox_id_from_context
+                )
+                logger.info(f"PlaybookRunner: Tool execution loop completed for {execution_id}, used_tools={len(used_tools) if used_tools else 0}")
+            except Exception as e:
+                logger.error(f"PlaybookRunner: Tool execution loop failed for {execution_id}: {e}", exc_info=True)
+                # Continue execution even if tool loop fails
+                used_tools = []
+
+            # Extract structured output and check if complete
+            structured_output = conv_manager.extract_structured_output(assistant_response)
+            is_complete = structured_output is not None
 
             # Record playbook step event for initial LLM response
             project_id = inputs.get("project_id") if inputs else None
@@ -286,6 +335,28 @@ class PlaybookRunner:
                 project_id=project_id
             )
 
+            # Finalize step with structured output if complete
+            if is_complete and structured_output and step_event:
+                self.step_recorder.finalize_step_with_output(
+                    step_event=step_event,
+                    execution_id=execution_id,
+                    structured_output=structured_output
+                )
+
+            # Store structured output if complete
+            if is_complete:
+                conv_manager.extracted_data = structured_output
+
+            # Update task status and cleanup if execution is complete
+            if is_complete:
+                self.task_manager.update_task_status_to_succeeded(
+                    execution_id=execution_id,
+                    structured_output=structured_output
+                )
+                # Cleanup execution from active_conversations
+                self.cleanup_execution(execution_id)
+                logger.info(f"Cleaned up execution {execution_id} from active_conversations")
+
             # Save initial execution state to database
             try:
                 await self.state_store.save_execution_state(execution_id, conv_manager)
@@ -297,7 +368,7 @@ class PlaybookRunner:
                 "playbook_code": playbook_code,
                 "playbook_name": playbook.metadata.name,
                 "message": assistant_response,
-                "is_complete": False,
+                "is_complete": is_complete,
                 "conversation_history": conv_manager.conversation_history
             }
 
@@ -373,13 +444,16 @@ class PlaybookRunner:
             # Parse and execute tool calls (with loop support for multiple iterations)
             # Use tool executor for tool execution loop
             model_name = self.llm_provider_manager.get_model_name()
+            sandbox_id_from_context = context.get("sandbox_id") if context else None
             assistant_response, used_tools = await self.tool_executor.execute_tool_loop(
                 conv_manager=conv_manager,
                 assistant_response=assistant_response,
                             execution_id=execution_id,
                 profile_id=profile_id,
                 provider=provider,
-                model_name=model_name
+                model_name=model_name,
+                workspace_id=workspace_id,
+                sandbox_id=sandbox_id_from_context
             )
 
             # Extract structured output and check if complete
