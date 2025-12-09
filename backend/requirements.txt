@@ -55,3 +55,4 @@ PyPDF2==3.0.1
 
 # File locking for cross-platform atomic writes
 portalocker>=2.0.0
+redis>=4.0.0

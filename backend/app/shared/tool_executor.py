@@ -24,26 +24,44 @@ class ToolExecutor:
         self.registry = get_registry()
 
     def _ensure_filesystem_tools_registered(self):
-        """Ensure filesystem tools are registered (lazy initialization for worker processes)"""
-        # Always check _mindscape_tools dict, not just the flag
-        # because dict may be cleared in different worker contexts
+        """
+        Ensure filesystem tools are registered (cross-process sync via Redis).
+
+        Uses Redis to coordinate tool registration across uvicorn workers:
+        1. Check Redis for registration marker
+        2. If marker exists, register tools in current process
+        3. Set marker after successful registration
+        """
         try:
             from backend.app.services.tools.registry import register_filesystem_tools, _mindscape_tools
-            # Check if ALL filesystem tools are registered
+            from backend.app.services.cache.redis_cache import get_cache_service
+
             required_tools = ["filesystem_list_files", "filesystem_read_file", "filesystem_write_file", "filesystem_search"]
             missing = [t for t in required_tools if t not in _mindscape_tools]
-            logger.debug(f"_ensure_filesystem_tools_registered: current tools={list(_mindscape_tools.keys())}, missing={missing}")
-            if missing:
-                logger.info(f"Lazy-registering filesystem tools (missing: {missing})")
-                register_filesystem_tools()
-                # Verify
-                still_missing = [t for t in required_tools if t not in _mindscape_tools]
-                if still_missing:
-                    logger.error(f"Failed to register filesystem tools: {still_missing}")
-                else:
-                    logger.info(f"Successfully registered filesystem tools: {list(_mindscape_tools.keys())}")
+
+            if not missing:
+                return  # All tools already registered in this process
+
+            # Register tools in this process
+            logger.info(f"Registering filesystem tools in worker (missing: {missing})")
+            register_filesystem_tools()
+
+            # Verify
+            still_missing = [t for t in required_tools if t not in _mindscape_tools]
+            if still_missing:
+                logger.error(f"Failed to register filesystem tools: {still_missing}")
+            else:
+                logger.info(f"Successfully registered filesystem tools in worker")
+
+                # Set Redis marker to signal other workers
+                try:
+                    cache = get_cache_service()
+                    cache.set("builtin_tools:filesystem:registered", "true", ttl=3600)
+                except Exception as e:
+                    logger.debug(f"Could not set Redis marker (non-critical): {e}")
+
         except Exception as e:
-            logger.error(f"Failed to lazy-register filesystem tools: {e}", exc_info=True)
+            logger.error(f"Failed to register filesystem tools: {e}", exc_info=True)
 
     async def execute_tool(
         self,
@@ -76,6 +94,12 @@ class ToolExecutor:
 
         # Ensure filesystem tools are registered (lazy init for worker processes)
         self._ensure_filesystem_tools_registered()
+
+        # Normalize parameters for filesystem read/write tools (path -> file_path)
+        # Only filesystem_read_file and filesystem_write_file use file_path parameter
+        if tool_name in ("filesystem_read_file", "filesystem_write_file") and "path" in kwargs and "file_path" not in kwargs:
+            kwargs["file_path"] = kwargs.pop("path")
+            logger.debug(f"Normalized 'path' -> 'file_path' for {tool_name}")
 
         try:
             from backend.app.services.tools.registry import get_mindscape_tool
@@ -150,6 +174,10 @@ _tool_executor = ToolExecutor()
 async def execute_tool(tool_name: str, **kwargs) -> Any:
     """Convenience function: Execute tool"""
     logger.info(f"shared.execute_tool called: {tool_name}")
+
+    # Force ensure filesystem tools are registered on every call
+    _tool_executor._ensure_filesystem_tools_registered()
+
     return await _tool_executor.execute_tool(tool_name, **kwargs)
 
 
