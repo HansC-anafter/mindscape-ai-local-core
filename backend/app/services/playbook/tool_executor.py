@@ -14,22 +14,37 @@ from backend.app.services.conversation.workflow_tracker import WorkflowTracker
 
 logger = logging.getLogger(__name__)
 
-# Ensure filesystem tools are registered
+# Ensure filesystem tools are registered (cross-process via Redis)
 def _init_filesystem_tools():
-    """Register filesystem tools if any are missing (lazy initialization for worker processes)"""
+    """
+    Register filesystem tools with cross-process coordination via Redis.
+    Called at module import and before tool execution.
+    """
     try:
         from backend.app.services.tools.registry import register_filesystem_tools, _mindscape_tools
+        from backend.app.services.cache.redis_cache import get_cache_service
+
         required = ["filesystem_list_files", "filesystem_read_file", "filesystem_write_file", "filesystem_search"]
         missing = [t for t in required if t not in _mindscape_tools]
-        if missing:
-            logger.info(f"PlaybookToolExecutor: Registering filesystem tools (missing: {missing})")
-            register_filesystem_tools()
-            # Verify registration
-            still_missing = [t for t in required if t not in _mindscape_tools]
-            if still_missing:
-                logger.error(f"PlaybookToolExecutor: Failed to register tools: {still_missing}")
-            else:
-                logger.info(f"PlaybookToolExecutor: Successfully registered all filesystem tools")
+
+        if not missing:
+            return  # All tools already registered
+
+        logger.info(f"PlaybookToolExecutor: Registering filesystem tools (missing: {missing})")
+        register_filesystem_tools()
+
+        # Verify and set Redis marker
+        still_missing = [t for t in required if t not in _mindscape_tools]
+        if still_missing:
+            logger.error(f"PlaybookToolExecutor: Failed to register: {still_missing}")
+        else:
+            logger.info(f"PlaybookToolExecutor: Successfully registered filesystem tools")
+            try:
+                cache = get_cache_service()
+                cache.set("builtin_tools:filesystem:registered", "true", ttl=3600)
+            except Exception:
+                pass  # Non-critical
+
     except Exception as e:
         logger.error(f"PlaybookToolExecutor: Failed to init filesystem tools: {e}", exc_info=True)
 
@@ -137,16 +152,48 @@ class PlaybookToolExecutor:
         tool_call_id = str(uuid.uuid4())
 
         if not factory_cluster:
-            if "mcp" in tool_fqn.lower() or tool_fqn.startswith("local_"):
-                factory_cluster = "local_mcp"
-            elif "sem-" in tool_fqn.lower():
-                factory_cluster = "sem-hub"
-            elif "wp" in tool_fqn.lower() or "wordpress" in tool_fqn.lower():
-                factory_cluster = "wp-hub"
-            elif "n8n" in tool_fqn.lower():
-                factory_cluster = "n8n"
+            # Try to get default_cluster from execution context
+            default_cluster = self.execution_context.get("default_cluster")
+            if default_cluster:
+                factory_cluster = default_cluster
             else:
-                factory_cluster = "local_mcp"
+                # Try to extract connection_id from tool_fqn (format: {connection_id}.{tool_type}.{tool_name})
+                # and get cluster from tool connection
+                connection_id = None
+                if "." in tool_fqn:
+                    parts = tool_fqn.split(".", 1)
+                    if len(parts) >= 1:
+                        potential_connection_id = parts[0]
+                        # Check if this looks like a connection_id (not a capability package name)
+                        # Connection IDs are typically UUIDs or short identifiers
+                        if potential_connection_id and not potential_connection_id.startswith(("filesystem_", "sandbox.", "capability.")):
+                            connection_id = potential_connection_id
+
+                if connection_id and workspace_id:
+                    try:
+                        from backend.app.services.tool_registry import ToolRegistryService
+                        registry = ToolRegistryService(db_path=self.store.db_path)
+                        connection = registry.get_connection(connection_id, profile_id=profile_id)
+                        if connection and connection.remote_cluster_url:
+                            # Extract cluster name from URL or use a generic identifier
+                            # For remote clusters, use a generic identifier based on connection type
+                            factory_cluster = connection.connection_type or "remote"
+                        elif connection:
+                            # Local connection, use local_mcp
+                            factory_cluster = "local_mcp"
+                        else:
+                            # Fallback: use default from workspace or local_mcp
+                            factory_cluster = default_cluster or "local_mcp"
+                    except Exception as e:
+                        logger.debug(f"Failed to get cluster from connection {connection_id}: {e}")
+                        factory_cluster = default_cluster or "local_mcp"
+                else:
+                    # For built-in tools (filesystem, sandbox, etc.), use local_mcp
+                    if tool_fqn.startswith(("filesystem_", "sandbox.", "local_")) or "mcp" in tool_fqn.lower():
+                        factory_cluster = "local_mcp"
+                    else:
+                        # Default fallback
+                        factory_cluster = default_cluster or "local_mcp"
 
         tool_call = None
         if execution_id:
