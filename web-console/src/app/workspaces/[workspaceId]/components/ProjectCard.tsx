@@ -190,7 +190,8 @@ export default function ProjectCard({
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.card-header')) {
+    const target = e.target as HTMLElement;
+    if (target.closest('.card-header') || target.closest('.progress-bar-container') || target.closest('.card-content')) {
       return;
     }
 
@@ -212,6 +213,17 @@ export default function ProjectCard({
     ? Math.max(cardData.progress.current, 1)
     : 1;
 
+  const totalPlaybooks = cardData?.stats.totalPlaybooks || 0;
+  const nextTaskProgress = totalPlaybooks > 0
+    ? Math.min(progressPercentage + (100 / totalPlaybooks), 100)
+    : progressPercentage;
+  const nextNextTaskProgress = totalPlaybooks > 0
+    ? Math.min(progressPercentage + (200 / totalPlaybooks), 100)
+    : progressPercentage;
+  const scanRangeStart = progressPercentage;
+  const scanRangeEnd = nextNextTaskProgress;
+  const scanRangeWidth = scanRangeEnd - scanRangeStart;
+
   return (
     <div
       className={`project-card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden transition-all cursor-pointer ${
@@ -219,11 +231,14 @@ export default function ProjectCard({
       }`}
       onClick={handleCardClick}
     >
-      <div className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-        <div
-          className="flex items-center justify-between p-3 pb-1.5"
-          onClick={handleToggleExpand}
-        >
+      <div
+        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleToggleExpand();
+        }}
+      >
+        <div className="flex items-center justify-between p-3 pb-1.5">
           <div className="left flex items-center gap-2 flex-1 min-w-0">
             <span className="chevron text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
               {isExpanded ? '▼' : '▶'}
@@ -284,7 +299,7 @@ export default function ProjectCard({
             )}
           </div>
         </div>
-        <div className="px-3 pb-2 pt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+        <div className="block px-3 pb-2 pt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
           <div className="flex items-center gap-3">
             {(project.human_owner_user_id || project.initiator_user_id) && (
               <span>負責人: {project.human_owner_user_id || project.initiator_user_id}</span>
@@ -302,13 +317,22 @@ export default function ProjectCard({
         </div>
       </div>
 
-      <div className="progress-bar-container relative w-full h-1 bg-gray-200 dark:bg-gray-700">
+      <div className="progress-bar-container relative w-full h-1 bg-gray-200 dark:bg-gray-700 overflow-hidden">
         <div
           className="progress-fill h-full bg-blue-500 dark:bg-blue-400 rounded-full transition-all relative overflow-hidden"
           style={{ width: `${progressPercentage}%` }}
         >
-          <div className="laser-effect absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+          <div className="laser-effect absolute inset-0 bg-gradient-to-r from-transparent via-white/50 via-white/80 via-white/50 to-transparent animate-shimmer" style={{ width: '40%' }} />
         </div>
+        {cardData && scanRangeWidth > 0 && scanRangeEnd <= 100 && (
+          <div
+            className="progress-scan absolute top-0 h-full bg-gradient-to-r from-transparent via-blue-300/15 to-transparent animate-shimmer"
+            style={{
+              left: `${scanRangeStart}%`,
+              width: `${scanRangeWidth}%`
+            }}
+          />
+        )}
       </div>
 
       {isExpanded && (
@@ -351,7 +375,7 @@ export default function ProjectCard({
           onClick={(e) => {
             e.stopPropagation();
             console.log('[ProjectCard] View button clicked', { cardData, onOpenExecution });
-            
+
             if (onOpenExecution && cardData) {
               if (cardData.recentEvents && cardData.recentEvents.length > 0) {
                 for (const event of cardData.recentEvents) {
@@ -362,10 +386,10 @@ export default function ProjectCard({
                   }
                 }
               }
-              
+
               console.log('[ProjectCard] No executionId found in events');
             }
-            
+
             if (onFocus) {
               console.log('[ProjectCard] Using onFocus fallback');
               onFocus();
