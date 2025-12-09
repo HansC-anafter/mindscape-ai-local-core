@@ -98,33 +98,49 @@ class PlaybookConversationManager:
         prompt_parts.append("[/EXECUTION_INSTRUCTIONS]")
 
         # Available tools (using cached tool list if available)
+        # Tool call format instructions (shared between both branches)
+        tool_format_instructions = [
+            "\n## ⚠️ 工具調用格式（必須嚴格遵守）",
+            "\n當你需要使用工具時，**必須**使用以下 JSON 格式之一：",
+            "\n### 格式 A（標準格式）:",
+            "```json",
+            "{",
+            '  "tool_call": {',
+            '    "tool_name": "filesystem_list_files",',
+            '    "parameters": {',
+            '      "path": "./",',
+            '      "recursive": true',
+            "    }",
+            "  }",
+            "}",
+            "```",
+            "\n### 格式 B（簡化格式）:",
+            "```json",
+            "{",
+            '  "tool_name": "filesystem_write_file",',
+            '  "parameters": {',
+            '    "file_path": "pages/index.tsx",',
+            '    "content": "// file content here"',
+            "  }",
+            "}",
+            "```",
+            "\n### ❌ 禁止的格式（系統無法解析）：",
+            "- `tool_code`、`tool_command` 等其他欄位名 ❌",
+            "- Python 語法如 `tool_name(arg=value)` ❌",
+            "- 函數調用語法如 `print(filesystem_list_files(...))` ❌",
+            "\n工具調用後，系統會自動執行並將結果返回給你。"
+        ]
+
         if self.cached_tools_str:
+            logger.debug(f"PlaybookConversationManager: Using cached tools string (length={len(self.cached_tools_str)})")
             prompt_parts.append("\n[AVAILABLE_TOOLS]")
             prompt_parts.append(self.cached_tools_str)
             prompt_parts.append("\n\n**如何使用工具：**")
-            prompt_parts.append("\n當你需要使用工具時，請使用以下格式輸出 JSON：")
-            prompt_parts.append("\n**方式 1（推薦）**:")
-            prompt_parts.append("```json")
-            prompt_parts.append("{")
-            prompt_parts.append('  "tool_call": {')
-            prompt_parts.append('    "tool_name": "工具名稱",')
-            prompt_parts.append('    "parameters": {')
-            prompt_parts.append('      "參數1": "值1",')
-            prompt_parts.append('      "參數2": "值2"')
-            prompt_parts.append("    }")
-            prompt_parts.append("  }")
-            prompt_parts.append("}")
-            prompt_parts.append("```")
-            prompt_parts.append("\n**方式 2（簡化）**:")
-            prompt_parts.append("```json")
-            prompt_parts.append("{")
-            prompt_parts.append('  "tool_name": "工具名稱",')
-            prompt_parts.append('  "parameters": {')
-            prompt_parts.append('    "參數1": "值1"')
-            prompt_parts.append("  }")
-            prompt_parts.append("}")
-            prompt_parts.append("```")
-            prompt_parts.append("\n工具調用後，系統會自動執行並將結果返回給你，你可以根據結果繼續處理。")
+            prompt_parts.extend(tool_format_instructions)
+            prompt_parts.append("[/AVAILABLE_TOOLS]")
+        else:
+            logger.warning(f"PlaybookConversationManager: No cached tools string available for playbook {self.playbook.metadata.playbook_code if self.playbook else 'unknown'}")
+            prompt_parts.extend(tool_format_instructions)
             prompt_parts.append("[/AVAILABLE_TOOLS]")
 
         return "\n".join(prompt_parts)
