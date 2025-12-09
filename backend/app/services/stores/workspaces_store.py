@@ -27,8 +27,8 @@ class WorkspacesStore(StoreBase):
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
                     playbook_storage_config, cloud_remote_tools_config,
                     execution_mode, expected_artifacts, execution_priority,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 workspace.id,
                 workspace.owner_user_id,
@@ -50,6 +50,7 @@ class WorkspacesStore(StoreBase):
                 workspace.execution_mode,
                 self.serialize_json(workspace.expected_artifacts) if workspace.expected_artifacts else None,
                 workspace.execution_priority,
+                self.serialize_json(workspace.metadata) if workspace.metadata else None,
                 self.to_isoformat(workspace.created_at),
                 self.to_isoformat(workspace.updated_at)
             ))
@@ -123,6 +124,7 @@ class WorkspacesStore(StoreBase):
                     execution_mode = ?,
                     expected_artifacts = ?,
                     execution_priority = ?,
+                    metadata = ?,
                     updated_at = ?
                 WHERE id = ?
             ''', (
@@ -143,6 +145,7 @@ class WorkspacesStore(StoreBase):
                 workspace.execution_mode,
                 self.serialize_json(workspace.expected_artifacts) if workspace.expected_artifacts else None,
                 workspace.execution_priority,
+                self.serialize_json(workspace.metadata) if workspace.metadata else None,
                 self.to_isoformat(workspace.updated_at),
                 workspace.id
             ))
@@ -227,6 +230,12 @@ class WorkspacesStore(StoreBase):
         except (KeyError, IndexError):
             execution_priority = "medium"
 
+        # Handle metadata field - it may not exist in older database rows
+        try:
+            metadata = self.deserialize_json(row['metadata'], {}) if row['metadata'] else {}
+        except (KeyError, IndexError):
+            metadata = {}
+
         return Workspace(
             id=row['id'],
             owner_user_id=row['owner_user_id'],
@@ -247,6 +256,7 @@ class WorkspacesStore(StoreBase):
             execution_mode=execution_mode,
             expected_artifacts=expected_artifacts,
             execution_priority=execution_priority,
+            metadata=metadata,
             created_at=self.from_isoformat(row['created_at']),
             updated_at=self.from_isoformat(row['updated_at'])
         )

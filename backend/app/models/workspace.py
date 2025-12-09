@@ -218,7 +218,13 @@ class Workspace(BaseModel):
         description="Execution priority: 'low' | 'medium' | 'high'"
     )
 
-    # Metadata
+    # Extensible metadata for features (core_memory, preferences, etc.)
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Extensible metadata storage for workspace features (core_memory, preferences, etc.)"
+    )
+
+    # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 

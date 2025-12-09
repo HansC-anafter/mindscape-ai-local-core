@@ -33,21 +33,12 @@ export default function WorkspacesPage() {
   const loadingRef = useRef(false);
 
   const loadWorkspaces = useCallback(async () => {
-    if (!isMountedRef.current) {
-      console.log('[loadWorkspaces] Component not mounted, skipping');
-      return;
-    }
-
-    if (loadingRef.current) {
-      console.log('[loadWorkspaces] Already loading, skipping duplicate request');
-      return;
-    }
+    if (!isMountedRef.current) return;
+    if (loadingRef.current) return;
 
     loadingRef.current = true;
 
     try {
-      console.log('[loadWorkspaces] Starting, ownerUserId:', ownerUserId, 'API_URL:', API_URL);
-
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -64,17 +55,13 @@ export default function WorkspacesPage() {
       );
 
       if (!isMountedRef.current) {
-        console.log('[loadWorkspaces] Component unmounted during fetch, aborting');
         loadingRef.current = false;
         return;
       }
 
-      console.log('[loadWorkspaces] Response status:', response.status, 'ok:', response.ok);
-
       if (response.ok) {
         try {
           const data = await response.json();
-          console.log('[loadWorkspaces] Data received, count:', Array.isArray(data) ? data.length : 'not array');
 
           if (isMountedRef.current) {
             setWorkspaces(Array.isArray(data) ? data : []);
@@ -106,12 +93,9 @@ export default function WorkspacesPage() {
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        console.log('[loadWorkspaces] Request aborted');
-        // Don't update state if request was aborted (component unmounting or Fast Refresh)
         loadingRef.current = false;
         return;
       }
-      console.error('[loadWorkspaces] Exception:', err);
       if (isMountedRef.current) {
         setError(`Failed to load workspaces: ${err instanceof Error ? err.message : String(err)}`);
         setLoading(false);

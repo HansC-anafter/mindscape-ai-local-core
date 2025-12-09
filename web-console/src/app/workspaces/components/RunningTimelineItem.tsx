@@ -79,11 +79,7 @@ export default function RunningTimelineItem({
     }
   }, [currentStep]);
 
-  // Debug: Log execution total_steps
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[RunningTimelineItem] Execution ${execution.execution_id.substring(0, 8)}... total_steps: ${execution.total_steps}, current_step_index: ${execution.current_step_index}`);
-    console.log(`[RunningTimelineItem] Initial execution object:`, JSON.stringify(execution, null, 2));
-  }
+  // Debug logging removed - was too verbose for development
 
   // Fetch intent tag status
   useEffect(() => {
@@ -127,7 +123,6 @@ export default function RunningTimelineItem({
 
     eventSource.onopen = () => {
       setIsConnecting(false);
-      console.log(`SSE connected for execution ${execution.execution_id}`);
     };
 
     eventSource.onmessage = (event) => {
@@ -159,7 +154,7 @@ export default function RunningTimelineItem({
         // Stream ended normally, don't treat as error
         return;
       }
-      console.warn('SSE connection issue (may be normal if execution completed):', error);
+      // SSE connection closed (normal when execution completes)
       setIsConnecting(true);
       // Try to reconnect after delay only if connection is not closed
       setTimeout(() => {
@@ -185,21 +180,8 @@ export default function RunningTimelineItem({
           const newStatus = data.execution.status;
           const oldStatus = currentExecution?.status;
 
-          // Debug: Log execution update
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[RunningTimelineItem] Received execution_update:', {
-              execution_id: data.execution.execution_id,
-              total_steps: data.execution.total_steps,
-              current_step_index: data.execution.current_step_index,
-              status: newStatus
-            });
-          }
-
           // Check if execution status changed to completed
           if ((newStatus === 'succeeded' || newStatus === 'failed') && oldStatus && oldStatus !== newStatus) {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[RunningTimelineItem] Execution status changed to completed:', newStatus, 'for execution:', data.execution.execution_id);
-            }
             // Trigger task update event when execution completes
             window.dispatchEvent(new CustomEvent('workspace-task-updated', {
               detail: {
@@ -235,16 +217,10 @@ export default function RunningTimelineItem({
         }
         break;
       case 'execution_completed':
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[RunningTimelineItem] Execution completed:', data.execution_id, data.status);
-        }
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
         }
         // Trigger task update event to refresh task list
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[RunningTimelineItem] Dispatching workspace-task-updated event');
-        }
         window.dispatchEvent(new CustomEvent('workspace-task-updated', {
           detail: {
             execution_id: data.execution_id,

@@ -206,6 +206,7 @@ def init_workspaces_schema(cursor):
         ('execution_mode', "TEXT DEFAULT 'qa'"),
         ('expected_artifacts', 'TEXT'),
         ('execution_priority', "TEXT DEFAULT 'medium'"),
+        ('metadata', 'TEXT'),  # Extensible metadata for workspace features (core_memory, etc.)
     ]:
         column_name, column_type = column_def
         try:
