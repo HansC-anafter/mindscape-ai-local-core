@@ -474,3 +474,86 @@ class HandoffPlan(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+
+
+# ============================================================================
+# Playbook Invocation Context and Strategy Models
+# ============================================================================
+
+class InvocationMode(str, Enum):
+    """Playbook invocation mode"""
+    STANDALONE = "standalone"
+    PLAN_NODE = "plan_node"
+    SUBROUTINE = "subroutine"
+
+
+class InvocationTolerance(str, Enum):
+    """Tolerance level for data insufficiency"""
+    STRICT = "strict"
+    LENIENT = "lenient"
+    ADAPTIVE = "adaptive"
+
+
+class InvocationStrategy(BaseModel):
+    """
+    Invocation strategy for playbook execution
+
+    Defines how a playbook should behave in a specific invocation context.
+    Different strategies allow the same playbook to adapt to different scenarios.
+    """
+    max_lookup_rounds: int = Field(
+        default=3,
+        description="Maximum number of lookup rounds for data gathering (standalone mode)"
+    )
+    allow_spawn_new_tasks: bool = Field(
+        default=False,
+        description="Whether this playbook can spawn new tasks"
+    )
+    allow_expansion: bool = Field(
+        default=False,
+        description="Whether this playbook can expand (create new scripts)"
+    )
+    wait_for_upstream_tasks: bool = Field(
+        default=True,
+        description="Whether to wait for upstream tasks in plan (plan_node mode)"
+    )
+    tolerance: InvocationTolerance = Field(
+        default=InvocationTolerance.STRICT,
+        description="Tolerance level when data is insufficient"
+    )
+
+
+class PlanContext(BaseModel):
+    """Plan context for plan_node mode"""
+    plan_summary: str = Field(..., description="Plan summary")
+    reasoning: str = Field(..., description="Plan reasoning")
+    steps: List[Dict[str, Any]] = Field(default_factory=list, description="Execution steps")
+    dependencies: List[str] = Field(default_factory=list, description="Dependencies: list of task IDs")
+
+
+class PlaybookInvocationContext(BaseModel):
+    """
+    Playbook invocation context
+
+    Describes the execution scenario for a playbook invocation.
+    The same playbook can have different behaviors based on the context.
+    """
+    mode: InvocationMode = Field(..., description="Execution mode: standalone, plan_node, or subroutine")
+    plan_id: Optional[str] = Field(None, description="Plan ID (if mode is plan_node)")
+    task_id: Optional[str] = Field(None, description="Task ID (if mode is plan_node)")
+    plan_context: Optional[PlanContext] = Field(None, description="Plan context (if mode is plan_node)")
+    visible_state: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Visible state snapshot (workspace state visible to this invocation)"
+    )
+    strategy: InvocationStrategy = Field(
+        default_factory=lambda: InvocationStrategy(),
+        description="Invocation strategy for this context"
+    )
+    trace_id: str = Field(..., description="Global trace ID for this user request/execution")
+    parent_run_id: Optional[str] = Field(None, description="Parent run ID (if mode is subroutine)")
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }

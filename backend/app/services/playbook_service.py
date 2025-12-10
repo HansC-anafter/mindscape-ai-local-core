@@ -8,7 +8,14 @@ import logging
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-from backend.app.models.playbook import Playbook, PlaybookMetadata
+from backend.app.models.playbook import (
+    Playbook,
+    PlaybookMetadata,
+    PlaybookInvocationContext,
+    InvocationMode,
+    InvocationStrategy,
+    InvocationTolerance
+)
 from backend.app.services.playbook_registry import PlaybookRegistry, PlaybookSource
 from backend.app.services.playbook_loaders import PlaybookJsonLoader
 
@@ -304,7 +311,8 @@ class PlaybookService:
         profile_id: str,
         inputs: Dict[str, Any],
         execution_mode: ExecutionMode = ExecutionMode.ASYNC,
-        locale: str = "zh-TW"
+        locale: str = "zh-TW",
+        context: Optional[PlaybookInvocationContext] = None
     ) -> ExecutionResult:
         """
         Execute playbook
@@ -316,6 +324,7 @@ class PlaybookService:
             inputs: Input parameters
             execution_mode: Execution mode (sync, async, stream)
             locale: Language locale (default: zh-TW)
+            context: Optional invocation context (if None, uses legacy behavior)
 
         Returns:
             ExecutionResult object
@@ -328,20 +337,22 @@ class PlaybookService:
 
         playbook_run_executor = PlaybookRunExecutor()
         executor_inputs = inputs or {}
-        # Use locale from parameter, fallback to inputs, then default
         executor_locale = locale or executor_inputs.get('locale') or 'zh-TW'
 
         try:
+            project_id_from_inputs = executor_inputs.get('project_id') if executor_inputs else None
+
             execution_result_dict = await playbook_run_executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
                 inputs=executor_inputs,
                 workspace_id=workspace_id,
+                project_id=project_id_from_inputs,
                 target_language=executor_inputs.get('target_language'),
-                locale=executor_locale
+                locale=executor_locale,
+                context=context
             )
 
-            # Extract execution_id from different possible locations
             execution_id = (
                 execution_result_dict.get('execution_id') or
                 execution_result_dict.get('result', {}).get('execution_id') if isinstance(execution_result_dict.get('result'), dict) else None
@@ -378,7 +389,7 @@ class PlaybookService:
                 execution_id=execution_id,
                 status="error",
                 result=None,
-                error=error_info.user_message,  # Use user-friendly message
+                error=error_info.user_message,
                 progress=0.0
             )
 
