@@ -464,7 +464,34 @@ async def get_execution(
             raise HTTPException(status_code=403, detail="Execution belongs to different workspace")
 
         execution = ExecutionSession.from_task(task)
-        return execution.model_dump() if hasattr(execution, 'model_dump') else execution
+        execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+
+        # Add status from task
+        if isinstance(execution_dict, dict):
+            execution_dict["status"] = task.status.value
+
+            # Add current_step information if available
+            execution_context = task.execution_context or {}
+            current_step_index = execution_context.get("current_step_index", 0)
+
+            # Get current step from PLAYBOOK_STEP events
+            events = store.get_events_by_workspace(workspace_id=workspace_id, limit=200)
+            playbook_step_events = [
+                e for e in events
+                if e.event_type == EventType.PLAYBOOK_STEP
+                and isinstance(e.payload, dict)
+                and e.payload.get("execution_id") == execution_id
+                and e.payload.get("step_index") == current_step_index
+            ]
+
+            if playbook_step_events:
+                try:
+                    current_step = PlaybookExecutionStep.from_mind_event(playbook_step_events[0])
+                    execution_dict["current_step"] = current_step.model_dump() if hasattr(current_step, 'model_dump') else current_step
+                except Exception as e:
+                    logger.warning(f"Failed to create current_step from event: {e}")
+
+        return execution_dict
 
     except HTTPException:
         raise
@@ -878,46 +905,93 @@ async def post_execution_chat(
         user_message = ExecutionChatMessage.from_mind_event(user_event)
         user_message_dict = user_message.model_dump(mode='json') if hasattr(user_message, 'model_dump') else user_message
 
-        # Get playbook metadata (for discussion_agent)
+        # Get playbook metadata and check execution status
         playbook_metadata = None
+        should_continue_execution = False
         try:
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.services.playbook_service import PlaybookService
             tasks_store = TasksStore(db_path=store.db_path)
             task = tasks_store.get_task_by_execution_id(execution_id)
-            if task and task.execution_context:
-                playbook_code = task.execution_context.get("playbook_code")
-                if playbook_code:
-                    playbook_service = PlaybookService(store=store)
-                    playbook = await playbook_service.get_playbook(
-                        playbook_code=playbook_code,
-                        locale=ctx.workspace.default_locale if hasattr(ctx, 'workspace') and ctx.workspace else "zh-TW",
-                        workspace_id=ctx.workspace_id
-                    )
-                    if playbook:
-                        playbook_metadata = playbook.metadata
-        except Exception as e:
-            logger.warning(f"Failed to load playbook metadata: {e}")
 
-        # Generate assistant reply asynchronously
-        async def generate_and_save_reply():
-            """Async task to generate and save assistant reply"""
-            try:
-                result = await generate_execution_chat_reply(
-                    execution_id=execution_id,
-                    ctx=ctx,
-                    user_message=request.content,
-                    user_message_id=user_event.id,
-                    playbook_metadata=playbook_metadata
+            if task:
+                # Check if execution needs to continue
+                task_status = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                execution_context = task.execution_context or {}
+                paused_at = execution_context.get("paused_at")
+                current_step = execution_context.get("current_step", {})
+                step_status = current_step.get("status") if isinstance(current_step, dict) else None
+
+                # Determine if we should continue execution
+                should_continue_execution = (
+                    task_status == "waiting_confirmation" or
+                    task_status == "paused" or
+                    paused_at is not None or
+                    step_status == "waiting_confirmation"
                 )
-                # Assistant message is already saved in generate_execution_chat_reply
-                # SSE stream will automatically detect and push it
-                logger.info(f"Generated assistant reply for execution {execution_id}")
+
+                logger.info(f"Execution {execution_id} status check: task_status={task_status}, paused_at={paused_at}, step_status={step_status}, should_continue={should_continue_execution}")
+
+                # Get playbook metadata
+                if task.execution_context:
+                    playbook_code = task.execution_context.get("playbook_code")
+                    if playbook_code:
+                        playbook_service = PlaybookService(store=store)
+                        playbook = await playbook_service.get_playbook(
+                            playbook_code=playbook_code,
+                            locale=ctx.workspace.default_locale if hasattr(ctx, 'workspace') and ctx.workspace else "zh-TW",
+                            workspace_id=ctx.workspace_id
+                        )
+                        if playbook:
+                            playbook_metadata = playbook.metadata
+        except Exception as e:
+            logger.warning(f"Failed to load playbook metadata or check execution status: {e}")
+
+        # Handle execution continuation or chat reply
+        async def handle_execution_response():
+            """Async task to either continue execution or generate chat reply"""
+            try:
+                if should_continue_execution:
+                    # Scenario A: Continue execution
+                    logger.info(f"Auto-continuing execution {execution_id} via execution chat")
+                    from backend.app.services.playbook_runner import PlaybookRunner
+                    playbook_runner = PlaybookRunner()
+
+                    try:
+                        result = await playbook_runner.continue_playbook_execution(
+                            execution_id=execution_id,
+                            user_message=request.content,
+                            profile_id=profile_id
+                        )
+                        logger.info(f"Successfully continued execution {execution_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to continue execution {execution_id}: {e}", exc_info=True)
+                        # Fallback to chat reply if continue fails
+                        await generate_execution_chat_reply(
+                            execution_id=execution_id,
+                            ctx=ctx,
+                            user_message=request.content,
+                            user_message_id=user_event.id,
+                            playbook_metadata=playbook_metadata
+                        )
+                else:
+                    # Scenario B: Generate chat reply (discussion mode)
+                    logger.info(f"Generating chat reply for execution {execution_id} (discussion mode)")
+                    result = await generate_execution_chat_reply(
+                        execution_id=execution_id,
+                        ctx=ctx,
+                        user_message=request.content,
+                        user_message_id=user_event.id,
+                        playbook_metadata=playbook_metadata
+                    )
+                    # Assistant message is already saved in generate_execution_chat_reply
+                    # SSE stream will automatically detect and push it
+                    logger.info(f"Generated assistant reply for execution {execution_id}")
             except Exception as e:
-                logger.error(f"Failed to generate assistant reply: {e}", exc_info=True)
+                logger.error(f"Failed to handle execution response: {e}", exc_info=True)
 
         # Start async task (non-blocking)
-        asyncio.create_task(generate_and_save_reply())
+        asyncio.create_task(handle_execution_response())
 
         return {
             "message": user_message_dict,

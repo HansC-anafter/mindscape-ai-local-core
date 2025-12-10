@@ -65,6 +65,8 @@ export default function ExecutionChatPanel({
   const [userScrolled, setUserScrolled] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [needsContinue, setNeedsContinue] = useState(false);
+  const [currentStepStatus, setCurrentStepStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -100,6 +102,80 @@ export default function ExecutionChatPanel({
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
   }, [scrollToBottom]);
+
+  // Check execution status to determine if we need to continue execution
+  useEffect(() => {
+    const checkExecutionStatus = async () => {
+      try {
+        // Get execution details
+        const execResponse = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+        );
+        if (!execResponse.ok) {
+          throw new Error(`Failed to fetch execution: ${execResponse.status}`);
+        }
+        const exec = await execResponse.json();
+
+        // Get execution steps to find current step
+        const stepsResponse = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps`
+        );
+
+        let currentStepStatus: string | null = null;
+        if (stepsResponse.ok) {
+          const stepsData = await stepsResponse.json();
+          const stepsArray = stepsData.steps || [];
+
+          // Find current step based on current_step_index
+          const currentStepIndex = exec.current_step_index ?? 0;
+          const currentStep = stepsArray.find((s: any) => s.step_index === currentStepIndex + 1);
+          if (currentStep) {
+            currentStepStatus = currentStep.status;
+          }
+        }
+
+        // Get status from execution or task
+        const execStatus = exec.status || exec.task?.status || executionStatus;
+        const pausedAt = exec.paused_at;
+        const executionContext = exec.task?.execution_context || exec.execution_context || {};
+        const pausedAtFromContext = executionContext.paused_at;
+
+        // Determine if we need to continue execution
+        const shouldContinue =
+          execStatus === 'waiting_confirmation' ||
+          execStatus === 'paused' ||
+          pausedAt !== null ||
+          pausedAtFromContext !== null ||
+          currentStepStatus === 'waiting_confirmation';
+
+        setNeedsContinue(shouldContinue);
+        setCurrentStepStatus(currentStepStatus);
+
+        console.log('[ExecutionChatPanel] Execution status checked', {
+          executionId,
+          execStatus,
+          currentStepStatus,
+          pausedAt,
+          pausedAtFromContext,
+          needsContinue: shouldContinue,
+          executionContextKeys: Object.keys(executionContext)
+        });
+      } catch (err) {
+        console.error('[ExecutionChatPanel] Failed to check execution status:', err);
+        // Fallback: use executionStatus prop
+        const shouldContinue =
+          executionStatus === 'waiting_confirmation' ||
+          executionStatus === 'paused';
+        setNeedsContinue(shouldContinue);
+      }
+    };
+
+    checkExecutionStatus();
+
+    // Poll execution status if execution is running (every 2 seconds)
+    const interval = setInterval(checkExecutionStatus, 2000);
+    return () => clearInterval(interval);
+  }, [executionId, workspaceId, apiUrl, executionStatus]);
 
   // Load initial messages
   useEffect(() => {
@@ -137,14 +213,14 @@ export default function ExecutionChatPanel({
         console.log('[ExecutionChatPanel] Starting fetch for executionId:', currentExecutionId, 'cancelled:', cancelled);
         const fetchPromise = fetch(url);
         console.log('[ExecutionChatPanel] Fetch promise created for executionId:', currentExecutionId);
-        
+
         // Add timeout and error handling
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => {
             reject(new Error(`Fetch timeout for executionId: ${currentExecutionId}`));
           }, 10000); // 10 second timeout
         });
-        
+
         console.log('[ExecutionChatPanel] Waiting for fetch to complete for executionId:', currentExecutionId);
         const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
         console.log('[ExecutionChatPanel] Fetch completed for executionId:', currentExecutionId, 'status:', response.status);
@@ -346,19 +422,41 @@ export default function ExecutionChatPanel({
     setIsSending(true);
 
     try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            content,
-            message_type: 'question',
-          }),
-        }
-      );
+      let response: Response;
+
+      // Determine which API to use based on execution status
+      if (needsContinue) {
+        // Scenario A: Continue execution
+        console.log('[ExecutionChatPanel] Using continue API to continue execution');
+        response = await fetch(
+          `${apiUrl}/api/v1/playbooks/execute/${executionId}/continue`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              user_message: content,
+            }),
+          }
+        );
+      } else {
+        // Scenario B: Discussion and optimization
+        console.log('[ExecutionChatPanel] Using chat API for discussion');
+        response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              content,
+              message_type: 'question',
+            }),
+          }
+        );
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -372,27 +470,33 @@ export default function ExecutionChatPanel({
         }
       } else {
         // Message sent successfully
-        // Add thinking placeholder message immediately
-        const thinkingId = `thinking-${Date.now()}`;
-        thinkingMessageIdRef.current = thinkingId;
-        const thinkingMessage: ExecutionChatMessage = {
-          id: thinkingId,
-          execution_id: executionId,
-          role: 'assistant',
-          content: t('aiThinking'),
-          message_type: 'question',
-          created_at: new Date().toISOString(),
-        };
+        if (needsContinue) {
+          // For continue API, the response might contain execution result
+          // We'll rely on SSE stream for updates
+          console.log('[ExecutionChatPanel] Continue request sent, waiting for execution updates via SSE');
+        } else {
+          // For chat API, add thinking placeholder
+          const thinkingId = `thinking-${Date.now()}`;
+          thinkingMessageIdRef.current = thinkingId;
+          const thinkingMessage: ExecutionChatMessage = {
+            id: thinkingId,
+            execution_id: executionId,
+            role: 'assistant',
+            content: t('aiThinking'),
+            message_type: 'question',
+            created_at: new Date().toISOString(),
+          };
 
-        setMessages(prev => {
-          // User message will be added by SSE, we just add thinking placeholder
-          const updated = [...prev, thinkingMessage].sort((a, b) =>
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-          );
-          return updated;
-        });
+          setMessages(prev => {
+            // User message will be added by SSE, we just add thinking placeholder
+            const updated = [...prev, thinkingMessage].sort((a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+            return updated;
+          });
 
-        setIsWaitingForReply(true);
+          setIsWaitingForReply(true);
+        }
 
         // Scroll to bottom immediately (instant, no smooth)
         setUserScrolled(false);
@@ -509,18 +613,24 @@ export default function ExecutionChatPanel({
           onScroll={handleScroll}
           className="h-full overflow-y-auto px-4 pt-4"
         >
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 dark:border-blue-500"></div>
-          </div>
-        ) : messages.length === 0 ? (
+        {(() => {
+          console.log('[ExecutionChatPanel] Render check - isLoading:', isLoading, 'messages.length:', messages.length);
+          return isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 dark:border-blue-500"></div>
+            </div>
+          ) : messages.length === 0 ? (
           <div className="py-6">
             <div className="text-center mb-4">
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                {t('askPlaybookInspector')}
+                {needsContinue
+                  ? t('playbookWaitingForResponse') || 'Playbook 正在等待您的回應'
+                  : t('askPlaybookInspector')}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t('itKnowsStepsEventsErrors')}
+                {needsContinue
+                  ? t('sendMessageToContinue') || '發送消息將繼續執行下一步。'
+                  : t('itKnowsStepsEventsErrors')}
               </p>
             </div>
             <div className="space-y-2">
@@ -573,7 +683,8 @@ export default function ExecutionChatPanel({
             })}
             <div ref={messagesEndRef} />
           </div>
-        )}
+        );
+        })()}
         </div>
 
         {/* Scroll to bottom button - fixed to visible viewport center bottom */}
@@ -615,7 +726,11 @@ export default function ExecutionChatPanel({
         <textarea
           ref={textareaRef}
           name="execution-chat-input"
-          placeholder={t('discussPlaybookExecution')}
+          placeholder={
+            needsContinue
+              ? t('enterResponseToContinue') || '輸入回應以繼續執行...'
+              : t('discussPlaybookExecution')
+          }
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
