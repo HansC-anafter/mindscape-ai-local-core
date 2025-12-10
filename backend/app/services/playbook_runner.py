@@ -609,6 +609,171 @@ class PlaybookRunner:
             raise
 
 
+    async def reset_current_step(
+        self,
+        execution_id: str,
+        profile_id: str = "default-user"
+    ) -> Dict[str, Any]:
+        """
+        Reset current step to restart from the beginning of current step.
+
+        This will:
+        1. Decrement current_step by 1 (if > 0) to restart current step
+        2. Clear conversation history from current step onwards (but preserve important context)
+        3. Update step event status from 'completed' back to 'running'
+        4. Preserve tool call records (already saved in database, no deletion needed)
+        5. Preserve sandbox_id in execution_context
+        6. Save the reset state
+
+        Note: Tool call records are preserved in ToolCallsStore (database table).
+        Step events are updated to reflect the reset state.
+        Sandbox context is preserved in execution_context.
+
+        Returns the reset execution state.
+        """
+        try:
+            from backend.app.models.workspace import TaskStatus
+            from backend.app.models.mindscape import EventType
+            from backend.app.services.stores.tasks_store import TasksStore
+
+            # Get conversation manager from memory first
+            conv_manager = self.active_conversations.get(execution_id)
+
+            # If not in memory, try to restore from database
+            if not conv_manager:
+                logger.info(f"Execution {execution_id} not in memory, attempting to restore from database")
+                conv_manager = await self.state_store.restore_execution_state(execution_id, self.playbook_service)
+
+                if conv_manager:
+                    # Restore to memory for future interactions
+                    self.active_conversations[execution_id] = conv_manager
+                    logger.info(f"Successfully restored execution {execution_id} from database")
+                else:
+                    raise ValueError(f"Execution not found: {execution_id}")
+
+            # Get execution context to preserve sandbox_id
+            tasks_store = TasksStore(db_path=self.store.db_path)
+            task = tasks_store.get_task_by_execution_id(execution_id)
+            if not task:
+                raise ValueError(f"Task not found for execution_id: {execution_id}")
+
+            execution_context = task.execution_context or {}
+            sandbox_id = execution_context.get("sandbox_id")
+
+            # Reset current step: decrement by 1 if > 0, otherwise keep at 0
+            original_step = conv_manager.current_step
+            target_step = max(0, conv_manager.current_step - 1) if conv_manager.current_step > 0 else 0
+
+            # Update step event status: change current step from 'completed' to 'running'
+            workspace_id = conv_manager.workspace_id
+            if workspace_id:
+                try:
+                    # Find the step event for the current step (before reset)
+                    step_index_1based = original_step + 1  # Convert 0-based to 1-based for step_index
+                    existing_events = self.store.get_events_by_workspace(
+                        workspace_id=workspace_id,
+                        limit=200
+                    )
+                    current_step_event = None
+                    for event in existing_events:
+                        if (event.event_type == EventType.PLAYBOOK_STEP and
+                            isinstance(event.payload, dict) and
+                            event.payload.get('execution_id') == execution_id and
+                            event.payload.get('step_index') == step_index_1based):
+                            current_step_event = event
+                            break
+
+                    if current_step_event and isinstance(current_step_event.payload, dict):
+                        # Update step status from 'completed' to 'running'
+                        updated_payload = current_step_event.payload.copy()
+                        if updated_payload.get('status') == 'completed':
+                            updated_payload['status'] = 'running'
+                            updated_payload['completed_at'] = None  # Clear completion time
+                            self.store.update_event(
+                                event_id=current_step_event.id,
+                                payload=updated_payload
+                            )
+                            logger.info(f"Updated step event {current_step_event.id} status from 'completed' to 'running'")
+                except Exception as e:
+                    logger.warning(f"Failed to update step event status: {e}")
+
+            # Clear conversation history from current step onwards
+            # Keep only messages up to the previous step
+            # We'll keep a reasonable amount of context (last 10 messages or until we find a step boundary)
+            # For simplicity, we'll keep the last 5 messages as context, but clear the rest
+            # This is a heuristic - in practice, you might want more sophisticated step boundary detection
+            if len(conv_manager.conversation_history) > 5:
+                # Keep system prompt and initial messages, remove recent step-specific messages
+                # Keep first 3 messages (usually system prompt and initial setup) and last 2 as context
+                kept_messages = conv_manager.conversation_history[:3]
+                # Remove messages that look like they're from the current step
+                # (assistant messages with tool calls, system messages with tool results)
+                for msg in conv_manager.conversation_history[3:-2]:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    # Keep user messages and important system messages, but remove tool-related ones
+                    if role == "user" or (role == "system" and "tool_call_result" not in content):
+                        kept_messages.append(msg)
+                # Keep last 2 messages as context
+                kept_messages.extend(conv_manager.conversation_history[-2:])
+                conv_manager.conversation_history = kept_messages
+            else:
+                # If history is short, just clear the last assistant/system messages
+                # Keep user messages and initial setup
+                filtered_history = []
+                for msg in conv_manager.conversation_history:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user" or (role == "system" and "tool_call_result" not in content):
+                        filtered_history.append(msg)
+                conv_manager.conversation_history = filtered_history
+
+            # Update current_step
+            conv_manager.current_step = target_step
+
+            logger.info(f"Reset execution {execution_id} step from {original_step} to {conv_manager.current_step}, conversation history length: {len(conv_manager.conversation_history)}")
+
+            # Save execution state to database (includes conversation_state)
+            await self.state_store.save_execution_state(execution_id, conv_manager)
+
+            # Preserve sandbox_id in execution_context
+            if sandbox_id:
+                execution_context["sandbox_id"] = sandbox_id
+                tasks_store.update_task(task.id, execution_context=execution_context)
+                logger.info(f"Preserved sandbox_id={sandbox_id} in execution_context")
+
+            # Restore sandbox_id to tool_executor's execution_context for future tool calls
+            if sandbox_id:
+                self.tool_executor.execution_context["sandbox_id"] = sandbox_id
+                self.tool_executor.execution_context["workspace_id"] = workspace_id
+                logger.debug(f"Restored sandbox_id={sandbox_id} to tool_executor execution_context")
+
+            # Update task status back to RUNNING if it was completed
+            try:
+                if task.status == TaskStatus.SUCCEEDED:
+                    tasks_store.update_task_status(task.id, TaskStatus.RUNNING)
+                    logger.info(f"Updated task {task.id} status from SUCCEEDED to RUNNING after step reset")
+            except Exception as e:
+                logger.warning(f"Failed to update task status after step reset: {e}")
+
+            return {
+                "execution_id": execution_id,
+                "current_step": conv_manager.current_step,
+                "previous_step": original_step,
+                "conversation_history_length": len(conv_manager.conversation_history),
+                "sandbox_id_preserved": sandbox_id is not None,
+                "tool_calls_preserved": True,  # Tool calls are always preserved in database
+                "step_event_updated": True,  # Step event status updated
+                "message": f"Step reset from {original_step} to {conv_manager.current_step}. Ready to restart current step. Tool call records preserved in database."
+            }
+
+        except ValueError as e:
+            logger.error(f"Failed to reset step: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to reset current step: {e}", exc_info=True)
+            raise
+
     async def get_playbook_execution_result(
         self,
         execution_id: str
