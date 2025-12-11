@@ -91,7 +91,7 @@ Local Core 的重點放在：
 
 * **Playbook 執行核心**
 
-  * YAML + Markdown Playbook
+  * YAML + Markdown Playbook（執行規格目前以 JSON 為主，未來可抽象成 YAML）
   * AI 角色、工具與 Execution Trace
 
 * **Project + Flow + Sandbox 架構（v2.0）**
@@ -156,6 +156,7 @@ Local Core 的重點放在：
 
 ### Playbook 開發
 - [Playbook 開發](./docs/playbook-development/README.md) - 建立與擴展 Playbook
+- 想了解 Playbook 在系統內的完整設計與運作方式，可以參考：[Playbooks 與多步驟工作流架構](./docs/core-architecture/playbooks-and-workflows.md)
 
 ---
 

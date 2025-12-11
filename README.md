@@ -60,6 +60,7 @@ You can add your own playbooks to encode your personal workflows, client SOPs, o
 * **Projects** – containers for related intents and playbooks (e.g., a product launch, a yearly book, a client account).
 * **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces.
 * **Port/Adapter Architecture** – clean separation between core and external integrations, enabling local-first design with optional cloud extensions.
+* **[Event, Intent Governance, and Memory Architecture](./docs/core-architecture/memory-intent-architecture.md)** – how events, intent analysis, and long-term memory work together.
 
 ---
 
@@ -91,8 +92,9 @@ This local core focuses on:
 
 * **Playbook runtime**
 
-  * YAML + Markdown playbooks
+  * YAML + Markdown playbooks (execution spec currently uses JSON, with YAML abstraction planned)
   * AI roles, tools, and execution traces
+  * See [Playbooks & Multi-step Workflow Architecture](./docs/core-architecture/playbooks-and-workflows.md) for how playbooks are modeled and executed
 
 * **Project + Flow + Sandbox Architecture (v2.0)**
 
