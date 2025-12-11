@@ -11,7 +11,7 @@ This document explains how **Playbooks** and **multi-step workflows** work insid
 
 If you've used tools like LangChain, Claude Skills, GitHub Actions, or n8n, the ideas here should feel familiar: we separate "talking to humans" from "running workflows", and we make those workflows **explicit and reusable** via Playbooks.
 
-This doc is meant for **open-source contributors and plugin authors**. For additional implementation details, see the architecture documentation index.
+> **This doc is for open-source contributors and plugin authors** who care about how workflows and playbooks are modeled and executed inside the local core. For additional implementation details, see the architecture documentation index.
 
 ---
 
@@ -32,6 +32,8 @@ The local core (`mindscape-ai-local-core`) solves this by introducing:
 
 > **Playbooks**: reusable, inspectable workflows that the LLM can _invoke_,
 > instead of reinventing a new ad-hoc plan on every prompt.
+
+In the local core, every playbook has an **owner and scope** (system / workspace / user, private / shared), so later in the cloud we can decide **who is allowed to run which workflow in which project** instead of treating all workflows as global.
 
 ---
 
@@ -460,4 +462,66 @@ We're especially interested in:
 * high-quality content workflows (research → draft → publish),
 * robust system-tool Playbooks (sync, indexing, health checks),
 * and better developer ergonomics for authoring and debugging Playbooks.
+
+---
+
+## 10. Identity Governance & Access Control
+
+### 10.1 Local Core: AI Team Member Identity & Playbook Governance
+
+In the local-first environment (`mindscape-ai-local-core`), the current design assumes:
+
+1. **AI Team Member Identity Governance**
+   - All AI team members operate within a single workspace context
+   - Identity is primarily based on a `default_user` context
+   - Access control is relatively simple, mainly relying on workspace-level permissions
+
+2. **Playbook Versioning & Access Control**
+   - Playbook versioning is managed within a single workspace
+   - Access control is primarily based on `owner_type` and `visibility` fields
+   - The system supports basic playbook ownership types: `system`, `workspace`, `user`
+   - Visibility levels include: `private`, `workspace_shared`, `tenant_shared`, `public_template`
+
+The local core provides foundational mechanisms for:
+- Playbook ownership and scope resolution
+- Basic visibility rules for playbook access
+- Project-level capability profiles that filter available playbooks
+
+For detailed implementation of identity and scope mechanisms, see the internal implementation documentation.
+
+### 10.2 Cloud Version: Extended Governance Architecture
+
+When moving to a cloud-based multi-tenant / multi-workspace / multi-user environment, the governance architecture extends significantly:
+
+1. **Multi-level Identity Governance**
+   - **Tenant-level**: Cross-workspace identity and permission management
+   - **Workspace-level**: Team-internal identity governance
+   - **User-level**: Personal AI team member configurations
+   - **Project-level**: Project-specific capability and permission boundaries
+
+2. **Playbook Versioning & Permission Extensions**
+   - **Version Isolation**: Different tenants/workspaces can have different versions of the same playbook
+   - **Permission Inheritance**: Permission inheritance chain from System → Tenant → Workspace → User
+   - **Dynamic Permission Calculation**: Real-time permission calculation based on execution context (tenant/workspace/user/project)
+   - **Permission Auditing**: Tracking playbook usage history and permission changes
+
+3. **AI Team Member Cloud Governance**
+   - **Member Identity Ownership**: Clear ownership of AI team members at different levels (system/tenant/workspace/user)
+   - **Capability Boundaries**: Different levels of AI team members have different capability scopes
+   - **Preference Inheritance**: Preference inheritance and override mechanisms from system to user level
+
+### 10.3 Design Principles
+
+The cloud version's governance design follows these principles:
+
+1. **Progressive Upgrade**: Smooth transition from local single-workspace model to cloud multi-level model
+2. **Principle of Least Privilege**: Default to minimal permissions, explicit authorization required
+3. **Context-Aware**: Permission calculation must consider complete execution context (tenant/workspace/user/project)
+4. **Backward Compatibility**: Local behavior remains valid in cloud environments (as default behavior)
+
+### 10.4 Collaboration & Discussion
+
+This document focuses on the local-first implementation (`mindscape-ai-local-core`). For detailed cloud governance design, multi-tenant architecture, and specific implementation of permission systems, please open an issue or GitHub Discussion to talk about cloud governance architecture.
+
+For private deployments or partnership inquiries, you can also reach out via the project's listed contact channels.
 

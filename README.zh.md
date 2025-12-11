@@ -58,7 +58,7 @@ Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & 
 * **Mindscape（心智空間 / 工作區）**：你正在運作的心智舞台，放專案、Intent、執行軌跡。
 * **Intent（意圖卡）**：把「我現在想完成什麼」變成可追蹤的卡片，幫 LLM 將對話錨定在你的長期目標上。
 * **Project（專案）**：把相關的 Intent 與 Playbook 收攏在一起，例如一個產品發佈、一整年的寫書計畫、一個客戶帳號。
-* **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。
+* **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。Playbook 不只是「可以跑的腳本」，在後續雲端版本中也會具備**歸屬與權限邊界**，讓不同使用者、專案、租戶之間的 workflow 可以被治理。
 * **Port/Adapter 架構**：核心與外部集成的清晰分離，實現本地優先設計並支援可選的雲端擴展。
 
 ---
@@ -79,6 +79,8 @@ Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & 
 ---
 
 ## 📦 這個倉庫包含什麼？
+
+在大多數 AI 工具仍停留在「聊天 + 單次工具呼叫」的情境下，`mindscape-ai-local-core` 專注在**長期專案、可視化思考、可治理的多步驟工作流**，更接近一個 AI 工作流作業系統，而不是單純的 chat 機器人。
 
 Local Core 的重點放在：
 
@@ -149,7 +151,7 @@ Local Core 的重點放在：
   - 記憶與意圖架構
   - 執行上下文
   - 本地/雲端邊界
-  - Playbooks 與工作流
+  - Playbooks 與工作流（包含身份治理與權限控管）
   - Project + Flow + Sandbox（v2.0）
 
 ### Playbook 開發

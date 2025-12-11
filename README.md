@@ -80,6 +80,8 @@ See:
 
 ## 📦 What's in this repo
 
+In a world where most AI tools stop at "chat + one-shot tools", this repo focuses on **long-lived projects, visible thinking, and governable multi-step workflows**. It's closer to an OS for AI-assisted work than a chatbot wrapper.
+
 This local core focuses on:
 
 * **Local-first workspace engine**
@@ -149,7 +151,7 @@ Once the stack is running:
   - Memory & Intent Architecture
   - Execution Context
   - Local/Cloud Boundary
-  - Playbooks & Workflows
+  - Playbooks & Workflows (including identity governance and access control)
   - Project + Flow + Sandbox (v2.0)
 
 ### Playbook Development

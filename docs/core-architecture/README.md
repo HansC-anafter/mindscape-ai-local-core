@@ -72,7 +72,7 @@ Event, intent, and memory layer design - the three-layer Mindscape architecture.
 Architectural separation principles between local and cloud implementations.
 
 #### [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md)
-Playbook architecture and workflow execution mechanisms.
+Playbook architecture and workflow execution mechanisms, including identity governance and access control.
 
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
@@ -207,7 +207,7 @@ CREATE TABLE playbook_flows (
 1. [Port Architecture](./port-architecture.md) - Hexagonal architecture patterns
 2. [Execution Context](./execution-context.md) - Context flow
 3. [Local/Cloud Boundary](./local-cloud-boundary.md) - Separation principles
-4. [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) - Workflow execution
+4. [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) - Workflow execution, identity governance, and access control
 5. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
 6. [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
