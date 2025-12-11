@@ -51,6 +51,29 @@ Examples of built-in system playbooks:
 
 You can add your own playbooks to encode your personal workflows, client SOPs, or agency services.
 
+### 🧱 Shareable cognitive modules (even without the cloud)
+
+Although this repo is called *local-core*, it is not limited to "one user on one machine".
+
+The core concepts – **playbooks**, **AI team members**, and **mind-lens / workspace profiles** – are all designed as
+**shareable cognitive modules**:
+
+- You can create your own playbooks, AI roles, and mind-lens configurations.
+- You can import playbooks and AI team presets created by others (from repos, bundles, or future marketplaces).
+- You can treat a "bundle" of `AI team member + mind-lens + playbooks` as a reusable kit for a specific domain
+  (e.g., a "book-writing companion", an "SEO advisor", or a "design consultant").
+
+The identity & scope model (owner type, visibility, and `effective_playbooks`) is what makes this exchange safe:
+
+- Locally, it helps you distinguish **system** playbooks, **workspace**-specific flows, and **personal** workflows.
+- When you import external playbooks, they can be tagged as `external_provider` and used as templates or forked into
+  your own workspace.
+- In cloud or multi-tenant deployments, the same model extends to tenants, teams, and shared templates.
+
+In other words, `mindscape-ai-local-core` defines the **world model** for long-lived projects and shareable workflows.
+Mindscape AI Cloud is one possible SaaS built on top of this core, but other developers can equally embed this engine
+into their own products or commercial offerings.
+
 ---
 
 ## 🧩 Core concepts at a glance

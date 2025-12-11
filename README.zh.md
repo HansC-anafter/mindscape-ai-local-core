@@ -51,6 +51,29 @@ Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & 
 
 你可以新增自己的 Playbook，將個人 workflow、客戶 SOP、代理商服務流程全部變成可複用的 AI 工作流。
 
+### 🧱 可交換的「思維模組」，不只為 Cloud 預留
+
+雖然這個 repo 叫做 *local-core*，但它並不限於「一台機器上的一個使用者」。
+
+這裡的幾個核心概念 —— **Playbook**、**AI Team Member**、**Mind-Lens / Workspace Profile** ——
+其實都被設計成可以交換、匯入、重用的 **思維模組**：
+
+- 你可以為自己建立各種 Playbook、AI 角色與 Mind-Lens 設定。
+- 也可以匯入別人公開的 Playbook / AI 團隊預設（例如從 GitHub、未來的套件 / Marketplace）。
+- 一組 `AI Team Member + Mind-Lens + Playbooks` 可以被打包成某個領域的「工具包」
+  （例如「寫書夥伴」、「SEO 顧問」、「設計顧問」）。
+
+目前在 local-core 裡實作的 **身份與作用域模型**（owner_type、visibility、`effective_playbooks`）
+就是用來支撐這種「交換 + 治理」的基礎：
+
+- 在本地模式，它幫助你分清楚哪些是系統內建、哪些是 workspace 專用、哪些是你個人專用的 workflow。
+- 當你匯入外部 Playbook 時，可以標記為 `external_provider`，當成範本使用或 fork 成自己的版本。
+- 一旦進入 Cloud / 多租戶部署，同一套模型會自然延伸到租戶 / 團隊 / 共用模板的情境。
+
+換句話說，`mindscape-ai-local-core` 定義的是一套用來承載「長期專案 + 可交換工作流」的世界觀。
+Mindscape AI Cloud 只是其上一種可能的 SaaS 實作；其他開發者同樣可以在這個核心上，
+發展自己的 Cloud / 商業版本。
+
 ---
 
 ## 🧩 核心概念一覽
@@ -58,7 +81,8 @@ Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & 
 * **Mindscape（心智空間 / 工作區）**：你正在運作的心智舞台，放專案、Intent、執行軌跡。
 * **Intent（意圖卡）**：把「我現在想完成什麼」變成可追蹤的卡片，幫 LLM 將對話錨定在你的長期目標上。
 * **Project（專案）**：把相關的 Intent 與 Playbook 收攏在一起，例如一個產品發佈、一整年的寫書計畫、一個客戶帳號。
-* **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。Playbook 不只是「可以跑的腳本」，在後續雲端版本中也會具備**歸屬與權限邊界**，讓不同使用者、專案、租戶之間的 workflow 可以被治理。
+* **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。
+  Playbook 不只是「可以跑的腳本」，在 local-core 中就已具備基本的歸屬與作用域邊界；在雲端版本會進一步延伸到租戶、團隊等層級，讓不同使用者、專案、租戶之間的 workflow 可以被治理。
 * **Port/Adapter 架構**：核心與外部集成的清晰分離，實現本地優先設計並支援可選的雲端擴展。
 
 ---
