@@ -8,7 +8,7 @@ This file serves as a thin coordinator layer. All implementation logic MUST be
 delegated to specialized modules in conversation/ directory:
 
 Module Responsibilities:
-- ExecutionCoordinator: Pack/playbook execution, suggestion card creation
+- CoordinatorFacade: Pack/playbook execution, suggestion card creation
 - TaskManager: Task lifecycle, TimelineItem creation, status updates
 - CTAHandler: Timeline item CTA actions, soft/external write confirmations
 - SuggestionActionHandler: Dynamic suggestion action execution
@@ -47,7 +47,7 @@ from backend.app.services.conversation.task_manager import TaskManager
 from backend.app.services.conversation.cta_handler import CTAHandler
 from backend.app.services.conversation.file_processor import FileProcessor
 from backend.app.services.conversation.suggestion_action_handler import SuggestionActionHandler
-from backend.app.services.conversation.execution_coordinator import ExecutionCoordinator
+from backend.app.services.conversation.coordinator_facade import CoordinatorFacade
 from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
 from backend.app.services.conversation.message_generator import MessageGenerator
 from backend.app.services.conversation.intent_extractor import IntentExtractor
@@ -147,7 +147,7 @@ class ConversationOrchestrator:
             default_locale=default_locale
         )
 
-        self.execution_coordinator = ExecutionCoordinator(
+        self.execution_coordinator = CoordinatorFacade(
             store=store,
             tasks_store=self.tasks_store,
             timeline_items_store=self.timeline_items_store,
@@ -155,10 +155,11 @@ class ConversationOrchestrator:
             plan_builder=self.plan_builder,
             playbook_runner=playbook_runner,
             message_generator=message_generator,
-            default_locale=default_locale
+            default_locale=default_locale,
+            playbook_service=playbook_service
         )
 
-        # Update SuggestionActionHandler with ExecutionCoordinator reference
+        # Update SuggestionActionHandler with CoordinatorFacade reference
         self.suggestion_action_handler.execution_coordinator = self.execution_coordinator
 
         self.qa_response_generator = QAResponseGenerator(
@@ -166,6 +167,13 @@ class ConversationOrchestrator:
             timeline_items_store=self.timeline_items_store,
             default_locale=default_locale
         )
+
+        # Initialize ProjectAssignmentService
+        from backend.app.services.project.project_assignment_service import ProjectAssignmentService
+        self.project_assignment_service = ProjectAssignmentService(store=self.store)
+
+        from backend.app.services.playbook.playbook_scope_resolver import PlaybookScopeResolver
+        self.playbook_scope_resolver = PlaybookScopeResolver(store=self.store)
 
     async def route_message(
         self,
@@ -192,6 +200,14 @@ class ConversationOrchestrator:
             Response dict with events, triggered_playbook, pending_tasks
         """
         try:
+            # Create execution context for file processing and other operations
+            from backend.app.core.execution_context import ExecutionContext
+            ctx = ExecutionContext(
+                actor_id=profile_id,
+                workspace_id=workspace_id,
+                tags={"mode": "local"}
+            )
+
             file_document_ids = []
             if files:
                 file_document_ids = await self.file_processor.process_files_in_chat_with_ctx(
@@ -221,12 +237,61 @@ class ConversationOrchestrator:
             self.store.create_event(user_event)
             logger.info(f"Created user event: {user_event.id}, files: {len(files)}, file_document_ids: {len(file_document_ids)}")
 
-            # Optional: LLM-based intent extraction (pre-pipeline)
-            # This runs before rule-based IntentPipeline to provide early intent hints
-            # Delegates to IntentExtractor module
+            conversation_id = None
+
+            project_assignment = await self.project_assignment_service.assign_project(
+                message=message,
+                workspace_id=workspace_id,
+                message_id=user_event.id,
+                conversation_id=conversation_id,
+                ui_selected_project_id=project_id
+            )
+
+            final_project_id = project_assignment.project_id
+
+            logger.info(
+                f"Project assignment: project_id={final_project_id}, "
+                f"relation={project_assignment.relation}, "
+                f"confidence={project_assignment.confidence:.2f}, "
+                f"requires_ui_confirmation={project_assignment.requires_ui_confirmation}"
+            )
+
+            if user_event.metadata is None:
+                user_event.metadata = {}
+            user_event.metadata["project_assignment"] = project_assignment.to_dict()
+            self.store.events.update_event(user_event.id, user_event)
+
+            if final_project_id:
+                user_event.project_id = final_project_id
+                self.store.events.update_event(user_event.id, user_event)
+
             ctx = await self.identity_port.get_current_context(
                 workspace_id=workspace_id,
                 profile_id=profile_id
+            )
+
+            project_profile = None
+            if final_project_id:
+                from backend.app.services.project.project_manager import ProjectManager
+                project_manager = ProjectManager(self.store)
+                project = await project_manager.get_project(final_project_id, workspace_id=workspace_id)
+                if project:
+                    project_profile = project.metadata.get("capability_profile") if hasattr(project, "metadata") and project.metadata else None
+
+            tenant_id = None
+            user_id = profile_id
+
+            effective_playbooks = await self.playbook_scope_resolver.resolve_effective_playbooks(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                user_id=user_id,
+                project_id=final_project_id,
+                project_profile=project_profile
+            )
+
+            logger.info(
+                f"Resolved {len(effective_playbooks)} effective playbooks "
+                f"(workspace={workspace_id}, user={user_id}, project={final_project_id})"
             )
             logger.info(f"ConversationOrchestrator: BEFORE calling intent_extractor.extract_and_create_timeline_item")
             import sys
@@ -240,7 +305,6 @@ class ConversationOrchestrator:
             logger.info(f"ConversationOrchestrator: AFTER intent_extractor call, result: {timeline_item is not None}")
             print(f"ConversationOrchestrator: AFTER intent_extractor call, result: {timeline_item is not None}", file=sys.stderr)
 
-            # Update event metadata if extraction succeeded
             if timeline_item:
                 intents_list = timeline_item.data.get("intents", []) if timeline_item.data else []
                 themes_list = timeline_item.data.get("themes", []) if timeline_item.data else []
@@ -350,18 +414,24 @@ class ConversationOrchestrator:
                     logger.error(f"Failed to execute multi-step workflow: {e}", exc_info=True)
                     assistant_response = f"I understand your request, but encountered an error executing the workflow: {str(e)}"
 
-            # Use LLM-based planning as primary, fallback to rule-based if LLM fails
             execution_plan = await self.plan_builder.generate_execution_plan(
                 message=message,
                 files=files,
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 message_id=user_event.id,
-                use_llm=True  # Priority: LLM-based analysis, fallback to rule-based
+                use_llm=True,
+                project_id=final_project_id,
+                project_assignment_decision=project_assignment.to_dict(),
+                effective_playbooks=effective_playbooks
             )
             logger.info(f"ConversationOrchestrator: Generated execution plan with {len(execution_plan.tasks)} tasks")
             import sys
             print(f"ConversationOrchestrator: Generated execution plan with {len(execution_plan.tasks)} tasks", file=sys.stderr)
+
+            if execution_plan:
+                execution_plan.project_id = final_project_id
+                execution_plan.project_assignment_decision = project_assignment.to_dict()
 
             execution_results = await self.execution_coordinator.execute_plan(
                 execution_plan=execution_plan,
@@ -390,7 +460,6 @@ class ConversationOrchestrator:
                     execution_mode=PlaybookExecutionMode.ASYNC,
                     locale=intent_result.playbook_context.get("locale")
                 )
-                # Convert ExecutionResult to dict format for backward compatibility
                 execution_result = {
                     "execution_id": execution_result_obj.execution_id,
                     "execution_mode": "workflow" if execution_result_obj.status == "running" else "conversation",
@@ -428,7 +497,6 @@ class ConversationOrchestrator:
                 assistant_response = qa_result.get("response")
                 assistant_event = qa_result.get("event")
 
-                # Log assistant response for debugging
                 if assistant_response:
                     logger.info(f"Generated assistant response: {assistant_response[:100]}... (length: {len(assistant_response)})")
                 else:
@@ -439,17 +507,14 @@ class ConversationOrchestrator:
                 else:
                     logger.warning("Assistant event is None")
 
-            # Get recent events AFTER assistant event is created
-            # Add a small delay to ensure event is persisted
             import asyncio
-            await asyncio.sleep(0.1)  # Small delay to ensure event is saved
+            await asyncio.sleep(0.1)
 
             recent_events = self.store.get_events_by_workspace(
                 workspace_id=workspace_id,
                 limit=20
             )
 
-            # Log events for debugging
             logger.info(f"Retrieved {len(recent_events)} events from workspace")
             assistant_events = [e for e in recent_events if e.actor == EventActor.ASSISTANT]
             logger.info(f"Found {len(assistant_events)} assistant events in recent events")
@@ -499,8 +564,6 @@ class ConversationOrchestrator:
                 }
                 display_events_dicts.append(event_dict)
 
-            # Phase 1: IntentSteward analysis (observation mode)
-            # Called passively after message processing, only writes logs
             try:
                 await self.intent_steward.analyze_turn(
                     workspace_id=workspace_id,
@@ -509,17 +572,12 @@ class ConversationOrchestrator:
                     conversation_id=None
                 )
             except Exception as e:
-                # Don't fail the request if IntentSteward fails
                 logger.warning(f"IntentSteward analysis failed (non-blocking): {e}", exc_info=True)
 
-            # Phase 3: Trigger intent clustering after major playbook execution
-            # Only trigger if a playbook was executed (not for simple QA)
             if triggered_playbook and triggered_playbook.get("playbook_code"):
                 try:
                     from ...services.conversation.intent_cluster_service import IntentClusterService
                     cluster_service = IntentClusterService(store=self.store)
-                    # Trigger clustering in background (non-blocking, fire-and-forget)
-                    # Note: This runs asynchronously but doesn't block the response
                     import asyncio
                     async def trigger_clustering():
                         try:
@@ -530,11 +588,9 @@ class ConversationOrchestrator:
                         except Exception as e:
                             logger.warning(f"Background intent clustering failed: {e}")
 
-                    # Schedule background task
                     asyncio.create_task(trigger_clustering())
                     logger.info(f"Scheduled intent clustering after playbook execution")
                 except Exception as e:
-                    # Don't fail the request if clustering fails
                     logger.warning(f"Intent clustering trigger failed (non-blocking): {e}", exc_info=True)
 
             return {

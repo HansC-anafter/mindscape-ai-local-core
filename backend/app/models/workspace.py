@@ -128,6 +128,20 @@ class ExecutionPriority(str, Enum):
     HIGH = "high"
 
 
+class ProjectAssignmentMode(str, Enum):
+    """
+    Project assignment automation level
+
+    Similar to playbook auto-execution, controls how project assignment decisions are made:
+    - auto_silent: Auto-assign with minimal UI (default for most users)
+    - assistive: Auto-assign with confirmation prompts for medium/low confidence
+    - manual_first: Require user selection (for power users)
+    """
+    AUTO_SILENT = "auto_silent"
+    ASSISTIVE = "assistive"
+    MANUAL_FIRST = "manual_first"
+
+
 # ==================== Workspace Models ====================
 
 class Workspace(BaseModel):
@@ -216,6 +230,12 @@ class Workspace(BaseModel):
     execution_priority: Optional[str] = Field(
         default="medium",
         description="Execution priority: 'low' | 'medium' | 'high'"
+    )
+
+    # Project assignment configuration
+    project_assignment_mode: Optional[ProjectAssignmentMode] = Field(
+        default=ProjectAssignmentMode.AUTO_SILENT,
+        description="Project assignment automation level"
     )
 
     # Extensible metadata for features (core_memory, preferences, etc.)
@@ -371,6 +391,14 @@ class ExecutionPlan(BaseModel):
     confidence: Optional[float] = Field(None, description="LLM confidence in this plan (0-1)")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
 
+    # Project and Phase association
+    project_id: Optional[str] = Field(None, description="Associated Project ID")
+    phase_id: Optional[str] = Field(None, description="Associated Project Phase ID")
+    project_assignment_decision: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Project assignment decision: {project_id, relation, confidence, reasoning, candidates}"
+    )
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
@@ -393,6 +421,12 @@ class ExecutionPlan(BaseModel):
             "step_count": len(self.steps),
             "artifact_count": sum(len(s.artifacts) for s in self.steps)
         }
+
+        metadata = getattr(self, "metadata", None) or {}
+        effective_playbooks = metadata.get("effective_playbooks")
+        if effective_playbooks is not None:
+            payload["effective_playbooks"] = effective_playbooks
+            payload["effective_playbooks_count"] = len(effective_playbooks)
 
         if self.tasks:
             try:

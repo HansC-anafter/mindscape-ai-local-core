@@ -83,7 +83,30 @@ async def generate_and_execute_plan(
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Generate execution plan
+        effective_playbooks = None
+        try:
+            from backend.app.services.playbook.playbook_scope_resolver import PlaybookScopeResolver
+            from backend.app.services.project.project_manager import ProjectManager
+
+            resolver = PlaybookScopeResolver(store=orchestrator.store)
+            project_profile = None
+            if project_id:
+                project_manager = ProjectManager(orchestrator.store)
+                project = await project_manager.get_project(project_id, workspace_id=workspace_id)
+                if project:
+                    project_profile = project.metadata.get("capability_profile") if hasattr(project, "metadata") and project.metadata else None
+
+            effective_playbooks = await resolver.resolve_effective_playbooks(
+                tenant_id=None,
+                workspace_id=workspace_id,
+                user_id=profile_id,
+                project_id=project_id,
+                project_profile=project_profile
+            )
+            logger.info(f"[ExecutionPlan] Resolved {len(effective_playbooks)} effective playbooks for streaming path")
+        except Exception as e:
+            logger.warning(f"[ExecutionPlan] Failed to resolve effective playbooks: {e}, falling back to available_playbooks")
+
         logger.info(f"[ExecutionPlan] Calling generate_execution_plan with model={model_name}, provider={provider_name}")
         print(f"[ExecutionPlan] Calling generate_execution_plan with model={model_name}, provider={provider_name}", file=sys.stderr)
         execution_plan = await generate_execution_plan(
@@ -93,8 +116,13 @@ async def generate_and_execute_plan(
             execution_mode=execution_mode,
             expected_artifacts=expected_artifacts,
             available_playbooks=available_playbooks,
+            effective_playbooks=effective_playbooks,
             llm_provider=llm_provider_manager,
-            model_name=model_name
+            model_name=model_name,
+            project_id=project_id,
+            project_assignment_decision=None,
+            tenant_id=None,
+            user_id=profile_id
         )
 
         if not execution_plan:
@@ -102,7 +130,6 @@ async def generate_and_execute_plan(
             print(f"[ExecutionPlan] generate_execution_plan returned None (plan generation failed or skipped)", file=sys.stderr)
             return None
 
-        # Record plan as EXECUTION_PLAN MindEvent
         await record_execution_plan_event(
             plan=execution_plan,
             profile_id=profile_id,
@@ -121,6 +148,14 @@ async def generate_and_execute_plan(
             f"[ExecutionPlan] Steps in payload: "
             f"{[s.get('step_id', 'unknown') for s in execution_plan.to_event_payload().get('steps', [])]}"
         )
+
+        if effective_playbooks is not None:
+            if not hasattr(execution_plan, 'metadata') or execution_plan.metadata is None:
+                execution_plan.metadata = {}
+            execution_plan.metadata["effective_playbooks"] = effective_playbooks
+            execution_plan.metadata["effective_playbooks_count"] = len(effective_playbooks)
+            logger.info(f"[ExecutionPlan] Stored {len(effective_playbooks)} effective playbooks in plan metadata")
+
         print(
             f"[ExecutionPlan] Sending execution_plan SSE event with {len(execution_plan.steps)} steps, "
             f"{len(execution_plan.tasks)} tasks",

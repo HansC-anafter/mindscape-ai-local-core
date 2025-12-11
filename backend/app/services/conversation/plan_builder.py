@@ -85,6 +85,58 @@ class PlanBuilder:
             logger.warning(f"Failed to load external backend: {e}, will skip cloud-enhanced retrieval")
             self.external_backend = None
 
+    async def _create_or_link_phase(
+        self,
+        execution_plan: "ExecutionPlan",
+        project_id: str,
+        message_id: str,
+        project_assignment_decision: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Create or link phase for execution plan
+
+        Args:
+            execution_plan: ExecutionPlan object
+            project_id: Project ID
+            message_id: Message ID
+            project_assignment_decision: Project assignment decision metadata
+        """
+        try:
+            from backend.app.services.project.project_phase_manager import ProjectPhaseManager
+            phase_manager = ProjectPhaseManager(store=self.store)
+
+            # Determine phase kind based on assignment decision
+            # NOTE: v1 simplified logic
+            # Future enhancements:
+            # - If project has no phases → first one is always `initial_brief`
+            # - Use keyword detection ("revision", "extension" → revision)
+            # - Or execution result detection (many new artifacts → extension)
+            assignment_relation = project_assignment_decision.get("relation") if project_assignment_decision else None
+            phase_kind = "revision" if assignment_relation == "same_project" else "initial_brief"
+
+            # Create phase
+            phase = await phase_manager.create_phase(
+                project_id=project_id,
+                message_id=message_id,
+                summary=execution_plan.plan_summary or execution_plan.user_request_summary or "",
+                kind=phase_kind,
+                workspace_id=execution_plan.workspace_id,
+                execution_plan_id=execution_plan.id
+            )
+
+            execution_plan.phase_id = phase.id
+            execution_plan.project_id = project_id
+
+            logger.info(
+                f"Created phase {phase.id} for project {project_id}, "
+                f"kind={phase_kind}, message_id={message_id}"
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to create phase for execution plan: {e}", exc_info=True)
+            # Don't fail execution plan creation if phase creation fails
+            pass
+
     def is_pack_available(self, pack_id: str) -> bool:
         """
         Check if a pack is installed and available
@@ -230,7 +282,9 @@ class PlanBuilder:
         files: List[str],
         workspace_id: str,
         profile_id: str,
-        available_packs: List[str]
+        available_packs: List[str],
+        project_id: Optional[str] = None,
+        project_assignment_decision: Optional[Dict[str, Any]] = None
     ) -> List[TaskPlan]:
         """
         Generate execution plan using LLM
@@ -333,6 +387,48 @@ class PlanBuilder:
                 target_tokens=workspace_context_budget,
                 mode="planning"
             )
+
+            # Build project context if available
+            project_context_str = ""
+            if project_id and project_assignment_decision:
+                try:
+                    from backend.app.services.project.project_manager import ProjectManager
+                    project_manager = ProjectManager(self.store)
+                    project = await project_manager.get_project(project_id, workspace_id=workspace_id)
+
+                    if project:
+                        # Format recent phases (if available)
+                        recent_phases_str = ""
+                        try:
+                            from backend.app.services.project.project_phase_manager import ProjectPhaseManager
+                            phase_manager = ProjectPhaseManager(store=self.store)
+                            recent_phases = await phase_manager.get_recent_phases(project_id=project_id, limit=3)
+                            if recent_phases:
+                                phase_lines = [f"  {i+1}. Phase {p.kind}: {p.summary[:80]}" for i, p in enumerate(recent_phases)]
+                                recent_phases_str = "\n- Related previous phases:\n" + "\n".join(phase_lines)
+                        except Exception as e:
+                            logger.debug(f"Failed to load recent phases for project {project_id}: {e}")
+
+                        assignment_relation = project_assignment_decision.get('relation', 'unknown')
+                        confidence = project_assignment_decision.get('confidence', 0.0)
+                        reasoning = project_assignment_decision.get('reasoning', 'N/A')
+
+                        project_context_str = f"""
+
+[PROJECT CONTEXT]
+
+- Active project_id: {project_id}
+- Project title: 「{project.title}」
+- Project type: {project.type}
+- Project summary: {project.metadata.get('summary', 'N/A') if project.metadata else 'N/A'}
+- This message is classified as: 「{assignment_relation}」, confidence = {confidence:.2f}
+- Reasoning: {reasoning}
+{recent_phases_str}
+
+IMPORTANT: When interpreting the user's request, treat it as a continuation of the above Project, unless the user explicitly states they want to start a completely different work item.
+"""
+                except Exception as e:
+                    logger.warning(f"Failed to build project context: {e}")
 
             cloud_rag_context = ""
             cloud_rag_snippet_limit = 5
@@ -590,7 +686,7 @@ Other available packs (omitted for brevity):
                         total_estimated_tokens = estimated_context_tokens + estimated_schema_tokens + estimated_pack_tokens + estimated_cloud_tokens
                         logger.info(f"After Stage 3: cloud={estimated_cloud_tokens} tokens, total={total_estimated_tokens} tokens")
 
-                context_with_history = f"""{workspace_context}{cloud_rag_context}
+                context_with_history = f"""{project_context_str}{workspace_context}{cloud_rag_context}
 
 ---
 
@@ -730,7 +826,11 @@ Message analysis hints:
         workspace_id: str,
         profile_id: str,
         message_id: Optional[str] = None,
-        use_llm: bool = True
+        use_llm: bool = True,
+        project_id: Optional[str] = None,
+        project_assignment_decision: Optional[Dict[str, Any]] = None,
+        effective_playbooks: Optional[List[Dict[str, Any]]] = None,
+        available_playbooks: Optional[List[Dict[str, Any]]] = None  # Keep for backward compatibility
     ) -> ExecutionPlan:
         """
         Generate execution plan for message
@@ -745,6 +845,8 @@ Message analysis hints:
             profile_id: User profile ID
             message_id: Message/event ID (optional)
             use_llm: Whether to use LLM-based planning as primary (default: True, falls back to rule-based if LLM fails)
+            effective_playbooks: Pre-resolved effective playbooks (from PlaybookScopeResolver)
+            available_playbooks: Available playbooks (deprecated, kept for backward compatibility)
 
         Returns:
             ExecutionPlan object with planned tasks
@@ -752,13 +854,26 @@ Message analysis hints:
         from datetime import datetime
         import uuid
 
+        playbooks_to_use = effective_playbooks if effective_playbooks is not None else available_playbooks
+
+        if effective_playbooks is None and available_playbooks is not None:
+            logger.warning(
+                f"PlanBuilder.generate_execution_plan: effective_playbooks not provided, "
+                f"using deprecated available_playbooks. This will be deprecated in future versions."
+            )
+
         task_plans = []
 
         registry = get_registry()
         available_packs = list(registry.capabilities.keys())
         available_packs = [pack_id for pack_id in available_packs if self.is_pack_available(pack_id)]
 
-        # Priority: Try LLM-based planning first if enabled
+        if playbooks_to_use:
+            effective_playbook_codes = {pb.get("playbook_code") for pb in playbooks_to_use if pb.get("playbook_code")}
+            logger.info(
+                f"PlanBuilder: Using {len(effective_playbook_codes)} effective playbooks: {list(effective_playbook_codes)[:5]}..."
+            )
+
         if use_llm:
             try:
                 llm_plans = await self._generate_llm_plan(
@@ -766,7 +881,9 @@ Message analysis hints:
                     files=files,
                     workspace_id=workspace_id,
                     profile_id=profile_id,
-                    available_packs=available_packs
+                    available_packs=available_packs,
+                    project_id=project_id,
+                    project_assignment_decision=project_assignment_decision
                 )
                 if llm_plans:
                     task_plans.extend(llm_plans)
@@ -776,8 +893,25 @@ Message analysis hints:
                             message_id=message_id or str(uuid.uuid4()),
                             workspace_id=workspace_id,
                             tasks=task_plans,
-                            created_at=datetime.utcnow()
+                            created_at=datetime.utcnow(),
+                            project_id=project_id,
+                            project_assignment_decision=project_assignment_decision
                         )
+
+                        if project_id and execution_plan:
+                            await self._create_or_link_phase(
+                                execution_plan=execution_plan,
+                                project_id=project_id,
+                                message_id=message_id or execution_plan.message_id,
+                                project_assignment_decision=project_assignment_decision
+                            )
+
+                        if playbooks_to_use is not None:
+                            if not hasattr(execution_plan, 'metadata') or execution_plan.metadata is None:
+                                execution_plan.metadata = {}
+                            execution_plan.metadata["effective_playbooks"] = playbooks_to_use
+                            execution_plan.metadata["effective_playbooks_count"] = len(playbooks_to_use)
+
                         return execution_plan
                 else:
                     logger.info("PlanBuilder: LLM planning returned no plans, falling back to rule-based")
@@ -794,7 +928,6 @@ Message analysis hints:
                 level = self.determine_side_effect_level(pack_id)
 
                 if level == SideEffectLevel.READONLY:
-                    # Auto execute readonly tasks
                     task_plans.append(TaskPlan(
                         pack_id=pack_id,
                         task_type="extract_intents",
@@ -804,7 +937,6 @@ Message analysis hints:
                         requires_cta=False
                     ))
                 elif level == SideEffectLevel.SOFT_WRITE:
-                    # Soft write: do NOT auto-execute, require CTA
                     task_plans.append(TaskPlan(
                         pack_id=pack_id,
                         task_type="extract_intents",
@@ -814,7 +946,6 @@ Message analysis hints:
                         requires_cta=True
                     ))
                 elif level == SideEffectLevel.EXTERNAL_WRITE:
-                    # External write: do NOT auto-execute, require explicit confirmation
                     task_plans.append(TaskPlan(
                         pack_id=pack_id,
                         task_type="extract_intents",
@@ -824,7 +955,6 @@ Message analysis hints:
                         requires_cta=True
                     ))
 
-        # Rule 2: If message contains task/planning keywords, start Daily Planning Pack
         planning_keywords = ["task", "plan", "todo", "planning", "schedule", "待辦", "任務", "計劃"]
         if any(keyword in message.lower() for keyword in planning_keywords):
             pack_id = "daily_planning"
@@ -836,7 +966,6 @@ Message analysis hints:
                 level = self.determine_side_effect_level(pack_id)
 
                 if level == SideEffectLevel.READONLY:
-                    # Auto execute readonly tasks
                     task_plans.append(TaskPlan(
                         pack_id=pack_id,
                         task_type="generate_tasks",
@@ -846,7 +975,6 @@ Message analysis hints:
                         requires_cta=False
                     ))
                 elif level == SideEffectLevel.SOFT_WRITE:
-                    # Soft write: do NOT auto-execute, require CTA
                     task_plans.append(TaskPlan(
                         pack_id=pack_id,
                         task_type="generate_tasks",
@@ -856,7 +984,6 @@ Message analysis hints:
                         requires_cta=True
                     ))
                 elif level == SideEffectLevel.EXTERNAL_WRITE:
-                    # External write: do NOT auto-execute, require explicit confirmation
                     task_plans.append(TaskPlan(
                         pack_id=pack_id,
                         task_type="generate_tasks",
@@ -866,23 +993,18 @@ Message analysis hints:
                         requires_cta=True
                     ))
 
-        # Rule 3: If message contains summary/draft keywords, start Content Drafting Pack
         summary_keywords = ["summary", "summarize", "summary of", "摘要", "總結"]
         draft_keywords = ["draft", "草稿", "寫", "generate", "create"]
         if any(keyword in message.lower() for keyword in summary_keywords + draft_keywords):
             pack_id = "content_drafting"
-            # Check pack availability before planning
             if not self.is_pack_available(pack_id):
                 logger.warning(f"Pack {pack_id} is not available, skipping")
             elif not self.check_pack_tools_configured(pack_id):
                 logger.warning(f"Pack {pack_id} tools are not configured, skipping")
             else:
                 level = self.determine_side_effect_level(pack_id)
-
-                # Determine output type
                 output_type = "summary" if any(keyword in message.lower() for keyword in summary_keywords) else "draft"
 
-                # Content drafting is external_write, require explicit confirmation
                 task_plans.append(TaskPlan(
                     pack_id=pack_id,
                     task_type=f"generate_{output_type}",
@@ -892,12 +1014,27 @@ Message analysis hints:
                     requires_cta=True
                 ))
 
-        # Create ExecutionPlan
         execution_plan = ExecutionPlan(
             message_id=message_id or str(uuid.uuid4()),
             workspace_id=workspace_id,
             tasks=task_plans,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            project_id=project_id,
+            project_assignment_decision=project_assignment_decision
         )
+
+        if project_id and execution_plan:
+            await self._create_or_link_phase(
+                execution_plan=execution_plan,
+                project_id=project_id,
+                message_id=message_id or execution_plan.message_id,
+                project_assignment_decision=project_assignment_decision
+            )
+
+        if playbooks_to_use is not None:
+            if not hasattr(execution_plan, 'metadata') or execution_plan.metadata is None:
+                execution_plan.metadata = {}
+            execution_plan.metadata["effective_playbooks"] = playbooks_to_use
+            execution_plan.metadata["effective_playbooks_count"] = len(playbooks_to_use)
 
         return execution_plan

@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 EXECUTION_PLAN_PROMPT = """You are an Execution Planning Agent. Your task is to analyze the user's request
 and create a structured execution plan BEFORE taking any action.
 
+{project_context}
+
 ## User Request
 {user_request}
 
@@ -84,9 +86,14 @@ async def generate_execution_plan(
     execution_mode: str = "execution",
     expected_artifacts: Optional[List[str]] = None,
     available_playbooks: Optional[List[Dict[str, Any]]] = None,
+    effective_playbooks: Optional[List[Dict[str, Any]]] = None,
     llm_provider: Any = None,
     model_name: Optional[str] = None,
-    progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    project_id: Optional[str] = None,
+    project_assignment_decision: Optional[Dict[str, Any]] = None,
+    tenant_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Optional[ExecutionPlan]:
     """
     Generate a structured ExecutionPlan from user request using LLM
@@ -99,10 +106,15 @@ async def generate_execution_plan(
         message_id: Message/event ID
         execution_mode: qa/execution/hybrid
         expected_artifacts: Expected artifact types for this workspace
-        available_playbooks: List of available playbooks
+        available_playbooks: List of available playbooks (deprecated, kept for backward compatibility)
+        effective_playbooks: Pre-resolved effective playbooks from PlaybookScopeResolver
         llm_provider: LLM provider instance
         model_name: Model to use
         progress_callback: Optional callback for progress updates (e.g., re-evaluation status)
+        project_id: Optional project ID for project context
+        project_assignment_decision: Optional project assignment decision metadata
+        tenant_id: Tenant ID (for multi-tenant)
+        user_id: Current user ID
 
     Returns:
         ExecutionPlan or None if generation fails
@@ -123,12 +135,15 @@ async def generate_execution_plan(
         logger.error(error_msg)
         raise ValueError(error_msg)
 
+    # Use effective_playbooks if provided, fallback to available_playbooks for backward compatibility
+    playbooks_to_use = effective_playbooks if effective_playbooks is not None else available_playbooks
+
     # Format available playbooks for prompt - make it very clear and explicit
     playbooks_str = "None available"
     playbook_codes_list = []
-    if available_playbooks:
+    if playbooks_to_use:
         playbooks_list = []
-        for pb in available_playbooks:
+        for pb in playbooks_to_use:
             code = pb.get('playbook_code', pb.get('code', 'unknown'))
             name = pb.get('name', code)
             desc = pb.get('description', '')[:100]
@@ -142,8 +157,53 @@ async def generate_execution_plan(
         if playbook_codes_list:
             playbooks_str += f"\n\n## Valid Playbook Codes (use EXACTLY these codes, case-sensitive):\n" + ", ".join(sorted(playbook_codes_list))
 
+    # Build project context string
+    project_context_str = ""
+    if project_id and project_assignment_decision:
+        try:
+            from backend.app.services.project.project_manager import ProjectManager
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            store = MindscapeStore()
+            project_manager = ProjectManager(store)
+            project = await project_manager.get_project(project_id, workspace_id=workspace_id)
+
+            if project:
+                # Format recent phases (if available)
+                recent_phases_str = ""
+                try:
+                    from backend.app.services.project.project_phase_manager import ProjectPhaseManager
+                    phase_manager = ProjectPhaseManager(store=store)
+                    recent_phases = await phase_manager.get_recent_phases(project_id=project_id, limit=3)
+                    if recent_phases:
+                        phase_lines = [f"  {i+1}. Phase {p.kind}: {p.summary[:80]}" for i, p in enumerate(recent_phases)]
+                        recent_phases_str = "\n- Related previous phases:\n" + "\n".join(phase_lines)
+                except Exception as e:
+                    logger.debug(f"Failed to load recent phases for project {project_id}: {e}")
+
+                assignment_relation = project_assignment_decision.get('relation', 'unknown')
+                confidence = project_assignment_decision.get('confidence', 0.0)
+                reasoning = project_assignment_decision.get('reasoning', 'N/A')
+
+                project_context_str = f"""
+[PROJECT CONTEXT]
+
+- Active project_id: {project_id}
+- Project title: 「{project.title}」
+- Project type: {project.type}
+- Project summary: {project.metadata.get('summary', 'N/A') if project.metadata else 'N/A'}
+- This message is classified as: 「{assignment_relation}」, confidence = {confidence:.2f}
+- Reasoning: {reasoning}
+{recent_phases_str}
+
+IMPORTANT: When interpreting the user's request, treat it as a continuation of the above Project, unless the user explicitly states they want to start a completely different work item.
+"""
+        except Exception as e:
+            logger.warning(f"Failed to build project context: {e}")
+
     # Build prompt
     prompt = EXECUTION_PLAN_PROMPT.format(
+        project_context=project_context_str,
         user_request=user_request,
         execution_mode=execution_mode,
         expected_artifacts=expected_artifacts or ["various"],
@@ -211,13 +271,21 @@ async def generate_execution_plan(
             progress_callback=progress_callback
         )
 
-        return _create_execution_plan(
+        execution_plan = _create_execution_plan(
             plan_data=plan_data,
             workspace_id=workspace_id,
             message_id=message_id,
             execution_mode=execution_mode,
             available_playbooks=available_playbooks
         )
+
+        # Set project context if provided
+        if project_id:
+            execution_plan.project_id = project_id
+        if project_assignment_decision:
+            execution_plan.project_assignment_decision = project_assignment_decision
+
+        return execution_plan
 
     except Exception as e:
         logger.error(f"[ExecutionPlanGenerator] Failed to generate plan: {e}", exc_info=True)
@@ -600,7 +668,9 @@ def _create_execution_plan(
         tasks=tasks,  # Now includes tasks for execution
         execution_mode=execution_mode,
         confidence=plan_data.get('confidence', 0.7),
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
+        project_id=None,  # Will be set by caller if needed
+        project_assignment_decision=None  # Will be set by caller if needed
     )
 
 
