@@ -517,7 +517,6 @@ class ExecutionSession(BaseModel):
     failure_reason: Optional[str] = Field(None, description="Failure reason if failed")
     default_cluster: Optional[str] = Field(None, description="Default cluster identifier for tool execution (e.g., 'local_mcp' or custom cluster name)")
 
-    # Checkpoint and resume support
     last_checkpoint: Optional[Dict[str, Any]] = Field(
         None,
         description="Last checkpoint data (JSON snapshot of execution state)"
@@ -608,7 +607,7 @@ class PlaybookExecutionStep(BaseModel):
             execution_id=payload.get("execution_id", ""),
             step_index=payload.get("step_index", 0),
             step_name=payload.get("step_name", ""),
-            total_steps=payload.get("total_steps"),  # Extract total_steps from payload
+            total_steps=payload.get("total_steps"),
             status=payload.get("status", "pending"),
             step_type=payload.get("step_type", "agent_action"),
             agent_type=payload.get("agent_type"),

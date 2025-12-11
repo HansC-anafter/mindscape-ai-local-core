@@ -124,7 +124,6 @@ async def generate_execution_plan(
         logger.info("[ExecutionPlanGenerator] Skipping plan generation for QA mode")
         return None
 
-    # Validate required parameters
     if not model_name:
         error_msg = "Cannot generate execution plan: model_name is required"
         logger.error(error_msg)
@@ -138,7 +137,6 @@ async def generate_execution_plan(
     # Use effective_playbooks if provided, fallback to available_playbooks for backward compatibility
     playbooks_to_use = effective_playbooks if effective_playbooks is not None else available_playbooks
 
-    # Format available playbooks for prompt - make it very clear and explicit
     playbooks_str = "None available"
     playbook_codes_list = []
     if playbooks_to_use:
@@ -153,11 +151,9 @@ async def generate_execution_plan(
                 playbook_codes_list.append(code)
         playbooks_str = "\n".join(playbooks_list) if playbooks_list else "None available"
 
-        # Add explicit list of valid playbook codes for clarity
         if playbook_codes_list:
             playbooks_str += f"\n\n## Valid Playbook Codes (use EXACTLY these codes, case-sensitive):\n" + ", ".join(sorted(playbook_codes_list))
 
-    # Build project context string
     project_context_str = ""
     if project_id and project_assignment_decision:
         try:
@@ -169,7 +165,6 @@ async def generate_execution_plan(
             project = await project_manager.get_project(project_id, workspace_id=workspace_id)
 
             if project:
-                # Format recent phases (if available)
                 recent_phases_str = ""
                 try:
                     from backend.app.services.project.project_phase_manager import ProjectPhaseManager
@@ -201,7 +196,6 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
         except Exception as e:
             logger.warning(f"Failed to build project context: {e}")
 
-    # Build prompt
     prompt = EXECUTION_PLAN_PROMPT.format(
         project_context=project_context_str,
         user_request=user_request,
@@ -217,7 +211,6 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             user_prompt=prompt
         )
 
-        # Get provider from llm_provider manager based on model name
         provider_name = None
         if "gemini" in model_name.lower():
             provider_name = "vertex-ai"
@@ -252,14 +245,12 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
         logger.info(f"[ExecutionPlanGenerator] Received LLM response, length: {len(response)} chars")
         logger.debug(f"[ExecutionPlanGenerator] Response preview (first 500 chars): {response[:500]}")
 
-        # Parse JSON response
         plan_data = _parse_plan_json(response)
         if not plan_data:
             error_msg = "Failed to parse execution plan from LLM response"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Validate and potentially re-evaluate invalid playbook codes
         plan_data = await _validate_and_reevaluate_plan(
             plan_data=plan_data,
             available_playbooks=available_playbooks,
@@ -279,7 +270,6 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             available_playbooks=available_playbooks
         )
 
-        # Set project context if provided
         if project_id:
             execution_plan.project_id = project_id
         if project_assignment_decision:
@@ -319,7 +309,6 @@ def _parse_plan_json(response: str) -> Optional[Dict[str, Any]]:
                 try:
                     return json.loads(json_str)
                 except json.JSONDecodeError as e:
-                    # Log more details about the parsing error
                     logger.warning(f"[ExecutionPlanGenerator] JSON parse error at position {e.pos}: {e.msg}")
                     logger.warning(f"[ExecutionPlanGenerator] JSON snippet around error: {json_str[max(0, e.pos-50):e.pos+50]}")
                     # Try to fix common issues: incomplete JSON (missing closing braces)
@@ -352,7 +341,6 @@ async def _validate_and_reevaluate_plan(
     if not available_playbooks:
         return plan_data
 
-    # Build set of valid playbook codes
     valid_playbook_codes = set()
     playbook_code_to_info = {}
     for pb in available_playbooks:
@@ -368,7 +356,6 @@ async def _validate_and_reevaluate_plan(
     # Special packs that are always valid
     special_packs = {"intent_extraction", "semantic_seeds"}
 
-    # Check for invalid playbook codes
     invalid_steps = []
     steps = plan_data.get('steps', [])
 
@@ -394,7 +381,6 @@ async def _validate_and_reevaluate_plan(
     if not invalid_steps:
         return plan_data
 
-    # Log invalid codes found
     logger.warning(
         f"[ExecutionPlanGenerator] Found {len(invalid_steps)} steps with invalid playbook codes. "
         f"Re-evaluating with LLM..."
@@ -424,7 +410,6 @@ async def _validate_and_reevaluate_plan(
             'available_playbook_count': len(available_playbooks) if available_playbooks else 0
         })
 
-    # Build re-evaluation prompt
     valid_codes_list = sorted([info['code'] for info in playbook_code_to_info.values()])
 
     reevaluation_prompt = f"""You previously generated an execution plan, but some steps used invalid playbook codes that are not in the available list.
@@ -457,7 +442,6 @@ Return the CORRECTED execution plan as JSON with the same structure. Only fix th
             user_prompt=reevaluation_prompt
         )
 
-        # Get provider
         provider_name = None
         if "gemini" in model_name.lower():
             provider_name = "vertex-ai"
@@ -497,7 +481,6 @@ Return the CORRECTED execution plan as JSON with the same structure. Only fix th
     except Exception as e:
         logger.warning(f"[ExecutionPlanGenerator] Re-evaluation failed: {e}, using original plan with filtered steps", exc_info=True)
 
-    # Fallback: remove invalid steps from plan
     logger.info(f"[ExecutionPlanGenerator] Removing {len(invalid_steps)} steps with invalid playbook codes")
     valid_steps = [step for i, step in enumerate(steps) if i not in [s['index'] for s in invalid_steps]]
     plan_data['steps'] = valid_steps
@@ -520,7 +503,6 @@ def _convert_steps_to_tasks(
         plan_confidence: Confidence score from plan
         available_playbooks: List of available playbooks to validate against
     """
-    # Build set of valid playbook codes for validation
     valid_playbook_codes = set()
     if available_playbooks:
         for pb in available_playbooks:
@@ -533,10 +515,8 @@ def _convert_steps_to_tasks(
 
     tasks = []
     for step in steps:
-        # Determine pack_id from playbook_code or tool_name
         pack_id = None
         if step.playbook_code:
-            # Validate playbook_code against available playbooks
             playbook_code_lower = step.playbook_code.lower()
             is_valid = (
                 playbook_code_lower in valid_playbook_codes or
@@ -544,7 +524,6 @@ def _convert_steps_to_tasks(
             )
 
             if not is_valid:
-                # Skip invalid playbook codes from LLM
                 logger.warning(
                     f"[ExecutionPlanGenerator] Step {step.step_id} (intent: {step.intent}) "
                     f"has invalid playbook_code '{step.playbook_code}' not in available playbooks. "
@@ -557,11 +536,8 @@ def _convert_steps_to_tasks(
                 )
                 continue
 
-            # Use playbook_code as pack_id (most playbooks map 1:1 to packs)
             pack_id = step.playbook_code
         elif step.tool_name:
-            # Try to map tool_name to pack_id
-            # Common mappings:
             tool_to_pack = {
                 "generic_drafting": "content_drafting",
                 "drafting": "content_drafting",
@@ -572,7 +548,6 @@ def _convert_steps_to_tasks(
             pack_id = tool_to_pack.get(step.tool_name, step.tool_name)
 
         if not pack_id:
-            # Skip steps without playbook or tool
             logger.warning(
                 f"[ExecutionPlanGenerator] Step {step.step_id} (intent: {step.intent}) "
                 f"has no playbook_code or tool_name, skipping task conversion. "
@@ -585,8 +560,7 @@ def _convert_steps_to_tasks(
             )
             continue
 
-        # Determine task_type from step intent
-        task_type = "execute"  # Default task type
+        task_type = "execute"
         if "generate" in step.intent.lower() or "create" in step.intent.lower():
             task_type = "generate_draft"
         elif "extract" in step.intent.lower() or "analyze" in step.intent.lower():
@@ -594,7 +568,6 @@ def _convert_steps_to_tasks(
         elif "plan" in step.intent.lower() or "schedule" in step.intent.lower():
             task_type = "generate_tasks"
 
-        # Create TaskPlan
         task_plan = TaskPlan(
             pack_id=pack_id,
             task_type=task_type,
@@ -642,7 +615,6 @@ def _create_execution_plan(
         )
         steps.append(step)
 
-    # Convert steps to tasks for execution
     plan_confidence = plan_data.get('confidence', 0.7)
     tasks = _convert_steps_to_tasks(steps, plan_confidence=plan_confidence, available_playbooks=available_playbooks)
 
@@ -694,7 +666,6 @@ def _create_minimal_plan(
         side_effect_level="soft_write"
     )
 
-    # Convert step to task
     tasks = _convert_steps_to_tasks([step], plan_confidence=0.5)
 
     return ExecutionPlan(

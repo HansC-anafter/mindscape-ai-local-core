@@ -29,6 +29,40 @@ class VisibleIn(str, Enum):
     CONSOLE_ONLY = "console_only"
 
 
+class PlaybookOwnerType(str, Enum):
+    """
+    Playbook ownership type
+
+    Determines who owns and controls this playbook:
+    - system: Official Mindscape playbooks (e.g., basic writing, SEO, vectorization)
+    - tenant: Tenant-level shared playbooks (multi-workspace)
+    - workspace: Workspace-level shared playbooks (team SOPs)
+    - user: Personal playbooks (individual workflows)
+    - external_provider: Playbooks from external integrations
+    """
+    SYSTEM = "system"
+    TENANT = "tenant"
+    WORKSPACE = "workspace"
+    USER = "user"
+    EXTERNAL_PROVIDER = "external_provider"
+
+
+class PlaybookVisibility(str, Enum):
+    """
+    Playbook visibility / sharing level
+
+    Controls who can see and use this playbook:
+    - private: Only owner can use
+    - workspace_shared: Visible to all users in the same workspace
+    - tenant_shared: Visible to all workspaces in the same tenant
+    - public_template: Can be copied as template, but execution requires importing to own space
+    """
+    PRIVATE = "private"
+    WORKSPACE_SHARED = "workspace_shared"
+    TENANT_SHARED = "tenant_shared"
+    PUBLIC_TEMPLATE = "public_template"
+
+
 class ToolDependency(BaseModel):
     """
     Tool dependency declaration
@@ -202,16 +236,51 @@ class PlaybookMetadata(BaseModel):
         description="Where this playbook should be visible in UI"
     )
 
-    # Scope and Owner
+    # Scope and Owner (legacy fields, kept for backward compatibility)
     scope: Optional[Dict[str, Any]] = Field(
         default_factory=lambda: {"visibility": "system", "editable": False},
         description="Scope configuration (visibility, editable). "
                     "Values: system, tenant, profile, workspace. "
-                    "system/tenant/profile = template (shared), workspace = instance (forked)"
+                    "system/tenant/profile = template (shared), workspace = instance (forked). "
+                    "DEPRECATED: Use owner_type, owner_id, visibility instead."
     )
     owner: Optional[Dict[str, Any]] = Field(
         default_factory=lambda: {"type": "system"},
-        description="Owner information"
+        description="Owner information. DEPRECATED: Use owner_type, owner_id instead."
+    )
+
+    # Identity and ownership (new fields)
+    owner_type: PlaybookOwnerType = Field(
+        default=PlaybookOwnerType.USER,
+        description="Playbook ownership type: system, tenant, workspace, user, external_provider"
+    )
+    owner_id: str = Field(
+        default="default_user",
+        description="Owner ID: system_id / tenant_id / workspace_id / user_id / provider_id"
+    )
+    visibility: PlaybookVisibility = Field(
+        default=PlaybookVisibility.WORKSPACE_SHARED,
+        description="Visibility level: private, workspace_shared, tenant_shared, public_template"
+    )
+
+    # Scope and capability tags
+    capability_tags: List[str] = Field(
+        default_factory=list,
+        description="Capability tags for filtering (e.g., ['writing', 'seo', 'vectorization'])"
+    )
+    project_types: Optional[List[str]] = Field(
+        None,
+        description="Applicable project types (e.g., ['writing', 'website', 'course'])"
+    )
+    allowed_tools: Optional[List[str]] = Field(
+        None,
+        description="Allowed tools / connectors for this playbook (whitelist). NOTE: v1 不啟用，僅預留欄位"
+    )
+
+    # Workspace sharing for user-owned playbooks
+    shared_with_workspaces: List[str] = Field(
+        default_factory=list,
+        description="List of workspace IDs this user-owned playbook is shared with (for workspace_shared visibility)"
     )
 
     def get_scope_level(self) -> Optional[str]:
@@ -539,6 +608,8 @@ class PlaybookInvocationContext(BaseModel):
     The same playbook can have different behaviors based on the context.
     """
     mode: InvocationMode = Field(..., description="Execution mode: standalone, plan_node, or subroutine")
+    project_id: Optional[str] = Field(None, description="Project ID")
+    phase_id: Optional[str] = Field(None, description="Project Phase ID")
     plan_id: Optional[str] = Field(None, description="Plan ID (if mode is plan_node)")
     task_id: Optional[str] = Field(None, description="Task ID (if mode is plan_node)")
     plan_context: Optional[PlanContext] = Field(None, description="Plan context (if mode is plan_node)")

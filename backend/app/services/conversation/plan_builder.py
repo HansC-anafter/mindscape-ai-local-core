@@ -60,10 +60,9 @@ class PlanBuilder:
                 if external_config and isinstance(external_config, dict):
                     self.external_backend = await load_external_backend(external_config)
                     if self.external_backend:
-                        logger.info(f"Loaded external backend from user config for profile {profile_id}")
-                        return
+                    logger.info(f"Loaded external backend from user config for profile {profile_id}")
+                    return
 
-            # Fallback to environment variables
             driver = os.getenv("EXTERNAL_BACKEND_DRIVER")
             if driver:
                 options = {
@@ -105,16 +104,9 @@ class PlanBuilder:
             from backend.app.services.project.project_phase_manager import ProjectPhaseManager
             phase_manager = ProjectPhaseManager(store=self.store)
 
-            # Determine phase kind based on assignment decision
-            # NOTE: v1 simplified logic
-            # Future enhancements:
-            # - If project has no phases → first one is always `initial_brief`
-            # - Use keyword detection ("revision", "extension" → revision)
-            # - Or execution result detection (many new artifacts → extension)
             assignment_relation = project_assignment_decision.get("relation") if project_assignment_decision else None
             phase_kind = "revision" if assignment_relation == "same_project" else "initial_brief"
 
-            # Create phase
             phase = await phase_manager.create_phase(
                 project_id=project_id,
                 message_id=message_id,
@@ -323,11 +315,9 @@ class PlanBuilder:
             provider_name = None
 
             if chat_setting:
-                # Get provider from model metadata or infer from model name
                 provider_name = chat_setting.metadata.get("provider")
                 if not provider_name:
                     model_name = str(chat_setting.value)
-                    # Infer provider from model name
                     if "gemini" in model_name.lower():
                         provider_name = "vertex-ai"
                     elif "gpt" in model_name.lower() or "text-" in model_name.lower():
@@ -335,20 +325,17 @@ class PlanBuilder:
                     elif "claude" in model_name.lower():
                         provider_name = "anthropic"
 
-            # Get provider from user settings (no fallback)
             try:
                 llm_provider = get_llm_provider_from_settings(llm_manager)
             except ValueError as e:
                 logger.warning(f"LLM provider not available: {e}, falling back to rule-based planning")
                 return []
 
-            # Build workspace context using ContextBuilder
             from backend.app.services.conversation.context_builder import ContextBuilder
             from ...services.stores.timeline_items_store import TimelineItemsStore
 
             timeline_items_store = TimelineItemsStore(self.store.db_path)
 
-            # Get model name from system settings - must be configured by user
             from ...services.system_settings_store import SystemSettingsStore
             settings_store = SystemSettingsStore()
             chat_setting = settings_store.get_setting("chat_model")
@@ -388,7 +375,6 @@ class PlanBuilder:
                 mode="planning"
             )
 
-            # Build project context if available
             project_context_str = ""
             if project_id and project_assignment_decision:
                 try:
@@ -397,7 +383,6 @@ class PlanBuilder:
                     project = await project_manager.get_project(project_id, workspace_id=workspace_id)
 
                     if project:
-                        # Format recent phases (if available)
                         recent_phases_str = ""
                         try:
                             from backend.app.services.project.project_phase_manager import ProjectPhaseManager
@@ -742,7 +727,6 @@ Message analysis hints:
                 ]
             }
 
-            # Extract structured plan from LLM (with full workspace context)
             result = await extract(
                 text=context_with_history,
                 schema_description=schema_description,
@@ -767,7 +751,6 @@ Message analysis hints:
             logger.info(f"Extracted {len(tasks_data)} tasks from LLM response: {tasks_data}")
             logger.info(f"Available packs: {available_packs}")
 
-            # Convert to TaskPlan objects
             task_plans = []
             for task_data in tasks_data:
                 pack_id = task_data.get("pack_id")
@@ -784,7 +767,6 @@ Message analysis hints:
 
                 level = self.determine_side_effect_level(pack_id)
 
-                # Extract confidence from LLM response, default to 0.8 if not provided
                 confidence = task_data.get("confidence", 0.8)
                 if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
                     logger.warning(f"Invalid confidence value {confidence} for pack {pack_id}, using default 0.8")

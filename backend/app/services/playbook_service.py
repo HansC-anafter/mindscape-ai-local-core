@@ -14,7 +14,9 @@ from backend.app.models.playbook import (
     PlaybookInvocationContext,
     InvocationMode,
     InvocationStrategy,
-    InvocationTolerance
+    InvocationTolerance,
+    PlaybookOwnerType,
+    PlaybookVisibility
 )
 from backend.app.services.playbook_registry import PlaybookRegistry, PlaybookSource
 from backend.app.services.playbook_loaders import PlaybookJsonLoader
@@ -72,8 +74,6 @@ class PlaybookService:
             from ...services.cloud_providers.official import OfficialCloudProvider
 
             self.cloud_extension_manager = CloudExtensionManager.instance()
-            # Create a provider wrapper for the old client
-            # This is a temporary bridge for backward compatibility
             logger.warning("Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager.")
         else:
             self.cloud_extension_manager = None
@@ -99,7 +99,6 @@ class PlaybookService:
         Returns:
             Playbook object or None
         """
-        # Log the locale being passed
         logger.info(f"PlaybookService.get_playbook called: code={playbook_code}, locale={locale}, workspace_id={workspace_id}")
         if locale is None:
             import traceback
@@ -108,7 +107,6 @@ class PlaybookService:
 
         playbook = await self.registry.get_playbook(playbook_code, locale, workspace_id)
 
-        # Check runtime_tier compatibility if specified
         if playbook and runtime_tier:
             playbook_runtime_tier = getattr(playbook.metadata, 'runtime_tier', None)
             if playbook_runtime_tier == "cloud_only" and runtime_tier == "local":
@@ -148,7 +146,6 @@ class PlaybookService:
             tags=tags
         )
 
-        # Filter by runtime_tier if specified
         if runtime_tier:
             filtered_playbooks = []
             for playbook in playbooks:
@@ -193,13 +190,11 @@ class PlaybookService:
             Forked Playbook instance or None if failed
         """
         try:
-            # Get source playbook
             source_playbook = await self.get_playbook(source_playbook_code, locale, workspace_id)
             if not source_playbook:
                 logger.error(f"Source playbook not found: {source_playbook_code}")
                 return None
 
-            # Check if source is a template
             if not source_playbook.metadata.is_template():
                 logger.warning(
                     f"Cannot fork non-template playbook: {source_playbook_code} "
@@ -207,7 +202,6 @@ class PlaybookService:
                 )
                 return None
 
-            # Create new playbook metadata with workspace scope
             new_metadata = PlaybookMetadata(
                 playbook_code=target_playbook_code,
                 version=source_playbook.metadata.version,
@@ -231,7 +225,6 @@ class PlaybookService:
                 kind=source_playbook.metadata.kind,
                 interaction_mode=source_playbook.metadata.interaction_mode.copy(),
                 visible_in=source_playbook.metadata.visible_in.copy(),
-                # Set scope to workspace (instance)
                 scope={"visibility": "workspace", "editable": True},
                 owner={"type": "workspace", "workspace_id": workspace_id, "profile_id": profile_id},
                 runtime_handler=source_playbook.metadata.runtime_handler,
@@ -239,7 +232,6 @@ class PlaybookService:
                 runtime=source_playbook.metadata.runtime,
             )
 
-            # Create forked playbook
             forked_playbook = Playbook(
                 metadata=new_metadata,
                 sop_content=source_playbook.sop_content,
@@ -249,8 +241,6 @@ class PlaybookService:
             # Save forked playbook to database (user playbooks)
             if self.store:
                 from backend.app.services.playbook_loaders.database_loader import PlaybookDatabaseLoader
-                # TODO: Implement save_playbook in PlaybookDatabaseLoader
-                # For now, we'll need to add this functionality
                 logger.info(
                     f"Forked playbook {source_playbook_code} -> {target_playbook_code} "
                     f"for workspace {workspace_id}"
@@ -286,7 +276,6 @@ class PlaybookService:
         if not playbook:
             return False, "Playbook not found"
 
-        # Check if it's a template
         if playbook.metadata.is_template():
             if edit_type == "sop":
                 return False, (
@@ -520,4 +509,153 @@ class PlaybookService:
             playbook=playbook,
             playbook_json=playbook_json
         )
+
+    async def list_by_owner_type(
+        self,
+        owner_type: PlaybookOwnerType,
+        owner_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List playbooks by owner type (bare query, no business rules)
+
+        Args:
+            owner_type: Owner type to filter
+            owner_id: Optional owner ID to filter
+
+        Returns:
+            List of playbooks (raw data, no visibility filtering)
+        """
+        all_playbooks = await self.list_playbooks()
+
+        filtered = []
+        for pb in all_playbooks:
+            pb_owner_type = getattr(pb, 'owner_type', None)
+            pb_owner_id = getattr(pb, 'owner_id', None)
+
+            if pb_owner_type:
+                if pb_owner_type == owner_type:
+                    if owner_id is None or pb_owner_id == owner_id:
+                        filtered.append(self._metadata_to_dict(pb))
+            else:
+                legacy_scope = getattr(pb, 'scope', {})
+                legacy_owner = getattr(pb, 'owner', {})
+
+                if owner_type == PlaybookOwnerType.SYSTEM:
+                    if legacy_scope.get("visibility") == "system":
+                        filtered.append(self._metadata_to_dict(pb))
+                elif owner_type == PlaybookOwnerType.WORKSPACE:
+                    if legacy_scope.get("visibility") == "workspace":
+                        if owner_id is None or legacy_owner.get("workspace_id") == owner_id:
+                            filtered.append(self._metadata_to_dict(pb))
+                elif owner_type == PlaybookOwnerType.USER:
+                    if legacy_owner.get("type") in ("user", "profile"):
+                        if owner_id is None or legacy_owner.get("profile_id") == owner_id:
+                            filtered.append(self._metadata_to_dict(pb))
+
+        return filtered
+
+    async def list_for_workspace(
+        self,
+        workspace_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        List playbooks for workspace (bare query)
+
+        Returns:
+            List of workspace-owned playbooks (raw data)
+        """
+        return await self.list_by_owner_type(
+            owner_type=PlaybookOwnerType.WORKSPACE,
+            owner_id=workspace_id
+        )
+
+    async def list_for_user(
+        self,
+        user_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        List playbooks for user (bare query)
+
+        Returns:
+            List of user-owned playbooks (raw data)
+        """
+        return await self.list_by_owner_type(
+            owner_type=PlaybookOwnerType.USER,
+            owner_id=user_id
+        )
+
+    def _metadata_to_dict(self, metadata: PlaybookMetadata) -> Dict[str, Any]:
+        """
+        Convert PlaybookMetadata to dict format for PlaybookScopeResolver
+
+        Args:
+            metadata: PlaybookMetadata instance
+
+        Returns:
+            Dict representation with all identity fields
+        """
+        result = {
+            "playbook_code": metadata.playbook_code,
+            "version": metadata.version,
+            "name": metadata.name,
+            "description": metadata.description,
+            "tags": metadata.tags,
+            "kind": metadata.kind.value if hasattr(metadata.kind, 'value') else metadata.kind,
+            "interaction_mode": [m.value if hasattr(m, 'value') else m for m in metadata.interaction_mode],
+            "visible_in": [v.value if hasattr(v, 'value') else v for v in metadata.visible_in],
+        }
+
+        if hasattr(metadata, 'owner_type'):
+            result["owner_type"] = metadata.owner_type.value if hasattr(metadata.owner_type, 'value') else metadata.owner_type
+        else:
+            legacy_scope = getattr(metadata, 'scope', {})
+            legacy_owner = getattr(metadata, 'owner', {})
+            if legacy_scope.get("visibility") == "system":
+                result["owner_type"] = PlaybookOwnerType.SYSTEM.value
+            elif legacy_scope.get("visibility") == "workspace":
+                result["owner_type"] = PlaybookOwnerType.WORKSPACE.value
+            else:
+                result["owner_type"] = PlaybookOwnerType.USER.value
+
+        if hasattr(metadata, 'owner_id'):
+            result["owner_id"] = metadata.owner_id
+        else:
+            legacy_owner = getattr(metadata, 'owner', {})
+            if result["owner_type"] == PlaybookOwnerType.WORKSPACE.value:
+                result["owner_id"] = legacy_owner.get("workspace_id", "default_workspace")
+            elif result["owner_type"] == PlaybookOwnerType.USER.value:
+                result["owner_id"] = legacy_owner.get("profile_id", "default_user")
+            else:
+                result["owner_id"] = "system"
+
+        if hasattr(metadata, 'visibility'):
+            result["visibility"] = metadata.visibility.value if hasattr(metadata.visibility, 'value') else metadata.visibility
+        else:
+            legacy_scope = getattr(metadata, 'scope', {})
+            if legacy_scope.get("visibility") in ("system", "tenant", "profile"):
+                result["visibility"] = PlaybookVisibility.TENANT_SHARED.value
+            else:
+                result["visibility"] = PlaybookVisibility.WORKSPACE_SHARED.value
+
+        if hasattr(metadata, 'capability_tags'):
+            result["capability_tags"] = metadata.capability_tags
+        else:
+            result["capability_tags"] = []
+
+        if hasattr(metadata, 'project_types'):
+            result["project_types"] = metadata.project_types
+        else:
+            result["project_types"] = None
+
+        if hasattr(metadata, 'shared_with_workspaces'):
+            result["shared_with_workspaces"] = metadata.shared_with_workspaces
+        else:
+            result["shared_with_workspaces"] = []
+
+        if hasattr(metadata, 'allowed_tools'):
+            result["allowed_tools"] = metadata.allowed_tools
+        else:
+            result["allowed_tools"] = None
+
+        return result
 

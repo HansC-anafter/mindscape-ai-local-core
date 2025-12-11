@@ -61,7 +61,6 @@ async def generate_and_execute_plan(
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Determine provider from model name
         from ..utils.llm_provider import determine_provider_from_model
         provider_name = determine_provider_from_model(model_name)
 
@@ -73,7 +72,6 @@ async def generate_and_execute_plan(
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Get provider
         plan_llm_provider = llm_provider_manager.get_provider(provider_name)
         if not plan_llm_provider:
             error_msg = (

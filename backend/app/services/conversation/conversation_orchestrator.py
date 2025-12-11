@@ -99,7 +99,6 @@ class ConversationOrchestrator:
         self.timeline_items_store = TimelineItemsStore(store.db_path)
         self.artifacts_store = ArtifactsStore(store.db_path)
 
-        # Initialize IntentSteward (Phase 1: observation mode)
         self.intent_steward = IntentStewardService(
             store=store,
             default_locale=default_locale
@@ -159,7 +158,6 @@ class ConversationOrchestrator:
             playbook_service=playbook_service
         )
 
-        # Update SuggestionActionHandler with CoordinatorFacade reference
         self.suggestion_action_handler.execution_coordinator = self.execution_coordinator
 
         self.qa_response_generator = QAResponseGenerator(
@@ -168,7 +166,6 @@ class ConversationOrchestrator:
             default_locale=default_locale
         )
 
-        # Initialize ProjectAssignmentService
         from backend.app.services.project.project_assignment_service import ProjectAssignmentService
         self.project_assignment_service = ProjectAssignmentService(store=self.store)
 
@@ -200,7 +197,6 @@ class ConversationOrchestrator:
             Response dict with events, triggered_playbook, pending_tasks
         """
         try:
-            # Create execution context for file processing and other operations
             from backend.app.core.execution_context import ExecutionContext
             ctx = ExecutionContext(
                 actor_id=profile_id,
