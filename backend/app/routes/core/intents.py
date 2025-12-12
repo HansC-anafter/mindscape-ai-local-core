@@ -60,6 +60,7 @@ class CreateIntentRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = "CONFIRMED"  # Default to CONFIRMED
     parent_id: Optional[str] = None
+    storyline_tags: Optional[List[str]] = Field(default_factory=list, description="Storyline tags for cross-project story tracking")
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -69,6 +70,7 @@ class UpdateIntentRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     parent_id: Optional[str] = None
+    storyline_tags: Optional[List[str]] = Field(None, description="Storyline tags for cross-project story tracking")
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -187,13 +189,17 @@ async def list_intents(
             priority=None
         )
 
-        # Filter by workspace_id in metadata if needed
-        # (Intents may be associated with workspace via metadata)
         filtered_intents = []
         for intent in intents:
             intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
-            if intent_workspace_id == workspace_id or not intent_workspace_id:
-                # If no workspace_id in metadata, assume it belongs to this workspace
+
+            if intent_workspace_id == workspace_id:
+                filtered_intents.append(intent)
+            elif not intent_workspace_id and intent.profile_id == profile_id:
+                if not intent.metadata:
+                    intent.metadata = {}
+                intent.metadata["workspace_id"] = workspace_id
+                store.update_intent(intent)
                 filtered_intents.append(intent)
 
         if tree:
@@ -280,6 +286,7 @@ async def create_intent(
             status=intent_status,
             priority=PriorityLevel.MEDIUM,
             tags=[],
+            storyline_tags=request.storyline_tags or [],
             category=None,
             progress_percentage=0,
             created_at=datetime.utcnow(),
@@ -324,6 +331,18 @@ async def update_intent(
         if not intent_card:
             raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
 
+        existing_workspace_id = intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+
+        if request.metadata and "workspace_id" in request.metadata:
+            requested_workspace_id = request.metadata.get("workspace_id")
+            if existing_workspace_id and requested_workspace_id != existing_workspace_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Cannot change intent workspace_id from {existing_workspace_id} to {requested_workspace_id}. Workspace isolation is enforced."
+                )
+            if not existing_workspace_id:
+                existing_workspace_id = requested_workspace_id
+
         # Update fields if provided
         if request.title is not None:
             intent_card.title = request.title
@@ -339,12 +358,13 @@ async def update_intent(
             }
             intent_card.status = status_map.get(request.status.upper(), IntentStatus.ACTIVE)
 
+        if request.storyline_tags is not None:
+            intent_card.storyline_tags = request.storyline_tags
+
         if request.parent_id is not None:
-            # Handle parent change
             old_parent_id = intent_card.parent_intent_id
 
             if old_parent_id != request.parent_id:
-                # Remove from old parent's children
                 if old_parent_id:
                     old_parent = store.get_intent(old_parent_id)
                     if old_parent and intent_id in old_parent.child_intent_ids:
@@ -352,7 +372,6 @@ async def update_intent(
                         old_parent.updated_at = datetime.utcnow()
                         store.intents.update_intent(old_parent)
 
-                # Add to new parent's children
                 if request.parent_id:
                     new_parent = store.get_intent(request.parent_id)
                     if new_parent:
@@ -363,20 +382,22 @@ async def update_intent(
 
                 intent_card.parent_intent_id = request.parent_id
 
-        # Update metadata (merge with existing)
         if request.metadata is not None:
             if not intent_card.metadata:
                 intent_card.metadata = {}
+            preserved_workspace_id = intent_card.metadata.get("workspace_id")
             intent_card.metadata.update(request.metadata)
+            if preserved_workspace_id:
+                intent_card.metadata["workspace_id"] = preserved_workspace_id
+            elif existing_workspace_id:
+                intent_card.metadata["workspace_id"] = existing_workspace_id
 
         intent_card.updated_at = datetime.utcnow()
 
-        # Save changes
         updated_intent = store.intents.update_intent(intent_card)
         if not updated_intent:
             raise HTTPException(status_code=500, detail="Failed to update intent")
 
-        # Get workspace_id for response
         workspace_id = updated_intent.metadata.get("workspace_id") if updated_intent.metadata else ""
 
         return intent_card_to_response(updated_intent, workspace_id)

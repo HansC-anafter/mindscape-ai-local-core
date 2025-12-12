@@ -5,8 +5,52 @@ Contains all table creation and index definitions organized by domain
 
 import sqlite3
 import logging
+import json
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_migrations(cursor):
+    """
+    Apply database migrations idempotently.
+
+    This function is called during schema initialization to ensure
+    all required columns and tables exist. All migrations must be
+    idempotent (safe to run multiple times).
+
+    Migration order:
+    1. workspace_type and storyline_tags columns (Brand OS v0)
+    """
+    logger.info("Applying database migrations...")
+
+    try:
+        cursor.execute("ALTER TABLE workspaces ADD COLUMN workspace_type TEXT DEFAULT 'personal'")
+        logger.info("Migration: Added workspace_type column to workspaces table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+            logger.debug("workspace_type column already exists, skipping")
+        else:
+            raise
+
+    try:
+        cursor.execute("ALTER TABLE intents ADD COLUMN storyline_tags TEXT")
+        logger.info("Migration: Added storyline_tags column to intents table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+            logger.debug("storyline_tags column already exists in intents table, skipping")
+        else:
+            raise
+
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN storyline_tags TEXT")
+        logger.info("Migration: Added storyline_tags column to tasks table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+            logger.debug("storyline_tags column already exists in tasks table, skipping")
+        else:
+            raise
+
+    logger.info("Database migrations completed")
 
 
 def init_profiles_schema(cursor):
@@ -39,6 +83,7 @@ def init_intents_schema(cursor):
             status TEXT NOT NULL,
             priority TEXT NOT NULL,
             tags TEXT,
+            storyline_tags TEXT,
             category TEXT,
             progress_percentage INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
@@ -54,6 +99,9 @@ def init_intents_schema(cursor):
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_intents_profile ON intents(profile_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_intents_status ON intents(status)')
+
+    # storyline_tags column is now added via _apply_migrations()
+    # This ensures consistent migration execution
 
 
 def init_intent_tags_schema(cursor):
@@ -206,6 +254,7 @@ def init_workspaces_schema(cursor):
         ('execution_mode', "TEXT DEFAULT 'qa'"),
         ('expected_artifacts', 'TEXT'),
         ('execution_priority', "TEXT DEFAULT 'medium'"),
+        ('project_assignment_mode', "TEXT DEFAULT 'auto_silent'"),  # Project assignment automation level
         ('metadata', 'TEXT'),  # Extensible metadata for workspace features (core_memory, etc.)
     ]:
         column_name, column_type = column_def
@@ -214,9 +263,11 @@ def init_workspaces_schema(cursor):
         except sqlite3.OperationalError:
             pass  # Column already exists
 
-    # Schema changes are now managed by Alembic migrations
-    # This function only creates the base table structure
-    # All column additions should be done through Alembic
+    # Schema changes: Apply migrations idempotently
+    # Note: This is the actual migration execution point (not Alembic)
+    # All migrations should be idempotent and safe to run multiple times
+    # workspace_type is now handled in _apply_migrations()
+    _apply_migrations(cursor)
 
 
 def init_events_schema(cursor):
@@ -387,6 +438,9 @@ def init_tasks_schema(cursor):
         cursor.execute('ALTER TABLE tasks ADD COLUMN execution_context TEXT')
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # storyline_tags column is now added via _apply_migrations()
+    # This ensures consistent migration execution
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_message ON tasks(message_id)')
@@ -665,6 +719,30 @@ def init_background_routines_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_stage_results_artifact ON stage_results(artifact_id)')
 
 
+def init_project_phases_schema(cursor):
+    """Initialize project_phases table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS project_phases (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by_message_id TEXT NOT NULL,
+            execution_plan_id TEXT,
+            kind TEXT NOT NULL DEFAULT 'unknown',
+            summary TEXT NOT NULL,
+            tags TEXT NOT NULL DEFAULT '[]',
+            metadata TEXT NOT NULL DEFAULT '{}',
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_project_phases_project_created_at ON project_phases(project_id, created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_project_phases_workspace ON project_phases(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_project_phases_execution_plan ON project_phases(execution_plan_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_project_phases_message ON project_phases(created_by_message_id)')
+
+
 def init_schema(cursor):
     """
     Initialize all database tables and indexes
@@ -675,6 +753,7 @@ def init_schema(cursor):
     3. Workspaces (depends on Profiles)
     4. Events, IntentLogs (depend on Profiles and Workspaces)
     5. Entities, Tags (depend on Profiles)
+    6. Projects and Project Phases (depend on Workspaces)
     """
     # Core tables (no dependencies)
     init_profiles_schema(cursor)
@@ -705,3 +784,6 @@ def init_schema(cursor):
     init_stage_results_schema(cursor)
     init_background_routines_schema(cursor)
     init_playbook_executions_schema(cursor)
+
+    # Project-related tables (depend on Workspaces)
+    init_project_phases_schema(cursor)

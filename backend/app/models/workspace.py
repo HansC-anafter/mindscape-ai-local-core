@@ -142,6 +142,22 @@ class ProjectAssignmentMode(str, Enum):
     MANUAL_FIRST = "manual_first"
 
 
+class WorkspaceType(str, Enum):
+    """
+    Workspace type for different vertical domains
+
+    This is a generic field that supports multiple vertical domains:
+    - personal: Personal workspace (default)
+    - brand: Brand Mindscape workspace
+    - team: Team collaboration workspace
+    - course: Course creation workspace (future)
+    - research: Research workspace (future)
+    """
+    PERSONAL = "personal"
+    BRAND = "brand"
+    TEAM = "team"
+
+
 # ==================== Workspace Models ====================
 
 class Workspace(BaseModel):
@@ -161,6 +177,12 @@ class Workspace(BaseModel):
     id: str = Field(..., description="Unique workspace identifier")
     title: str = Field(..., description="Workspace display title")
     description: Optional[str] = Field(None, description="Workspace description")
+
+    # Workspace type for vertical domain support
+    workspace_type: Optional[WorkspaceType] = Field(
+        default=WorkspaceType.PERSONAL,
+        description="Workspace type: personal (default) | brand | team | course | research"
+    )
 
     # Owner and primary associations
     owner_user_id: str = Field(..., description="Owner profile ID")
@@ -260,6 +282,10 @@ class CreateWorkspaceRequest(BaseModel):
     """Request to create a new workspace"""
     title: str = Field(..., description="Workspace title")
     description: Optional[str] = Field(None, description="Workspace description")
+    workspace_type: Optional[WorkspaceType] = Field(
+        default=WorkspaceType.PERSONAL,
+        description="Workspace type: personal (default) | brand | team"
+    )
     primary_project_id: Optional[str] = Field(None, description="Primary project ID to associate")
     default_playbook_id: Optional[str] = Field(None, description="Default playbook ID")
     default_locale: Optional[str] = Field(None, description="Default locale")
@@ -274,6 +300,7 @@ class UpdateWorkspaceRequest(BaseModel):
     """Request to update an existing workspace"""
     title: Optional[str] = Field(None, description="Workspace title")
     description: Optional[str] = Field(None, description="Workspace description")
+    workspace_type: Optional[WorkspaceType] = Field(None, description="Workspace type: personal | brand | team")
     primary_project_id: Optional[str] = Field(None, description="Primary project ID")
     default_playbook_id: Optional[str] = Field(None, description="Default playbook ID")
     default_locale: Optional[str] = Field(None, description="Default locale")
@@ -479,6 +506,10 @@ class Task(BaseModel):
         None,
         description="Execution context (playbook_code, trigger_source, current_step_index, etc.)"
     )
+    storyline_tags: List[str] = Field(
+        default_factory=list,
+        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)"
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     started_at: Optional[datetime] = Field(None, description="Task start timestamp")
     completed_at: Optional[datetime] = Field(None, description="Task completion timestamp")
@@ -529,6 +560,10 @@ class ExecutionSession(BaseModel):
         default=True,
         description="Whether this execution supports resume from checkpoint"
     )
+    storyline_tags: List[str] = Field(
+        default_factory=list,
+        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)"
+    )
 
     @classmethod
     def from_task(cls, task: Task) -> "ExecutionSession":
@@ -554,7 +589,8 @@ class ExecutionSession(BaseModel):
             default_cluster=execution_context.get("default_cluster"),
             last_checkpoint=execution_context.get("last_checkpoint"),
             phase_summaries=execution_context.get("phase_summaries", []),
-            supports_resume=execution_context.get("supports_resume", True)
+            supports_resume=execution_context.get("supports_resume", True),
+            storyline_tags=task.storyline_tags or []
         )
 
 
