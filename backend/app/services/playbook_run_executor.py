@@ -31,6 +31,10 @@ from backend.app.services.playbook_phase_manager import PlaybookPhaseManager
 from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
 from backend.app.models.execution_metadata import ExecutionMetadata
 from backend.app.models.workspace import PlaybookExecution
+from backend.app.services.runtime.runtime_factory import RuntimeFactory
+from backend.app.services.runtime.simple_runtime import SimpleRuntime
+from backend.app.core.runtime_port import ExecutionProfile
+from backend.app.core.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +75,16 @@ class PlaybookRunExecutor:
 
         # Initialize initializer for first-time playbook execution
         self.initializer = PlaybookInitializer("/tmp/mindscape-workspace")  # Configurable path
+
+        # Initialize runtime factory
+        self.runtime_factory = RuntimeFactory()
+
+        # Register default runtime (SimpleRuntime wraps WorkflowOrchestrator)
+        simple_runtime = SimpleRuntime(store=mindscape_store)
+        self.runtime_factory.register_runtime(simple_runtime, is_default=True)
+
+        # Try to load runtime providers from capability packs
+        self._load_runtime_providers()
 
     async def execute_playbook_run(
         self,
@@ -142,145 +156,100 @@ class PlaybookRunExecutor:
                 )
 
         if execution_mode == 'workflow' and playbook_run.playbook_json:
-            logger.info(f"PlaybookRunExecutor: Executing {playbook_code} using WorkflowOrchestrator (playbook.json found)")
+            logger.info(f"PlaybookRunExecutor: Executing {playbook_code} using Runtime system (playbook.json found)")
 
             if not workspace_id:
                 error_msg = f"workspace_id is required for playbook execution: {playbook_code}"
                 logger.error(f"PlaybookRunExecutor: {error_msg}")
                 raise ValueError(error_msg)
 
+            # Get execution profile from playbook
+            execution_profile = playbook_run.get_execution_profile()
+
+            # Select runtime based on execution profile
+            runtime = self.runtime_factory.get_runtime(execution_profile)
+            logger.info(f"PlaybookRunExecutor: Selected runtime: {runtime.name} for playbook {playbook_code}")
+
+            # Create execution context
             import uuid
             from datetime import datetime
-            from backend.app.services.stores.tasks_store import TasksStore
-            from backend.app.services.mindscape_store import MindscapeStore
-            from backend.app.models.workspace import Task, TaskStatus
-
             execution_id = str(uuid.uuid4())
-            store = MindscapeStore()
-            tasks_store = TasksStore(store.db_path)
-            total_steps = len(playbook_run.playbook_json.steps) if playbook_run.playbook_json.steps else 1
 
-            execution_metadata = ExecutionMetadata()
-            execution_metadata.set_execution_context(playbook_code=playbook_code)
-
-            if self.executions_store:
-                execution_record = PlaybookExecution(
-                    id=execution_id,
-                    workspace_id=workspace_id,
-                    playbook_code=playbook_code,
-                    intent_instance_id=None,
-                    status="running",
-                    phase="initialization",
-                    last_checkpoint=None,
-                    progress_log_path=None,
-                    feature_list_path=None,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                self.executions_store.create_execution(execution_record)
-
-                init_result = await self.initializer.initialize_playbook_execution(
-                    execution_id=execution_record.id,
-                    playbook_code=playbook_code,
-                    workspace_id=workspace_id
-                )
-
-                if init_result["success"]:
-                    execution_record.progress_log_path = init_result["artifacts"].get("progress_log")
-                    execution_record.feature_list_path = init_result["artifacts"].get("feature_list")
-                    self.executions_store.update_execution_status(
-                        execution_id=execution_record.id,
-                        status="running",
-                        phase="execution"
-                    )
-
-            execution_context = {
-                "playbook_code": playbook_code,
-                "playbook_name": playbook_run.playbook.metadata.name,
-                "execution_id": execution_id,
-                "total_steps": total_steps,
-                "current_step_index": 0,
-                "status": "running",
-                "execution_metadata": execution_metadata.to_dict()
-            }
-
-            logger.info(f"PlaybookRunExecutor: Creating execution task {execution_id} for playbook {playbook_code}, workspace_id={workspace_id}, total_steps={total_steps}")
-
-            task = Task(
-                id=execution_id,
+            exec_context = ExecutionContext(
+                actor_id=profile_id,
                 workspace_id=workspace_id,
-                message_id=str(uuid.uuid4()),
-                execution_id=execution_id,
-                profile_id=profile_id,
-                pack_id=playbook_code,
-                task_type="playbook_execution",
-                status=TaskStatus.RUNNING,
-                execution_context=execution_context,
-                created_at=datetime.utcnow(),
-                started_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                tags={
+                    "execution_id": execution_id,
+                    "playbook_code": playbook_code,
+                    "project_id": project_id or ""
+                }
             )
 
-            tasks_store.create_task(task)
-            logger.info(f"PlaybookRunExecutor: Created execution task {execution_id} for {playbook_code}")
-
-            from backend.app.models.playbook import HandoffPlan, WorkflowStep
-
-            workflow_step = WorkflowStep(
-                playbook_code=playbook_code,
-                kind=playbook_run.playbook_json.kind,
-                inputs=inputs or {},
-                interaction_mode=playbook_run.playbook.metadata.interaction_mode
-            )
-
-            handoff_plan = HandoffPlan(
-                steps=[workflow_step],
-                context=inputs or {}
-            )
-
+            # Execute using selected runtime
             try:
-                result = await self.workflow_orchestrator.execute_workflow(
-                    handoff_plan,
-                    execution_id=execution_id,
-                    workspace_id=workspace_id,
-                    profile_id=profile_id
+                runtime_result = await runtime.execute(
+                    playbook_run=playbook_run,
+                    context=exec_context,
+                    inputs=inputs
                 )
 
-                execution_context["status"] = "completed"
-                execution_context["current_step_index"] = total_steps
-                completed_at = datetime.utcnow()
-                tasks_store.update_task(
-                    task.id,
-                    execution_context=execution_context,
-                    status=TaskStatus.SUCCEEDED,
-                    completed_at=completed_at
-                )
-                logger.info(f"PlaybookRunExecutor: Execution {execution_id} completed successfully")
+                # Convert ExecutionResult to legacy format for backward compatibility
+                result = {
+                    "status": runtime_result.status,
+                    "context": runtime_result.outputs,
+                    "steps": {}  # Legacy format
+                }
+
+                # Update task status if using task system
+                if execution_profile.execution_mode == "simple":
+                    # For simple mode, use existing task system
+                    from backend.app.services.stores.tasks_store import TasksStore
+                    from backend.app.services.mindscape_store import MindscapeStore
+                    from backend.app.models.workspace import Task, TaskStatus
+
+                    store = MindscapeStore()
+                    tasks_store = TasksStore(store.db_path)
+                    total_steps = len(playbook_run.playbook_json.steps) if playbook_run.playbook_json.steps else 1
+
+                    execution_context_dict = {
+                        "playbook_code": playbook_code,
+                        "playbook_name": playbook_run.playbook.metadata.name,
+                        "execution_id": execution_id,
+                        "total_steps": total_steps,
+                        "current_step_index": total_steps if runtime_result.status == "completed" else 0,
+                        "status": runtime_result.status,
+                    }
+
+                    task = Task(
+                        id=execution_id,
+                        workspace_id=workspace_id,
+                        message_id=str(uuid.uuid4()),
+                        execution_id=execution_id,
+                        profile_id=profile_id,
+                        pack_id=playbook_code,
+                        task_type="playbook_execution",
+                        status=TaskStatus.SUCCEEDED if runtime_result.status == "completed" else TaskStatus.FAILED,
+                        execution_context=execution_context_dict,
+                        created_at=datetime.utcnow(),
+                        started_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow(),
+                        completed_at=datetime.utcnow() if runtime_result.status == "completed" else None,
+                        error=runtime_result.error
+                    )
+                    tasks_store.create_task(task)
+
+                return {
+                    "execution_mode": "workflow",
+                    "playbook_code": playbook_code,
+                    "execution_id": execution_id,
+                    "result": result,
+                    "has_json": True,
+                    "runtime": runtime.name
+                }
+
             except Exception as e:
-                from backend.app.shared.error_handler import parse_api_error
-
-                error_info = parse_api_error(e)
-                execution_context["status"] = "failed"
-                execution_context["error"] = error_info.user_message
-                execution_context["error_details"] = error_info.to_dict()
-                completed_at = datetime.utcnow()
-                tasks_store.update_task(
-                    task.id,
-                    execution_context=execution_context,
-                    status=TaskStatus.FAILED,
-                    completed_at=completed_at,
-                    error=error_info.user_message
-                )
-                logger.error(f"PlaybookRunExecutor: Execution {execution_id} failed: {e}")
+                logger.error(f"PlaybookRunExecutor: Runtime execution failed: {e}", exc_info=True)
                 raise
-
-            return {
-                "execution_mode": "workflow",
-                "playbook_code": playbook_code,
-                "execution_id": execution_id,
-                "result": result,
-                "has_json": True
-            }
 
         else:
             logger.info(f"Executing {playbook_code} using PlaybookRunner (LLM conversation mode), workspace_id={workspace_id}, project_id={project_id}")
@@ -740,4 +709,29 @@ class PlaybookRunExecutor:
             "result": result,
             "has_json": True
         }
+
+    def _load_runtime_providers(self):
+        """
+        Dynamically load runtime providers from capability packs
+
+        Scans installed capability packs for runtime providers (type: system_runtime)
+        and registers them with the RuntimeFactory.
+        """
+        try:
+            from backend.app.services.runtime.capability_runtime_loader import CapabilityRuntimeLoader
+
+            loader = CapabilityRuntimeLoader()
+            loaded_runtimes = loader.load_all_runtime_providers()
+
+            for runtime in loaded_runtimes:
+                self.runtime_factory.register_runtime(runtime)
+                logger.info(f"Registered runtime provider: {runtime.name}")
+
+            if loaded_runtimes:
+                logger.info(f"Loaded {len(loaded_runtimes)} runtime provider(s) from capability packs")
+            else:
+                logger.debug("No runtime providers found in capability packs")
+
+        except Exception as e:
+            logger.warning(f"Failed to load runtime providers: {e}", exc_info=True)
 

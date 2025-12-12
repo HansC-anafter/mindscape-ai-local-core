@@ -388,6 +388,26 @@ class PlaybookRun(BaseModel):
             return 'workflow'
         return 'conversation'
 
+    def get_execution_profile(self) -> "ExecutionProfile":
+        """
+        Get execution profile for this playbook
+
+        Returns:
+            ExecutionProfile instance with runtime selection criteria
+        """
+        from backend.app.core.runtime_port import ExecutionProfile
+
+        if self.playbook_json and self.playbook_json.execution_profile:
+            return ExecutionProfile(**self.playbook_json.execution_profile)
+
+        # Default profile (simple mode)
+        return ExecutionProfile(
+            execution_mode="simple",
+            supports_resume=False,
+            requires_human_approval=False,
+            side_effect_level="none"
+        )
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
@@ -468,6 +488,10 @@ class PlaybookJson(BaseModel):
     steps: List[PlaybookStep] = Field(..., description="Execution steps")
     inputs: Dict[str, PlaybookInput] = Field(..., description="Playbook input definitions")
     outputs: Dict[str, PlaybookOutput] = Field(..., description="Playbook output definitions")
+    execution_profile: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Execution profile for runtime selection (execution_mode, supports_resume, etc.)"
+    )
 
     class Config:
         json_encoders = {
