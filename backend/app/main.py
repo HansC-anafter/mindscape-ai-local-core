@@ -20,6 +20,7 @@ from .routes.core import (
     config,
     tools,
     sandbox,
+    blueprint,
 )
 from .routes.core import cloud_sync
 from .routes.core.intents import router as intents_router
@@ -98,9 +99,26 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(sandbox.router, tags=["sandboxes"])
     app.include_router(deployment.router, tags=["deployment"])
     app.include_router(data_sources_router, tags=["data-sources"])
+
+    try:
+        from backend.app.capabilities.api_loader import load_capability_apis
+        import os
+        allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
+        allowlist = allowlist_env.split(",") if allowlist_env else None
+        capability_routers = load_capability_apis(allowlist=allowlist, enable_all=False)
+        for router in capability_routers:
+            app.include_router(router)
+        if allowlist:
+            logger.info(f"Loaded {len(capability_routers)} cloud capability API routers (allowlist={allowlist})")
+        else:
+            logger.info(f"Loaded {len(capability_routers)} cloud capability API routers (using enabled_by_default from manifests)")
+    except Exception as e:
+        logger.error(f"Failed to load cloud capability API routers: {e}", exc_info=True)
+
     app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
     app.include_router(cloud_providers_router, tags=["cloud-providers"])
     app.include_router(cloud_sync.router, tags=["cloud-sync"])
+    app.include_router(blueprint.router, tags=["blueprints"])
 
     # Generic resource routes (neutral interface)
     app.include_router(resources_router, tags=["resources"])
@@ -147,6 +165,25 @@ async def startup_event():
         logger.info("Mindscape tables initialized successfully")
     except Exception as e:
         logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
+
+
+    logger.info("Validating routes against manifest declarations...")
+    try:
+        from backend.app.capabilities.route_validator import validate_on_startup
+        validate_on_startup(app)
+        logger.info("Route validation completed successfully")
+    except FileNotFoundError as e:
+        logger.error(f"Route validation failed (path not found): {e}", exc_info=True)
+        import os
+        if os.getenv("SKIP_ROUTE_VALIDATION") != "1":
+            raise
+        logger.warning("SKIP_ROUTE_VALIDATION=1, skipping route validation despite path error")
+    except Exception as e:
+        logger.error(f"Route validation failed: {e}", exc_info=True)
+        import os
+        if os.getenv("SKIP_ROUTE_VALIDATION") != "1":
+            raise
+        logger.warning("SKIP_ROUTE_VALIDATION=1, skipping route validation despite errors")
 
     # Initialize cloud sync service
     logger.info("Initializing cloud sync service...")
