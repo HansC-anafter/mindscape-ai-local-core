@@ -82,11 +82,22 @@ class MindscapeStore:
     def _init_db(self):
         """Initialize database tables"""
         from backend.app.services.stores.schema import init_schema
+        try:
+            from backend.migrations.add_workspace_type_and_storyline_tags import run_sqlite_migration
+        except Exception:
+            run_sqlite_migration = None
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
             init_schema(cursor)
             conn.commit()
+
+        # Apply lightweight migration to ensure new columns exist even without Alembic runtime
+        if 'sqlite' in self.db_path and run_sqlite_migration:
+            try:
+                run_sqlite_migration(self.db_path)
+            except Exception as e:
+                logger.warning(f"SQLite migration failed (non-blocking): {e}")
 
     def _migrate_db(self):
         """

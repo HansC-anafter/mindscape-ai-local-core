@@ -189,18 +189,26 @@ async def list_intents(
             priority=None
         )
 
+        owner_workspaces = store.workspaces.list_workspaces(owner_user_id=profile_id, limit=5)
+        is_single_workspace_owner = len(owner_workspaces) == 1 and owner_workspaces[0].id == workspace_id
+
         filtered_intents = []
         for intent in intents:
             intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
 
             if intent_workspace_id == workspace_id:
                 filtered_intents.append(intent)
-            elif not intent_workspace_id and intent.profile_id == profile_id:
+            elif not intent_workspace_id and is_single_workspace_owner:
+                # Legacy intent without workspace_id: owner只有一個 workspace，安全回填
                 if not intent.metadata:
                     intent.metadata = {}
                 intent.metadata["workspace_id"] = workspace_id
-                store.update_intent(intent)
-                filtered_intents.append(intent)
+                intent.updated_at = datetime.utcnow()
+                try:
+                    updated = store.intents.update_intent(intent)
+                    filtered_intents.append(updated or intent)
+                except Exception as e:
+                    logger.warning(f"Failed to backfill workspace_id for intent {intent.id}: {e}")
 
         if tree:
             # Build and return tree structure
@@ -461,4 +469,3 @@ async def delete_intent(
     except Exception as e:
         logger.error(f"Failed to delete intent {intent_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to delete intent: {str(e)}")
-
