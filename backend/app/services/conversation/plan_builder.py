@@ -60,8 +60,8 @@ class PlanBuilder:
                 if external_config and isinstance(external_config, dict):
                     self.external_backend = await load_external_backend(external_config)
                     if self.external_backend:
-                    logger.info(f"Loaded external backend from user config for profile {profile_id}")
-                    return
+                        logger.info(f"Loaded external backend from user config for profile {profile_id}")
+                        return
 
             driver = os.getenv("EXTERNAL_BACKEND_DRIVER")
             if driver:
