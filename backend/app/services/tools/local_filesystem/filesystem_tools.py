@@ -10,8 +10,10 @@ Security:
 """
 import os
 import fnmatch
+import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from datetime import datetime
 import logging
 
 from backend.app.services.tools.base import MindscapeTool
@@ -164,14 +166,20 @@ class FilesystemReadFileTool(MindscapeTool):
 
 
 class FilesystemWriteFileTool(MindscapeTool):
-    """Write file content"""
+    """Write file content with automatic backup"""
 
     def __init__(self, base_directory: str):
         self.base_directory = Path(base_directory).expanduser().resolve()
 
         metadata = ToolMetadata(
             name="filesystem_write_file",
-            description=f"Write file content to {self.base_directory}",
+            description=(
+                f"Write file content to {self.base_directory}. "
+                "**WARNING: Requires manual confirmation (high risk).** "
+                "In Project mode, prefer using sandbox.write_file instead for version management and unified UI. "
+                "This tool directly writes to filesystem and bypasses Sandbox system. "
+                "**Automatic backup**: If the target file exists, a backup will be created automatically before overwriting."
+            ),
             input_schema=ToolInputSchema(
                 type="object",
                 properties={
@@ -187,6 +195,17 @@ class FilesystemWriteFileTool(MindscapeTool):
                         "type": "string",
                         "description": "File encoding",
                         "default": "utf-8"
+                    },
+                    "backup": {
+                        "type": "boolean",
+                        "description": "Create automatic backup if file exists (default: true)",
+                        "default": True
+                    },
+                    "max_backups": {
+                        "type": "integer",
+                        "description": "Maximum number of backup files to keep (default: 5, set to 0 for unlimited)",
+                        "default": 5,
+                        "minimum": 0
                     }
                 },
                 required=["file_path", "content"]
@@ -194,28 +213,123 @@ class FilesystemWriteFileTool(MindscapeTool):
             category=ToolCategory.DATA,
             source_type="builtin",
             provider="local_filesystem",
-            danger_level="medium"
+            danger_level="high"
         )
         super().__init__(metadata)
 
-    async def execute(self, file_path: str, content: str, encoding: str = "utf-8") -> Dict[str, Any]:
-        """Write file content"""
-        target_file = self._validate_path(file_path)
+    async def execute(
+        self,
+        file_path: str,
+        content: str,
+        encoding: str = "utf-8",
+        backup: bool = True,
+        max_backups: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Write file content with automatic backup
 
+        Args:
+            file_path: Relative file path from base_directory
+            content: File content to write
+            encoding: File encoding (default: utf-8)
+            backup: Create backup if file exists (default: True)
+            max_backups: Maximum number of backups to keep (default: 5)
+
+        Returns:
+            Dict with file_path, size, encoding, success, and backup info
+        """
+        target_file = self._validate_path(file_path)
         target_file.parent.mkdir(parents=True, exist_ok=True)
+
+        backup_info = None
+        file_existed = target_file.exists()
+
+        if file_existed and backup:
+            backup_info = self._create_backup(target_file, max_backups)
+            logger.info(f"Created backup for {file_path}: {backup_info.get('backup_path')}")
 
         try:
             with open(target_file, "w", encoding=encoding) as f:
                 f.write(content)
 
-            return {
+            result = {
                 "file_path": file_path,
                 "size": len(content.encode(encoding)),
                 "encoding": encoding,
-                "success": True
+                "success": True,
+                "file_existed": file_existed
             }
+
+            if backup_info:
+                result["backup"] = backup_info
+
+            return result
         except Exception as e:
+            logger.error(f"Error writing file {file_path}: {str(e)}")
+            if backup_info:
+                logger.warning(f"Backup available at: {backup_info.get('backup_path')}")
             raise ValueError(f"Error writing file: {str(e)}")
+
+    def _create_backup(self, target_file: Path, max_backups: int) -> Dict[str, Any]:
+        """
+        Create a backup of the target file
+
+        Args:
+            target_file: Path to the file to backup
+            max_backups: Maximum number of backups to keep
+
+        Returns:
+            Dict with backup_path and timestamp
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_suffix = f".backup.{timestamp}"
+        backup_path = target_file.with_suffix(target_file.suffix + backup_suffix)
+
+        shutil.copy2(target_file, backup_path)
+
+        if max_backups > 0:
+            self._cleanup_old_backups(target_file, max_backups)
+
+        return {
+            "backup_path": str(backup_path.relative_to(self.base_directory)),
+            "backup_full_path": str(backup_path),
+            "timestamp": timestamp
+        }
+
+    def _cleanup_old_backups(self, target_file: Path, max_backups: int) -> None:
+        """
+        Clean up old backup files, keeping only the most recent ones
+
+        Args:
+            target_file: Original file path
+            max_backups: Maximum number of backups to keep
+        """
+        backup_pattern = f"{target_file.stem}.backup.*{target_file.suffix}"
+        backup_files = []
+
+        for backup_file in target_file.parent.glob(backup_pattern):
+            if backup_file.is_file() and backup_file != target_file:
+                try:
+                    backup_name = backup_file.name
+                    if ".backup." in backup_name:
+                        timestamp_str = backup_name.split(".backup.")[1].replace(target_file.suffix, "")
+                        try:
+                            timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                            backup_files.append((timestamp, backup_file))
+                        except ValueError:
+                            backup_files.append((datetime.fromtimestamp(backup_file.stat().st_mtime), backup_file))
+                except Exception as e:
+                    logger.warning(f"Error processing backup file {backup_file}: {e}")
+
+        backup_files.sort(key=lambda x: x[0], reverse=True)
+
+        if len(backup_files) > max_backups:
+            for _, old_backup in backup_files[max_backups:]:
+                try:
+                    old_backup.unlink()
+                    logger.info(f"Removed old backup: {old_backup}")
+                except Exception as e:
+                    logger.warning(f"Error removing old backup {old_backup}: {e}")
 
     def _validate_path(self, relative_path: str) -> Path:
         """Validate and resolve path"""
