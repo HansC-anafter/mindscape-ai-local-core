@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
-import CreateWorkspaceModal from '../../components/CreateWorkspaceModal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { t } from '@/lib/i18n';
 
@@ -17,6 +16,8 @@ interface Workspace {
   primary_project_id?: string;
   created_at: string;
   updated_at: string;
+  launch_status?: string;
+  starter_kit_type?: string;
 }
 
 export default function WorkspacesPage() {
@@ -24,7 +25,6 @@ export default function WorkspacesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ownerUserId] = useState('default-user'); // TODO: Get from auth context
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Workspace | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
@@ -232,7 +232,7 @@ export default function WorkspacesPage() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Workspaces</h1>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => router.push('/workspaces/new/home')}
             className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
           >
             + New Workspace
@@ -259,7 +259,7 @@ export default function WorkspacesPage() {
           <div className="text-center py-12">
             <p className="text-gray-500 dark:text-gray-400 mb-4">No workspaces yet.</p>
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => router.push('/workspaces/new/home')}
               className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600"
             >
               Create Your First Workspace
@@ -267,48 +267,67 @@ export default function WorkspacesPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {workspaces.map((workspace) => (
-              <div
-                key={workspace.id}
-                className="group relative p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600 hover:shadow-md transition-all"
-              >
-                <Link
-                  href={`/workspaces/${workspace.id}`}
-                  className="block"
+            {workspaces.map((workspace) => {
+              const launchStatus = workspace.launch_status || 'pending';
+              const statusConfig = {
+                pending: { color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', label: 'Pending' },
+                ready: { color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400', label: 'Ready' },
+                active: { color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', label: 'Active' }
+              };
+              const status = statusConfig[launchStatus as keyof typeof statusConfig] || statusConfig.pending;
+
+              return (
+                <div
+                  key={workspace.id}
+                  className="group relative p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600 hover:shadow-md transition-all"
                 >
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                    {workspace.title}
-                  </h3>
-                  {workspace.description && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">
-                      {workspace.description}
-                    </p>
-                  )}
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Updated: {new Date(workspace.updated_at).toLocaleDateString()}
-                  </div>
-                </Link>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDeleteTarget(workspace);
-                  }}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
-                  title={t('workspaceDelete')}
-                >
-                  🗑️
-                </button>
-              </div>
-            ))}
+                  <Link
+                    href={
+                      workspace.launch_status === 'pending'
+                        ? `/workspaces/${workspace.id}/home?setup=true`
+                        : `/workspaces/${workspace.id}`
+                    }
+                    className="block"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex-1">
+                        {workspace.title}
+                      </h3>
+                      <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    {workspace.description && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">
+                        {workspace.description}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                      <span>Updated: {new Date(workspace.updated_at).toLocaleDateString()}</span>
+                      {workspace.starter_kit_type && (
+                        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
+                          {workspace.starter_kit_type}
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDeleteTarget(workspace);
+                    }}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
+                    title={t('workspaceDelete')}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
-        <CreateWorkspaceModal
-          isOpen={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-          onConfirm={handleCreateWorkspace}
-        />
 
         <ConfirmDialog
           isOpen={!!deleteTarget}

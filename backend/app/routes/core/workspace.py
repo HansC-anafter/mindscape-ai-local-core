@@ -22,7 +22,7 @@ import subprocess
 import platform
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import APIRouter, HTTPException, Path as PathParam, Query, Body, File, UploadFile, Form
 from pydantic import ValidationError, BaseModel, Field
 
@@ -55,6 +55,7 @@ store = MindscapeStore()
 from ...services.storage_path_validator import StoragePathValidator
 from ...services.storage_path_resolver import StoragePathResolver
 from ...services.workspace_welcome_service import WorkspaceWelcomeService
+from ...services.workspace_seed_service import WorkspaceSeedService
 
 
 # ============================================================================
@@ -193,6 +194,7 @@ async def create_workspace(
             id=str(uuid.uuid4()),
             title=request.title,
             description=request.description,
+            workspace_type=request.workspace_type if hasattr(request, 'workspace_type') and request.workspace_type else None,
             owner_user_id=owner_user_id,
             primary_project_id=request.primary_project_id,
             default_playbook_id=request.default_playbook_id,
@@ -288,6 +290,139 @@ async def create_workspace(
         raise HTTPException(status_code=500, detail=f"Failed to create workspace: {str(e)}")
 
 
+# ============================================================================
+# Workspace Launchpad API
+# IMPORTANT: This route must be defined BEFORE the generic /{workspace_id} route
+# to ensure FastAPI matches /launchpad correctly (more specific routes first)
+# ============================================================================
+
+@router.get("/{workspace_id}/launchpad")
+async def get_workspace_launchpad(
+    workspace_id: str = PathParam(..., description="Workspace ID")
+):
+    """
+    Get workspace launchpad data
+
+    Returns launchpad data for display:
+    - brief: Workspace brief (1-2 paragraphs)
+    - initial_intents: List of intent cards (3-7 items)
+    - first_playbook: First playbook to run
+    - tool_connections: Tool connection status
+    - launch_status: Current launch status
+
+    This endpoint is optimized for Launchpad display and returns only necessary data.
+    """
+    try:
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            # Return empty launchpad instead of 404 error
+            # This allows the UI to show the setup state
+            return {
+                "brief": None,
+                "initial_intents": [],
+                "first_playbook": None,
+                "tool_connections": [],
+                "launch_status": "pending"
+            }
+
+        # Safety check: Check for execution records or event records even if no blueprint exists
+        has_usage_records = False
+        has_executions = False
+        try:
+            from ...services.stores.tasks_store import TasksStore
+            tasks_store = TasksStore(store.db_path)
+            executions = tasks_store.list_executions_by_workspace(workspace_id, limit=1)
+            has_executions = len(executions) > 0
+            if has_executions:
+                logger.info(f"Workspace {workspace_id} has {len(executions)} execution(s)")
+        except Exception as e:
+            logger.warning(f"Failed to check executions for workspace {workspace_id}: {e}")
+
+        # Check for event records (conversations, messages, etc.)
+        try:
+            events = store.get_events_by_workspace(workspace_id, limit=1)
+            has_usage_records = len(events) > 0
+            if has_usage_records:
+                logger.info(f"Workspace {workspace_id} has {len(events)} event(s)")
+        except Exception as e:
+            logger.warning(f"Failed to check events for workspace {workspace_id}: {e}")
+
+        # Auto-update status if workspace has execution/event records but status is pending
+        current_status = workspace.launch_status.value if workspace.launch_status else "pending"
+        if current_status == "pending":
+            if has_executions:
+                # Has execution records -> active
+                try:
+                    from ...models.workspace import LaunchStatus
+                    workspace.launch_status = LaunchStatus.ACTIVE
+                    store.update_workspace(workspace)
+                    logger.info(f"Auto-updated workspace {workspace_id} status from pending to active (has executions)")
+                    current_status = "active"
+                except Exception as e:
+                    logger.warning(f"Failed to auto-update workspace status to active: {e}")
+            elif has_usage_records:
+                # Has event records -> ready
+                try:
+                    from ...models.workspace import LaunchStatus
+                    workspace.launch_status = LaunchStatus.READY
+                    store.update_workspace(workspace)
+                    logger.info(f"Auto-updated workspace {workspace_id} status from pending to ready (has usage records)")
+                    current_status = "ready"
+                except Exception as e:
+                    logger.warning(f"Failed to auto-update workspace status to ready: {e}")
+
+        blueprint = workspace.workspace_blueprint
+        if not blueprint:
+            # Return empty launchpad if no blueprint
+            return {
+                "brief": None,
+                "initial_intents": [],
+                "first_playbook": None,
+                "tool_connections": [],
+                "launch_status": current_status
+            }
+
+        # Check blueprint content
+        has_blueprint_content = (
+            (blueprint.brief and blueprint.brief.strip()) or
+            (blueprint.initial_intents and len(blueprint.initial_intents) > 0) or
+            (blueprint.tool_connections and len(blueprint.tool_connections) > 0)
+        )
+
+        # Auto-update status to ready if workspace has blueprint content but status is pending
+        if current_status == "pending" and has_blueprint_content:
+            try:
+                from ...models.workspace import LaunchStatus
+                workspace.launch_status = LaunchStatus.READY
+                store.update_workspace(workspace)
+                logger.info(f"Auto-updated workspace {workspace_id} status from pending to ready (has blueprint content)")
+                current_status = "ready"
+            except Exception as e:
+                logger.warning(f"Failed to auto-update workspace status to ready: {e}")
+
+        return {
+            "brief": blueprint.brief,
+            "initial_intents": blueprint.initial_intents or [],
+            "first_playbook": blueprint.first_playbook,
+            "tool_connections": [
+                {
+                    "tool_type": conn.tool_type,
+                    "danger_level": conn.danger_level,
+                    "default_readonly": conn.default_readonly,
+                    "allowed_roles": conn.allowed_roles
+                }
+                for conn in (blueprint.tool_connections or [])
+            ],
+            "launch_status": current_status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get workspace launchpad: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get launchpad: {str(e)}")
+
+
 @router.get("/{workspace_id}")
 async def get_workspace(
     workspace_id: str = PathParam(..., description="Workspace ID")
@@ -296,9 +431,18 @@ async def get_workspace(
     Get workspace by ID
 
     Returns workspace details including configuration, metadata, and associated intent.
+    Includes workspace_blueprint for Launchpad display.
     """
+    import asyncio
+    import time
+    request_id = f"req-{int(time.time() * 1000)}-{id(asyncio.current_task())}"
+    logger.info(f"[{request_id}] GET /workspaces/{workspace_id} - Request started")
+
     try:
+        logger.info(f"[{request_id}] Getting workspace from store...")
         workspace = store.get_workspace(workspace_id)
+        logger.info(f"[{request_id}] Workspace retrieved: {workspace.id if workspace else 'None'}")
+
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
@@ -322,10 +466,13 @@ async def get_workspace(
         workspace_dict = workspace.dict()
         if associated_intent:
             workspace_dict["associated_intent"] = associated_intent
+
+        logger.info(f"[{request_id}] Returning workspace data")
         return workspace_dict
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"[{request_id}] Error getting workspace: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get workspace: {str(e)}")
 
 
@@ -354,6 +501,8 @@ async def update_workspace(
             workspace.title = request.title
         if request.description is not None:
             workspace.description = request.description
+        if request.workspace_type is not None:
+            workspace.workspace_type = request.workspace_type
         if request.primary_project_id is not None:
             workspace.primary_project_id = request.primary_project_id
         if request.default_playbook_id is not None:
@@ -1097,6 +1246,71 @@ async def upload_file(
     except Exception as e:
         logger.error(f"Failed to upload file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Workspace Seed API (MFR - Minimum File Reference)
+# ============================================================================
+
+@router.post("/{workspace_id}/seed")
+async def process_workspace_seed(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    seed_type: str = Body(..., description="Seed type: 'text' | 'file' | 'urls'"),
+    payload: Any = Body(..., description="Seed payload (text string, file data, or list of {url, note} dicts)"),
+    locale: str = Body("zh-TW", description="Locale for LLM generation")
+):
+    """
+    Process workspace seed and generate blueprint digest (MFR)
+
+    This endpoint processes a seed input (text/file/urls) and generates a workspace blueprint
+    without requiring full knowledge base import or embedding.
+
+    Args:
+        workspace_id: Workspace ID
+        seed_type: Seed type ("text" | "file" | "urls")
+        payload: Seed payload:
+            - For "text": string
+            - For "file": file data (base64 or file path)
+            - For "urls": list of {"url": str, "note": str} dicts
+        locale: Locale for LLM generation (default: "zh-TW")
+
+    Returns:
+        {
+            "brief": str,
+            "facts": List[str],
+            "unknowns": List[str],
+            "next_actions": List[str],
+            "intents": List[Dict],
+            "starter_kit_type": str,
+            "first_playbook": str
+        }
+    """
+    try:
+        # Validate workspace exists
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+
+        # Validate seed_type
+        if seed_type not in ["text", "file", "urls"]:
+            raise HTTPException(status_code=400, detail=f"Invalid seed_type: {seed_type}. Must be 'text', 'file', or 'urls'")
+
+        # Process seed
+        seed_service = WorkspaceSeedService(store)
+        digest = await seed_service.process_seed(
+            workspace_id=workspace_id,
+            seed_type=seed_type,
+            payload=payload,
+            locale=locale
+        )
+
+        return digest
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process workspace seed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process seed: {str(e)}")
 
 
 @router.post("/{workspace_id}/files/analyze")
