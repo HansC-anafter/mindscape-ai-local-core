@@ -298,7 +298,7 @@ Return JSON format:
                 json_str = json_match.group(0)
                 data = json.loads(json_str)
 
-                # Parse relevant tools
+                # Parse relevant tools (design requirement: 1-3 tools + needs_confirmation)
                 relevant_tools = []
                 for tool_data in data.get("relevant_tools", []):
                     relevant_tools.append(ToolRelevanceResult(
@@ -308,10 +308,22 @@ Return JSON format:
                         confidence=float(tool_data.get("confidence", 0.0))
                     ))
 
+                # Enforce 1-3 tools limit at parsing layer (design requirement: hard limit, not just prompt reminder)
+                if len(relevant_tools) > 3:
+                    logger.warning(f"LLM returned {len(relevant_tools)} tools, truncating to 3 per design requirement")
+                    relevant_tools = relevant_tools[:3]
+                elif len(relevant_tools) == 0:
+                    logger.warning("LLM returned no tools, this should not happen")
+                    # Keep empty list, will fallback to all tools
+
+                # Parse needs_confirmation (support both keys for compatibility)
+                # Prompt asks for "needs_confirmation", but also check "needs_user_confirmation" for backward compatibility
+                needs_confirmation = data.get("needs_confirmation", False) or data.get("needs_user_confirmation", False)
+
                 return IntentAnalysisResult(
                     relevant_tools=relevant_tools,
                     overall_reasoning=data.get("overall_reasoning"),
-                    needs_user_confirmation=data.get("needs_user_confirmation", False)
+                    needs_user_confirmation=needs_confirmation
                 )
             else:
                 logger.warning("No JSON found in LLM response")
