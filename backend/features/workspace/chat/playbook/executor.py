@@ -18,10 +18,14 @@ async def execute_playbook_for_execution_mode(
     workspace_id: str,
     profile_id: str,
     profile: Optional[Any],
-    store: MindscapeStore
+    store: MindscapeStore,
+    project_id: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Execute playbook directly for execution mode using intent analysis
+
+    If no project_id is provided, will detect if a project should be created
+    (same logic as workspace chat mode) to support multi-step workflows and progress tracking.
 
     Args:
         message: User message
@@ -29,12 +33,29 @@ async def execute_playbook_for_execution_mode(
         profile_id: Profile ID
         profile: Profile object (optional)
         store: MindscapeStore instance
+        project_id: Optional project ID (if None, will detect if project should be created)
 
     Returns:
         Execution result dict if playbook was executed, None otherwise
     """
     try:
         logger.info(f"[ExecutionMode] Starting direct playbook.run flow for execution mode")
+
+        # Check if we need to create a Project using unified helper
+        from backend.app.services.project.project_creation_helper import detect_and_create_project_if_needed
+
+        project_id, project_suggestion = await detect_and_create_project_if_needed(
+            message=message,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            store=store,
+            workspace=None,  # Will be fetched inside helper
+            existing_project_id=project_id,  # Use provided project_id if available
+            create_on_medium_confidence=False  # Only create on high confidence in execution mode
+        )
+
+        if project_id:
+            logger.info(f"[ExecutionMode] Using project: {project_id}")
 
         # Initialize services
         playbook_service = PlaybookService(store=store)
@@ -43,6 +64,62 @@ async def execute_playbook_for_execution_mode(
             store=store,
             playbook_service=playbook_service
         )
+
+        # If we have a project_id, check if we should use flow's playbook_sequence
+        if project_id:
+            from backend.app.services.project.project_manager import ProjectManager
+            project_manager = ProjectManager(store)
+            project = await project_manager.get_project(project_id)
+
+            if project and project.flow_id:
+                from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
+                flows_store = PlaybookFlowsStore(store.db_path)
+                flow = flows_store.get_flow(project.flow_id)
+
+                if flow:
+                    flow_def = flow.flow_definition if isinstance(flow.flow_definition, dict) else {}
+                    playbook_sequence = flow_def.get('playbook_sequence', [])
+
+                    if playbook_sequence and len(playbook_sequence) > 0:
+                        logger.info(f"[ExecutionMode] Found flow with {len(playbook_sequence)} playbooks, executing first playbook: {playbook_sequence[0]}")
+                        # Use first playbook from sequence for execution
+                        # Note: Full sequence execution would be handled by execution coordinator
+                        playbook_code = playbook_sequence[0]
+
+                        # Execute first playbook from flow
+                        try:
+                            execution_result = await playbook_service.execute_playbook(
+                                playbook_code=playbook_code,
+                                workspace_id=workspace_id,
+                                profile_id=profile_id,
+                                inputs={
+                                    'message': message,
+                                    'project_id': project_id,
+                                    'intent': {}
+                                },
+                                execution_mode=PlaybookExecutionMode.ASYNC
+                            )
+
+                            result = {
+                                "status": "executed",
+                                "playbook_code": playbook_code,
+                                "execution_id": execution_result.execution_id,
+                                "execution_mode": "flow_based_execution",
+                                "project_id": project_id,
+                                "flow_id": project.flow_id,
+                                "playbook_sequence": playbook_sequence,
+                                "current_index": 0
+                            }
+
+                            logger.info(f"[ExecutionMode] Playbook {playbook_code} executed from flow, execution_id={execution_result.execution_id}")
+                            return result
+
+                        except Exception as exec_error:
+                            logger.warning(f"[ExecutionMode] Failed to execute playbook {playbook_code} from flow: {exec_error}", exc_info=True)
+                            # Fall through to single playbook execution below
+
+        # If we have a project_id and flow, use flow's playbook_sequence (already handled above)
+        # Otherwise, fall back to single playbook execution via intent analysis
 
         # Analyze intent
         intent_result = await intent_pipeline.analyze(
@@ -80,6 +157,7 @@ async def execute_playbook_for_execution_mode(
                     profile_id=profile_id,
                     inputs={
                         'message': message,
+                        'project_id': project_id,  # Pass project_id (may be None or newly created)
                         'intent': {
                             'task_domain': intent_result.task_domain.value if intent_result.task_domain else None,
                             'interaction_type': intent_result.interaction_type.value if intent_result.interaction_type else None
@@ -94,6 +172,10 @@ async def execute_playbook_for_execution_mode(
                     "execution_id": execution_result.execution_id,
                     "execution_mode": "direct_playbook_run"
                 }
+
+                # Include project_id if available
+                if project_id:
+                    result["project_id"] = project_id
 
                 logger.info(f"[ExecutionMode] Playbook {playbook_code} executed directly, execution_id={execution_result.execution_id}")
                 return result

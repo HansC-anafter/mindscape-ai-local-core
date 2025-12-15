@@ -88,6 +88,22 @@ async def generate_streaming_response(
         except Exception:
             pass
 
+        # Check if we need to create a Project (using unified helper)
+        from backend.app.services.project.project_creation_helper import detect_and_create_project_if_needed
+
+        project_id, project_suggestion = await detect_and_create_project_if_needed(
+            message=request.message,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            store=orchestrator.store,
+            workspace=workspace,
+            existing_project_id=None,  # Check workspace.primary_project_id first
+            create_on_medium_confidence=False  # Only create on high confidence in streaming path
+        )
+
+        if project_id:
+            logger.info(f"Streaming path: Using project: {project_id}")
+
         # Create user event first
         user_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -95,7 +111,7 @@ async def generate_streaming_response(
             actor=EventActor.USER,
             channel="local_workspace",
             profile_id=profile_id,
-            project_id=workspace.primary_project_id,
+            project_id=project_id,
             workspace_id=workspace_id,
             event_type=EventType.MESSAGE,
             payload={"message": request.message, "files": request.files, "mode": request.mode},
@@ -103,8 +119,8 @@ async def generate_streaming_response(
             metadata={}
         )
         orchestrator.store.create_event(user_event)
-        logger.info(f"WorkspaceChat: Created user_event {user_event.id} in streaming path")
-        print(f"WorkspaceChat: Created user_event {user_event.id} in streaming path", file=sys.stderr)
+        logger.info(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}")
+        print(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}", file=sys.stderr)
 
         execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
 
@@ -200,7 +216,6 @@ Keep it concise and friendly. Respond in {locale}."""
                     provider = llm_provider_manager.get_provider(provider_name)
 
                     if provider and hasattr(provider, 'chat_completion_stream'):
-                        from backend.app.shared.llm_utils import build_prompt
                         quick_messages = build_prompt(
                             system_prompt=quick_system_prompt,
                             user_prompt=request.message
@@ -219,9 +234,9 @@ Keep it concise and friendly. Respond in {locale}."""
                                     quick_response_text += chunk_content
                                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'message_id': user_event.id, 'is_final': False})}\n\n"
 
-                            # Send completion event
-                            yield f"data: {json.dumps({'type': 'chunk', 'content': '', 'message_id': user_event.id, 'is_final': True})}\n\n"
-                            yield f"data: {json.dumps({'type': 'complete', 'message_id': user_event.id})}\n\n"
+                            # Send QuickQA completion event (not final - main response will follow)
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': '', 'message_id': user_event.id, 'is_final': False})}\n\n"
+                            yield f"data: {json.dumps({'type': 'quick_response_complete', 'message_id': user_event.id})}\n\n"
 
                             logger.info(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars")
                             print(f"[QuickQA] Quick response generated: {len(quick_response_text)} chars", file=sys.stderr)
@@ -286,7 +301,7 @@ Keep it concise and friendly. Respond in {locale}."""
                         workspace_id=workspace_id,
                         message_id=user_event.id,
                         profile_id=profile_id,
-                        project_id=workspace.primary_project_id,
+                        project_id=project_id,
                         execution_mode=execution_mode,
                         expected_artifacts=expected_artifacts,
                         available_playbooks=available_playbooks,
@@ -385,7 +400,7 @@ Keep it concise and friendly. Respond in {locale}."""
                             workspace_id=workspace_id,
                             profile_id=profile_id,
                             message_id=user_event.id,
-                            project_id=workspace.primary_project_id,
+                            project_id=project_id,
                             message=request.message,
                             files=request.files,
                             orchestrator=orchestrator
@@ -427,7 +442,7 @@ Keep it concise and friendly. Respond in {locale}."""
                     yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
                     logger.info(f"[PipelineStage] Sent execution_error stage event, run_id={user_event.id}")
 
-        # For execution mode: Try direct playbook execution
+        # For execution mode: Try direct playbook execution (after plan generation)
         execution_playbook_result = None
         if execution_mode == "execution":
             execution_playbook_result = await execute_playbook_for_execution_mode(
@@ -435,17 +450,15 @@ Keep it concise and friendly. Respond in {locale}."""
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 profile=profile,
-                store=orchestrator.store
+                store=orchestrator.store,
+                project_id=project_id  # Pass project_id (may be None if auto-detection failed)
             )
 
-            # If direct playbook execution succeeded, skip LLM generation
             if execution_playbook_result:
-                logger.info(f"[ExecutionMode] Direct playbook execution succeeded, skipping LLM generation")
+                logger.info(f"[ExecutionMode] Direct playbook execution succeeded")
                 yield f"data: {json.dumps({'type': 'execution_mode_playbook_executed', **execution_playbook_result})}\n\n"
                 summary_text = f"I've started executing the playbook '{execution_playbook_result.get('playbook_code', 'unknown')}'. Check the execution panel for progress."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': summary_text})}\n\n"
-                yield f"data: {json.dumps({'type': 'complete', 'event_id': user_event.id, 'context_tokens': 0})}\n\n"
-                return
 
         # Inject execution mode prompt
         enhanced_prompt = inject_execution_mode_prompt(
