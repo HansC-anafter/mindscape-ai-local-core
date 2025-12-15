@@ -174,7 +174,32 @@ Please retry the tool call."""
                 logger.info(f"Resolved tool slot '{tool_slot}' to tool '{tool_fqn}'")
             except SlotNotFoundError as e:
                 logger.error(f"Failed to resolve tool slot '{tool_slot}': {e}")
-                raise ValueError(f"Tool slot '{tool_slot}' not configured. Please set up a mapping in workspace settings.")
+                # Build detailed error message with suggestions
+                error_parts = [
+                    f"Tool slot '{tool_slot}' is not configured."
+                ]
+
+                # Add suggestion if available
+                if hasattr(e, 'suggestion') and e.suggestion:
+                    error_parts.append(f"\n{e.suggestion}")
+
+                # Add configuration steps
+                config_level = "project" if project_id else "workspace"
+                error_parts.append(
+                    f"\nTo configure this slot:\n"
+                    f"1. Use the API endpoint: POST /api/v1/tool-slots\n"
+                    f"2. Or configure it in the {config_level} settings\n"
+                    f"3. Required fields: slot='{tool_slot}', tool_id=<concrete_tool_id>"
+                )
+
+                # Add available slots hint
+                if hasattr(e, 'available_slots') and e.available_slots:
+                    error_parts.append(
+                        f"\nNote: You can also use an existing slot directly, "
+                        f"or use a concrete tool_id instead of a slot."
+                    )
+
+                raise ValueError("\n".join(error_parts))
 
             # Check policy if provided
             if tool_policy:
@@ -188,7 +213,22 @@ Please retry the tool call."""
                     logger.debug(f"Tool '{tool_fqn}' passed policy check")
                 except PolicyViolationError as e:
                     logger.error(f"Tool '{tool_fqn}' violates policy: {e}")
-                    raise ValueError(f"Tool execution blocked by policy: {str(e)}")
+                    policy_info = []
+                    if tool_policy:
+                        policy_info.append(f"Policy constraints:")
+                        if tool_policy.risk_level:
+                            policy_info.append(f"  - Risk level: {tool_policy.risk_level}")
+                        if tool_policy.env:
+                            policy_info.append(f"  - Environment: {tool_policy.env}")
+                        if tool_policy.allowed_tool_patterns:
+                            policy_info.append(f"  - Allowed patterns: {', '.join(tool_policy.allowed_tool_patterns)}")
+
+                    error_msg = f"Tool execution blocked by policy: {str(e)}"
+                    if policy_info:
+                        error_msg += f"\n\n{chr(10).join(policy_info)}"
+                    error_msg += f"\n\nTo resolve this:\n1. Check if the tool '{tool_fqn}' matches the policy constraints\n2. Update the tool slot mapping to use a different tool\n3. Or adjust the policy in the playbook definition"
+
+                    raise ValueError(error_msg)
         elif not tool_fqn:
             raise ValueError("Either tool_fqn or tool_slot must be provided")
 
@@ -496,12 +536,27 @@ Please retry the tool call."""
                     error_msg = str(e)[:500]
                     display_name = tool_slot if tool_slot else tool_name
                     logger.error(f"PlaybookToolExecutor: Tool {display_name} execution failed: {e}", exc_info=True)
+
+                    # Enhanced error message for slot-related errors
+                    enhanced_error = error_msg
+                    if tool_slot and ("not configured" in error_msg.lower() or "not found" in error_msg.lower()):
+                        enhanced_error = error_msg  # Already enhanced by SlotNotFoundError handling
+                    elif tool_slot:
+                        # Add context for slot execution failures
+                        enhanced_error = (
+                            f"Failed to execute tool slot '{tool_slot}': {error_msg}\n"
+                            f"If this slot is not working, you can:\n"
+                            f"1. Check the slot mapping configuration\n"
+                            f"2. Verify the mapped tool '{tool_name}' is available and functional\n"
+                            f"3. Try using the tool directly instead of the slot"
+                        )
+
                     tool_results.append({
                         "tool_name": display_name,
                         "tool_slot": tool_slot if tool_slot else None,
                         "result": None,
                         "success": False,
-                        "error": error_msg
+                        "error": enhanced_error
                     })
 
             # Add tool call results to conversation

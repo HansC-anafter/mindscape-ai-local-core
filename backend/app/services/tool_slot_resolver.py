@@ -11,15 +11,39 @@ Resolution order:
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
 class SlotNotFoundError(Exception):
-    """Raised when tool slot cannot be resolved to a tool ID"""
-    pass
+    """
+    Raised when tool slot cannot be resolved to a tool ID
+
+    Attributes:
+        slot: The slot that was not found
+        workspace_id: Workspace ID where the slot was searched
+        project_id: Optional project ID where the slot was searched
+        available_slots: List of available slots (if available)
+        suggestion: Suggested action message
+    """
+
+    def __init__(
+        self,
+        message: str,
+        slot: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        available_slots: Optional[List[str]] = None,
+        suggestion: Optional[str] = None
+    ):
+        super().__init__(message)
+        self.slot = slot
+        self.workspace_id = workspace_id
+        self.project_id = project_id
+        self.available_slots = available_slots or []
+        self.suggestion = suggestion
 
 
 class ToolSlotResolver:
@@ -89,18 +113,31 @@ class ToolSlotResolver:
                 logger.info(f"Slot '{slot}' appears to be a concrete tool ID, using as-is")
                 return slot
 
-            # No mapping found
+            # No mapping found - gather context for helpful error message
+            available_slots = await self._get_available_slots(workspace_id, project_id)
+            suggestion = self._generate_suggestion(slot, available_slots, workspace_id, project_id)
             project_msg = f"or project '{project_id}'" if project_id else ""
+
             raise SlotNotFoundError(
                 f"Tool slot '{slot}' not found. "
-                f"Please configure a mapping in workspace '{workspace_id}' {project_msg}"
+                f"Please configure a mapping in workspace '{workspace_id}' {project_msg}",
+                slot=slot,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                available_slots=available_slots,
+                suggestion=suggestion
             )
 
         except SlotNotFoundError:
             raise
         except Exception as e:
             logger.error(f"Error resolving tool slot '{slot}': {e}", exc_info=True)
-            raise SlotNotFoundError(f"Failed to resolve tool slot '{slot}': {str(e)}")
+            raise SlotNotFoundError(
+                f"Failed to resolve tool slot '{slot}': {str(e)}",
+                slot=slot,
+                workspace_id=workspace_id,
+                project_id=project_id
+            )
 
     async def _get_mapping(
         self,
@@ -203,6 +240,88 @@ class ToolSlotResolver:
         # Default: assume it's a slot (more restrictive)
         # Slots typically have 3+ parts without hyphens
         return False
+
+    async def _get_available_slots(
+        self,
+        workspace_id: str,
+        project_id: Optional[str] = None
+    ) -> List[str]:
+        """
+        Get list of available slots for helpful error messages
+
+        Args:
+            workspace_id: Workspace ID
+            project_id: Optional project ID
+
+        Returns:
+            List of available slot names
+        """
+        try:
+            from backend.app.services.stores.tool_slot_mappings_store import ToolSlotMappingsStore
+
+            mappings_store = ToolSlotMappingsStore(self.store.db_path)
+            mappings = mappings_store.get_mappings(
+                workspace_id=workspace_id,
+                project_id=project_id,
+                enabled_only=True
+            )
+
+            # Extract unique slot names
+            slots = list(set(m.get('slot') for m in mappings if m.get('slot')))
+            return sorted(slots)
+
+        except Exception as e:
+            logger.debug(f"Failed to get available slots: {e}")
+            return []
+
+    def _generate_suggestion(
+        self,
+        slot: str,
+        available_slots: List[str],
+        workspace_id: str,
+        project_id: Optional[str]
+    ) -> str:
+        """
+        Generate helpful suggestion message for slot not found error
+
+        Args:
+            slot: The slot that was not found
+            available_slots: List of available slots
+            workspace_id: Workspace ID
+            project_id: Optional project ID
+
+        Returns:
+            Suggestion message
+        """
+        suggestions = []
+
+        # Check for similar slot names (fuzzy match)
+        slot_parts = slot.split('.')
+        similar_slots = []
+        for available_slot in available_slots:
+            available_parts = available_slot.split('.')
+            # Check if slots share common prefix
+            if len(slot_parts) > 0 and len(available_parts) > 0:
+                if slot_parts[0] == available_parts[0] or slot_parts[-1] == available_parts[-1]:
+                    similar_slots.append(available_slot)
+
+        if similar_slots:
+            suggestions.append(f"Similar slots found: {', '.join(similar_slots[:3])}")
+
+        # Add configuration guidance
+        config_level = "project" if project_id else "workspace"
+        suggestions.append(
+            f"To configure this slot, use the API: "
+            f"POST /api/v1/tool-slots with slot='{slot}', tool_id=<your_tool_id>"
+        )
+
+        if available_slots:
+            suggestions.append(
+                f"Currently configured slots in this {config_level}: {', '.join(available_slots[:5])}"
+                + (f" (and {len(available_slots) - 5} more)" if len(available_slots) > 5 else "")
+            )
+
+        return ". ".join(suggestions)
 
 
 # Global instance
