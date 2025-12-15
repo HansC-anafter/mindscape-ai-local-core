@@ -50,6 +50,44 @@ def _apply_migrations(cursor):
         else:
             raise
 
+    # Migration: Add project_id column to tasks table (2025-12-16)
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT")
+        logger.info("Migration: Added project_id column to tasks table")
+
+        # Create index for project_id
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+        logger.info("Migration: Created index on tasks.project_id")
+
+        # Data migration: Extract project_id from execution_context for existing tasks
+        cursor.execute("""
+            UPDATE tasks
+            SET project_id = json_extract(execution_context, '$.project_id')
+            WHERE execution_context IS NOT NULL
+            AND json_extract(execution_context, '$.project_id') IS NOT NULL
+            AND project_id IS NULL
+        """)
+        updated_count = cursor.rowcount
+        if updated_count > 0:
+            logger.info(f"Migration: Updated {updated_count} existing tasks with project_id from execution_context")
+
+        # Also try extracting from params
+        cursor.execute("""
+            UPDATE tasks
+            SET project_id = json_extract(params, '$.project_id')
+            WHERE params IS NOT NULL
+            AND json_extract(params, '$.project_id') IS NOT NULL
+            AND project_id IS NULL
+        """)
+        updated_count = cursor.rowcount
+        if updated_count > 0:
+            logger.info(f"Migration: Updated {updated_count} existing tasks with project_id from params")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+            logger.debug("project_id column already exists, skipping")
+        else:
+            raise
+
     logger.info("Database migrations completed")
 
 
@@ -448,6 +486,7 @@ def init_tasks_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks(workspace_id, status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_execution_id ON tasks(execution_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)')
 
 
 def init_playbook_executions_schema(cursor):
