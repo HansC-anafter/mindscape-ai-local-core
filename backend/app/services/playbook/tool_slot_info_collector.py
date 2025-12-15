@@ -6,7 +6,7 @@ for injection into LLM prompts in Conversation mode.
 """
 
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from dataclasses import dataclass
 
 from backend.app.models.playbook import ToolPolicy
@@ -20,12 +20,14 @@ class ToolSlotInfo:
     Tool slot information for LLM prompt injection
     """
     slot: str  # e.g., "cms.footer.apply_style"
-    description: Optional[str] = None  # From playbook.json step or mapping metadata
+    description: Optional[str] = None  # From playbook.json step metadata.description or mapping metadata.description
     policy: Optional[ToolPolicy] = None  # Policy constraints
     mapped_tool_id: Optional[str] = None  # Current mapped tool_id (if configured)
     mapped_tool_description: Optional[str] = None  # Tool description (optional)
     source: str = "unknown"  # "playbook" or "workspace" or "project"
     relevance_score: Optional[float] = None  # Relevance score from intent analysis (0.0-1.0)
+    tags: Optional[List[str]] = None  # Tags for LLM context (from metadata.tags)
+    priority: int = 0  # Priority (0-100) for sorting: playbook_defined > recently_used > workspace_common > generic
 
 
 class ToolSlotInfoCollector:
@@ -168,6 +170,23 @@ class ToolSlotInfoCollector:
                     if hasattr(step, 'tool_policy') and step.tool_policy:
                         policy = step.tool_policy
 
+                    # Extract description from step metadata (design requirement: description quality is core for filtering)
+                    description = None
+                    tags = None
+                    if hasattr(step, 'metadata') and step.metadata:
+                        description = step.metadata.get('description') if isinstance(step.metadata, dict) else None
+                        tags = step.metadata.get('tags') if isinstance(step.metadata, dict) else None
+                    
+                    # Fallback to step.id only if no description available
+                    if not description:
+                        description = f"Step: {step.id}"
+                    else:
+                        # Ensure description is meaningful
+                        description = str(description).strip()
+
+                    # Extract priority: playbook-defined steps have high priority (80-100)
+                    priority = 90  # High priority for playbook-defined slots
+
                     # Try to resolve slot to tool_id (to show mapping)
                     mapped_tool_id = None
                     try:
@@ -180,10 +199,12 @@ class ToolSlotInfoCollector:
 
                     slot_info_map[slot] = ToolSlotInfo(
                         slot=slot,
-                        description=f"Step: {step.id}",  # Use step ID as description
+                        description=description,
                         policy=policy,
                         mapped_tool_id=mapped_tool_id,
-                        source="playbook"
+                        source="playbook",
+                        tags=tags if isinstance(tags, list) else None,
+                        priority=priority
                     )
 
         except Exception as e:
@@ -256,13 +277,26 @@ class ToolSlotInfoCollector:
                             logger.debug(f"Failed to parse policy from metadata for slot {slot}: {e}")
 
                 source = "project" if mapping.get('project_id') else "workspace"
+                
+                # Extract description, tags, and priority from metadata
+                description = metadata.get('description') if metadata else None
+                tags = metadata.get('tags') if metadata and isinstance(metadata.get('tags'), list) else None
+                priority = metadata.get('priority', 50) if metadata else 50  # Default priority for workspace/project mappings
+                
+                # Project-level mappings have higher priority than workspace-level
+                if source == "project":
+                    priority = max(priority, 70)
+                else:
+                    priority = max(priority, 50)
 
                 slot_info_map[slot] = ToolSlotInfo(
                     slot=slot,
-                    description=metadata.get('description'),
+                    description=description,
                     policy=policy,
                     mapped_tool_id=mapping.get('tool_id'),
-                    source=source
+                    source=source,
+                    tags=tags,
+                    priority=priority
                 )
 
         except Exception as e:

@@ -25,9 +25,9 @@ class ToolRelevanceResult:
 @dataclass
 class IntentAnalysisResult:
     """Intent analysis result"""
-    relevant_tools: List[ToolRelevanceResult]
+    relevant_tools: List[ToolRelevanceResult]  # 1-3 most relevant tools
     overall_reasoning: Optional[str] = None
-    needs_user_confirmation: bool = False
+    needs_user_confirmation: bool = False  # Whether user confirmation is needed when multiple tools are suitable
 
 
 class IntentAnalyzer:
@@ -89,31 +89,39 @@ class IntentAnalyzer:
                 if r.relevance_score >= min_relevance
             ]
 
-            # Sort by relevance score (descending)
-            filtered_results.sort(key=lambda x: x.relevance_score, reverse=True)
-
-            # Limit to max_tools
-            filtered_results = filtered_results[:max_tools]
-
-            # Map back to ToolSlotInfo objects
+            # Sort by priority rules (design requirement: playbook_defined > recently_used > workspace_common > generic)
+            # Combined sort: priority (desc) then relevance_score (desc)
             tool_slot_map = {tool.slot: tool for tool in available_tools}
-            filtered_tools = []
-
+            
+            # Build filtered tools with both priority and relevance
+            filtered_tools_with_scores = []
             for result in filtered_results:
                 if result.tool_slot in tool_slot_map:
                     tool = tool_slot_map[result.tool_slot]
-                    # Store relevance score for sorting
                     tool.relevance_score = result.relevance_score
-                    filtered_tools.append(tool)
+                    filtered_tools_with_scores.append(tool)
 
-            logger.info(f"Filtered {len(available_tools)} tools to {len(filtered_tools)} relevant tools")
+            # Sort by priority (desc) then relevance_score (desc)
+            # Priority: playbook (90-100) > project (70-89) > workspace (50-69) > generic (0-49)
+            filtered_tools_with_scores.sort(
+                key=lambda x: (x.priority, x.relevance_score or 0.0),
+                reverse=True
+            )
 
-            # If filtered result is too few, add fallback tools
+            # Limit to max_tools (LLM already returned 1-3, but we respect max_tools parameter)
+            filtered_tools = filtered_tools_with_scores[:max_tools]
+
+            logger.info(f"Filtered {len(available_tools)} tools to {len(filtered_tools)} relevant tools (priority-sorted)")
+
+            # If filtered result is too few, add fallback tools (sorted by priority)
             if len(filtered_tools) < 3 and len(available_tools) > len(filtered_tools):
-                fallback_count = min(3 - len(filtered_tools), len(available_tools) - len(filtered_tools))
-                remaining_tools = [t for t in available_tools if t.slot not in [ft.slot for ft in filtered_tools]]
+                used_slots = {ft.slot for ft in filtered_tools}
+                remaining_tools = [t for t in available_tools if t.slot not in used_slots]
+                # Sort remaining by priority
+                remaining_tools.sort(key=lambda x: x.priority, reverse=True)
+                fallback_count = min(3 - len(filtered_tools), len(remaining_tools))
                 filtered_tools.extend(remaining_tools[:fallback_count])
-                logger.debug(f"Added {fallback_count} fallback tools")
+                logger.debug(f"Added {fallback_count} fallback tools (priority-sorted)")
 
             return filtered_tools
 
@@ -141,21 +149,39 @@ class IntentAnalyzer:
         Returns:
             IntentAnalysisResult with relevance scores
         """
-        # Build conversation summary
+        # Build conversation summary with SOP stage context (design requirement: derive intent from Playbook SOP stage)
         conversation_summary = ""
+        sop_stage_context = ""
+        
+        # Try to extract SOP stage from conversation history or playbook context
+        # This is a simplified version - full implementation would parse playbook.md SOP structure
         if conversation_history:
-            # Extract last few messages for context
-            recent_messages = conversation_history[-4:] if len(conversation_history) > 4 else conversation_history
+            # Extract last few messages for context (increased from 4 to 6 for better context)
+            recent_messages = conversation_history[-6:] if len(conversation_history) > 6 else conversation_history
             conversation_summary = "\n".join([
                 f"{msg.get('role', 'user')}: {msg.get('content', '')[:200]}"
                 for msg in recent_messages
             ])
+            
+            # Try to infer stage from conversation patterns (simplified heuristic)
+            # Full implementation should parse playbook.md SOP structure to get explicit stages
+            conversation_text = " ".join([msg.get('content', '') for msg in recent_messages]).lower()
+            if any(keyword in conversation_text for keyword in ['analyze', 'read', 'view', 'check', 'explore']):
+                sop_stage_context = "Stage: Analysis/Reading phase - tools for reading/viewing content are more relevant."
+            elif any(keyword in conversation_text for keyword in ['create', 'generate', 'write', 'draft', 'compose']):
+                sop_stage_context = "Stage: Creation/Generation phase - tools for creating/generating content are more relevant."
+            elif any(keyword in conversation_text for keyword in ['publish', 'deploy', 'update', 'apply', 'push']):
+                sop_stage_context = "Stage: Publishing/Deployment phase - tools for publishing/updating are more relevant."
+        
+        # Combine conversation summary with SOP stage context
+        if sop_stage_context:
+            conversation_summary = f"{sop_stage_context}\n\n{conversation_summary}"
 
         # Format tool list
         tool_list_str = self._format_tool_list(available_tools)
 
-        # Build prompt
-        prompt = f"""You are a tool selection assistant. Analyze which tools are relevant to the user's intent based on their needs.
+        # Build prompt (design requirement: return 1-3 most relevant tools + needs_confirmation)
+        prompt = f"""You are a tool selection assistant. Analyze which tools are relevant to the user's intent and select the 1-3 most relevant tools.
 
 User Message:
 {user_message}
@@ -163,10 +189,19 @@ User Message:
 Conversation History Summary:
 {conversation_summary if conversation_summary else "None"}
 
-Available Tools List:
+Available Tools List (sorted by priority):
 {tool_list_str}
 
-Please analyze the user's intent, score the relevance of each tool (0.0-1.0), and return a list of relevant tools.
+**Selection Strategy**:
+1. If only one tool clearly fits → select it directly
+2. If multiple tools are suitable → select the most precise ones (1-3 tools), or indicate they can be combined
+3. If uncertain → set needs_confirmation=true to ask user
+
+Please analyze the user's intent and return:
+- The most relevant tool slots (1-3 tools)
+- Relevance scores (0.0-1.0) for each
+- Reasoning for each tool
+- Whether user confirmation is needed (if multiple tools are suitable and hard to distinguish)
 
 **Scoring Criteria**:
 - 1.0: Perfectly matches user needs
@@ -174,22 +209,22 @@ Please analyze the user's intent, score the relevance of each tool (0.0-1.0), an
 - 0.4-0.6: Partially relevant
 - 0.0-0.3: Not relevant
 
-Please return JSON format:
+Return JSON format:
 ```json
 {{
   "relevant_tools": [
     {{
       "tool_slot": "tool_slot_name",
       "relevance_score": 0.95,
-      "reasoning": "Why this tool is relevant",
-      "confidence": 0.9
+      "reasoning": "Why this tool is relevant"
     }}
   ],
-  "overall_reasoning": "Overall analysis"
+  "overall_reasoning": "Overall analysis",
+  "needs_confirmation": false
 }}
 ```
 
-Return only JSON, no other text."""
+**Important**: Return only 1-3 most relevant tools. Return only JSON, no other text."""
 
         try:
             # Get LLM provider (use PlaybookLLMProviderManager if available)
@@ -231,16 +266,23 @@ Return only JSON, no other text."""
             return IntentAnalysisResult(relevant_tools=[])
 
     def _format_tool_list(self, tools: List[Any]) -> str:
-        """Format tool list for LLM prompt"""
+        """Format tool list for LLM prompt (include tags and priority for context)"""
         lines = []
-        for i, tool in enumerate(tools, 1):
+        # Sort tools by priority first for display
+        sorted_tools = sorted(tools, key=lambda x: x.priority, reverse=True)
+        
+        for i, tool in enumerate(sorted_tools, 1):
             tool_desc = tool.description or tool.mapped_tool_description or tool.slot
             policy_info = ""
             if tool.policy:
                 policy_info = f" (risk: {tool.policy.risk_level}, env: {tool.policy.env})"
+            
+            tags_info = ""
+            if tool.tags:
+                tags_info = f" [tags: {', '.join(tool.tags)}]"
 
-            lines.append(f"{i}. {tool.slot}")
-            lines.append(f"   Description: {tool_desc}{policy_info}")
+            lines.append(f"{i}. {tool.slot} (priority: {tool.priority})")
+            lines.append(f"   Description: {tool_desc}{policy_info}{tags_info}")
             if tool.mapped_tool_id:
                 lines.append(f"   Mapped to: {tool.mapped_tool_id}")
             lines.append("")
