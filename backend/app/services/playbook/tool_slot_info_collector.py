@@ -176,7 +176,7 @@ class ToolSlotInfoCollector:
                     if hasattr(step, 'metadata') and step.metadata:
                         description = step.metadata.get('description') if isinstance(step.metadata, dict) else None
                         tags = step.metadata.get('tags') if isinstance(step.metadata, dict) else None
-                    
+
                     # Fallback to step.id only if no description available
                     if not description:
                         description = f"Step: {step.id}"
@@ -277,12 +277,12 @@ class ToolSlotInfoCollector:
                             logger.debug(f"Failed to parse policy from metadata for slot {slot}: {e}")
 
                 source = "project" if mapping.get('project_id') else "workspace"
-                
+
                 # Extract description, tags, and priority from metadata
                 description = metadata.get('description') if metadata else None
                 tags = metadata.get('tags') if metadata and isinstance(metadata.get('tags'), list) else None
                 priority = metadata.get('priority', 50) if metadata else 50  # Default priority for workspace/project mappings
-                
+
                 # Project-level mappings have higher priority than workspace-level
                 if source == "project":
                     priority = max(priority, 70)
@@ -377,12 +377,15 @@ class ToolSlotInfoCollector:
         workspace_slots = {s: i for s, i in slot_info_map.items() if i.source == "workspace"}
         project_slots = {s: i for s, i in slot_info_map.items() if i.source == "project"}
 
-        # Sort by relevance score if available
+        # Sort by priority first, then relevance score (design requirement: priority > relevance)
         def sort_key(item):
             slot, info = item
-            if include_relevance_score and info.relevance_score is not None:
-                return -info.relevance_score  # Negative for descending
-            return 0
+            # Primary sort: priority (descending, higher priority first)
+            priority_score = info.priority
+            # Secondary sort: relevance_score (descending, higher relevance first)
+            relevance_score = info.relevance_score if (include_relevance_score and info.relevance_score is not None) else 0.0
+            # Return tuple for multi-level sort: (priority, relevance_score) both descending
+            return (-priority_score, -relevance_score)
 
         # Playbook-defined slots (priority)
         if playbook_slots:

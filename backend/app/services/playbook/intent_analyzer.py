@@ -92,7 +92,7 @@ class IntentAnalyzer:
             # Sort by priority rules (design requirement: playbook_defined > recently_used > workspace_common > generic)
             # Combined sort: priority (desc) then relevance_score (desc)
             tool_slot_map = {tool.slot: tool for tool in available_tools}
-            
+
             # Build filtered tools with both priority and relevance
             filtered_tools_with_scores = []
             for result in filtered_results:
@@ -152,7 +152,7 @@ class IntentAnalyzer:
         # Build conversation summary with SOP stage context (design requirement: derive intent from Playbook SOP stage)
         conversation_summary = ""
         sop_stage_context = ""
-        
+
         # Try to extract SOP stage from conversation history or playbook context
         # This is a simplified version - full implementation would parse playbook.md SOP structure
         if conversation_history:
@@ -162,7 +162,7 @@ class IntentAnalyzer:
                 f"{msg.get('role', 'user')}: {msg.get('content', '')[:200]}"
                 for msg in recent_messages
             ])
-            
+
             # Try to infer stage from conversation patterns (simplified heuristic)
             # Full implementation should parse playbook.md SOP structure to get explicit stages
             conversation_text = " ".join([msg.get('content', '') for msg in recent_messages]).lower()
@@ -172,7 +172,7 @@ class IntentAnalyzer:
                 sop_stage_context = "Stage: Creation/Generation phase - tools for creating/generating content are more relevant."
             elif any(keyword in conversation_text for keyword in ['publish', 'deploy', 'update', 'apply', 'push']):
                 sop_stage_context = "Stage: Publishing/Deployment phase - tools for publishing/updating are more relevant."
-        
+
         # Combine conversation summary with SOP stage context
         if sop_stage_context:
             conversation_summary = f"{sop_stage_context}\n\n{conversation_summary}"
@@ -270,13 +270,13 @@ Return JSON format:
         lines = []
         # Sort tools by priority first for display
         sorted_tools = sorted(tools, key=lambda x: x.priority, reverse=True)
-        
+
         for i, tool in enumerate(sorted_tools, 1):
             tool_desc = tool.description or tool.mapped_tool_description or tool.slot
             policy_info = ""
             if tool.policy:
                 policy_info = f" (risk: {tool.policy.risk_level}, env: {tool.policy.env})"
-            
+
             tags_info = ""
             if tool.tags:
                 tags_info = f" [tags: {', '.join(tool.tags)}]"
