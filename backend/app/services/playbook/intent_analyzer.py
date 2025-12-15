@@ -27,7 +27,7 @@ class IntentAnalysisResult:
     """Intent analysis result"""
     relevant_tools: List[ToolRelevanceResult]  # 1-3 most relevant tools
     overall_reasoning: Optional[str] = None
-    needs_user_confirmation: bool = False  # Whether user confirmation is needed when multiple tools are suitable
+    needs_confirmation: bool = False  # Whether user confirmation is needed when multiple tools are suitable
 
 
 class IntentAnalyzer:
@@ -316,14 +316,14 @@ Return JSON format:
                     logger.warning("LLM returned no tools, this should not happen")
                     # Keep empty list, will fallback to all tools
 
-                # Parse needs_confirmation (support both keys for compatibility)
-                # Prompt asks for "needs_confirmation", but also check "needs_user_confirmation" for backward compatibility
+                # Parse needs_confirmation (support both keys for backward compatibility during transition)
+                # Design uses "needs_confirmation", but check "needs_user_confirmation" for any legacy responses
                 needs_confirmation = data.get("needs_confirmation", False) or data.get("needs_user_confirmation", False)
 
                 return IntentAnalysisResult(
                     relevant_tools=relevant_tools,
                     overall_reasoning=data.get("overall_reasoning"),
-                    needs_user_confirmation=needs_confirmation
+                    needs_confirmation=needs_confirmation
                 )
             else:
                 logger.warning("No JSON found in LLM response")
