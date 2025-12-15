@@ -529,7 +529,7 @@ class PlaybookConversationManager:
         Parse tool calls from LLM response.
 
         Uses shared JSON parser utility to extract tool calls from various formats:
-        1. JSON object with tool_call field: {"tool_call": {"tool_name": "...", "parameters": {...}}}
+        1. JSON object with tool_call field: {"tool_call": {"tool_slot": "..." or "tool_name": "...", "parameters": {...}}}
         2. JSON in markdown code blocks: ```json\n{"tool_call": {...}}\n```
         3. Array of tool calls: [{"tool_call": {...}}, ...]
         4. (Fallback) Incorrect formats: tool_code, tool_command, tool_calls
@@ -537,7 +537,8 @@ class PlaybookConversationManager:
 
         Returns:
             List of tool call dictionaries, each containing:
-            - tool_name: str
+            - tool_slot: str (new format, preferred)
+            - tool_name: str (legacy format, backward compatible)
             - parameters: Dict[str, Any]
         """
         tool_calls = []
@@ -551,34 +552,60 @@ class PlaybookConversationManager:
             if parsed_json:
                 # Try to normalize various formats
                 normalized = self._normalize_tool_call_json(parsed_json)
-                if normalized and isinstance(normalized, dict) and "tool_name" in normalized:
-                    tool_calls.append({
-                        "tool_name": normalized["tool_name"],
-                        "parameters": normalized.get("parameters", normalized.get("args", {}))
-                    })
-                    logger.info(f"Parsed 1 tool call (normalized): {normalized.get('tool_name')}")
-                    return tool_calls
+                if normalized and isinstance(normalized, dict):
+                    # Support both tool_slot (new) and tool_name (legacy) formats
+                    if "tool_slot" in normalized:
+                        tool_calls.append({
+                            "tool_slot": normalized["tool_slot"],
+                            "parameters": normalized.get("parameters", normalized.get("args", {}))
+                        })
+                        logger.info(f"Parsed 1 tool call (normalized, slot): {normalized.get('tool_slot')}")
+                        return tool_calls
+                    elif "tool_name" in normalized:
+                        tool_calls.append({
+                            "tool_name": normalized["tool_name"],
+                            "parameters": normalized.get("parameters", normalized.get("args", {}))
+                        })
+                        logger.info(f"Parsed 1 tool call (normalized, name): {normalized.get('tool_name')}")
+                        return tool_calls
 
                 # Check if it's a tool call format: {"tool_call": {...}}
                 if "tool_call" in parsed_json:
                     tool_call_data = parsed_json["tool_call"]
-                    if isinstance(tool_call_data, dict) and "tool_name" in tool_call_data:
-                        tool_calls.append({
-                            "tool_name": tool_call_data["tool_name"],
-                            "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
-                        })
-                        logger.info(f"Parsed 1 tool call from JSON: {tool_call_data.get('tool_name')}")
-                        return tool_calls
+                    if isinstance(tool_call_data, dict):
+                        if "tool_slot" in tool_call_data:
+                            tool_calls.append({
+                                "tool_slot": tool_call_data["tool_slot"],
+                                "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
+                            })
+                            logger.info(f"Parsed 1 tool call from JSON (slot): {tool_call_data.get('tool_slot')}")
+                            return tool_calls
+                        elif "tool_name" in tool_call_data:
+                            tool_calls.append({
+                                "tool_name": tool_call_data["tool_name"],
+                                "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
+                            })
+                            logger.info(f"Parsed 1 tool call from JSON (name): {tool_call_data.get('tool_name')}")
+                            return tool_calls
 
-                # Check if it's a direct tool call format: {"tool_name": "...", "parameters": {...}}
-                if "tool_name" in parsed_json and isinstance(parsed_json.get("tool_name"), str):
+                # Check if it's a direct tool call format: {"tool_slot": "..."} or {"tool_name": "..."}
+                if "tool_slot" in parsed_json and isinstance(parsed_json.get("tool_slot"), str):
+                    # Skip if it looks like structured output
+                    if not any(key in parsed_json for key in ['project_data', 'work_rhythm_data', 'onboarding_task', 'STRUCTURED_OUTPUT']):
+                        tool_calls.append({
+                            "tool_slot": parsed_json["tool_slot"],
+                            "parameters": parsed_json.get("parameters", parsed_json.get("args", {}))
+                        })
+                        logger.info(f"Parsed 1 tool call (direct format, slot): {parsed_json.get('tool_slot')}")
+                        return tool_calls
+                elif "tool_name" in parsed_json and isinstance(parsed_json.get("tool_name"), str):
                     # Skip if it looks like structured output
                     if not any(key in parsed_json for key in ['project_data', 'work_rhythm_data', 'onboarding_task', 'STRUCTURED_OUTPUT']):
                         tool_calls.append({
                             "tool_name": parsed_json["tool_name"],
                             "parameters": parsed_json.get("parameters", parsed_json.get("args", {}))
                         })
-                        logger.info(f"Parsed 1 tool call (direct format): {parsed_json.get('tool_name')}")
+                        logger.info(f"Parsed 1 tool call (direct format, name): {parsed_json.get('tool_name')}")
                         return tool_calls
 
             # Try to parse as JSON array (multiple tool calls)
@@ -590,12 +617,23 @@ class PlaybookConversationManager:
                         # Check for tool_call format in array item
                         if "tool_call" in item:
                             tool_call_data = item["tool_call"]
-                            if isinstance(tool_call_data, dict) and "tool_name" in tool_call_data:
-                                tool_calls.append({
-                                    "tool_name": tool_call_data["tool_name"],
-                                    "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
-                                })
+                            if isinstance(tool_call_data, dict):
+                                if "tool_slot" in tool_call_data:
+                                    tool_calls.append({
+                                        "tool_slot": tool_call_data["tool_slot"],
+                                        "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
+                                    })
+                                elif "tool_name" in tool_call_data:
+                                    tool_calls.append({
+                                        "tool_name": tool_call_data["tool_name"],
+                                        "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
+                                    })
                         # Check for direct tool call format in array item
+                        elif "tool_slot" in item and isinstance(item.get("tool_slot"), str):
+                            tool_calls.append({
+                                "tool_slot": item["tool_slot"],
+                                "parameters": item.get("parameters", item.get("args", {}))
+                            })
                         elif "tool_name" in item and isinstance(item.get("tool_name"), str):
                             tool_calls.append({
                                 "tool_name": item["tool_name"],
@@ -617,22 +655,41 @@ class PlaybookConversationManager:
                 if parsed:
                     # Try normalized format first
                     normalized = self._normalize_tool_call_json(parsed)
-                    if normalized and isinstance(normalized, dict) and "tool_name" in normalized:
-                        tool_calls.append({
-                            "tool_name": normalized["tool_name"],
-                            "parameters": normalized.get("parameters", normalized.get("args", {}))
-                        })
-                        continue
+                    if normalized and isinstance(normalized, dict):
+                        if "tool_slot" in normalized:
+                            tool_calls.append({
+                                "tool_slot": normalized["tool_slot"],
+                                "parameters": normalized.get("parameters", normalized.get("args", {}))
+                            })
+                            continue
+                        elif "tool_name" in normalized:
+                            tool_calls.append({
+                                "tool_name": normalized["tool_name"],
+                                "parameters": normalized.get("parameters", normalized.get("args", {}))
+                            })
+                            continue
 
                     # Check for tool_call format
                     if "tool_call" in parsed:
                         tool_call_data = parsed["tool_call"]
-                        if isinstance(tool_call_data, dict) and "tool_name" in tool_call_data:
-                            tool_calls.append({
-                                "tool_name": tool_call_data["tool_name"],
-                                "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
-                            })
+                        if isinstance(tool_call_data, dict):
+                            if "tool_slot" in tool_call_data:
+                                tool_calls.append({
+                                    "tool_slot": tool_call_data["tool_slot"],
+                                    "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
+                                })
+                            elif "tool_name" in tool_call_data:
+                                tool_calls.append({
+                                    "tool_name": tool_call_data["tool_name"],
+                                    "parameters": tool_call_data.get("parameters", tool_call_data.get("args", {}))
+                                })
                     # Check for direct tool call format
+                    elif "tool_slot" in parsed and isinstance(parsed.get("tool_slot"), str):
+                        if not any(key in parsed for key in ['project_data', 'work_rhythm_data', 'onboarding_task', 'STRUCTURED_OUTPUT']):
+                            tool_calls.append({
+                                "tool_slot": parsed["tool_slot"],
+                                "parameters": parsed.get("parameters", parsed.get("args", {}))
+                            })
                     elif "tool_name" in parsed and isinstance(parsed.get("tool_name"), str):
                         if not any(key in parsed for key in ['project_data', 'work_rhythm_data', 'onboarding_task', 'STRUCTURED_OUTPUT']):
                             tool_calls.append({
