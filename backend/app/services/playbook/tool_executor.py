@@ -56,14 +56,14 @@ class PlaybookToolExecutor:
 
     # Patterns that indicate LLM tried to call tools but used wrong format
     TOOL_INTENT_PATTERNS = [
-        (r'tool_code', "使用了 'tool_code' 而非 'tool_call'"),
-        (r'tool_command', "使用了 'tool_command' 而非 'tool_call'"),
-        (r'function_call', "使用了 'function_call' 而非 'tool_call'"),
-        (r'fs\.read_file', "使用了 'fs.read_file' 而非 'filesystem_read_file'"),
-        (r'fs\.write_file', "使用了 'fs.write_file' 而非 'filesystem_write_file'"),
-        (r'fs\.list_files', "使用了 'fs.list_files' 而非 'filesystem_list_files'"),
-        (r'print\s*\(\s*filesystem_', "使用了 Python print() 語法調用工具"),
-        (r'await\s+filesystem_', "使用了 async/await 語法調用工具"),
+        (r'tool_code', "Used 'tool_code' instead of 'tool_call'"),
+        (r'tool_command', "Used 'tool_command' instead of 'tool_call'"),
+        (r'function_call', "Used 'function_call' instead of 'tool_call'"),
+        (r'fs\.read_file', "Used 'fs.read_file' instead of 'filesystem_read_file'"),
+        (r'fs\.write_file', "Used 'fs.write_file' instead of 'filesystem_write_file'"),
+        (r'fs\.list_files', "Used 'fs.list_files' instead of 'filesystem_list_files'"),
+        (r'print\s*\(\s*filesystem_', "Used Python print() syntax to call tools"),
+        (r'await\s+filesystem_', "Used async/await syntax to call tools"),
     ]
 
     def __init__(
@@ -96,58 +96,102 @@ class PlaybookToolExecutor:
 
     def _build_format_correction_message(self, error: str) -> str:
         """Build a message asking LLM to correct the tool call format."""
-        return f"""⚠️ **工具調用格式錯誤**
+        return f"""**Tool Call Format Error**
 
 {error}
 
-請使用正確的 JSON 格式重新調用工具：
+Please use the correct JSON format to retry the tool call:
 
 ```json
 {{
   "tool_call": {{
     "tool_name": "filesystem_read_file",
     "parameters": {{
-      "path": "檔案路徑"
+      "path": "file_path"
     }}
   }}
 }}
 ```
 
-**注意**：
-- 必須使用 `tool_call`（不是 `tool_code`）
-- 必須使用 `filesystem_read_file`（不是 `fs.read_file`）
-- 值必須是 JSON 對象（不是 Python 代碼字符串）
+**Note**:
+- Must use `tool_call` (not `tool_code`)
+- Must use `filesystem_read_file` (not `fs.read_file`)
+- Values must be JSON objects (not Python code strings)
 
-請重新調用工具。"""
+Please retry the tool call."""
 
     async def execute_tool(
         self,
-        tool_fqn: str,
+        tool_fqn: Optional[str] = None,
+        tool_slot: Optional[str] = None,
+        tool_policy: Optional[Any] = None,
         profile_id: str = None,
         workspace_id: Optional[str] = None,
         execution_id: Optional[str] = None,
         step_id: Optional[str] = None,
         factory_cluster: Optional[str] = None,
+        project_id: Optional[str] = None,
         **kwargs
     ) -> Any:
         """
         Unified tool execution entry point
 
         This method provides a single entry point for all tool calls from Playbooks.
-        It routes to capability package tools via registry, or falls back to legacy services.
+        Supports both tool_slot (new) and tool_fqn (legacy) modes.
 
         Args:
             tool_fqn: Fully qualified tool name (e.g., "major_proposal.import_template_from_files")
+            tool_slot: Tool slot identifier (e.g., "cms.footer.apply_style") - new format
+            tool_policy: Tool policy constraints (optional, used when tool_slot is provided)
             profile_id: Profile ID (optional, for event recording)
-            workspace_id: Workspace ID
+            workspace_id: Workspace ID (required for tool_slot resolution)
             execution_id: Execution ID
             step_id: Step ID
             factory_cluster: Factory cluster name
+            project_id: Project ID (optional, for project-level slot mapping)
             **kwargs: Parameters to pass to the tool
 
         Returns:
             Tool execution result
         """
+        # Resolve tool_slot to tool_fqn if provided
+        if tool_slot:
+            if not workspace_id:
+                raise ValueError("workspace_id is required when using tool_slot")
+
+            # Resolve slot to tool_id
+            from backend.app.services.tool_slot_resolver import get_tool_slot_resolver, SlotNotFoundError
+            from backend.app.services.tool_policy_engine import get_tool_policy_engine, PolicyViolationError
+
+            resolver = get_tool_slot_resolver(store=self.store)
+            try:
+                resolved_tool_id = await resolver.resolve(
+                    slot=tool_slot,
+                    workspace_id=workspace_id,
+                    project_id=project_id
+                )
+                tool_fqn = resolved_tool_id
+                logger.info(f"Resolved tool slot '{tool_slot}' to tool '{tool_fqn}'")
+            except SlotNotFoundError as e:
+                logger.error(f"Failed to resolve tool slot '{tool_slot}': {e}")
+                raise ValueError(f"Tool slot '{tool_slot}' not configured. Please set up a mapping in workspace settings.")
+
+            # Check policy if provided
+            if tool_policy:
+                policy_engine = get_tool_policy_engine()
+                try:
+                    policy_engine.check(
+                        tool_id=tool_fqn,
+                        policy=tool_policy,
+                        workspace_id=workspace_id
+                    )
+                    logger.debug(f"Tool '{tool_fqn}' passed policy check")
+                except PolicyViolationError as e:
+                    logger.error(f"Tool '{tool_fqn}' violates policy: {e}")
+                    raise ValueError(f"Tool execution blocked by policy: {str(e)}")
+        elif not tool_fqn:
+            raise ValueError("Either tool_fqn or tool_slot must be provided")
+
         tool_start_time = datetime.utcnow()
         tool_call_id = str(uuid.uuid4())
 
@@ -381,11 +425,11 @@ class PlaybookToolExecutor:
                         "tool_name": "system",
                         "result": correction_msg,
                         "success": False,
-                        "error": "格式錯誤"
+                        "error": "Format error"
                     }])
 
                     # Get LLM to retry with correct format
-                    messages = conv_manager.get_messages_for_llm()
+                    messages = await conv_manager.get_messages_for_llm()
                     current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
                     conv_manager.add_assistant_message(current_response)
                     continue  # Try parsing again
@@ -400,39 +444,61 @@ class PlaybookToolExecutor:
             # Execute all tool calls
             tool_results = []
             for tool_call in tool_calls:
+                tool_slot = tool_call.get("tool_slot")
                 tool_name = tool_call.get("tool_name")
                 parameters = tool_call.get("parameters", {})
 
-                if not tool_name:
-                    logger.warning(f"Invalid tool call: missing tool_name")
+                # Extract tool_policy if present (for slot-based calls)
+                tool_policy = tool_call.get("tool_policy")
+
+                if not tool_slot and not tool_name:
+                    logger.warning(f"Invalid tool call: missing tool_slot or tool_name")
                     continue
 
                 try:
-                    # Execute tool
-                    logger.info(f"PlaybookToolExecutor: Executing tool {tool_name} with parameters: {list(parameters.keys())}")
-                    result = await self.execute_tool(
-                        tool_fqn=tool_name,
-                        profile_id=profile_id,
-                        workspace_id=conv_manager.workspace_id,
-                        execution_id=execution_id,
-                        step_id=None,  # Will be set when step event is created
-                        **parameters
-                    )
+                    # Execute tool (support both slot and name modes)
+                    if tool_slot:
+                        logger.info(f"PlaybookToolExecutor: Executing tool slot {tool_slot} with parameters: {list(parameters.keys())}")
+                        result = await self.execute_tool(
+                            tool_slot=tool_slot,
+                            tool_policy=tool_policy,
+                            profile_id=profile_id,
+                            workspace_id=conv_manager.workspace_id,
+                            project_id=conv_manager.project_id,
+                            execution_id=execution_id,
+                            step_id=None,  # Will be set when step event is created
+                            **parameters
+                        )
+                        display_name = tool_slot
+                    else:
+                        logger.info(f"PlaybookToolExecutor: Executing tool {tool_name} with parameters: {list(parameters.keys())}")
+                        result = await self.execute_tool(
+                            tool_fqn=tool_name,
+                            profile_id=profile_id,
+                            workspace_id=conv_manager.workspace_id,
+                            execution_id=execution_id,
+                            step_id=None,  # Will be set when step event is created
+                            **parameters
+                        )
+                        display_name = tool_name
 
                     tool_results.append({
-                        "tool_name": tool_name,
+                        "tool_name": display_name,
+                        "tool_slot": tool_slot if tool_slot else None,
                         "result": result,
                         "success": True
                     })
-                    used_tools.append(tool_name)
+                    used_tools.append(display_name)
 
-                    logger.info(f"PlaybookToolExecutor: Tool {tool_name} executed successfully")
+                    logger.info(f"PlaybookToolExecutor: Tool {display_name} executed successfully")
 
                 except Exception as e:
                     error_msg = str(e)[:500]
-                    logger.error(f"PlaybookToolExecutor: Tool {tool_name} execution failed: {e}", exc_info=True)
+                    display_name = tool_slot if tool_slot else tool_name
+                    logger.error(f"PlaybookToolExecutor: Tool {display_name} execution failed: {e}", exc_info=True)
                     tool_results.append({
-                        "tool_name": tool_name,
+                        "tool_name": display_name,
+                        "tool_slot": tool_slot if tool_slot else None,
                         "result": None,
                         "success": False,
                         "error": error_msg
@@ -443,16 +509,25 @@ class PlaybookToolExecutor:
                 conv_manager.add_tool_call_results(tool_results)
 
             # Continue conversation with tool results
-            # Only continue if we have successful tool calls (to avoid infinite loops on errors)
-            if any(r.get("success", False) for r in tool_results):
-                messages = conv_manager.get_messages_for_llm()
-                current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
-                conv_manager.add_assistant_message(current_response)
-                tool_iteration += 1
-            else:
-                # All tool calls failed, exit loop
-                logger.warning(f"PlaybookToolExecutor: All tool calls failed, exiting tool execution loop")
-                break
+            # Always let LLM retry on errors (it will see the error message and can correct parameters)
+            # Only exit if we've reached max iterations to avoid infinite loops
+            messages = conv_manager.get_messages_for_llm()
+            current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+            conv_manager.add_assistant_message(current_response)
+            tool_iteration += 1
+
+            # If all tools failed and we've tried multiple times, check if LLM is stuck
+            if not any(r.get("success", False) for r in tool_results) and tool_iteration >= 2:
+                # Check if LLM is still trying to call the same failed tool
+                new_tool_calls = conv_manager.parse_tool_calls_from_response(current_response)
+                if new_tool_calls:
+                    # LLM is trying again, let it continue
+                    logger.info(f"PlaybookToolExecutor: LLM is retrying after tool failures, allowing continuation")
+                    continue
+                else:
+                    # LLM gave up or changed approach, exit loop
+                    logger.warning(f"PlaybookToolExecutor: All tool calls failed and LLM stopped retrying, exiting loop")
+                    break
 
         return current_response, used_tools
 

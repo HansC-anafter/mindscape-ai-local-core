@@ -7,6 +7,13 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 from pydantic import BaseModel, Field, validator
+try:
+    from pydantic import model_validator
+except ImportError:
+    # Pydantic v1 fallback
+    from pydantic import root_validator
+    def model_validator(*args, **kwargs):
+        return root_validator(*args, skip_on_failure=True, **kwargs)
 
 
 class PlaybookKind(str, Enum):
@@ -465,13 +472,94 @@ class PlaybookOutput(BaseModel):
     source: str = Field(..., description="Source path (e.g., 'step.ocr.ocr_text')")
 
 
+class ToolPolicy(BaseModel):
+    """
+    Tool execution policy constraints
+
+    Controls what tools can be called and under what conditions.
+    Used for security and workflow control.
+    """
+    risk_level: Literal["read", "write"] = Field(
+        default="read",
+        description="Risk level: read-only or write operations"
+    )
+    env: Literal["sandbox_only", "allow_prod"] = Field(
+        default="sandbox_only",
+        description="Environment constraint: sandbox only or allow production"
+    )
+    requires_preview: bool = Field(
+        default=True,
+        description="Whether write operations require preview before execution"
+    )
+    allowed_slots: Optional[List[str]] = Field(
+        None,
+        description="List of allowed tool slots (alternative to tool_slot field)"
+    )
+    allowed_tool_patterns: Optional[List[str]] = Field(
+        None,
+        description="Allowed tool ID patterns (e.g., ['wp-*.wordpress.*', 'canva-*.canva.*'])"
+    )
+
+
 class PlaybookStep(BaseModel):
-    """Step definition in playbook.json"""
+    """
+    Step definition in playbook.json
+
+    Supports two modes:
+    1. Legacy mode: tool field (concrete tool ID, e.g., 'wp-ets1.wordpress.update_footer')
+    2. Slot mode: tool_slot field (logical slot, e.g., 'cms.footer.apply_style')
+
+    Tool slot mode allows workspace/project-level tool binding without modifying playbook.
+    """
     id: str = Field(..., description="Step unique identifier")
-    tool: str = Field(..., description="Tool name to call (e.g., 'core_files.ocr_pdf')")
+
+    # Legacy mode: concrete tool ID (backward compatible)
+    tool: Optional[str] = Field(
+        None,
+        description="Concrete tool ID to call (e.g., 'wp-ets1.wordpress.update_footer'). "
+                   "Legacy field, use tool_slot for new playbooks."
+    )
+
+    # Slot mode: logical tool slot (recommended for new playbooks)
+    tool_slot: Optional[str] = Field(
+        None,
+        description="Logical tool slot identifier (e.g., 'cms.footer.apply_style'). "
+                   "Resolved to concrete tool_id at runtime via workspace/project mapping."
+    )
+
+    # Policy constraints for tool execution
+    tool_policy: Optional[ToolPolicy] = Field(
+        None,
+        description="Tool execution policy constraints (risk level, environment, preview requirements)"
+    )
+
     inputs: Dict[str, Any] = Field(..., description="Tool input parameters (supports template variables)")
     outputs: Dict[str, str] = Field(..., description="Output mapping (tool return field -> step output name)")
     depends_on: List[str] = Field(default_factory=list, description="Dependencies: list of step IDs that must complete first")
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_tool_or_slot(cls, values):
+        """
+        Ensure either tool (legacy) or tool_slot (new) is provided
+
+        Backward compatibility: old playbooks with tool field still work.
+        New playbooks should use tool_slot for flexibility.
+        """
+        # In 'before' mode, values is a dict
+        if isinstance(values, dict):
+            tool = values.get('tool')
+            tool_slot = values.get('tool_slot')
+
+            # At least one must be provided
+            if not tool and not tool_slot:
+                raise ValueError("Either 'tool' (legacy) or 'tool_slot' (recommended) must be provided")
+
+            # Both cannot be provided
+            if tool and tool_slot:
+                raise ValueError("Cannot specify both 'tool' and 'tool_slot'. Use 'tool_slot' for new playbooks.")
+
+        return values
 
 
 class PlaybookJson(BaseModel):

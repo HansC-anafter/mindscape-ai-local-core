@@ -25,6 +25,8 @@ from backend.app.models.playbook import (
 )
 from backend.app.services.workflow_template_engine import TemplateEngine
 from backend.app.shared.tool_executor import ToolExecutor
+from backend.app.services.tool_slot_resolver import get_tool_slot_resolver, SlotNotFoundError
+from backend.app.services.tool_policy_engine import get_tool_policy_engine, PolicyViolationError
 
 logger = logging.getLogger(__name__)
 
@@ -541,8 +543,44 @@ class WorkflowOrchestrator:
                 step_outputs
             )
 
+            # Resolve tool: support both legacy 'tool' field and new 'tool_slot' field
+            tool_id = None
+            if hasattr(step, 'tool_slot') and step.tool_slot:
+                # New slot-based mode: resolve slot to tool_id
+                slot_resolver = get_tool_slot_resolver(store=self.store)
+                try:
+                    tool_id = await slot_resolver.resolve(
+                        slot=step.tool_slot,
+                        workspace_id=workspace_id or "",
+                        project_id=None  # project_id can be extracted from context in future enhancement
+                    )
+                    logger.info(f"Resolved tool slot '{step.tool_slot}' to tool '{tool_id}'")
+                except SlotNotFoundError as e:
+                    logger.error(f"Failed to resolve tool slot '{step.tool_slot}': {e}")
+                    raise ValueError(f"Tool slot '{step.tool_slot}' not configured. Please set up a mapping in workspace settings.")
+            elif hasattr(step, 'tool') and step.tool:
+                # Legacy mode: use tool field directly
+                tool_id = step.tool
+                logger.debug(f"Using legacy tool field: '{tool_id}'")
+            else:
+                raise ValueError("PlaybookStep must have either 'tool' (legacy) or 'tool_slot' (recommended) field")
+
+            # Check policy constraints if tool_policy is specified
+            if hasattr(step, 'tool_policy') and step.tool_policy:
+                policy_engine = get_tool_policy_engine()
+                try:
+                    policy_engine.check(
+                        tool_id=tool_id,
+                        policy=step.tool_policy,
+                        workspace_id=workspace_id
+                    )
+                except PolicyViolationError as e:
+                    logger.error(f"Tool '{tool_id}' violates policy: {e}")
+                    raise ValueError(f"Tool execution blocked by policy: {str(e)}")
+
+            # Execute tool
             tool_result = await self.tool_executor.execute_tool(
-                step.tool,
+                tool_id,
                 **resolved_inputs
             )
 

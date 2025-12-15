@@ -31,7 +31,9 @@ class PlaybookConversationManager:
         self.profile = profile
         self.project = project
         self.workspace_id = workspace_id
+        self.project_id = getattr(project, 'id', None) if project else None
         self.auto_execute = auto_execute  # If True, skip confirmations and execute tools directly
+        self.store = None  # Will be set if needed for tool slot collection
         if target_language:
             self.target_language = target_language
             self.locale = target_language
@@ -55,7 +57,7 @@ class PlaybookConversationManager:
         self.custom_checklist: List[str] = []
         self.cached_tools_str: Optional[str] = None  # Cache formatted tools string
 
-    def build_system_prompt(self) -> str:
+    async def build_system_prompt(self) -> str:
         """Build system prompt for Playbook execution"""
         prompt_parts = []
 
@@ -109,12 +111,78 @@ class PlaybookConversationManager:
 
         prompt_parts.append("[/EXECUTION_INSTRUCTIONS]")
 
-        # Available tools (using cached tool list if available)
-        # Tool call format instructions (shared between both branches)
+        # Collect tool slot information (if available)
+        slot_info_str = ""
+        try:
+            workspace_id = self.workspace_id
+            project_id = self.project_id
+            playbook_code = self.playbook.metadata.playbook_code if self.playbook else None
+
+            if workspace_id and playbook_code:
+                from backend.app.services.playbook.tool_slot_info_collector import get_tool_slot_info_collector
+
+                # Initialize store if not set
+                if not self.store:
+                    from backend.app.services.mindscape_store import MindscapeStore
+                    self.store = MindscapeStore()
+
+                collector = get_tool_slot_info_collector(store=self.store)
+
+                # Get user message from conversation history for intent filtering
+                user_message = None
+                if self.conversation_history:
+                    # Get last user message
+                    for msg in reversed(self.conversation_history):
+                        if msg.get("role") == "user":
+                            user_message = msg.get("content", "")
+                            break
+
+                # Collect slots with intent filtering (collect_slot_info already resolves tool IDs)
+                slot_info_map = await collector.collect_slot_info(
+                    playbook_code=playbook_code,
+                    workspace_id=workspace_id,
+                    project_id=project_id,
+                    user_message=user_message,
+                    conversation_history=self.conversation_history,
+                    enable_intent_filtering=True  # Enable LLM-based filtering
+                )
+
+                if slot_info_map:
+                    slot_info_str = collector.format_for_prompt(
+                        slot_info_map=slot_info_map,
+                        include_policy=True,
+                        include_mapped_tool=True,
+                        include_relevance_score=True  # Show relevance scores
+                    )
+                    logger.debug(f"Collected {len(slot_info_map)} tool slots for prompt injection")
+        except Exception as e:
+            logger.warning(f"Failed to collect tool slot information: {e}", exc_info=True)
+
+        # Tool call format instructions (enhanced with slot support)
         tool_format_instructions = [
-            "\n## ⚠️ 工具調用格式（必須嚴格遵守）",
-            "\n當你需要使用工具時，**必須**使用以下 JSON 格式之一：",
-            "\n### 格式 A（標準格式）:",
+            "\n## Tool Call Format (Must Follow Strictly)",
+            "\nWhen you need to use tools, you **must** use one of the following JSON formats:",
+        ]
+
+        # Add slot format if slots are available
+        if slot_info_str:
+            tool_format_instructions.extend([
+                "\n### Format A (Use Tool Slot, Recommended):",
+                "```json",
+                "{",
+                '  "tool_call": {',
+                '    "tool_slot": "cms.footer.apply_style",',
+                '    "parameters": {',
+                '      "footer_content": "..."',
+                "    }",
+                "  }",
+                "}",
+                "```",
+                "\nUsing tool_slot allows more flexible tool binding, recommend using this format first.",
+            ])
+
+        tool_format_instructions.extend([
+            "\n### Format B (Use Concrete Tool ID, Backward Compatible):",
             "```json",
             "{",
             '  "tool_call": {',
@@ -126,7 +194,7 @@ class PlaybookConversationManager:
             "  }",
             "}",
             "```",
-            "\n### 格式 B（簡化格式）:",
+            "\n### Format C (Simplified Format):",
             "```json",
             "{",
             '  "tool_name": "filesystem_write_file",',
@@ -136,24 +204,40 @@ class PlaybookConversationManager:
             "  }",
             "}",
             "```",
-            "\n### ❌ 禁止的格式（系統無法解析）：",
-            "- `tool_code`、`tool_command` 等其他欄位名 ❌",
-            "- Python 語法如 `tool_name(arg=value)` ❌",
-            "- 函數調用語法如 `print(filesystem_list_files(...))` ❌",
-            "\n工具調用後，系統會自動執行並將結果返回給你。"
-        ]
+            "\n### Invalid Formats (System Cannot Parse):",
+            "- Field names like `tool_code`, `tool_command`, etc.",
+            "- Python syntax like `tool_name(arg=value)`",
+            "- Function call syntax like `print(filesystem_list_files(...))`",
+            "\nAfter tool calls, the system will automatically execute and return results to you."
+        ])
 
+        # Inject tool slot information (if available)
+        if slot_info_str:
+            prompt_parts.append(slot_info_str)
+            prompt_parts.append("\n**How to Use Tools:**")
+            prompt_parts.extend(tool_format_instructions)
+
+        # Inject traditional tool list (as fallback/backward compatibility)
         if self.cached_tools_str:
             logger.debug(f"PlaybookConversationManager: Using cached tools string (length={len(self.cached_tools_str)})")
-            prompt_parts.append("\n[AVAILABLE_TOOLS]")
-            prompt_parts.append(self.cached_tools_str)
-            prompt_parts.append("\n\n**如何使用工具：**")
-            prompt_parts.extend(tool_format_instructions)
-            prompt_parts.append("[/AVAILABLE_TOOLS]")
+            if not slot_info_str:  # Only show if no slot info
+                prompt_parts.append("\n[AVAILABLE_TOOLS]")
+                prompt_parts.append(self.cached_tools_str)
+                prompt_parts.append("\n\n**How to Use Tools:**")
+                prompt_parts.extend(tool_format_instructions)
+                prompt_parts.append("[/AVAILABLE_TOOLS]")
+            else:
+                # Show as fallback option
+                prompt_parts.append("\n[AVAILABLE_TOOLS]")
+                prompt_parts.append("If no suitable slot is available, you can also directly use the following tools:")
+                prompt_parts.append(self.cached_tools_str)
+                prompt_parts.append("[/AVAILABLE_TOOLS]")
         else:
-            logger.warning(f"PlaybookConversationManager: No cached tools string available for playbook {self.playbook.metadata.playbook_code if self.playbook else 'unknown'}")
-            prompt_parts.extend(tool_format_instructions)
-            prompt_parts.append("[/AVAILABLE_TOOLS]")
+            if not slot_info_str:  # Only show format instructions if no slot info
+                logger.warning(f"PlaybookConversationManager: No cached tools string available for playbook {self.playbook.metadata.playbook_code if self.playbook else 'unknown'}")
+                prompt_parts.append("\n[AVAILABLE_TOOLS]")
+                prompt_parts.extend(tool_format_instructions)
+                prompt_parts.append("[/AVAILABLE_TOOLS]")
 
         return "\n".join(prompt_parts)
 
@@ -171,10 +255,16 @@ class PlaybookConversationManager:
             "content": message
         })
 
-    def get_messages_for_llm(self) -> List[Dict[str, str]]:
+    async def get_messages_for_llm(self) -> List[Dict[str, str]]:
         """Get formatted messages for LLM API"""
+        # Ensure store is initialized if not set
+        if not self.store:
+            from backend.app.services.mindscape_store import MindscapeStore
+            self.store = MindscapeStore()
+
+        system_prompt = await self.build_system_prompt()
         messages = [
-            {"role": "system", "content": self.build_system_prompt()}
+            {"role": "system", "content": system_prompt}
         ]
         messages.extend(self.conversation_history)
         return messages
@@ -224,15 +314,42 @@ class PlaybookConversationManager:
         """
         # Standard format
         if "tool_call" in parsed_json:
-            return parsed_json["tool_call"]
+            result = parsed_json["tool_call"]
+            # Normalize tool name if present
+            if isinstance(result, dict) and "tool_name" in result:
+                tool_name = result.get("tool_name")
+                normalized_name = self._normalize_tool_name(tool_name)
+                if normalized_name != tool_name:
+                    result["tool_name"] = normalized_name
+                    logger.info(f"Normalized tool name: {tool_name} -> {normalized_name}")
+            return result
 
         # Common mistakes: tool_code, tool_command
         for alt_key in ["tool_code", "tool_command", "function_call", "call"]:
             if alt_key in parsed_json:
                 data = parsed_json[alt_key]
-                if isinstance(data, dict) and "tool_name" in data:
-                    logger.info(f"Normalized '{alt_key}' to 'tool_call'")
-                    return data
+                if isinstance(data, dict):
+                    # Check for tool_slot first (new format)
+                    if "tool_slot" in data:
+                        logger.info(f"Normalized '{alt_key}' to 'tool_call' (tool_slot format)")
+                        return {
+                            "tool_slot": data["tool_slot"],
+                            "parameters": data.get("parameters", {})
+                        }
+                    # Check for tool_name (legacy format)
+                    if "tool_name" in data:
+                        logger.info(f"Normalized '{alt_key}' to 'tool_call' (tool_name format)")
+                        # Normalize tool name
+                        tool_name = data.get("tool_name")
+                        if tool_name:
+                            normalized_name = self._normalize_tool_name(tool_name)
+                            if normalized_name != tool_name:
+                                data["tool_name"] = normalized_name
+                                logger.info(f"Normalized tool name: {tool_name} -> {normalized_name}")
+                        return {
+                            "tool_name": data["tool_name"],
+                            "parameters": data.get("parameters", {})
+                        }
                 # Handle string value containing Python-style tool call
                 # e.g., {"tool_code": "filesystem_write_file('path', 'content')"}
                 elif isinstance(data, str) and any(tool in data for tool in ["filesystem_", "read_file", "write_file", "list_files"]):
@@ -248,11 +365,96 @@ class PlaybookConversationManager:
             if isinstance(calls, list) and len(calls) > 0:
                 first = calls[0]
                 if isinstance(first, dict):
+                    # Check for tool_slot first
+                    if "tool_slot" in first:
+                        logger.info("Normalized 'tool_calls' array to single tool_call (tool_slot format)")
+                        return {
+                            "tool_slot": first["tool_slot"],
+                            "parameters": first.get("parameters", {})
+                        }
+                    # Check for tool_name
                     if "tool_name" in first:
-                        logger.info("Normalized 'tool_calls' array to single tool_call")
-                        return first
+                        logger.info("Normalized 'tool_calls' array to single tool_call (tool_name format)")
+                        result = first
                     elif "tool_call" in first:
-                        return first["tool_call"]
+                        result = first["tool_call"]
+                    else:
+                        result = None
+                    if result:
+                        # Normalize tool name
+                        tool_name = result.get("tool_name")
+                        if tool_name:
+                            normalized_name = self._normalize_tool_name(tool_name)
+                            if normalized_name != tool_name:
+                                result["tool_name"] = normalized_name
+                                logger.info(f"Normalized tool name: {tool_name} -> {normalized_name}")
+                        return {
+                            "tool_name": result.get("tool_name"),
+                            "parameters": result.get("parameters", {})
+                        }
+
+        return None
+
+    def _normalize_tool_name(self, tool_name: str) -> str:
+        """
+        Normalize tool name from various formats to canonical name.
+
+        Handles:
+        - filesystem.list_files -> filesystem_list_files
+        - fs.list_files -> filesystem_list_files
+        - list_files -> filesystem_list_files
+        """
+        tool_aliases = {
+            "filesystem.list_files": "filesystem_list_files",
+            "filesystem.read_file": "filesystem_read_file",
+            "filesystem.write_file": "filesystem_write_file",
+            "filesystem.search": "filesystem_search",
+            "fs.list_files": "filesystem_list_files",
+            "fs.read_file": "filesystem_read_file",
+            "fs.write_file": "filesystem_write_file",
+            "fs.search": "filesystem_search",
+            "list_files": "filesystem_list_files",
+            "read_file": "filesystem_read_file",
+            "write_file": "filesystem_write_file",
+        }
+        return tool_aliases.get(tool_name, tool_name)
+
+    def _get_tool_schema_for_error(self, tool_name: str, error_msg: str) -> Optional[Dict[str, Any]]:
+        """
+        Get tool schema definition to help LLM correct tool calls.
+
+        Only attempts to fetch schema if error suggests parameter mismatch.
+        """
+        # Only fetch schema for parameter errors or tool not found errors
+        if not ("parameter" in error_msg.lower() or
+                "unexpected keyword" in error_msg.lower() or
+                "not found" in error_msg.lower()):
+            return None
+
+        try:
+            from backend.app.services.tools.registry import get_mindscape_tool, register_filesystem_tools
+            from backend.app.shared.tool_executor import _tool_executor
+
+            # Ensure filesystem tools are registered before fetching schema
+            _tool_executor._ensure_filesystem_tools_registered()
+
+            # Try normalized name first
+            normalized_name = self._normalize_tool_name(tool_name)
+            tool = get_mindscape_tool(normalized_name)
+
+            # If not found, try original name
+            if not tool:
+                tool = get_mindscape_tool(tool_name)
+
+            if tool:
+                tool_dict = tool.to_dict()
+                return {
+                    "name": tool_dict.get("name", normalized_name),
+                    "description": tool_dict.get("description", ""),
+                    "input_schema": tool_dict.get("input_schema", {})
+                }
+        except Exception as e:
+            logger.debug(f"Failed to get tool schema for {tool_name}: {e}")
 
         return None
 
@@ -277,6 +479,10 @@ class PlaybookConversationManager:
             "fs.read_file": "filesystem_read_file",
             "fs.write_file": "filesystem_write_file",
             "fs.search": "filesystem_search",
+            "filesystem.list_files": "filesystem_list_files",  # Capability format
+            "filesystem.read_file": "filesystem_read_file",
+            "filesystem.write_file": "filesystem_write_file",
+            "filesystem.search": "filesystem_search",
             "list_files": "filesystem_list_files",
             "read_file": "filesystem_read_file",
             "write_file": "filesystem_write_file",
@@ -464,27 +670,50 @@ class PlaybookConversationManager:
         if not tool_results:
             return
 
-        results_text = "**工具調用結果：**\n\n"
+        results_text = "**Tool Call Results:**\n\n"
         for i, result in enumerate(tool_results, 1):
             tool_name = result.get("tool_name", "unknown")
             success = result.get("success", False)
 
             if success:
-                result_value = result.get("result", "執行成功")
-                results_text += f"{i}. **{tool_name}**: 執行成功\n"
+                result_value = result.get("result", "Execution successful")
+                results_text += f"{i}. **{tool_name}**: Execution successful\n"
                 # Format result for LLM understanding
                 if isinstance(result_value, (dict, list)):
                     result_str = json.dumps(result_value, ensure_ascii=False, indent=2)
-                    results_text += f"   結果：\n```json\n{result_str}\n```\n\n"
+                    results_text += f"   Result:\n```json\n{result_str}\n```\n\n"
                 else:
                     result_str = str(result_value)[:500]  # Limit length
-                    results_text += f"   結果：{result_str}\n\n"
+                    results_text += f"   Result: {result_str}\n\n"
             else:
-                error_msg = result.get("error", "執行失敗")
-                results_text += f"{i}. **{tool_name}**: 執行失敗\n"
-                results_text += f"   錯誤：{error_msg}\n\n"
+                error_msg = result.get("error", "Execution failed")
+                results_text += f"{i}. **{tool_name}**: Execution failed\n"
+                results_text += f"   Error: {error_msg}\n\n"
 
-        results_text += "請根據以上工具調用結果繼續處理。\n"
+                # Try to get tool definition to help LLM correct the call
+                logger.debug(f"Attempting to get tool schema for {tool_name} with error: {error_msg[:100]}")
+                tool_schema = self._get_tool_schema_for_error(tool_name, error_msg)
+                logger.debug(f"Tool schema result for {tool_name}: {tool_schema is not None}")
+                if tool_schema:
+                    logger.info(f"Found tool schema for {tool_name}, adding to error message")
+                    results_text += f"   **Tool Definition:**\n"
+                    results_text += f"   - Tool Name: `{tool_schema.get('name', tool_name)}`\n"
+                    results_text += f"   - Description: {tool_schema.get('description', 'N/A')}\n"
+                    if tool_schema.get('input_schema'):
+                        params = tool_schema['input_schema'].get('properties', {})
+                        if params:
+                            results_text += f"   - **Correct Parameters:**\n"
+                            for param_name, param_def in params.items():
+                                param_type = param_def.get('type', 'unknown')
+                                param_desc = param_def.get('description', '')
+                                required = param_name in tool_schema['input_schema'].get('required', [])
+                                req_marker = " (required)" if required else ""
+                                results_text += f"     - `{param_name}` ({param_type}){req_marker}: {param_desc}\n"
+                    results_text += "\n"
+                else:
+                    logger.debug(f"Could not get tool schema for {tool_name}")
+
+        results_text += "Please continue processing based on the above tool call results. If tool calls failed, please retry with the correct parameters from the tool definition.\n"
 
         self.conversation_history.append({
             "role": "system",

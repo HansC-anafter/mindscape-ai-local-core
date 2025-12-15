@@ -108,14 +108,26 @@ class ToolExecutor:
             tool = get_mindscape_tool(tool_name)
             if tool:
                 logger.debug(f"Found MindscapeTool: {tool_name}")
-                if inspect.iscoroutinefunction(tool.execute):
-                    result = await tool.execute(**kwargs)
-                else:
-                    result = tool.execute(**kwargs)
-                return result
+                try:
+                    if inspect.iscoroutinefunction(tool.execute):
+                        result = await tool.execute(**kwargs)
+                    else:
+                        result = tool.execute(**kwargs)
+                    return result
+                except TypeError as e:
+                    # Parameter mismatch error - preserve original error message
+                    if "unexpected keyword argument" in str(e) or "got an unexpected keyword" in str(e):
+                        raise ValueError(
+                            f"Tool {tool_name} parameter error: {str(e)}. "
+                            f"Please check the tool's parameter schema and use correct parameter names."
+                        ) from e
+                    raise
         except ImportError:
             logger.warning("MindscapeTool registry not available")
         except Exception as e:
+            # If it's already a ValueError about tool not found, preserve it
+            if isinstance(e, ValueError) and "not found" in str(e):
+                raise
             logger.warning(f"Error accessing MindscapeTool registry: {e}")
 
         raise ValueError(
