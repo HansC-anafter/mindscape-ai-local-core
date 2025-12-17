@@ -319,8 +319,8 @@ class StepEventRecorder:
                 and e.payload.get('execution_id') == execution_id
             ]
             # Total steps is the maximum of:
-            # 1. Current step_index (which is the step we're about to create)
-            # 2. Number of existing steps + 1 (for the new step we're creating)
+            # Current step_index (which is the step we're about to create)
+            # Number of existing steps + 1 (for the new step we're creating)
             total_steps = max(step_index, len(existing_steps) + 1)
 
             # Record assistant message
