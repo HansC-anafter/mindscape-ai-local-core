@@ -131,6 +131,16 @@ Local Core 的重點放在：
   * 記憶 / Intent 架構
   * 工具註冊與執行
 
+* **能力檔與分段換模型（staged model routing）**
+
+  * 不再只靠一個全域 `chat_model`，而是透過多種 **能力檔（Capability Profile）** 來決定每一個階段用哪一種模型，
+    例如：`FAST`、`STANDARD`、`PRECISE`、`TOOL_STRICT`、`SAFE_WRITE` 等。
+  * 像 **意圖分析、工具候選篩選、規劃（planning）、安全寫入 / 嚴格工具呼叫** 等不同階段，可以各自使用不同能力檔，
+    但彼此之間透過 **固定的 JSON 結構（中間 IR）** 串接。
+  * 這讓你可以在不改 Playbook / 控制流程的前提下，更換模型或供應商，只要調整能力檔設定即可。
+  * **成本治理**：每個能力檔都設有成本上限（例如 FAST: $0.002/1k tokens、STANDARD: $0.01/1k tokens、PRECISE: $0.03/1k tokens），
+    系統會根據任務複雜度自動選擇符合成本限制的模型，在成本與成功率之間取得最佳平衡。
+
 * **架構**
 
   * Port/Adapter 模式，清晰的邊界分離
@@ -188,6 +198,17 @@ Local Core 的重點放在：
 
 * **Mindscape AI Cloud**（私有）：基於此核心構建的多租戶雲端版本。
 * **Mindscape WordPress Plugin**：Mindscape AI 的 WordPress 整合。
+
+---
+
+### 2025-12 系統演進說明
+
+截至 2025 年 12 月，local-core 已完成一輪針對 **能力檔＋分段換模型** 的重構，並穩定了各階段之間的中間表示（IR）：
+
+- 核心階段（意圖分析、工具候選篩選、規劃、安全寫入／工具呼叫）現在都輸出 **固定結構的 JSON**，而不是臨時拼接的文字。
+- 模型選擇不再寫死在 Playbook 或程式碼裡，而是透過高階的 **能力檔（Capability Profile）** 來表達。
+
+這是一個偏「架構級」的里程碑：它本身不直接新增前端介面，但讓 local-core 更容易擴充，也更容易在其他倉庫中掛上遙測／治理層，而不會破壞既有工作區。
 
 ---
 

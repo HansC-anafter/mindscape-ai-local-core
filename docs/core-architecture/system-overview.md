@@ -43,6 +43,8 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - **ExecutionContext**: Flows through all layers with actor/workspace context
 - **Project Detection**: Automatically detects if conversation warrants a new Project
 - **Intent Extraction**: Extracts intents from user messages
+- **Capability profiles & staged model routing**: selects different LLM capability profiles (FAST, STANDARD, PRECISE, TOOL_STRICT, SAFE_WRITE, etc.) for different phases
+  (intent analysis, tool-candidate selection, planning, safe writes), while keeping all intermediate results as typed JSON IR instead of ad-hoc text.
 
 #### 3. Event Layer (MindEvent)
 - All user actions and system events become `MindEvent` objects
@@ -231,6 +233,11 @@ Project: "OpenSEO MVP"
 - Local/Cloud boundary clearly defined
 - Workspace isolation at all levels
 - Extensible through Port interfaces
+
+### 6. Capability-aware staged model routing
+- Model choice is expressed as high-level capability profiles (fast, standard, precise, tool_strict, safe_write) instead of hard-coded model names inside playbooks.
+- Core phases communicate via stable JSON intermediate representations, so you can evolve models and providers without breaking workflows or control flow logic.
+- **Cost governance**: Each capability profile enforces cost limits per 1k tokens (e.g., FAST: $0.002, STANDARD: $0.01, PRECISE: $0.03), and the system automatically selects cost-appropriate models based on task complexity, optimizing for both cost efficiency and success rate. Simple tasks use low-cost models (saving ~90% cost), while complex tasks use high-success-rate models for reliability.
 
 ---
 

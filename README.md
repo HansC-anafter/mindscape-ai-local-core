@@ -132,6 +132,13 @@ This local core focuses on:
   * Memory / intent architecture
   * Tool registry and execution
 
+* **Capability-aware staged model routing**
+
+  * Instead of a single global `chat_model`, the local core now uses **capability profiles** (e.g. `FAST`, `STANDARD`, `PRECISE`, `TOOL_STRICT`, `SAFE_WRITE`) to decide which model runs which phase.
+  * Phases like **intent analysis**, **tool candidate selection**, **planning**, and **safe writes / tool-calling** can run on different profiles, connected by **stable JSON-based intermediate representations (IR)**.
+  * This makes it possible to swap models or providers without rewriting playbooks or control flow logic.
+  * **Cost governance**: Each capability profile enforces cost limits (e.g., FAST: $0.002/1k tokens, STANDARD: $0.01/1k tokens, PRECISE: $0.03/1k tokens), and the system automatically selects cost-appropriate models based on task complexity, optimizing for both cost and success rate.
+
 * **Architecture**
 
   * Port/Adapter pattern for clean boundaries
@@ -188,6 +195,17 @@ Once the stack is running:
 
 * **Mindscape AI Cloud** (private) – multi-tenant cloud version built on top of this core.
 * **Mindscape WordPress Plugin** – WordPress integration for Mindscape AI.
+
+---
+
+### 2025-12 system evolution note
+
+As of December 2025, the local core has been refactored to support **capability-aware, staged model routing** with stable intermediate representations:
+
+- Core phases (intent analysis, tool-candidate selection, planning, safe writes / tool-calls) now produce **typed JSON structures** instead of ad-hoc text.
+- Model choice is expressed as high-level **capability profiles** rather than hard-coded model names in playbooks.
+
+This change is mostly architectural: it does not introduce new UI by itself, but it makes the local core easier to extend (or to connect to external telemetry / governance layers in other repositories) without breaking existing workspaces.
 
 ---
 
