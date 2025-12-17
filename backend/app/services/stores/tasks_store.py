@@ -29,23 +29,32 @@ class TasksStore(StoreBase):
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
+            # Extract project_id from execution_context or params if not explicitly set
+            project_id = task.project_id
+            if not project_id and task.execution_context:
+                project_id = task.execution_context.get("project_id")
+            if not project_id and task.params:
+                project_id = task.params.get("project_id")
+
             cursor.execute('''
                 INSERT INTO tasks (
-                    id, workspace_id, message_id, execution_id, pack_id,
+                    id, workspace_id, message_id, execution_id, project_id, pack_id,
                     task_type, status, params, result, execution_context,
-                    created_at, started_at, completed_at, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    storyline_tags, created_at, started_at, completed_at, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 task.id,
                 task.workspace_id,
                 task.message_id,
                 task.execution_id,
+                project_id,
                 task.pack_id,
                 task.task_type,
                 task.status.value,
                 self.serialize_json(task.params),
                 self.serialize_json(task.result),
                 self.serialize_json(task.execution_context) if task.execution_context else None,
+                self.serialize_json(task.storyline_tags),
                 self.to_isoformat(task.created_at),
                 self.to_isoformat(task.started_at),
                 self.to_isoformat(task.completed_at),
@@ -158,6 +167,7 @@ class TasksStore(StoreBase):
         self,
         task_id: str,
         execution_context: Optional[Dict[str, Any]] = None,
+        project_id: Optional[str] = None,
         **kwargs
     ) -> Task:
         """
@@ -183,6 +193,13 @@ class TasksStore(StoreBase):
             if execution_context is not None:
                 updates.append('execution_context = ?')
                 values.append(self.serialize_json(execution_context))
+                # If project_id is in execution_context but not explicitly set, extract it
+                if project_id is None and execution_context.get("project_id"):
+                    project_id = execution_context.get("project_id")
+
+            if project_id is not None:
+                updates.append('project_id = ?')
+                values.append(project_id)
 
             for key, value in kwargs.items():
                 if key in ['params', 'result']:
@@ -252,6 +269,42 @@ class TasksStore(StoreBase):
                 params.extend([TaskStatus.CANCELLED_BY_USER.value, TaskStatus.EXPIRED.value])
 
             query += ' ORDER BY created_at DESC'
+
+            if limit:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_task(row) for row in rows]
+
+    def list_executions_by_project(
+        self,
+        workspace_id: str,
+        project_id: str,
+        limit: Optional[int] = None
+    ) -> List[Task]:
+        """
+        List execution tasks for a specific project
+
+        Args:
+            workspace_id: Workspace ID
+            project_id: Project ID
+            limit: Maximum number of tasks to return (optional)
+
+        Returns:
+            List of execution tasks for the project
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = '''
+                SELECT * FROM tasks
+                WHERE workspace_id = ?
+                AND project_id = ?
+                AND task_type = 'execution'
+                ORDER BY created_at DESC
+            '''
+            params = [workspace_id, project_id]
 
             if limit:
                 query += ' LIMIT ?'
@@ -425,17 +478,35 @@ class TasksStore(StoreBase):
         except (KeyError, TypeError):
             pass
 
+        # Handle optional storyline_tags field - it may not exist in older database rows
+        storyline_tags = []
+        try:
+            if 'storyline_tags' in row.keys() and row['storyline_tags']:
+                storyline_tags = self.deserialize_json(row['storyline_tags'], [])
+        except (KeyError, TypeError, IndexError):
+            pass
+
+        # Handle optional project_id field - it may not exist in older database rows
+        project_id = None
+        try:
+            if 'project_id' in row.keys():
+                project_id = row['project_id']
+        except (KeyError, TypeError):
+            pass
+
         return Task(
             id=row['id'],
             workspace_id=row['workspace_id'],
             message_id=row['message_id'],
             execution_id=row['execution_id'],
+            project_id=project_id,
             pack_id=row['pack_id'],
             task_type=row['task_type'],
             status=TaskStatus(row['status']),
             params=self.deserialize_json(row['params'], {}),
             result=self.deserialize_json(row['result']),
             execution_context=execution_context,
+            storyline_tags=storyline_tags,
             created_at=self.from_isoformat(row['created_at']),
             started_at=self.from_isoformat(row['started_at']),
             completed_at=self.from_isoformat(row['completed_at']),

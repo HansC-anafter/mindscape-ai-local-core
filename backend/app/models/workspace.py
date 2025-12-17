@@ -18,6 +18,9 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from ...models.mindscape import MindEvent
+    from .workspace_blueprint import WorkspaceBlueprint
+else:
+    from .workspace_blueprint import WorkspaceBlueprint
 
 
 # ==================== Enums ====================
@@ -158,6 +161,20 @@ class WorkspaceType(str, Enum):
     TEAM = "team"
 
 
+class LaunchStatus(str, Enum):
+    """
+    Workspace launch status
+
+    Determines workspace lifecycle state:
+    - pending: Only title/description, nothing assembled
+    - ready: Blueprint + intents + first_playbook written
+    - active: At least one execution / recent work point
+    """
+    PENDING = "pending"
+    READY = "ready"
+    ACTIVE = "active"
+
+
 # ==================== Workspace Models ====================
 
 class Workspace(BaseModel):
@@ -260,10 +277,31 @@ class Workspace(BaseModel):
         description="Project assignment automation level"
     )
 
+    # Capability profile override for staged model switching
+    capability_profile: Optional[str] = Field(
+        None,
+        description="Workspace-level capability profile override (fast/standard/precise/tool_strict/safe_write). "
+                    "Overrides system default for this workspace."
+    )
+
     # Extensible metadata for features (core_memory, preferences, etc.)
     metadata: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="Extensible metadata storage for workspace features (core_memory, preferences, etc.)"
+    )
+
+    # Workspace launch enhancement fields
+    workspace_blueprint: Optional["WorkspaceBlueprint"] = Field(
+        None,
+        description="Workspace blueprint configuration: goals, initial_intents, ai_team, playbooks, tool_connections"
+    )
+    launch_status: "LaunchStatus" = Field(
+        default=LaunchStatus.PENDING,
+        description="Launch status: pending / ready / active"
+    )
+    starter_kit_type: Optional[str] = Field(
+        None,
+        description="Starter kit type: content_generation / client_delivery / knowledge_base / custom"
     )
 
     # Timestamps
@@ -294,6 +332,9 @@ class CreateWorkspaceRequest(BaseModel):
     execution_mode: Optional[str] = Field(None, description="Execution mode: 'qa' | 'execution' | 'hybrid'")
     expected_artifacts: Optional[List[str]] = Field(None, description="Expected artifact types")
     execution_priority: Optional[str] = Field(None, description="Execution priority: 'low' | 'medium' | 'high'")
+    # Workspace launch enhancement fields (optional, can be set via seed/blueprint flow)
+    workspace_blueprint: Optional["WorkspaceBlueprint"] = Field(None, description="Workspace blueprint configuration")
+    starter_kit_type: Optional[str] = Field(None, description="Starter kit type")
 
 
 class UpdateWorkspaceRequest(BaseModel):
@@ -315,6 +356,15 @@ class UpdateWorkspaceRequest(BaseModel):
     execution_mode: Optional[str] = Field(None, description="Execution mode: 'qa' | 'execution' | 'hybrid'")
     expected_artifacts: Optional[List[str]] = Field(None, description="Expected artifact types")
     execution_priority: Optional[str] = Field(None, description="Execution priority: 'low' | 'medium' | 'high'")
+    capability_profile: Optional[str] = Field(
+        None,
+        description="Workspace-level capability profile override (fast/standard/precise/tool_strict/safe_write). "
+                    "Overrides system default for this workspace."
+    )
+    # Workspace launch enhancement fields (optional)
+    workspace_blueprint: Optional["WorkspaceBlueprint"] = Field(None, description="Workspace blueprint configuration")
+    launch_status: Optional["LaunchStatus"] = Field(None, description="Launch status: pending / ready / active")
+    starter_kit_type: Optional[str] = Field(None, description="Starter kit type")
 
 
 class WorkspaceChatRequest(BaseModel):
@@ -455,13 +505,18 @@ class ExecutionPlan(BaseModel):
             payload["effective_playbooks"] = effective_playbooks
             payload["effective_playbooks_count"] = len(effective_playbooks)
 
-        if self.tasks:
-            try:
-                from backend.app.services.ai_team_service import get_members_from_tasks
-                playbook_code = None
-                if self.steps and len(self.steps) > 0:
-                    playbook_code = getattr(self.steps[0], 'playbook_code', None)
-                elif self.tasks and len(self.tasks) > 0:
+        # Extract AI team members from tasks or steps (for tool-based plans)
+        ai_team_members = []
+        try:
+            from backend.app.services.ai_team_service import get_members_from_tasks, get_member_info
+
+            playbook_code = None
+            if self.steps and len(self.steps) > 0:
+                playbook_code = getattr(self.steps[0], 'playbook_code', None)
+
+            # First, try to get members from tasks (for playbook-based plans)
+            if self.tasks:
+                if not playbook_code and self.tasks and len(self.tasks) > 0:
                     first_task = self.tasks[0]
                     if hasattr(first_task, 'playbook_code') and first_task.playbook_code:
                         playbook_code = first_task.playbook_code
@@ -470,13 +525,39 @@ class ExecutionPlan(BaseModel):
 
                 ai_team_members = get_members_from_tasks(self.tasks, playbook_code)
                 logger.info(f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.tasks)} tasks, playbook_code={playbook_code}")
+
+            # If no members from tasks, try to get from steps (for tool-based plans)
+            if not ai_team_members and self.steps:
+                seen_pack_ids = set()
+                for step in self.steps:
+                    # Try tool_name as pack_id (tools can be AI team members too)
+                    tool_name = getattr(step, 'tool_name', None)
+                    if tool_name and tool_name not in seen_pack_ids:
+                        seen_pack_ids.add(tool_name)
+                        member_info = get_member_info(tool_name, playbook_code)
+                        if member_info and member_info.get("visible", True):
+                            ai_team_members.append(member_info)
+                            logger.info(f"[ExecutionPlan] Added tool-based member: {member_info.get('name_zh') or member_info.get('name')}")
+
+                    # Also try playbook_code as pack_id
+                    step_playbook_code = getattr(step, 'playbook_code', None)
+                    if step_playbook_code and step_playbook_code not in seen_pack_ids:
+                        seen_pack_ids.add(step_playbook_code)
+                        member_info = get_member_info(step_playbook_code, playbook_code)
+                        if member_info and member_info.get("visible", True):
+                            ai_team_members.append(member_info)
+                            logger.info(f"[ExecutionPlan] Added playbook-based member: {member_info.get('name_zh') or member_info.get('name')}")
+
                 if ai_team_members:
-                    payload["ai_team_members"] = ai_team_members
-                    logger.info(f"[ExecutionPlan] Added ai_team_members to payload: {[m.get('name_zh') or m.get('name') for m in ai_team_members]}")
-                else:
-                    logger.warning(f"[ExecutionPlan] No AI team members extracted from tasks")
-            except Exception as e:
-                logger.warning(f"Failed to extract AI team members: {e}", exc_info=True)
+                    logger.info(f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.steps)} steps")
+
+            if ai_team_members:
+                payload["ai_team_members"] = ai_team_members
+                logger.info(f"[ExecutionPlan] Added ai_team_members to payload: {[m.get('name_zh') or m.get('name') for m in ai_team_members]}")
+            else:
+                logger.warning(f"[ExecutionPlan] No AI team members extracted from tasks or steps")
+        except Exception as e:
+            logger.warning(f"Failed to extract AI team members: {e}", exc_info=True)
 
         return payload
 
@@ -496,6 +577,10 @@ class Task(BaseModel):
     execution_id: Optional[str] = Field(
         None,
         description="Associated playbook execution ID (if applicable)"
+    )
+    project_id: Optional[str] = Field(
+        None,
+        description="Associated project ID (if applicable)"
     )
     pack_id: str = Field(..., description="Pack identifier")
     task_type: str = Field(..., description="Task type (e.g., 'extract_intents', 'generate_tasks')")

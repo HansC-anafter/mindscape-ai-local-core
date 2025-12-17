@@ -139,6 +139,8 @@ class WorkflowOrchestrator:
                         'error_type': 'exception'
                     }
 
+                logger.info(f"WorkflowOrchestrator: step {step.playbook_code} result keys: {list(step_result.keys()) if isinstance(step_result, dict) else 'not dict'}")
+                logger.info(f"WorkflowOrchestrator: step {step.playbook_code} result status: {step_result.get('status') if isinstance(step_result, dict) else 'unknown'}")
                 results[step.playbook_code] = step_result
                 completed_steps.add(step.playbook_code)
                 del pending_steps[step.playbook_code]
@@ -165,6 +167,8 @@ class WorkflowOrchestrator:
                             else:
                                 logger.warning(f"Step {step.playbook_code} failed after retries, continuing workflow")
 
+        logger.info(f"WorkflowOrchestrator.execute_workflow: returning results with {len(results)} steps")
+        logger.info(f"WorkflowOrchestrator.execute_workflow: results keys: {list(results.keys())}")
         return {
             'steps': results,
             'context': workflow_context
@@ -479,6 +483,74 @@ class WorkflowOrchestrator:
             step_outputs
         )
 
+        # Create artifacts from output_artifacts definitions if available
+        if execution_id and workspace_id and self.store:
+            try:
+                from backend.app.services.playbook_output_artifact_creator import PlaybookOutputArtifactCreator
+                from backend.app.services.stores.artifacts_store import ArtifactsStore
+
+                artifacts_store = ArtifactsStore(self.store.db_path)
+                artifact_creator = PlaybookOutputArtifactCreator(artifacts_store)
+
+                # Get playbook_code and metadata
+                playbook_code = getattr(playbook_json, 'playbook_code', None)
+                if not playbook_code:
+                    # Try to get from playbook service
+                    from backend.app.services.playbook_service import PlaybookService
+                    playbook_service = PlaybookService(store=self.store)
+                    # Need to find playbook_code from context or load playbook
+                    logger.warning("Cannot determine playbook_code for artifact creation")
+                    playbook_code = 'unknown'
+
+                # Get playbook metadata (contains output_artifacts)
+                playbook_metadata = {}
+                if playbook_code and playbook_code != 'unknown':
+                    from backend.app.services.playbook_service import PlaybookService
+                    playbook_service = PlaybookService(store=self.store)
+                    playbook = playbook_service.get_playbook(playbook_code)
+                    if playbook and hasattr(playbook, 'metadata') and playbook.metadata:
+                        # Convert metadata to dict
+                        if hasattr(playbook.metadata, '__dict__'):
+                            playbook_metadata = playbook.metadata.__dict__
+                        elif isinstance(playbook.metadata, dict):
+                            playbook_metadata = playbook.metadata
+                        # Check for output_artifacts in playbook_json directly
+                        if hasattr(playbook_json, 'output_artifacts'):
+                            playbook_metadata['output_artifacts'] = playbook_json.output_artifacts
+
+                # Also check playbook_json directly for output_artifacts (from JSON file)
+                # PlaybookJson model doesn't have output_artifacts field, but JSON file does
+                # So we need to load it from the JSON file directly
+                if playbook_code and playbook_code != 'unknown':
+                    try:
+                        base_dir = Path(__file__).parent.parent.parent
+                        playbook_json_path = base_dir / "playbooks" / "specs" / f"{playbook_code}.json"
+                        if playbook_json_path.exists():
+                            with open(playbook_json_path, 'r', encoding='utf-8') as f:
+                                playbook_json_data = json.load(f)
+                                if 'output_artifacts' in playbook_json_data:
+                                    playbook_metadata['output_artifacts'] = playbook_json_data['output_artifacts']
+                    except Exception as e:
+                        logger.warning(f"Failed to load output_artifacts from JSON file: {e}")
+
+                # Create artifacts
+                if playbook_metadata.get('output_artifacts'):
+                    created_artifacts = await artifact_creator.create_artifacts_from_playbook_outputs(
+                        playbook_code=playbook_code,
+                        execution_id=execution_id,
+                        workspace_id=workspace_id,
+                        playbook_metadata=playbook_metadata,
+                        step_outputs=step_outputs,
+                        inputs=playbook_inputs,
+                        execution_context={"execution_id": execution_id}
+                    )
+
+                    if created_artifacts:
+                        logger.info(f"Created {len(created_artifacts)} artifacts from playbook execution")
+            except Exception as e:
+                logger.error(f"Failed to create artifacts from playbook outputs: {e}", exc_info=True)
+                # Don't fail the execution if artifact creation fails
+
         return {
             'status': 'completed',
             'step_outputs': step_outputs,
@@ -578,16 +650,30 @@ class WorkflowOrchestrator:
                     logger.error(f"Tool '{tool_id}' violates policy: {e}")
                     raise ValueError(f"Tool execution blocked by policy: {str(e)}")
 
-            # Execute tool
+            # Execute tool - pass profile_id if available for LLM provider resolution
+            tool_inputs = resolved_inputs.copy()
+            if profile_id:
+                tool_inputs['profile_id'] = profile_id
+
             tool_result = await self.tool_executor.execute_tool(
                 tool_id,
-                **resolved_inputs
+                **tool_inputs
             )
 
             step_output = {}
             for output_name, tool_field in step.outputs.items():
                 if isinstance(tool_result, dict):
-                    step_output[output_name] = tool_result.get(tool_field)
+                    # Handle dot-separated field paths (e.g., "extracted_data.topics")
+                    value = tool_result
+                    for field_part in tool_field.split('.'):
+                        if isinstance(value, dict):
+                            value = value.get(field_part)
+                        else:
+                            value = None
+                            break
+                        if value is None:
+                            break
+                    step_output[output_name] = value
                 else:
                     step_output[output_name] = tool_result
 

@@ -8,9 +8,12 @@ such as illustrations, documents, configurations, etc.
 
 import logging
 import uuid
+import os
 from datetime import datetime
+from pathlib import Path as PathLib
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
@@ -99,6 +102,14 @@ def artifact_to_response(artifact: Artifact) -> ArtifactResponse:
         else:
             file_path = artifact.storage_ref
 
+    # Build response metadata including execution_id if available
+    response_metadata = (artifact.metadata or {}).copy()
+    if artifact.execution_id:
+        response_metadata["execution_id"] = artifact.execution_id
+        # Also add navigate_to for backward compatibility
+        if "navigate_to" not in response_metadata:
+            response_metadata["navigate_to"] = artifact.execution_id
+    
     return ArtifactResponse(
         id=artifact.id,
         workspace_id=artifact.workspace_id,
@@ -108,7 +119,7 @@ def artifact_to_response(artifact: Artifact) -> ArtifactResponse:
         description=artifact.summary,
         file_path=file_path,
         external_url=external_url,
-        metadata=artifact.metadata or {},
+        metadata=response_metadata,
         created_at=artifact.created_at.isoformat() if artifact.created_at else datetime.utcnow().isoformat(),
         updated_at=artifact.updated_at.isoformat() if artifact.updated_at else datetime.utcnow().isoformat(),
     )
@@ -170,12 +181,13 @@ def create_artifact_from_request(
 async def list_artifacts(
     workspace_id: str = Path(..., description="Workspace ID"),
     type: Optional[str] = Query(None, description="Filter by type (illustration, document, other)"),
-    intent_id: Optional[str] = Query(None, description="Filter by intent ID")
+    intent_id: Optional[str] = Query(None, description="Filter by intent ID"),
+    kind: Optional[str] = Query(None, description="Filter by kind (e.g., 'brand_mi', 'brand_persona', 'brand_storyline')")
 ):
     """
     List all artifacts for a workspace
 
-    Supports filtering by type and intent_id
+    Supports filtering by type, intent_id, and kind (from metadata)
     """
     try:
         # Get artifacts from store
@@ -200,6 +212,13 @@ async def list_artifacts(
             filtered_artifacts = [
                 a for a in filtered_artifacts
                 if a.intent_id == intent_id
+            ]
+
+        if kind:
+            # Filter by kind from metadata
+            filtered_artifacts = [
+                a for a in filtered_artifacts
+                if a.metadata and a.metadata.get("kind") == kind
             ]
 
         # Convert to response format
@@ -270,4 +289,87 @@ async def create_artifact(
     except Exception as e:
         logger.error(f"Failed to create artifact: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create artifact: {str(e)}")
+
+
+@router.get("/workspaces/{workspace_id}/artifacts/{artifact_id}/file")
+async def get_artifact_file(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    artifact_id: str = Path(..., description="Artifact ID")
+):
+    """
+    Get artifact file content
+
+    Returns the file content for an artifact if it has a file_path.
+    Supports both local file paths and external URLs.
+    """
+    try:
+        artifact = store.artifacts.get_artifact(artifact_id)
+        if not artifact:
+            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+
+        # Verify artifact belongs to workspace
+        if artifact.workspace_id != workspace_id:
+            raise HTTPException(status_code=403, detail="Artifact does not belong to this workspace")
+
+        # Get file path from metadata or storage_ref
+        file_path = None
+        if artifact.metadata and artifact.metadata.get("file_path"):
+            file_path = artifact.metadata.get("file_path")
+        elif artifact.metadata and artifact.metadata.get("actual_file_path"):
+            file_path = artifact.metadata.get("actual_file_path")
+        elif artifact.storage_ref:
+            # Check if storage_ref is a URL
+            if artifact.storage_ref.startswith("http://") or artifact.storage_ref.startswith("https://"):
+                # Redirect to external URL
+                return RedirectResponse(url=artifact.storage_ref)
+            else:
+                file_path = artifact.storage_ref
+
+        if not file_path:
+            raise HTTPException(status_code=404, detail="Artifact does not have a file path")
+
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+        # Determine media type based on file extension
+        file_ext = PathLib(file_path).suffix.lower()
+        media_type_map = {
+            ".json": "application/json",
+            ".txt": "text/plain",
+            ".md": "text/markdown",
+            ".html": "text/html",
+            ".css": "text/css",
+            ".js": "application/javascript",
+            ".tsx": "application/javascript",
+            ".ts": "application/javascript",
+            ".pdf": "application/pdf",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".doc": "application/msword",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xls": "application/vnd.ms-excel",
+            ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".ppt": "application/vnd.ms-powerpoint",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+            ".mp4": "video/mp4",
+            ".mp3": "audio/mpeg",
+        }
+        media_type = media_type_map.get(file_ext, "application/octet-stream")
+
+        # Return file
+        return FileResponse(
+            path=file_path,
+            media_type=media_type,
+            filename=PathLib(file_path).name
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get artifact file {artifact_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get artifact file: {str(e)}")
 

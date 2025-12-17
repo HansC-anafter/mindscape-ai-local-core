@@ -47,6 +47,9 @@ class PlaybookTaskManager:
             True if task was created successfully, False otherwise
         """
         try:
+            # Extract project_id from inputs if available
+            project_id = inputs.get("project_id") if inputs else None
+
             # Build execution_context for ExecutionSession
             execution_context = {
                 "playbook_code": playbook_code,
@@ -60,12 +63,17 @@ class PlaybookTaskManager:
                 "origin_suggestion_id": inputs.get("origin_suggestion_id") if inputs else None,
             }
 
+            # Ensure project_id is in execution_context for backward compatibility
+            if project_id:
+                execution_context["project_id"] = project_id
+
             # Create Task record with execution_id
             task = Task(
                 id=execution_id,
                 workspace_id=workspace_id,
                 message_id=inputs.get("message_id", str(uuid.uuid4())) if inputs else str(uuid.uuid4()),
                 execution_id=execution_id,
+                project_id=project_id,  # Set project_id explicitly
                 profile_id=profile_id,
                 pack_id=playbook_code,
                 task_type="playbook_execution",

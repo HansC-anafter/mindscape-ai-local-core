@@ -98,11 +98,20 @@ class PlaybookFlowsStore(StoreBase):
 
     def _row_to_flow(self, row) -> PlaybookFlow:
         """Convert database row to PlaybookFlow model"""
-        flow_definition = self.deserialize_json(row['flow_definition']) or {}
+        # Handle both dict and sqlite3.Row objects
+        if hasattr(row, 'keys'):
+            # sqlite3.Row object - use index access
+            flow_definition = self.deserialize_json(row['flow_definition']) if 'flow_definition' in row.keys() else {}
+            description = row['description'] if 'description' in row.keys() and row['description'] else None
+        else:
+            # dict object
+            flow_definition = self.deserialize_json(row.get('flow_definition')) or {}
+            description = row.get('description')
+
         return PlaybookFlow(
             id=row['id'],
             name=row['name'],
-            description=row.get('description'),
+            description=description,
             flow_definition=flow_definition,
             created_at=self.from_isoformat(row['created_at']),
             updated_at=self.from_isoformat(row['updated_at'])

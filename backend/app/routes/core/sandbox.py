@@ -692,7 +692,7 @@ async def get_port_manager_status(
 ):
     """
     Get port manager status
-    
+
     Returns current port allocation status including:
     - Configured port range
     - Number of allocated/available ports
@@ -707,7 +707,7 @@ async def cleanup_stale_ports(
 ):
     """
     Cleanup stale port allocations
-    
+
     Removes allocations for ports that are no longer in use.
     Useful after server restarts or crashes.
     """

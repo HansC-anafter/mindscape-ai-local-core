@@ -2,13 +2,18 @@
 Deployment service for sandbox projects
 
 Handles file copying, Git command generation, and deployment instructions.
+Supports Git operations execution with user confirmation.
+Tracks deployment history integrated with version management.
 """
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 import logging
+import json
 
 from backend.app.services.sandbox.sandbox_manager import SandboxManager
 from backend.app.services.mindscape_store import MindscapeStore
@@ -104,13 +109,32 @@ class DeploymentService:
                 auto_push=auto_push
             )
 
+            git_results = {}
+            if auto_commit:
+                git_results = await self._execute_git_commands(
+                    target_path=target_path,
+                    git_commands=git_commands,
+                    auto_push=auto_push
+                )
+
+            deployment_record = await self._record_deployment(
+                workspace_id=workspace_id,
+                sandbox_id=sandbox_id,
+                target_path=target_path,
+                files_copied=files_copied,
+                git_commands=git_commands,
+                git_results=git_results
+            )
+
             vm_commands = self._generate_vm_commands(target_path)
 
             return {
                 "status": "success",
                 "files_copied": files_copied,
                 "git_commands": git_commands,
+                "git_results": git_results if auto_commit else {},
                 "vm_commands": vm_commands,
+                "deployment_id": deployment_record.get("deployment_id"),
             }
         except Exception as e:
             logger.error(f"Deployment failed: {e}")
@@ -164,6 +188,217 @@ class DeploymentService:
             "branch": branch,
             "commit_message": commit_message,
         }
+
+    async def _execute_git_commands(
+        self,
+        target_path: str,
+        git_commands: Dict[str, Any],
+        auto_push: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Execute Git commands with user confirmation
+
+        Args:
+            target_path: Target directory path
+            git_commands: Git commands dictionary from _generate_git_commands
+            auto_push: Whether to push after commit
+
+        Returns:
+            Dictionary with execution results
+        """
+        results = {
+            "executed": [],
+            "errors": [],
+            "branch_created": False,
+            "committed": False,
+            "pushed": False,
+        }
+
+        try:
+            target = Path(target_path)
+            if not target.exists():
+                raise ValueError(f"Target path does not exist: {target_path}")
+
+            commands = git_commands.get("commands", [])
+            branch = git_commands.get("branch")
+
+            for cmd in commands:
+                try:
+                    if cmd.startswith("git checkout -b"):
+                        result = subprocess.run(
+                            cmd,
+                            shell=True,
+                            cwd=target,
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        if result.returncode == 0:
+                            results["branch_created"] = True
+                            results["executed"].append(cmd)
+                        else:
+                            results["errors"].append(f"{cmd}: {result.stderr}")
+                    elif cmd.startswith("git add"):
+                        result = subprocess.run(
+                            cmd,
+                            shell=True,
+                            cwd=target,
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        if result.returncode == 0:
+                            results["executed"].append(cmd)
+                        else:
+                            results["errors"].append(f"{cmd}: {result.stderr}")
+                    elif cmd.startswith("git commit"):
+                        result = subprocess.run(
+                            cmd,
+                            shell=True,
+                            cwd=target,
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        if result.returncode == 0:
+                            results["committed"] = True
+                            results["executed"].append(cmd)
+                        else:
+                            results["errors"].append(f"{cmd}: {result.stderr}")
+                    elif cmd.startswith("git push") and auto_push:
+                        result = subprocess.run(
+                            cmd,
+                            shell=True,
+                            cwd=target,
+                            capture_output=True,
+                            text=True,
+                            timeout=60
+                        )
+                        if result.returncode == 0:
+                            results["pushed"] = True
+                            results["executed"].append(cmd)
+                        else:
+                            results["errors"].append(f"{cmd}: {result.stderr}")
+                except subprocess.TimeoutExpired:
+                    results["errors"].append(f"{cmd}: Timeout")
+                except Exception as e:
+                    results["errors"].append(f"{cmd}: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"Failed to execute Git commands: {e}")
+            results["errors"].append(str(e))
+
+        return results
+
+    async def _record_deployment(
+        self,
+        workspace_id: str,
+        sandbox_id: str,
+        target_path: str,
+        files_copied: List[str],
+        git_commands: Dict[str, Any],
+        git_results: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Record deployment history
+
+        Args:
+            workspace_id: Workspace identifier
+            sandbox_id: Sandbox identifier
+            target_path: Target deployment path
+            files_copied: List of copied files
+            git_commands: Git commands dictionary
+            git_results: Git execution results
+
+        Returns:
+            Deployment record dictionary
+        """
+        try:
+            sandbox = await self.sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+            if not sandbox:
+                return {}
+
+            deployment_id = f"deploy-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            deployment_record = {
+                "deployment_id": deployment_id,
+                "sandbox_id": sandbox_id,
+                "workspace_id": workspace_id,
+                "target_path": target_path,
+                "timestamp": datetime.now().isoformat(),
+                "files_copied": files_copied,
+                "git_branch": git_commands.get("branch"),
+                "commit_message": git_commands.get("commit_message"),
+                "git_executed": git_commands.get("executed", False),
+                "git_results": git_results,
+            }
+
+            sandbox_path = self.sandbox_manager._get_sandbox_path(
+                sandbox_id,
+                workspace_id,
+                sandbox.sandbox_type
+            )
+
+            deployments_path = sandbox_path / "deployments.json"
+            deployments = []
+
+            if deployments_path.exists():
+                try:
+                    with open(deployments_path, "r", encoding="utf-8") as f:
+                        deployments = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Failed to read deployment history: {e}")
+
+            deployments.append(deployment_record)
+
+            with open(deployments_path, "w", encoding="utf-8") as f:
+                json.dump(deployments[-50:], f, indent=2)
+
+            return deployment_record
+
+        except Exception as e:
+            logger.error(f"Failed to record deployment: {e}")
+            return {}
+
+    async def get_deployment_history(
+        self,
+        workspace_id: str,
+        sandbox_id: str,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Get deployment history for a sandbox
+
+        Args:
+            workspace_id: Workspace identifier
+            sandbox_id: Sandbox identifier
+            limit: Maximum number of records to return
+
+        Returns:
+            List of deployment records
+        """
+        try:
+            sandbox = await self.sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+            if not sandbox:
+                return []
+
+            sandbox_path = self.sandbox_manager._get_sandbox_path(
+                sandbox_id,
+                workspace_id,
+                sandbox.sandbox_type
+            )
+
+            deployments_path = sandbox_path / "deployments.json"
+            if not deployments_path.exists():
+                return []
+
+            with open(deployments_path, "r", encoding="utf-8") as f:
+                deployments = json.load(f)
+
+            return deployments[-limit:]
+
+        except Exception as e:
+            logger.error(f"Failed to get deployment history: {e}")
+            return []
 
     def _generate_vm_commands(self, target_path: str) -> List[str]:
         """

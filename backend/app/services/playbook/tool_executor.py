@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any, Callable, Awaitable
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.shared.tool_executor import execute_tool
 from backend.app.services.conversation.workflow_tracker import WorkflowTracker
+from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,38 @@ Please retry the tool call."""
         tool_start_time = datetime.utcnow()
         tool_call_id = str(uuid.uuid4())
 
+        # Start trace node for tool execution
+        trace_node_id = None
+        if execution_id and workspace_id:
+            try:
+                trace_recorder = get_trace_recorder()
+                # Get or create trace for this execution
+                trace_id = self.execution_context.get("trace_id")
+                if not trace_id:
+                    trace_id = trace_recorder.create_trace(
+                        workspace_id=workspace_id,
+                        execution_id=execution_id,
+                        user_id=self.execution_context.get("user_id"),
+                    )
+                    self.execution_context["trace_id"] = trace_id
+
+                trace_node_id = trace_recorder.start_node(
+                    trace_id=trace_id,
+                    node_type=TraceNodeType.TOOL,
+                    name=f"tool:{tool_fqn}",
+                    input_data={
+                        "tool_fqn": tool_fqn,
+                        "tool_slot": tool_slot,
+                        "parameters": {k: str(v)[:200] for k, v in kwargs.items()},
+                    },
+                    metadata={
+                        "factory_cluster": factory_cluster,
+                        "step_id": step_id,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to start trace node for tool execution: {e}")
+
         if not factory_cluster:
             # Try to get default_cluster from execution context
             default_cluster = self.execution_context.get("default_cluster")
@@ -310,8 +343,43 @@ Please retry the tool call."""
 
             result = await execute_tool(tool_fqn, **normalized_kwargs)
 
+            # Integrate tool result → WorldState
+            try:
+                from backend.app.core.state.state_integration import StateIntegrationAdapter
+                state_adapter = StateIntegrationAdapter()
+                world_entry = state_adapter.tool_result_to_world_state(
+                    workspace_id=workspace_id or "",
+                    tool_id=tool_fqn,
+                    tool_slot=tool_slot,
+                    result=result,
+                    execution_id=execution_id,
+                    metadata={
+                        "duration_ms": int((datetime.utcnow() - tool_start_time).total_seconds() * 1000),
+                        "step_id": step_id,
+                    }
+                )
+                logger.debug(f"PlaybookToolExecutor: Converted tool result to WorldStateEntry (entry_id={world_entry.entry_id})")
+            except Exception as e:
+                logger.warning(f"Failed to integrate tool result to WorldState: {e}", exc_info=True)
+
             tool_end_time = datetime.utcnow()
             duration_ms = int((tool_end_time - tool_start_time).total_seconds() * 1000)
+
+            # End trace node for tool execution
+            if trace_node_id and execution_id and workspace_id:
+                try:
+                    trace_recorder = get_trace_recorder()
+                    trace_id = self.execution_context.get("trace_id")
+                    if trace_id:
+                        trace_recorder.end_node(
+                            trace_id=trace_id,
+                            node_id=trace_node_id,
+                            status=TraceStatus.SUCCESS,
+                            output_data={"result": str(result)[:1000] if result else None},
+                            latency_ms=duration_ms,
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to end trace node for tool execution: {e}")
 
             if execution_id and tool_call:
                 try:
@@ -352,10 +420,60 @@ Please retry the tool call."""
                 except Exception as e:
                     logger.warning(f"Failed to record tool call event: {e}")
 
+            # Integrate with ChangeSet pipeline for write operations
+            try:
+                from backend.app.services.changeset.changeset_pipeline import ChangeSetPipeline
+                from backend.app.models.playbook import ToolPolicy
+
+                # Check if this is a write operation (based on tool_policy or tool_id)
+                is_write_operation = (
+                    tool_policy and hasattr(tool_policy, 'risk_level') and tool_policy.risk_level in ['write', 'publish']
+                ) or (
+                    tool_fqn and any(keyword in tool_fqn.lower() for keyword in ['write', 'update', 'create', 'delete', 'publish', 'wordpress', 'wp'])
+                )
+
+                if is_write_operation and workspace_id:
+                    pipeline = ChangeSetPipeline(store=self.store)
+                    changeset = await pipeline.create_and_apply(
+                        workspace_id=workspace_id,
+                        tool_id=tool_fqn,
+                        tool_slot=tool_slot,
+                        result=result,
+                        execution_id=execution_id,
+                        sandbox_type="web_page" if "wordpress" in tool_fqn.lower() or "wp" in tool_fqn.lower() else "project_repo",
+                        auto_create_rollback=True
+                    )
+                    logger.info(f"PlaybookToolExecutor: Created changeset {changeset.changeset_id} for write operation {tool_fqn}")
+                    # Store changeset_id in result metadata for later promotion
+                    if isinstance(result, dict):
+                        result["_changeset_id"] = changeset.changeset_id
+                        result["_preview_url"] = changeset.preview_url
+            except Exception as e:
+                logger.warning(f"PlaybookToolExecutor: Failed to integrate with ChangeSet pipeline: {e}", exc_info=True)
+
             return result
 
         except Exception as e:
             tool_end_time = datetime.utcnow()
+            duration_ms = int((tool_end_time - tool_start_time).total_seconds() * 1000)
+
+            # End trace node for failed tool execution
+            if trace_node_id and execution_id and workspace_id:
+                try:
+                    trace_recorder = get_trace_recorder()
+                    trace_id = self.execution_context.get("trace_id")
+                    if trace_id:
+                        import traceback
+                        trace_recorder.end_node(
+                            trace_id=trace_id,
+                            node_id=trace_node_id,
+                            status=TraceStatus.FAILED,
+                            error_message=str(e)[:500],
+                            error_stack=traceback.format_exc(),
+                            latency_ms=duration_ms,
+                        )
+                except Exception as e2:
+                    logger.warning(f"Failed to end trace node for failed tool execution: {e2}")
 
             # Update ToolCall record (failed status) using WorkflowTracker
             if execution_id and tool_call:

@@ -105,7 +105,14 @@ class TemplateEngine:
                         value = value.get(part) if isinstance(value, dict) else None
                     if value is None:
                         break
-                return value if value is not None else match.group(0)
+                # Convert to string for template replacement
+                if value is not None:
+                    if isinstance(value, (list, dict)):
+                        import json
+                        return json.dumps(value, ensure_ascii=False)
+                    else:
+                        return str(value)
+                return match.group(0)
 
             # Handle {{step.xxx.yyy}}
             elif var_type == 'step':
@@ -115,7 +122,15 @@ class TemplateEngine:
                     return match.group(0)
                 step_id, output_name = step_parts[0], step_parts[1]
                 step_result = step_outputs.get(step_id, {})
-                return step_result.get(output_name, match.group(0))
+                value = step_result.get(output_name, match.group(0))
+                # Convert to string for template replacement
+                if value != match.group(0):
+                    if isinstance(value, (list, dict)):
+                        import json
+                        return json.dumps(value, ensure_ascii=False)
+                    else:
+                        return str(value)
+                return value
 
             # Handle {{context.xxx}}
             elif var_type == 'context':

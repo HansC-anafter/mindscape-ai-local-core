@@ -98,7 +98,16 @@ class FlowExecutor:
         if not flow:
             raise FlowExecutionError(f"Flow {project.flow_id} not found")
 
+        # Parse nodes from flow definition
+        # If nodes are empty but playbook_sequence exists, build nodes from playbook_sequence
         nodes = self._parse_nodes(flow.flow_definition)
+        if not nodes:
+            # Try to build nodes from playbook_sequence if nodes are empty
+            playbook_sequence = flow.flow_definition.get("playbook_sequence", [])
+            if playbook_sequence:
+                logger.info(f"Flow has no nodes but has playbook_sequence, building nodes from sequence: {playbook_sequence}")
+                nodes = self._build_nodes_from_playbook_sequence(playbook_sequence)
+
         edges = self._parse_edges(flow.flow_definition)
 
         if resume_from:
@@ -285,6 +294,32 @@ class FlowExecutor:
             node = FlowNode(**node_data)
             nodes[node.id] = node
 
+        return nodes
+
+    def _build_nodes_from_playbook_sequence(self, playbook_sequence: List[str]) -> Dict[str, FlowNode]:
+        """
+        Build FlowNode objects from playbook_sequence
+
+        Args:
+            playbook_sequence: List of playbook codes
+
+        Returns:
+            Dictionary of node_id -> FlowNode
+        """
+        nodes = {}
+        for idx, playbook_code in enumerate(playbook_sequence):
+            if not playbook_code:
+                continue
+            node_id = f"node_{idx + 1}"
+            node = FlowNode(
+                id=node_id,
+                name=f"Node {idx + 1}: {playbook_code}",
+                playbook_code=playbook_code,
+                inputs={},
+                node_type="playbook"
+            )
+            nodes[node_id] = node
+            logger.info(f"Built node {node_id} from playbook_sequence: {playbook_code}")
         return nodes
 
     def _parse_edges(self, flow_definition: Dict[str, Any]) -> List[FlowEdge]:

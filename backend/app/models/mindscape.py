@@ -146,6 +146,10 @@ class IntentCard(BaseModel):
 
     # Categorization
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    storyline_tags: List[str] = Field(
+        default_factory=list,
+        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)"
+    )
     category: Optional[str] = None
 
     # Progress tracking
@@ -230,6 +234,7 @@ class CreateIntentRequest(BaseModel):
     description: str
     priority: PriorityLevel = PriorityLevel.MEDIUM
     tags: List[str] = Field(default_factory=list)
+    storyline_tags: List[str] = Field(default_factory=list, description="Storyline tags for cross-project story tracking")
     category: Optional[str] = None
     due_date: Optional[datetime] = None
     parent_intent_id: Optional[str] = None
@@ -243,6 +248,7 @@ class UpdateIntentRequest(BaseModel):
     status: Optional[IntentStatus] = None
     priority: Optional[PriorityLevel] = None
     tags: Optional[List[str]] = None
+    storyline_tags: Optional[List[str]] = Field(None, description="Storyline tags for cross-project story tracking")
     category: Optional[str] = None
     progress_percentage: Optional[int] = None
     due_date: Optional[datetime] = None

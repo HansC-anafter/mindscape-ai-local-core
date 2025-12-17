@@ -51,15 +51,27 @@ def _apply_migrations(cursor):
             raise
 
     # Migration: Add project_id column to tasks table (2025-12-16)
+    column_exists = False
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT")
         logger.info("Migration: Added project_id column to tasks table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+            logger.debug("project_id column already exists, skipping column creation")
+            column_exists = True
+        else:
+            raise
 
-        # Create index for project_id
+    # Create index for project_id (always try, idempotent)
+    try:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
         logger.info("Migration: Created index on tasks.project_id")
+    except sqlite3.OperationalError as e:
+        logger.debug(f"Index creation skipped: {e}")
 
-        # Data migration: Extract project_id from execution_context for existing tasks
+    # Data migration: Extract project_id from execution_context for existing tasks
+    # This should run even if column already exists (for data migration)
+    try:
         cursor.execute("""
             UPDATE tasks
             SET project_id = json_extract(execution_context, '$.project_id')
@@ -70,8 +82,13 @@ def _apply_migrations(cursor):
         updated_count = cursor.rowcount
         if updated_count > 0:
             logger.info(f"Migration: Updated {updated_count} existing tasks with project_id from execution_context")
+        elif column_exists:
+            logger.debug("Migration: No tasks to update from execution_context (all already migrated or no project_id in data)")
+    except sqlite3.OperationalError as e:
+        logger.warning(f"Data migration from execution_context failed: {e}")
 
-        # Also try extracting from params
+    # Also try extracting from params
+    try:
         cursor.execute("""
             UPDATE tasks
             SET project_id = json_extract(params, '$.project_id')
@@ -82,11 +99,10 @@ def _apply_migrations(cursor):
         updated_count = cursor.rowcount
         if updated_count > 0:
             logger.info(f"Migration: Updated {updated_count} existing tasks with project_id from params")
+        elif column_exists:
+            logger.debug("Migration: No tasks to update from params (all already migrated or no project_id in data)")
     except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
-            logger.debug("project_id column already exists, skipping")
-        else:
-            raise
+        logger.warning(f"Data migration from params failed: {e}")
 
     logger.info("Database migrations completed")
 

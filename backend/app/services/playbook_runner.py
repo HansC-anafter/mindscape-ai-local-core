@@ -311,7 +311,7 @@ class PlaybookRunner:
             initial_message = user_message if user_message else default_start_message
             conv_manager.add_user_message(initial_message)
 
-            messages = conv_manager.get_messages_for_llm()
+            messages = await conv_manager.get_messages_for_llm()
             # Get model name from system settings
             model_name = self.llm_provider_manager.get_model_name()
             logger.info(f"PlaybookRunner: Calling LLM for playbook {playbook_code}, model={model_name}, messages_count={len(messages)}")
@@ -480,7 +480,7 @@ class PlaybookRunner:
             llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
             provider = self.llm_provider_manager.get_llm_provider(llm_manager)
 
-            messages = conv_manager.get_messages_for_llm()
+            messages = await conv_manager.get_messages_for_llm()
             # Get model name from system settings
             model_name = self.llm_provider_manager.get_model_name()
             # Use max_tokens=8192 to prevent response truncation

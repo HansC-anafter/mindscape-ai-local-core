@@ -55,11 +55,25 @@ async def create_flow(
         flows_store = PlaybookFlowsStore(db_path=store.db_path)
 
         flow_id = f"flow_{uuid.uuid4().hex[:12]}"
+
+        # Validate playbook_sequence if present in flow_definition
+        flow_definition = request.flow_definition or {}
+        if isinstance(flow_definition, dict) and 'playbook_sequence' in flow_definition:
+            from backend.app.services.project.playbook_validator import validate_playbook_sequence
+            from pathlib import Path
+
+            base_dir = Path(__file__).parent.parent.parent.parent
+            raw_playbook_sequence = flow_definition.get('playbook_sequence', [])
+            validated_playbook_sequence = validate_playbook_sequence(raw_playbook_sequence, base_dir)
+
+            # Update flow_definition with validated sequence
+            flow_definition['playbook_sequence'] = validated_playbook_sequence
+
         flow = PlaybookFlow(
             id=flow_id,
             name=request.name,
             description=request.description,
-            flow_definition=request.flow_definition
+            flow_definition=flow_definition
         )
 
         created_flow = flows_store.create_flow(flow)
@@ -160,7 +174,20 @@ async def update_flow(
         if request.description is not None:
             flow.description = request.description
         if request.flow_definition is not None:
-            flow.flow_definition = request.flow_definition
+            # Validate playbook_sequence if present in flow_definition
+            flow_definition = request.flow_definition
+            if isinstance(flow_definition, dict) and 'playbook_sequence' in flow_definition:
+                from backend.app.services.project.playbook_validator import validate_playbook_sequence
+                from pathlib import Path
+
+                base_dir = Path(__file__).parent.parent.parent.parent
+                raw_playbook_sequence = flow_definition.get('playbook_sequence', [])
+                validated_playbook_sequence = validate_playbook_sequence(raw_playbook_sequence, base_dir)
+
+                # Update flow_definition with validated sequence
+                flow_definition['playbook_sequence'] = validated_playbook_sequence
+
+            flow.flow_definition = flow_definition
 
         updated_flow = flows_store.update_flow(flow)
         return updated_flow.model_dump(mode='json')

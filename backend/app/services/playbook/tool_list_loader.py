@@ -1,6 +1,8 @@
 """
 Tool List Loader
 Handles loading and caching tool lists for playbook execution
+
+Now uses ToolListService for unified tool management
 """
 
 import logging
@@ -29,53 +31,57 @@ class ToolListLoader:
             Cached tools string or None if loading fails
         """
         try:
-            from backend.app.services.tool_registry import ToolRegistryService
+            from backend.app.services.tool_list_service import get_tool_list_service
 
-            # Get tool registry service
-            data_dir = os.getenv("DATA_DIR", "./data")
-            tool_registry = ToolRegistryService(data_dir=data_dir)
+            # Use unified ToolListService
+            tool_list_service = get_tool_list_service()
 
-            # Register external extensions (same as get_tool_registry does)
+            # Try to get cached tools string from ToolRegistryService first
             try:
-                from backend.app.extensions.console_kit import register_console_kit_tools
-                register_console_kit_tools(tool_registry)
-            except ImportError:
-                pass
+                from backend.app.services.tool_registry import ToolRegistryService
+                data_dir = os.getenv("DATA_DIR", "./data")
+                tool_registry = ToolRegistryService(data_dir=data_dir)
 
-            try:
-                from backend.app.extensions.community import register_community_extensions
-                register_community_extensions(tool_registry)
-            except ImportError:
-                pass
+                # Register external extensions
+                try:
+                    from backend.app.extensions.console_kit import register_console_kit_tools
+                    register_console_kit_tools(tool_registry)
+                except ImportError:
+                    pass
 
-            # Get cached tools list (uses Redis cache if available)
-            if hasattr(tool_registry, 'get_tools_str_cached'):
-                cached_tools_str = tool_registry.get_tools_str_cached(
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    enabled_only=True
-                )
-                logger.info(f"ToolListLoader: Preloaded and cached tool list for workspace {workspace_id}")
-                return cached_tools_str
+                try:
+                    from backend.app.extensions.community import register_community_extensions
+                    register_community_extensions(tool_registry)
+                except ImportError:
+                    pass
+
+                if hasattr(tool_registry, 'get_tools_str_cached'):
+                    cached_tools_str = tool_registry.get_tools_str_cached(
+                        workspace_id=workspace_id,
+                        profile_id=profile_id,
+                        enabled_only=True
+                    )
+                    if cached_tools_str:
+                        logger.info(f"ToolListLoader: Using cached tool list for workspace {workspace_id} (length={len(cached_tools_str)})")
+                        return cached_tools_str
+            except Exception as e:
+                logger.debug(f"ToolListLoader: Failed to get cached tools string: {e}")
+
+            # Fallback: use ToolListService to get all tools
+            tools_str = tool_list_service.get_tools_string(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                enabled_only=True,
+                max_description_length=100
+            )
+
+            if tools_str:
+                logger.info(f"ToolListLoader: Loaded tools for workspace {workspace_id} using ToolListService")
+                return tools_str
             else:
-                # Fallback: query tools directly
-                tools = tool_registry.get_tools(
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    enabled_only=True
-                )
-                if tools:
-                    # Format tools manually as fallback
-                    tools_list = []
-                    for tool in tools:
-                        tool_id = getattr(tool, 'tool_id', None) or getattr(tool, 'id', 'unknown')
-                        name = getattr(tool, 'display_name', None) or getattr(tool, 'name', None) or tool_id
-                        desc = getattr(tool, 'description', None) or ''
-                        category = getattr(tool, 'category', None) or 'general'
-                        tools_list.append(f"- {tool_id}: {name} ({category}) - {desc[:100]}")
-                    tools_str = "\n".join(tools_list) if tools_list else None
-                    logger.info(f"ToolListLoader: Loaded {len(tools_list)} tools for workspace {workspace_id}")
-                    return tools_str
+                logger.warning(f"ToolListLoader: No tools found for workspace {workspace_id}")
+                return None
+
         except Exception as e:
             logger.warning(f"ToolListLoader: Failed to preload tools list: {e}", exc_info=True)
             return None

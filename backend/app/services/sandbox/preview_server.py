@@ -94,7 +94,7 @@ class SandboxPreviewServer:
                     "error": error_msg,
                     "port_conflict": True,
                 }
-            
+
             port_conflict = self.preferred_port and allocated_port != self.preferred_port
 
             # Check if node_modules exists, install if not
@@ -199,10 +199,10 @@ class SandboxPreviewServer:
 
             self.is_running = False
             self.actual_port = None
-            
+
             # Release port allocation
             port_manager.release(self.sandbox_id)
-            
+
             logger.info(f"Preview server stopped for sandbox {self.sandbox_id}")
             return True
 

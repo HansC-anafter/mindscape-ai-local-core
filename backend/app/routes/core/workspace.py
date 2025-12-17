@@ -629,6 +629,9 @@ async def update_workspace(
         if hasattr(request, 'execution_priority') and request.execution_priority is not None:
             workspace.execution_priority = request.execution_priority
             logger.info(f"Updated execution_priority for workspace {workspace_id}: {request.execution_priority}")
+        if hasattr(request, 'capability_profile') and request.capability_profile is not None:
+            workspace.capability_profile = request.capability_profile
+            logger.info(f"Updated capability_profile for workspace {workspace_id}: {request.capability_profile}")
 
         # If path changed, record warning to event system
         if storage_path_changed:
@@ -1001,6 +1004,37 @@ async def get_workspace_tasks(
         }
     except Exception as e:
         logger.error(f"Failed to get workspace tasks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/ai-team-members")
+async def get_ai_team_members(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    playbook_codes: Optional[str] = Query(None, description="Comma-separated list of playbook codes")
+):
+    """Get AI team members for given playbook codes"""
+    try:
+        from ...services.ai_team_service import get_member_info
+
+        playbook_codes_list = []
+        if playbook_codes:
+            playbook_codes_list = [code.strip() for code in playbook_codes.split(',') if code.strip()]
+
+        members = []
+        for playbook_code in playbook_codes_list:
+            member_info = get_member_info(playbook_code)
+            if member_info and member_info.get("visible", True):
+                members.append(member_info)
+
+        # Sort by order
+        members.sort(key=lambda m: m.get("order", 999))
+
+        return {
+            "members": members,
+            "count": len(members)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get AI team members: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

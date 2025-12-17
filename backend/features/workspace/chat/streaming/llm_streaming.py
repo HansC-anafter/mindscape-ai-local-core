@@ -167,6 +167,7 @@ def create_assistant_event(
         metadata={}
     )
     store.create_event(assistant_event)
+    logger.info(f"[LLMStreaming] Created assistant event {assistant_event.id}, message length: {len(full_text)} chars")
     return assistant_event
 
 
@@ -355,8 +356,9 @@ async def stream_llm_response(
         ):
             yield event
 
-        # Send completion event
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count})}\n\n"
+        # Send final completion event (main response is complete)
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'is_final': True})}\n\n"
+        logger.info(f"[LLMStreaming] Sent final complete event (OpenAI), full_text length: {len(full_text)} chars")
 
     elif provider_type == 'AnthropicProvider':
         # Anthropic streaming support (if needed in future)
@@ -394,8 +396,9 @@ async def stream_llm_response(
         ):
             yield event
 
-        # Send completion event
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count})}\n\n"
+        # Send final completion event (main response is complete)
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'is_final': True})}\n\n"
+        logger.info(f"[LLMStreaming] Sent final complete event (VertexAI), full_text length: {len(full_text)} chars")
 
     else:
         # Other providers - not yet supported

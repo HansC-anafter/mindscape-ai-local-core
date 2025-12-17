@@ -150,3 +150,16 @@ class BaseStorage(ABC):
         """
         pass
 
+    @abstractmethod
+    async def switch_version(self, version: str) -> bool:
+        """
+        Switch current version to a specific version
+
+        Args:
+            version: Version identifier to switch to
+
+        Returns:
+            True if switch successful, False otherwise
+        """
+        pass
+

@@ -8,6 +8,7 @@ Supports template variable resolution and metadata extraction.
 import logging
 import re
 import uuid
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
@@ -174,7 +175,8 @@ class PlaybookOutputArtifactCreator:
                     workspace_id=workspace_id,
                     artifact_def=artifact_def,
                     context=context,
-                    execution_context=execution_context
+                    execution_context=execution_context,
+                    playbook_metadata=playbook_metadata
                 )
 
                 if artifact:
@@ -200,7 +202,8 @@ class PlaybookOutputArtifactCreator:
         workspace_id: str,
         artifact_def: Dict[str, Any],
         context: Dict[str, Any],
-        execution_context: Optional[Dict[str, Any]] = None
+        execution_context: Optional[Dict[str, Any]] = None,
+        playbook_metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[Artifact]:
         """
         Create a single artifact from definition
@@ -353,7 +356,9 @@ class PlaybookOutputArtifactCreator:
             playbook_metadata: Playbook metadata (contains scope information)
         """
         file_write_config = artifact_def.get("file_write", {})
-        playbook_metadata = playbook_metadata or {}
+        # playbook_metadata parameter is optional, create empty dict if not provided
+        if playbook_metadata is None:
+            playbook_metadata = {}
 
         # Determine playbook scope
         playbook_scope_config = playbook_metadata.get("scope", {})
@@ -363,11 +368,13 @@ class PlaybookOutputArtifactCreator:
             playbook_scope = "workspace"
 
         # Resolve storage path based on three-layer architecture
+        # Get file_name_template from file_write_config, not artifact_def directly
+        file_name_template = file_write_config.get("file_name_template", "{{title}}.tsx")
         storage_info = self._resolve_storage_path(
             playbook_code=playbook_metadata.get("playbook_code", ""),
             playbook_scope=playbook_scope,
             execution_id=context.get("execution_id", ""),
-            artifact_file_name=artifact_def.get("file_name_template", "{{title}}.tsx"),
+            artifact_file_name=file_name_template,
             workspace_id=workspace_id,
             context=context
         )
@@ -385,9 +392,21 @@ class PlaybookOutputArtifactCreator:
             file_content = resolve_template(content_template, context)
         else:
             source_data = artifact.content
+            import json
+            # Handle different data structures
             if isinstance(source_data, dict):
-                file_content = source_data.get("content") or source_data.get("code") or str(source_data)
+                # If source_data has a 'content' key, use that; otherwise use the whole dict
+                if "content" in source_data:
+                    data_to_write = source_data["content"]
+                else:
+                    data_to_write = source_data
+                # Serialize to JSON with proper formatting
+                file_content = json.dumps(data_to_write, ensure_ascii=False, indent=2)
+            elif isinstance(source_data, list):
+                # Direct list - serialize as JSON array
+                file_content = json.dumps(source_data, ensure_ascii=False, indent=2)
             else:
+                # Other types - convert to string
                 file_content = str(source_data)
 
         # Get encoding
@@ -395,41 +414,42 @@ class PlaybookOutputArtifactCreator:
 
         # Register filesystem tool instance for this base_directory if not already registered
         # This follows the three-layer architecture: different scopes get different tool instances
-        tool_id = self._get_or_register_filesystem_tool(base_directory, playbook_scope, workspace_id)
+        try:
+            tool_id = self._get_or_register_filesystem_tool(base_directory, playbook_scope, workspace_id)
 
-        if not tool_id:
-            logger.warning(f"Failed to register filesystem tool for {base_directory}, writing directly")
-            # Fallback: write directly
-            full_file_path = base_directory / relative_file_path
-            full_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(full_file_path, "w", encoding=encoding) as f:
-                f.write(file_content)
-            result = {"success": True, "file_path": str(full_file_path)}
-        else:
-            # Use registered tool instance
-            from backend.app.shared.tool_executor import execute_tool
-            result = await execute_tool(
-                tool_id,
-                file_path=relative_file_path,
-                content=file_content,
-                encoding=encoding
-            )
+            if not tool_id:
+                logger.warning(f"Failed to register filesystem tool for {base_directory}, writing directly")
+                # Fallback: write directly
+                full_file_path = base_directory / relative_file_path
+                full_file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(full_file_path, "w", encoding=encoding) as f:
+                    f.write(file_content)
+                result = {"success": True, "file_path": str(full_file_path)}
+            else:
+                # Use registered tool instance
+                from backend.app.shared.tool_executor import execute_tool
+                result = await execute_tool(
+                    tool_id,
+                    file_path=relative_file_path,
+                    content=file_content,
+                    encoding=encoding
+                )
 
-            logger.info(
-                f"Successfully wrote artifact {artifact.id} to file: {base_directory}/{relative_file_path} "
-                f"(size: {len(file_content)} bytes, scope: {playbook_scope})"
-            )
+                logger.info(
+                    f"Successfully wrote artifact {artifact.id} to file: {base_directory}/{relative_file_path} "
+                    f"(size: {len(file_content)} bytes, scope: {playbook_scope})"
+                )
 
-            # Update artifact metadata with actual file path
-            full_path = base_directory / relative_file_path
-            artifact.metadata["actual_file_path"] = str(full_path)
-            artifact.metadata["storage_scope"] = playbook_scope
-            artifact.storage_ref = str(full_path)
-            self.artifacts_store.update_artifact(
-                artifact.id,
-                metadata=artifact.metadata,
-                storage_ref=str(full_path)
-            )
+                # Update artifact metadata with actual file path
+                full_path = base_directory / relative_file_path
+                artifact.metadata["actual_file_path"] = str(full_path)
+                artifact.metadata["storage_scope"] = playbook_scope
+                artifact.storage_ref = str(full_path)
+                self.artifacts_store.update_artifact(
+                    artifact.id,
+                    metadata=artifact.metadata,
+                    storage_ref=str(full_path)
+                )
         except Exception as e:
             logger.error(f"Failed to write artifact file: {e}", exc_info=True)
             raise

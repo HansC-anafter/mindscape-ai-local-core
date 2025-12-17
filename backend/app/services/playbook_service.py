@@ -80,6 +80,12 @@ class PlaybookService:
 
         self.registry = PlaybookRegistry(store, cloud_extension_manager=self.cloud_extension_manager)
 
+        # Initialize Graph components for variant selection
+        from backend.app.core.graph import GraphVariantRegistry, GraphSelector, GraphExecutor
+        self.graph_registry = GraphVariantRegistry()
+        self.graph_selector = GraphSelector(self.graph_registry)
+        self.graph_executor = GraphExecutor()
+
     async def get_playbook(
         self,
         playbook_code: str,
@@ -255,6 +261,72 @@ class PlaybookService:
             logger.error(f"Failed to fork playbook {source_playbook_code}: {e}", exc_info=True)
             return None
 
+    async def validate_playbook_slots(
+        self,
+        playbook_code: str,
+        workspace_id: str,
+        locale: str = "zh-TW",
+        project_id: Optional[str] = None
+    ) -> tuple[bool, List[str], Dict[str, str]]:
+        """
+        Validate that all tool slots in playbook.json have mappings
+
+        Args:
+            playbook_code: Playbook code
+            workspace_id: Workspace ID
+            locale: Language locale
+            project_id: Optional project ID
+
+        Returns:
+            Tuple of (is_valid, missing_slots, slot_mappings)
+            - is_valid: True if all slots have mappings
+            - missing_slots: List of slots without mappings
+            - slot_mappings: Dict mapping slot -> tool_id (for resolved slots)
+        """
+        try:
+            from backend.app.services.playbook_loaders.json_loader import PlaybookJsonLoader
+            from backend.app.services.tool_slot_resolver import get_tool_slot_resolver, SlotNotFoundError
+
+            # Load playbook.json
+            playbook_json = PlaybookJsonLoader.load_playbook_json(playbook_code)
+            if not playbook_json or not playbook_json.steps:
+                # No JSON or no steps, nothing to validate
+                return True, [], {}
+
+            # Collect all tool_slots from steps
+            slots = []
+            for step in playbook_json.steps:
+                if hasattr(step, 'tool_slot') and step.tool_slot:
+                    slots.append(step.tool_slot)
+
+            if not slots:
+                # No slots to validate (might be using legacy 'tool' field)
+                return True, [], {}
+
+            # Try to resolve each slot
+            resolver = get_tool_slot_resolver(store=self.store)
+            missing_slots = []
+            slot_mappings = {}
+
+            for slot in slots:
+                try:
+                    tool_id = await resolver.resolve(
+                        slot=slot,
+                        workspace_id=workspace_id,
+                        project_id=project_id
+                    )
+                    slot_mappings[slot] = tool_id
+                except SlotNotFoundError:
+                    missing_slots.append(slot)
+
+            is_valid = len(missing_slots) == 0
+            return is_valid, missing_slots, slot_mappings
+
+        except Exception as e:
+            logger.error(f"Failed to validate playbook slots for {playbook_code}: {e}", exc_info=True)
+            # On error, assume invalid (safer)
+            return False, [], {}
+
     def validate_edit_permission(
         self,
         playbook: Playbook,
@@ -321,6 +393,29 @@ class PlaybookService:
         playbook = await self.get_playbook(playbook_code, locale=locale, workspace_id=workspace_id)
         if not playbook:
             raise ValueError(f"Playbook not found: {playbook_code}")
+
+        # Check if playbook has Graph IR support (optional integration)
+        graph_ir = None
+        if hasattr(playbook.metadata, 'graph_ir') and playbook.metadata.graph_ir:
+            try:
+                from backend.app.core.ir.graph_ir import GraphIR
+                graph_ir = GraphIR.from_dict(playbook.metadata.graph_ir)
+
+                # Select appropriate variant based on context
+                selection_context = {
+                    "risk_level": inputs.get("risk_level", "low"),
+                    "urgency": inputs.get("urgency", "normal"),
+                    "cost_constraint": inputs.get("cost_constraint", "normal"),
+                }
+                selected_graph = self.graph_selector.select_variant(
+                    graph_id=graph_ir.graph_id,
+                    context=selection_context
+                )
+                if selected_graph:
+                    graph_ir = selected_graph
+                    logger.info(f"PlaybookService: Selected graph variant '{selected_graph.variant_name}' for playbook {playbook_code}")
+            except Exception as e:
+                logger.warning(f"PlaybookService: Failed to process Graph IR for playbook {playbook_code}: {e}", exc_info=True)
 
         from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 

@@ -18,4 +18,5 @@ from . import (
     capability_suites,
     sandbox,
     deployment,
+    blueprint,
 )

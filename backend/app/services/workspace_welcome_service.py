@@ -122,10 +122,19 @@ Produce 2-4 actionable starter steps (one per line, no numbering), each <= 15 wo
                 continue
             if any(re.search(p, line, re.IGNORECASE) for p in banned_patterns):
                 continue
-                suggestions.append(line)
+            suggestions.append(line)
+
+        # Remove duplicates (case-insensitive, preserve order)
+        seen = set()
+        unique_suggestions = []
+        for suggestion in suggestions:
+            suggestion_lower = suggestion.lower().strip()
+            if suggestion_lower and suggestion_lower not in seen:
+                seen.add(suggestion_lower)
+                unique_suggestions.append(suggestion)
 
         # Limit to 4 suggestions max
-        suggestions = suggestions[:4]
+        suggestions = unique_suggestions[:4]
 
         # If everything got filtered out, return empty to avoid showing junk in UI
         if not suggestions:
@@ -310,7 +319,7 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         prompt=user_prompt,
                         system_prompt=system_prompt,
                         temperature=0.7,
-                        max_tokens=500,
+                        max_tokens=2000,
                         locale=locale,
                         workspace_id=workspace.id,
                         available_playbooks=available_playbooks
@@ -320,7 +329,8 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                     if not welcome_message or len(welcome_message.strip()) < 10:
                         raise ValueError("LLM generated empty or invalid welcome message")
                     # If content is too short (likely truncated), fall back to i18n baseline
-                    if len(welcome_message.strip()) < 40:
+                    # Reduced threshold from 40 to 20 to allow shorter but valid messages
+                    if len(welcome_message.strip()) < 20:
                         logger.warning(
                             f"LLM welcome message too short ({len(welcome_message.strip())} chars); falling back to i18n baseline"
                         )

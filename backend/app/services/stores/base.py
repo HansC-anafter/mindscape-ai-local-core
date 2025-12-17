@@ -65,8 +65,27 @@ class StoreBase:
                 cursor.execute(...)
                 conn.commit()
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)  # 30 second timeout for busy connections
         conn.row_factory = sqlite3.Row
+
+        # Enable WAL mode for better concurrent access
+        # WAL allows multiple readers and one writer simultaneously
+        try:
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA journal_mode=WAL')
+            journal_mode = cursor.fetchone()[0]
+            if journal_mode != 'wal':
+                logger.warning(f"Failed to enable WAL mode, current mode: {journal_mode}")
+
+            # Set busy timeout to handle concurrent access gracefully
+            cursor.execute('PRAGMA busy_timeout=30000')  # 30 seconds
+
+            # Optimize for concurrent reads
+            cursor.execute('PRAGMA synchronous=NORMAL')  # Faster than FULL, safer than OFF
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to set SQLite PRAGMA settings: {e}")
+
         try:
             yield conn
         finally:

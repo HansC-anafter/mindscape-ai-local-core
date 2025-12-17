@@ -140,6 +140,40 @@ async def cleanup_playbook_execution(execution_id: str):
     return {"status": "cleaned up"}
 
 
+@router.post("/execute/{execution_id}/reset-step")
+async def reset_current_step(
+    execution_id: str,
+    profile_id: str = Query("default-user", description="Profile ID")
+):
+    """
+    Reset current step to restart from the beginning of current step.
+
+    This will:
+    1. Decrement current_step by 1 (if > 0) to restart current step
+    2. Clear conversation history from current step onwards (but preserve important context)
+    3. Update step event status from 'completed' back to 'running'
+    4. Preserve tool call records (already saved in database, no deletion needed)
+    5. Preserve sandbox_id in execution_context
+    6. Save the reset state
+
+    Useful when a step gets stuck or needs to be retried.
+
+    Note: Tool call records are preserved in ToolCallsStore (database table).
+    Step events are updated to reflect the reset state.
+    Sandbox context is preserved in execution_context.
+    """
+    try:
+        result = await playbook_runner.reset_current_step(
+            execution_id=execution_id,
+            profile_id=profile_id
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset step: {str(e)}")
+
+
 @router.get("/execute/active")
 async def list_active_executions():
     """

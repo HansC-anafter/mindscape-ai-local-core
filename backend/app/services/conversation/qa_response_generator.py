@@ -175,11 +175,14 @@ class QAResponseGenerator:
             except Exception as e:
                 logger.warning(f"Failed to load playbooks from PlaybookService: {e}", exc_info=True)
 
+            # Use higher max_tokens for QA responses to prevent truncation
+            # Gemini models support up to 8192 output tokens
             result = await generate_text(
                 prompt=enhanced_prompt,
                 locale=self.default_locale,
                 workspace_id=workspace_id,
-                available_playbooks=available_playbooks
+                available_playbooks=available_playbooks,
+                max_tokens=8192  # Increase max_tokens for QA responses
             )
             assistant_response = result.get(
                 'text',

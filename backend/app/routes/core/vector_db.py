@@ -10,8 +10,12 @@ a vector store adapter to be installed and configured.
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
-import psycopg2
-from psycopg2.extras import RealDictCursor
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except ImportError:
+    psycopg2 = None
+    RealDictCursor = None
 import os
 
 router = APIRouter(prefix="/api/v1/vector-db", tags=["Vector Database"])

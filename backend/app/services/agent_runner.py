@@ -324,13 +324,20 @@ class VertexAIProvider(LLMProvider):
         """Build generation config for Vertex AI"""
         from vertexai.generative_models import GenerationConfig
         # Increase max_output_tokens to prevent truncation (Gemini models support up to 8192)
-        max_output = max_completion_tokens if max_completion_tokens else (max_tokens if max_tokens else 8192)
-        # Cap at 8192 for Gemini models
-        max_output = min(max_output, 8192)
-        return GenerationConfig(
+        # Use max_completion_tokens if provided, otherwise max_tokens, otherwise default to 2000 for welcome messages
+        max_output = max_completion_tokens if max_completion_tokens else (max_tokens if max_tokens else 2000)
+        # Cap at 8192 for Gemini models, but ensure minimum of 1000 for proper completion
+        max_output = min(max(max_output, 1000), 8192)
+        import sys
+        logger.info(f"Vertex AI GenerationConfig: max_output_tokens={max_output}, temperature={temperature}, max_tokens={max_tokens}, max_completion_tokens={max_completion_tokens}")
+        print(f"[DEBUG] Vertex AI GenerationConfig: max_output_tokens={max_output}, temperature={temperature}, max_tokens={max_tokens}, max_completion_tokens={max_completion_tokens}", file=sys.stderr)
+        config = GenerationConfig(
             temperature=temperature,
             max_output_tokens=max_output
         )
+        # 將 max_output 存儲在對象上以便後續讀取
+        config._actual_max_output_tokens = max_output
+        return config
 
     async def chat_completion(self, messages: List[Dict[str, str]],
                            model: str = "gemini-pro",
@@ -349,10 +356,54 @@ class VertexAIProvider(LLMProvider):
                 generation_config=generation_config
             )
 
+            # Extract and log usage metadata if available
+            if hasattr(response, 'usage_metadata'):
+                usage = response.usage_metadata
+                logger.info(f"Vertex AI usage_metadata: prompt_token_count={getattr(usage, 'prompt_token_count', 'N/A')}, "
+                          f"candidates_token_count={getattr(usage, 'candidates_token_count', 'N/A')}, "
+                          f"total_token_count={getattr(usage, 'total_token_count', 'N/A')}")
+                import sys
+                print(f"[DEBUG] usage_metadata: prompt={getattr(usage, 'prompt_token_count', 'N/A')}, candidates={getattr(usage, 'candidates_token_count', 'N/A')}, total={getattr(usage, 'total_token_count', 'N/A')}", file=sys.stderr)
+
             # Handle multi-part responses (Vertex AI may return multiple content parts)
             # This fixes "Multiple content parts are not supported" error
             if response.candidates and len(response.candidates) > 0:
                 candidate = response.candidates[0]
+
+                # Log finish reason for debugging
+                if hasattr(candidate, 'finish_reason'):
+                    logger.info(f"Vertex AI finish_reason: {candidate.finish_reason}")
+                    import sys
+                    # 從我們存儲的屬性讀取 max_output_tokens
+                    max_output_val = getattr(generation_config, '_actual_max_output_tokens', 'N/A')
+                    # Get actual output token count from usage_metadata
+                    actual_output_tokens = 'N/A'
+                    prompt_tokens = 'N/A'
+                    total_tokens = 'N/A'
+                    if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                        actual_output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 'N/A')
+                        prompt_tokens = getattr(response.usage_metadata, 'prompt_token_count', 'N/A')
+                        total_tokens = getattr(response.usage_metadata, 'total_token_count', 'N/A')
+
+                    # Get finish_reason enum name
+                    from vertexai.generative_models import FinishReason
+                    finish_reason_name = 'UNKNOWN'
+                    try:
+                        finish_reason_name = FinishReason(candidate.finish_reason).name
+                    except:
+                        finish_reason_name = str(candidate.finish_reason)
+
+                    print(f"[DEBUG] finish_reason: {candidate.finish_reason} ({finish_reason_name}), max_output_tokens={max_output_val}, prompt_tokens={prompt_tokens}, output_tokens={actual_output_tokens}, total_tokens={total_tokens}", file=sys.stderr)
+
+                    # 如果 finish_reason=2 但 output_tokens 遠低於 max_output_tokens，記錄警告
+                    if candidate.finish_reason == 2 and max_output_val != 'N/A' and actual_output_tokens != 'N/A':
+                        if isinstance(max_output_val, int) and isinstance(actual_output_tokens, int):
+                            if actual_output_tokens < max_output_val * 0.5:  # 如果實際輸出小於設置值的 50%
+                                print(f"[WARNING] finish_reason=2 但 output_tokens ({actual_output_tokens}) 遠低於 max_output_tokens ({max_output_val})，可能是其他限制觸發（安全過濾、思考預算等）", file=sys.stderr)
+
+                    if candidate.finish_reason and candidate.finish_reason != 1:  # 1 = STOP (normal completion)
+                        logger.warning(f"Vertex AI response finished with reason: {candidate.finish_reason} (1=STOP, 2=MAX_TOKENS, 3=SAFETY)")
+
                 if candidate.content and candidate.content.parts:
                     # Concatenate all text parts
                     text_parts = []
@@ -360,7 +411,9 @@ class VertexAIProvider(LLMProvider):
                         if hasattr(part, 'text') and part.text:
                             text_parts.append(part.text)
                     if text_parts:
-                        return "".join(text_parts)
+                        full_text = "".join(text_parts)
+                        logger.info(f"Vertex AI returned {len(full_text)} characters")
+                        return full_text
 
             # Fallback to response.text (may raise error if multi-part)
             try:
@@ -416,10 +469,15 @@ class VertexAIProvider(LLMProvider):
                     # Check for finish_reason to detect truncation
                     if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
                         finish_reason = candidate.finish_reason
-                        if finish_reason == 1:  # STOP = 1, MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4
-                            logger.warning(f"[VertexAI Streaming] Response stopped early. Finish reason: {finish_reason}")
+                        if finish_reason == 1:  # STOP = 1 (normal completion), MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4
+                            # Finish reason 1 is STOP (normal completion), not an error
+                            logger.debug(f"[VertexAI Streaming] Response completed normally. Finish reason: {finish_reason} (STOP)")
                         elif finish_reason == 2:  # MAX_TOKENS
-                            logger.warning(f"[VertexAI Streaming] Response truncated due to max_tokens limit")
+                            logger.warning(f"[VertexAI Streaming] Response truncated due to max_tokens limit. Finish reason: {finish_reason}")
+                        elif finish_reason == 3:  # SAFETY
+                            logger.warning(f"[VertexAI Streaming] Response stopped due to safety filter. Finish reason: {finish_reason}")
+                        else:
+                            logger.warning(f"[VertexAI Streaming] Response stopped with unexpected reason. Finish reason: {finish_reason}")
                     if candidate.content and candidate.content.parts:
                         for part in candidate.content.parts:
                             if hasattr(part, 'text') and part.text:

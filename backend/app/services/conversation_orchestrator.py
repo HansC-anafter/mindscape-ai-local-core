@@ -8,7 +8,7 @@ This file serves as a thin coordinator layer. All implementation logic MUST be
 delegated to specialized modules in conversation/ directory:
 
 Module Responsibilities:
-- ExecutionCoordinator: Pack/playbook execution, suggestion card creation
+- CoordinatorFacade: Pack/playbook execution, suggestion card creation
 - TaskManager: Task lifecycle, TimelineItem creation, status updates
 - CTAHandler: Timeline item CTA actions, soft/external write confirmations
 - SuggestionActionHandler: Dynamic suggestion action execution
@@ -46,7 +46,7 @@ from backend.app.services.conversation.task_manager import TaskManager
 from backend.app.services.conversation.cta_handler import CTAHandler
 from backend.app.services.conversation.file_processor import FileProcessor
 from backend.app.services.conversation.suggestion_action_handler import SuggestionActionHandler
-from backend.app.services.conversation.execution_coordinator import ExecutionCoordinator
+from backend.app.services.conversation.coordinator_facade import CoordinatorFacade
 from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
 from backend.app.services.conversation.message_generator import MessageGenerator
 from backend.app.services.conversation.intent_extractor import IntentExtractor
@@ -189,7 +189,7 @@ class ConversationOrchestrator:
         # Update playbook_runner reference to use shared instance
         playbook_runner = shared_playbook_runner
 
-        self.execution_coordinator = ExecutionCoordinator(
+        self.execution_coordinator = CoordinatorFacade(
             store=store,
             tasks_store=self.tasks_store,
             timeline_items_store=self.timeline_items_store,
@@ -201,7 +201,7 @@ class ConversationOrchestrator:
             playbook_service=playbook_service
         )
 
-        # Update SuggestionActionHandler with ExecutionCoordinator reference
+        # Update SuggestionActionHandler with CoordinatorFacade reference
         self.suggestion_action_handler.execution_coordinator = self.execution_coordinator
 
         self.qa_response_generator = QAResponseGenerator(
@@ -240,7 +240,9 @@ class ConversationOrchestrator:
                 workspace = self.store.get_workspace(workspace_id)
 
             # If no project_id, check if we need to create a Project
+            logger.info(f"Project detection check: project_id={project_id}, workspace={workspace.id if workspace else None}")
             if not project_id and workspace:
+                logger.info(f"Starting project detection for message: {message[:100]}...")
                 from backend.app.services.project.project_manager import ProjectManager
                 from backend.app.services.project.project_detector import ProjectDetector
 
@@ -263,19 +265,23 @@ class ConversationOrchestrator:
                     for e in recent_events
                     if e.event_type == EventType.MESSAGE and e.payload
                 ]
+                logger.info(f"Project detection: conversation_context has {len(conversation_context)} messages")
 
                 project_suggestion = await project_detector.detect(
                     message=message,
                     conversation_context=conversation_context,
                     workspace=workspace
                 )
+                logger.info(f"Project detection result: suggestion={project_suggestion.mode if project_suggestion else None}, confidence={project_suggestion.confidence if project_suggestion else None}")
 
                 if project_suggestion and project_suggestion.mode == "project":
+                    logger.info(f"Project suggestion detected: mode={project_suggestion.mode}, type={project_suggestion.project_type}, title={project_suggestion.project_title}, confidence={project_suggestion.confidence}")
                     # Check if a duplicate project already exists (same type and very similar/identical title)
                     existing_projects = await project_manager.list_projects(
                         workspace_id=workspace_id,
                         state="open"
                     )
+                    logger.info(f"Found {len(existing_projects)} existing open projects")
 
                     suggested_type = project_suggestion.project_type or "general"
                     suggested_title = (project_suggestion.project_title or "").lower().strip()
@@ -308,21 +314,28 @@ class ConversationOrchestrator:
 
                     # Only create if no duplicate project exists (different projects of same type are allowed)
                     if not duplicate_project:
+                        logger.info(f"No duplicate project found, checking confidence...")
                         # Check confidence score to decide if we should create directly or show suggestion
                         confidence = project_suggestion.confidence or 0.5
                         HIGH_CONFIDENCE_THRESHOLD = 0.8  # High confidence: create directly
                         LOW_CONFIDENCE_THRESHOLD = 0.5  # Low confidence: don't suggest
+                        logger.info(f"Confidence: {confidence}, HIGH_THRESHOLD: {HIGH_CONFIDENCE_THRESHOLD}, LOW_THRESHOLD: {LOW_CONFIDENCE_THRESHOLD}")
 
                         if confidence >= HIGH_CONFIDENCE_THRESHOLD:
+                            logger.info(f"High confidence ({confidence:.2f}), creating project directly...")
                             # High confidence: create project directly
-                            from backend.app.services.project.constants import DEFAULT_PROJECT_TYPE
-                            project = await project_manager.create_project(
-                                project_type=project_suggestion.project_type or DEFAULT_PROJECT_TYPE,
-                                title=project_suggestion.project_title or "New Project",
-                                workspace_id=workspace_id,
-                                flow_id=project_suggestion.flow_id or "general_flow",
-                                initiator_user_id=profile_id
-                            )
+                            if not project_suggestion.project_type or not project_suggestion.project_title:
+                                logger.warning("Project suggestion missing required fields, skipping creation")
+                            else:
+                                # flow_id will be auto-generated by ProjectManager
+                                project = await project_manager.create_project(
+                                    project_type=project_suggestion.project_type,
+                                    title=project_suggestion.project_title,
+                                    workspace_id=workspace_id,
+                                    flow_id=None,  # Will be auto-generated
+                                    initiator_user_id=profile_id,
+                                    playbook_sequence=project_suggestion.playbook_sequence
+                                )
 
                             # Project PM assignment
                             from backend.app.services.project.project_assignment_agent import ProjectAssignmentAgent
@@ -353,7 +366,12 @@ class ConversationOrchestrator:
                             }
                         else:
                             # Low confidence: don't create or suggest
-                            logger.debug(f"Project suggestion confidence too low ({confidence:.2f}), skipping suggestion")
+                            logger.info(f"Project suggestion confidence too low ({confidence:.2f}), skipping suggestion")
+                else:
+                    if project_suggestion:
+                        logger.info(f"Project suggestion mode is '{project_suggestion.mode}', not 'project', skipping")
+                    else:
+                        logger.info(f"No project suggestion returned from detector")
 
             file_document_ids = []
             if files:

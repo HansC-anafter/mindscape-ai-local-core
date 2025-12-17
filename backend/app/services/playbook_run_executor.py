@@ -194,10 +194,12 @@ class PlaybookRunExecutor:
                 )
 
                 # Convert ExecutionResult to legacy format for backward compatibility
+                # Extract steps from metadata if available
+                steps_from_metadata = runtime_result.metadata.get("steps", {})
                 result = {
                     "status": runtime_result.status,
                     "context": runtime_result.outputs,
-                    "steps": {}  # Legacy format
+                    "steps": steps_from_metadata  # Use actual steps from metadata
                 }
 
                 # Update task status if using task system

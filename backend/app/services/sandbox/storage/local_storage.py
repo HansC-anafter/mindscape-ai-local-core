@@ -75,11 +75,11 @@ class LocalStorage(BaseStorage):
         # Remove leading slashes and normalize
         clean_path = file_path.lstrip("/\\")
         normalized = Path(clean_path)
-        
+
         # Check for directory traversal attempts
         if ".." in str(normalized):
             raise ValueError(f"Invalid path: {file_path}")
-        
+
         return normalized
 
     async def read_file(self, file_path: str, version: Optional[str] = None) -> str:

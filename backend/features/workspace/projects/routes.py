@@ -3,8 +3,9 @@ Projects API routes for Workspace-based projects
 """
 
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Path, Body, Depends
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Path, Body, Depends, Query
 from pydantic import BaseModel
 
 from backend.app.routes.workspace_dependencies import get_workspace, get_store
@@ -33,29 +34,48 @@ class CreateProjectRequest(BaseModel):
 async def list_projects(
     workspace_id: str = Path(..., description="Workspace ID"),
     state: Optional[str] = None,
+    project_type: Optional[str] = Query(None, description="Filter by project type"),
     limit: int = 100,
     workspace: Workspace = Depends(get_workspace),
     store: MindscapeStore = Depends(get_store)
 ):
     """
-    List projects in workspace
+    List projects in workspace with optional filters
 
     Args:
         workspace_id: Workspace ID
         state: Optional state filter (open, closed, archived)
+        project_type: Optional project type filter
         limit: Maximum number of projects to return
 
     Returns:
-        List of projects
+        List of projects with grouping by type
     """
     try:
         project_manager = ProjectManager(store)
         projects = await project_manager.list_projects(
             workspace_id=workspace_id,
             state=state,
+            project_type=project_type,
             limit=limit
         )
-        return {"projects": [p.model_dump(mode='json') for p in projects]}
+
+        # Group projects by type for categorization
+        projects_by_type: Dict[str, List[Dict[str, Any]]] = {}
+        for project in projects:
+            project_type_key = project.type or "other"
+            if project_type_key not in projects_by_type:
+                projects_by_type[project_type_key] = []
+            projects_by_type[project_type_key].append(project.model_dump(mode='json'))
+
+        # Calculate type counts
+        type_counts = {k: len(v) for k, v in projects_by_type.items()}
+
+        return {
+            "projects": [p.model_dump(mode='json') for p in projects],
+            "projects_by_type": projects_by_type,
+            "type_counts": type_counts
+        }
     except Exception as e:
         logger.error(f"Failed to list projects: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -336,25 +356,47 @@ async def get_project_execution_tree(
         # Get all execution tasks for this workspace
         all_execution_tasks = tasks_store.list_executions_by_workspace(workspace_id=workspace_id, limit=500)
 
-        # Filter executions by project_id
+        # Filter executions by project_id (with fallbacks to avoid losing data when context is missing)
         project_executions = []
         for task in all_execution_tasks:
             execution_context = task.execution_context or {}
-            exec_project_id = execution_context.get("project_id")
-            if exec_project_id == project_id:
-                try:
-                    execution = ExecutionSession.from_task(task)
-                    execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
-                    if isinstance(execution_dict, dict):
-                        execution_dict["status"] = task.status.value
-                        execution_dict["created_at"] = task.created_at.isoformat() if task.created_at else None
-                        execution_dict["started_at"] = task.started_at.isoformat() if task.started_at else None
-                        execution_dict["completed_at"] = task.completed_at.isoformat() if task.completed_at else None
-                        execution_dict["project_id"] = project_id
-                        execution_dict["project_name"] = project.name
-                    project_executions.append(execution_dict)
-                except Exception as e:
-                    logger.warning(f"Failed to create ExecutionSession from task {task.id}: {e}")
+            exec_project_id = (
+                execution_context.get("project_id")
+                or (task.params or {}).get("project_id")
+            )
+
+            # If project_id is explicitly set and does not match, skip
+            if exec_project_id and exec_project_id != project_id:
+                continue
+
+            # Fallback: if missing, assume this execution belongs to the requested project
+            if not exec_project_id:
+                exec_project_id = project_id
+                execution_context["project_id"] = project_id
+
+            # Ensure project name is present in context
+            execution_context["project_name"] = execution_context.get("project_name") or project.title
+
+            try:
+                execution = ExecutionSession.from_task(task)
+                execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+                if isinstance(execution_dict, dict):
+                    execution_dict["status"] = task.status.value
+                    execution_dict["created_at"] = task.created_at.isoformat() if task.created_at else None
+                    execution_dict["started_at"] = task.started_at.isoformat() if task.started_at else None
+                    execution_dict["completed_at"] = task.completed_at.isoformat() if task.completed_at else None
+                    execution_dict["project_id"] = exec_project_id
+                    execution_dict["project_name"] = project.title
+
+                    # Keep execution_context in the nested task as well, so frontend can read project_id/project_name
+                    if isinstance(execution_dict.get("task"), dict):
+                        task_ctx = execution_dict["task"].get("execution_context") or {}
+                        task_ctx.setdefault("project_id", exec_project_id)
+                        task_ctx.setdefault("project_name", project.title)
+                        execution_dict["task"]["execution_context"] = task_ctx
+                project_executions.append(execution_dict)
+            except Exception as e:
+                logger.warning(f"Failed to create ExecutionSession from task {task.id}: {e}")
 
         # Group executions by playbook_code
         playbook_groups = defaultdict(lambda: {
@@ -407,7 +449,7 @@ async def get_project_execution_tree(
         return {
             "playbookGroups": playbook_groups_list,
             "projectId": project_id,
-            "projectName": project.name
+            "projectName": project.title
         }
 
     except HTTPException:
@@ -446,13 +488,117 @@ async def get_project_card(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Get executions for this project via events (since PlaybookExecution doesn't have project_id)
+        # Ensure flow exists, create if not (for existing projects that don't have flow yet)
+        if project.flow_id:
+            from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
+            from backend.app.models.playbook_flow import PlaybookFlow
+            from backend.app.services.project.project_detector import ProjectDetector
+            flows_store = PlaybookFlowsStore(store.db_path)
+            flow = flows_store.get_flow(project.flow_id)
+
+            if not flow:
+                logger.info(f"Flow {project.flow_id} not found for project {project_id}, creating flow with LLM analysis")
+                # Use LLM to suggest playbook_sequence based on project info
+                project_detector = ProjectDetector()
+
+                # Build message for LLM analysis
+                message = f"{project.title}"
+                if project.type:
+                    message += f" (type: {project.type})"
+
+                # Check metadata for additional context
+                if project.metadata and isinstance(project.metadata, dict):
+                    primary_intent = project.metadata.get('primary_intent')
+                    if primary_intent:
+                        message += f"\n\nOriginal intent: {primary_intent}"
+
+                # Get playbook_sequence suggestion from LLM
+                try:
+                    suggestion = await project_detector.detect(
+                        message=message,
+                        conversation_context=[],
+                        workspace=workspace
+                    )
+
+                    if suggestion and suggestion.mode == "project" and suggestion.playbook_sequence:
+                        raw_playbook_sequence = suggestion.playbook_sequence
+                        logger.info(f"LLM suggested {len(raw_playbook_sequence)} playbooks for project {project_id}")
+
+                        # Validate playbook existence before creating flow (using unified validator)
+                        from backend.app.services.project.playbook_validator import validate_playbook_sequence
+                        from pathlib import Path
+
+                        base_dir = Path(__file__).parent.parent.parent.parent
+                        playbook_sequence = validate_playbook_sequence(raw_playbook_sequence, base_dir)
+                    else:
+                        playbook_sequence = []
+                        logger.warning(f"LLM did not suggest playbooks for project {project_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to get LLM suggestion for project {project_id}: {e}")
+                    playbook_sequence = []
+
+                # Create flow with validated playbook_sequence (only existing playbooks)
+                flow = PlaybookFlow(
+                    id=project.flow_id,
+                    name=f"{project.type.replace('_', ' ').title()} Flow" if project.type else "Flow",
+                    description=f"Flow for {project.type} projects" if project.type else "Default flow",
+                    flow_definition={
+                        "nodes": [],
+                        "edges": [],
+                        "playbook_sequence": playbook_sequence
+                    },
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                flows_store.create_flow(flow)
+                logger.info(f"Created flow: {project.flow_id} with {len(playbook_sequence)} validated playbooks for project {project_id}")
+
+        # Get executions for this project using direct project_id query
+        from backend.app.services.stores.tasks_store import TasksStore
         from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
         from backend.app.services.stores.events_store import EventsStore
+        tasks_store = TasksStore(store.db_path)
         executions_store = PlaybookExecutionsStore(store.db_path)
         events_store = EventsStore(store.db_path)
 
-        # Get events for this project to find execution IDs
+        # Direct query by project_id (optimized path)
+        project_execution_tasks = tasks_store.list_executions_by_project(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            limit=500
+        )
+        logger.info(f"[ProjectCard] Found {len(project_execution_tasks)} execution tasks for project {project_id} via direct query")
+
+        # Fallback: If no tasks found via project_id, try matching by playbook_code and project flow
+        # This handles cases where old tasks don't have project_id set
+        if not project_execution_tasks and project.flow_id:
+            try:
+                from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
+                flows_store = PlaybookFlowsStore(store.db_path)
+                flow = flows_store.get_flow(project.flow_id)
+                if flow:
+                    flow_def = flow.flow_definition if isinstance(flow.flow_definition, dict) else {}
+                    playbook_sequence = flow_def.get('playbook_sequence', [])
+                    if playbook_sequence:
+                        # Get all execution tasks and filter by playbook_code
+                        all_execution_tasks = tasks_store.list_executions_by_workspace(workspace_id=workspace_id, limit=500)
+                        for task in all_execution_tasks:
+                            execution_context = task.execution_context or {}
+                            playbook_code = execution_context.get("playbook_code") or task.pack_id
+                            if playbook_code in playbook_sequence:
+                                project_execution_tasks.append(task)
+                                # Update task with project_id for future queries
+                                if not task.project_id:
+                                    try:
+                                        tasks_store.update_task(task.id, project_id=project_id)
+                                        logger.info(f"[ProjectCard] Updated task {task.id[:8]} with project_id {project_id}")
+                                    except Exception as e:
+                                        logger.debug(f"Failed to update task project_id: {e}")
+                        logger.info(f"[ProjectCard] Found {len(project_execution_tasks)} execution tasks via playbook_code matching (fallback)")
+            except Exception as e:
+                logger.debug(f"Fallback matching failed: {e}")
+
+        # Get events for this project to find execution IDs (for fallback)
         project_events = events_store.get_events_by_project(
             project_id=project_id,
             limit=200
@@ -495,42 +641,70 @@ async def get_project_card(
             logger.warning(f"Failed to get workspace events: {e}")
             all_workspace_events = []
 
-        # Extract unique execution IDs from both project events and workspace events
-        execution_ids = set()
-        for event in project_events:
-            if event.payload and isinstance(event.payload, dict):
-                exec_id = event.payload.get('execution_id')
-                if exec_id:
-                    execution_ids.add(exec_id)
-            if event.entity_ids:
-                for entity_id in event.entity_ids:
-                    if entity_id and len(entity_id) == 36 and entity_id.count('-') == 4:
-                        execution_ids.add(entity_id)
-
-        # Also check workspace events for execution IDs
-        # Filter by checking if the execution's playbook_code matches project flow
-        for event in all_workspace_events:
-            if event.payload and isinstance(event.payload, dict):
-                exec_id = event.payload.get('execution_id')
-                playbook_code = event.payload.get('playbook_code')
-                if exec_id and playbook_code:
-                    # Check if this playbook is part of the project's flow
-                    if project.flow_id:
-                        from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
-                        flows_store = PlaybookFlowsStore(store.db_path)
-                        flow = flows_store.get_flow(project.flow_id)
-                        if flow and flow.playbook_sequence and playbook_code in flow.playbook_sequence:
-                            execution_ids.add(exec_id)
-                    else:
-                        # If no flow, include all executions from workspace events
-                        execution_ids.add(exec_id)
-
-        # Get executions by IDs
+        # Convert execution tasks to execution objects
         project_executions = []
-        for exec_id in execution_ids:
-            exec_obj = executions_store.get_execution(exec_id)
-            if exec_obj:
-                project_executions.append(exec_obj)
+        logger.info(f"[ProjectCard] Found {len(project_execution_tasks)} execution tasks for project {project_id}")
+        for task in project_execution_tasks:
+            try:
+                # Create a simple execution dict from task (don't use ExecutionSession which may not exist)
+                execution_context = task.execution_context or {}
+                execution_dict = {
+                    "id": task.id,
+                    "execution_id": task.id,
+                    "status": task.status.value,
+                    "playbook_code": execution_context.get("playbook_code") or task.pack_id,
+                    "created_at": task.created_at.isoformat() if task.created_at else None,
+                    "started_at": task.started_at.isoformat() if task.started_at else None,
+                    "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                    "project_id": project_id,
+                    "project_name": project.title,
+                    "task": {
+                        "id": task.id,
+                        "execution_context": execution_context
+                    }
+                }
+                project_executions.append(execution_dict)
+                logger.info(f"[ProjectCard] Added execution {task.id[:8]} with status {task.status.value}, playbook_code={execution_dict['playbook_code']}")
+            except Exception as e:
+                logger.warning(f"Failed to create execution dict from task {task.id}: {e}", exc_info=True)
+
+        # Fallback: Extract unique execution IDs from events (if no tasks found)
+        if not project_executions:
+            execution_ids = set()
+            for event in project_events:
+                if event.payload and isinstance(event.payload, dict):
+                    exec_id = event.payload.get('execution_id')
+                    if exec_id:
+                        execution_ids.add(exec_id)
+                if event.entity_ids:
+                    for entity_id in event.entity_ids:
+                        if entity_id and len(entity_id) == 36 and entity_id.count('-') == 4:
+                            execution_ids.add(entity_id)
+
+            # Also check workspace events for execution IDs
+            for event in all_workspace_events:
+                if event.payload and isinstance(event.payload, dict):
+                    exec_id = event.payload.get('execution_id')
+                    playbook_code = event.payload.get('playbook_code')
+                    if exec_id and playbook_code:
+                        # Check if this playbook is part of the project's flow
+                        if project.flow_id:
+                            from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
+                            flows_store = PlaybookFlowsStore(store.db_path)
+                            flow = flows_store.get_flow(project.flow_id)
+                            if flow:
+                                flow_def = flow.flow_definition if isinstance(flow.flow_definition, dict) else {}
+                                playbook_sequence = flow_def.get('playbook_sequence', [])
+                                if playbook_code in playbook_sequence:
+                                    execution_ids.add(exec_id)
+                        else:
+                            execution_ids.add(exec_id)
+
+            # Get executions by IDs
+            for exec_id in execution_ids:
+                exec_obj = executions_store.get_execution(exec_id)
+                if exec_obj:
+                    project_executions.append(exec_obj)
 
         # Fallback: Get all executions for workspace from events
         # Since executions don't exist in DB, we'll use events to infer stats
@@ -550,8 +724,11 @@ async def get_project_card(
                                 from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
                                 flows_store = PlaybookFlowsStore(store.db_path)
                                 flow = flows_store.get_flow(project.flow_id)
-                                if flow and flow.playbook_sequence:
-                                    should_include = playbook_code in flow.playbook_sequence
+                                if flow:
+                                    flow_def = flow.flow_definition if isinstance(flow.flow_definition, dict) else {}
+                                    playbook_sequence = flow_def.get('playbook_sequence', [])
+                                    if playbook_sequence:
+                                        should_include = playbook_code in playbook_sequence
                             except:
                                 # If flow lookup fails, include all
                                 should_include = True
@@ -574,13 +751,32 @@ async def get_project_card(
                 project_executions.append(mock_exec)
 
         # Calculate stats
-        running_executions = [e for e in project_executions if e.status == 'running']
-        completed_executions = [e for e in project_executions if e.status == 'completed']
+        # Handle both dict and object formats
+        def get_status(exec_obj):
+            if isinstance(exec_obj, dict):
+                return exec_obj.get('status', '').lower()
+            return (exec_obj.status if hasattr(exec_obj, 'status') else '').lower()
+
+        logger.info(f"[ProjectCard] Calculating stats from {len(project_executions)} executions")
+        for exec_obj in project_executions:
+            status = get_status(exec_obj)
+            logger.debug(f"[ProjectCard] Execution {exec_obj.get('id', 'unknown')[:8] if isinstance(exec_obj, dict) else 'unknown'}: status={status}")
+
+        running_executions = [e for e in project_executions if get_status(e) == 'running']
+        completed_executions = [e for e in project_executions if get_status(e) in ['completed', 'succeeded', 'done']]
+
+        logger.info(f"[ProjectCard] Stats: running={len(running_executions)}, completed={len(completed_executions)}, total={len(project_executions)}")
 
         # Get pending confirmations (executions waiting for confirmation)
         pending_confirmations = []
         for exec_obj in project_executions:
-            if exec_obj.status == 'running' and exec_obj.phase and 'waiting' in exec_obj.phase.lower():
+            status = get_status(exec_obj)
+            phase = None
+            if isinstance(exec_obj, dict):
+                phase = exec_obj.get('phase')
+            elif hasattr(exec_obj, 'phase'):
+                phase = exec_obj.phase
+            if status == 'running' and phase and 'waiting' in str(phase).lower():
                 pending_confirmations.append(exec_obj)
 
         # Get artifacts count
@@ -588,20 +784,72 @@ async def get_project_card(
         artifact_registry = ArtifactRegistryService(store)
         artifacts = await artifact_registry.list_artifacts(project_id=project_id)
 
-        # Get playbooks count (from flow or metadata)
+        # Get playbooks count and list (from flow or metadata)
         total_playbooks = 0
+        playbook_list = []
         if project.flow_id:
             from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
             flows_store = PlaybookFlowsStore(store.db_path)
             flow = flows_store.get_flow(project.flow_id)
-            if flow and flow.playbook_sequence:
-                total_playbooks = len(flow.playbook_sequence)
+            if flow:
+                # Get playbook_sequence from flow_definition
+                flow_def = flow.flow_definition if isinstance(flow.flow_definition, dict) else {}
+                playbook_sequence = flow_def.get('playbook_sequence', [])
+
+                if playbook_sequence:
+                    # Get playbook details (playbook_sequence is already validated when flow was created)
+                    from backend.app.services.playbook_loaders.file_loader import PlaybookFileLoader
+                    from pathlib import Path
+
+                    total_playbooks = len(playbook_sequence)
+                    base_dir = Path(__file__).parent.parent.parent.parent
+
+                    for playbook_code in playbook_sequence:
+                        playbook_name = playbook_code.replace('_', ' ').title()
+                        playbook_description = ""
+
+                        # Load playbook details from i18n markdown files
+                        for locale in ['zh-TW', 'en', 'ja']:
+                            i18n_dir = base_dir / "backend" / "i18n" / "playbooks" / locale
+                            md_file = i18n_dir / f"{playbook_code}.md"
+
+                            if md_file.exists():
+                                try:
+                                    playbook = PlaybookFileLoader.load_playbook_from_file(md_file)
+                                    if playbook and playbook.metadata:
+                                        playbook_name = playbook.metadata.name if playbook.metadata.name else playbook_name
+                                        if not playbook_description:
+                                            playbook_description = playbook.metadata.description if playbook.metadata.description else ""
+                                        # Found valid playbook, break
+                                        break
+                                except Exception as e:
+                                    logger.debug(f"Failed to load playbook {playbook_code} from {locale} markdown: {e}")
+
+                        playbook_list.append({
+                            "code": playbook_code,
+                            "name": playbook_name,
+                            "description": playbook_description
+                        })
+                else:
+                    logger.info(f"Flow {project.flow_id} has no playbook_sequence")
+            else:
+                logger.warning(f"Flow {project.flow_id} not found for project {project_id}")
+        else:
+            logger.warning(f"Project {project_id} has no flow_id, cannot determine playbooks")
 
         # Calculate progress
         if total_playbooks > 0:
-            completed_playbooks = len(set([e.playbook_code for e in completed_executions]))
-            progress_current = int((completed_playbooks / total_playbooks) * 100)
+            # Extract playbook_code from executions (handle both dict and object formats)
+            def get_playbook_code(exec_obj):
+                if isinstance(exec_obj, dict):
+                    return exec_obj.get('playbook_code') or exec_obj.get('task', {}).get('execution_context', {}).get('playbook_code')
+                return exec_obj.playbook_code if hasattr(exec_obj, 'playbook_code') else None
+
+            completed_playbooks = len(set([get_playbook_code(e) for e in completed_executions if get_playbook_code(e)]))
+            # Cap progress at 100% if completed exceeds total (can happen if playbooks were added after execution)
+            progress_current = min(100, int((completed_playbooks / total_playbooks) * 100)) if total_playbooks > 0 else 0
             progress_label = f"{completed_playbooks}/{total_playbooks} Playbooks 完成"
+            logger.info(f"[ProjectCard] Progress: {completed_playbooks}/{total_playbooks} playbooks completed, {progress_current}%")
         else:
             progress_current = 0
             progress_label = "尚未開始"
@@ -620,7 +868,16 @@ async def get_project_card(
         # Always get workspace events that match our project executions
         # Use the all_workspace_events we already fetched earlier
         if project_executions and all_workspace_events:
-            exec_ids = [e.id for e in project_executions[:20]]
+            # Extract execution IDs (handle both dict and object formats)
+            exec_ids = []
+            for e in project_executions[:20]:
+                if isinstance(e, dict):
+                    exec_ids.append(e.get('id') or e.get('execution_id'))
+                elif hasattr(e, 'id'):
+                    exec_ids.append(e.id)
+                elif hasattr(e, 'execution_id'):
+                    exec_ids.append(e.execution_id)
+            exec_ids = [eid for eid in exec_ids if eid]  # Filter out None values
             # Query database again to get full event data
             try:
                 conn = sqlite3.connect(store.db_path)
@@ -700,8 +957,9 @@ async def get_project_card(
                 # Try to get playbook name
                 if playbook_code:
                     try:
-                        from backend.app.services.playbook_loader import PlaybookLoader
-                        loader = PlaybookLoader()
+                        from backend.app.services.playbook_registry import PlaybookRegistry
+                        registry = PlaybookRegistry()
+                        # Note: This section may need adjustment based on actual usage
                         playbook = loader.get_playbook_by_code(playbook_code, locale='zh-TW')
                         if playbook:
                             playbook_name = playbook.metadata.name if hasattr(playbook.metadata, 'name') else playbook_code
@@ -764,6 +1022,7 @@ async def get_project_card(
                 "current": progress_current,
                 "label": progress_label
             },
+            "playbooks": playbook_list,
             "recentEvents": card_events
         }
     except PermissionError as e:
@@ -774,4 +1033,3 @@ async def get_project_card(
     except Exception as e:
         logger.error(f"Failed to get project card: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

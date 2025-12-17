@@ -13,7 +13,7 @@ import os
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from backend.app.services.discovery_provider import (
+from backend.app.services.tools.discovery_provider import (
     ToolDiscoveryProvider,
     ToolConfig,
     DiscoveredTool
@@ -190,7 +190,7 @@ class LocalFilesystemDiscoveryProvider(ToolDiscoveryProvider):
                             },
                             "required": ["file_path", "content"]
                         },
-                        danger_level="medium",
+                        danger_level="high",
                         metadata={
                             "base_directory": str(dir_path),
                             "allowed_directory": True

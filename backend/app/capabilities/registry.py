@@ -198,6 +198,10 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     # Format 2: 'module.path:Class.method' - class method
     module_path, target = backend_path.rsplit(':', 1)
 
+    # Normalize module path: if it starts with 'app.', prepend 'backend.'
+    if module_path.startswith('app.'):
+        module_path = 'backend.' + module_path
+
     try:
         # Dynamically import module
         module = importlib.import_module(module_path)
@@ -247,6 +251,10 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     # Format 1: 'module.path:function' - Module-level function
     # Format 2: 'module.path:Class.method' - Class method
     module_path, target = backend_path.rsplit(':', 1)
+
+    # Normalize module path: if it starts with 'app.', prepend 'backend.'
+    if module_path.startswith('app.'):
+        module_path = 'backend.' + module_path
 
     try:
         module = importlib.import_module(module_path)

@@ -43,6 +43,7 @@ class IntentLLMExtractor:
             Dict with:
             - intents: List[Dict[str, str]] with keys "title" and "summary"
             - themes: List[str] of theme strings
+            - llm_analysis: Dict with "reason" and "analysis_summary" for frontend display
         """
         if not llm_generate:
             logger.warning("core_llm generate not available, skipping LLM intent extraction")
@@ -120,13 +121,34 @@ Extract intents and themes from the message and context above."""
                     # If theme is a dict, try to extract a string value
                     normalized_themes.append(str(theme.get("name", theme.get("title", str(theme)))))
 
+            # Generate llm_analysis for frontend display
+            intent_titles = [i.get("title", "") for i in normalized_intents[:3] if i.get("title")]
+            analysis_summary = f"發現 {len(normalized_intents)} 個意圖" + (
+                f"：{', '.join(intent_titles)}" if intent_titles else ""
+            )
+            if normalized_themes:
+                analysis_summary += f"，相關主題：{', '.join(normalized_themes[:3])}"
+
+            reason = f"從用戶訊息中提取了 {len(normalized_intents)} 個意圖和 {len(normalized_themes)} 個主題"
+
             return {
                 "intents": normalized_intents,
-                "themes": normalized_themes
+                "themes": normalized_themes,
+                "llm_analysis": {
+                    "reason": reason,
+                    "analysis_summary": analysis_summary
+                }
             }
         except Exception as e:
             logger.warning(f"LLM intent extraction failed: {e}", exc_info=True)
-            return {"intents": [], "themes": []}
+            return {
+                "intents": [],
+                "themes": [],
+                "llm_analysis": {
+                    "reason": f"意圖提取失敗：{str(e)}",
+                    "analysis_summary": "無法從訊息中提取意圖"
+                }
+            }
 
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
         """Parse JSON from LLM response text"""

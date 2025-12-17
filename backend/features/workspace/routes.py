@@ -11,6 +11,8 @@ from .chat import router as chat_router
 from .background_routines import router as background_routines_router
 from .executions import router as executions_router
 from .artifacts import router as artifacts_router
+from .projects import router as projects_router
+from .flows.routes import router as flows_router
 
 router = APIRouter()
 
@@ -19,4 +21,6 @@ router.include_router(chat_router)
 router.include_router(background_routines_router)
 router.include_router(executions_router)
 router.include_router(artifacts_router)
+router.include_router(projects_router)
+router.include_router(flows_router)
 

@@ -108,6 +108,10 @@ class ConfigStore:
                 rule_priority=intent_config_data.get('rule_priority', True)
             )
 
+            # Note: profile_model_mapping and custom_model_provider_mapping are preserved in metadata
+            # These are set by frontend/API when user configures custom model mappings
+            # They are used by CapabilityProfileRegistry for tenant-specific model selection
+
             return UserConfig(
                 profile_id=row['profile_id'],
                 agent_backend=AgentBackendConfig(
@@ -134,6 +138,12 @@ class ConfigStore:
             'use_llm': config.intent_config.use_llm,
             'rule_priority': config.intent_config.rule_priority
         }
+        # Preserve capability profile mappings if they exist in metadata
+        # These are set by frontend/API when user configures custom model mappings
+        if 'profile_model_mapping' in config.metadata:
+            metadata['profile_model_mapping'] = config.metadata['profile_model_mapping']
+        if 'custom_model_provider_mapping' in config.metadata:
+            metadata['custom_model_provider_mapping'] = config.metadata['custom_model_provider_mapping']
 
         with self.get_connection() as conn:
             cursor = conn.cursor()

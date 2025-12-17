@@ -56,6 +56,7 @@ class ProjectsStore(StoreBase):
         self,
         workspace_id: Optional[str] = None,
         state: Optional[str] = None,
+        project_type: Optional[str] = None,
         limit: int = 50
     ) -> List[Project]:
         """
@@ -64,6 +65,7 @@ class ProjectsStore(StoreBase):
         Args:
             workspace_id: Optional workspace filter
             state: Optional state filter (open, closed, archived)
+            project_type: Optional project type filter
             limit: Maximum number of projects to return
 
         Returns:
@@ -81,6 +83,10 @@ class ProjectsStore(StoreBase):
             if state:
                 query += ' AND state = ?'
                 params.append(state)
+
+            if project_type:
+                query += ' AND type = ?'
+                params.append(project_type)
 
             query += ' ORDER BY updated_at DESC LIMIT ?'
             params.append(limit)

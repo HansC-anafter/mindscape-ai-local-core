@@ -78,20 +78,22 @@ Determine:
    - "project": Requires creating a dedicated project with its own sandbox and flow
 
 2. If mode is "project", provide:
-   - project_type: A descriptive project type identifier (e.g., "web_page", "book", "course", "campaign", "video_series", or any other appropriate type based on the context)
+   - project_type: A descriptive project type identifier appropriate for the work item (e.g., "web_page", "book", "course", "campaign", "video_series", "knowledge_base", "digital_garden", etc.)
    - project_title: Suggested project title
-   - flow_id: Suggested flow ID that matches the project type (e.g., "web_page_flow", "book_flow", or a generic "general_flow")
+   - playbook_sequence: Array of playbook codes that should be executed for this project. Based on the project requirements, user intent, and initial_spec, suggest which playbooks are needed and in what order. Example: ["page_outline", "hero_threejs", "sections_react"] for a web page project, or ["yearly_personal_book"] for a book project.
    - initial_spec_md: Initial specification in markdown format
    - confidence: Confidence score (0.0-1.0)
 
-Note: project_type should be descriptive and appropriate for the work item. Common types include "web_page", "book", "course", "campaign", "video_series", but you can suggest other types if they better match the user's intent.
+Note: flow_id will be automatically generated as a unique identifier for each project. Do not suggest flow_id.
+
+Note: project_type should be descriptive and appropriate for the work item. Use any type that best matches the user's intent.
 
 Respond in JSON format:
 {{
     "mode": "quick_task|micro_flow|project",
     "project_type": "descriptive_project_type",
     "project_title": "Project title",
-    "flow_id": "flow_identifier",
+    "playbook_sequence": ["playbook_code1", "playbook_code2", ...],
     "initial_spec_md": "Markdown specification",
     "confidence": 0.0-1.0
 }}
@@ -136,6 +138,101 @@ Respond in JSON format:
 
         return "\n".join(formatted) if formatted else "No recent conversation."
 
+    async def check_duplicate(
+        self,
+        suggested_project: ProjectSuggestion,
+        existing_projects: List[Any],
+        workspace: Workspace
+    ) -> Optional[Any]:
+        """
+        Use LLM to check if suggested project is a duplicate of existing projects
+
+        Args:
+            suggested_project: Project suggestion from detector
+            existing_projects: List of existing projects
+            workspace: Workspace object
+
+        Returns:
+            Duplicate project if found, None otherwise
+        """
+        if not existing_projects or not suggested_project.project_title:
+            return None
+
+        try:
+            # Format existing projects for LLM
+            existing_projects_str = "\n".join([
+                f"- {p.title} (type: {p.type}, id: {p.id})"
+                for p in existing_projects[:10]  # Limit to 10 for context
+            ])
+
+            prompt = f"""
+Analyze if the suggested project is a duplicate of any existing project.
+
+Suggested project:
+- Title: {suggested_project.project_title}
+- Type: {suggested_project.project_type or 'not specified'}
+- Description: {suggested_project.initial_spec_md[:200] if suggested_project.initial_spec_md else 'No description'}
+
+Existing projects in workspace:
+{existing_projects_str}
+
+Determine if the suggested project is:
+1. A duplicate of an existing project (same or very similar work)
+2. A new project (different work)
+
+If it's a duplicate, return the project ID. If it's new, return null.
+
+Respond in JSON format:
+{{
+    "is_duplicate": true/false,
+    "duplicate_project_id": "project_id_or_null",
+    "reasoning": "brief explanation"
+}}
+"""
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a project duplicate detection assistant. Analyze if a suggested project is a duplicate of existing projects. Return only valid JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+
+            model_name = get_model_name_from_chat_model() or "gemini-pro"
+            response = await self.llm_provider.chat_completion(messages, model=model_name)
+            result_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Parse response
+            text = result_text.strip()
+            if "```json" in text:
+                start = text.find("```json") + 7
+                end = text.find("```", start)
+                text = text[start:end].strip()
+            elif "```" in text:
+                start = text.find("```") + 3
+                end = text.find("```", start)
+                text = text[start:end].strip()
+
+            data = json.loads(text)
+
+            if data.get("is_duplicate") and data.get("duplicate_project_id"):
+                project_id = data.get("duplicate_project_id")
+                # Find the project in existing_projects
+                for p in existing_projects:
+                    if p.id == project_id:
+                        logger.info(f"LLM detected duplicate project: {project_id} - {data.get('reasoning', '')}")
+                        return p
+                logger.warning(f"LLM returned duplicate_project_id {project_id} but project not found in existing_projects")
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Failed to check duplicate using LLM: {e}")
+            return None
+
     def _parse_response(self, response_text: str) -> Optional[ProjectSuggestion]:
         """Parse LLM response into ProjectSuggestion"""
         try:
@@ -155,11 +252,22 @@ Respond in JSON format:
             if data.get("mode") != "project":
                 return None
 
+            # Use LLM-provided values directly, no hardcoded defaults
+            project_type = data.get("project_type")
+            # Note: flow_id should be generated by ProjectManager, not here
+            # LLM can suggest flow configuration (playbook_sequence) but not flow_id
+            # This ensures each project has a unique flow_id
+
+            # Get playbook_sequence from LLM response
+            playbook_sequence = data.get("playbook_sequence", [])
+            if not isinstance(playbook_sequence, list):
+                playbook_sequence = []
+
             return ProjectSuggestion(
                 mode=data.get("mode", "quick_task"),
-                project_type=data.get("project_type"),
+                project_type=project_type,
                 project_title=data.get("project_title"),
-                flow_id=data.get("flow_id"),
+                playbook_sequence=playbook_sequence,
                 initial_spec_md=data.get("initial_spec_md"),
                 confidence=data.get("confidence", 0.0)
             )

@@ -289,7 +289,8 @@ class StepEventRecorder:
         assistant_response: str,
         used_tools: List[str],
         existing_events: Optional[List[Any]] = None,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
+        is_complete: bool = False
     ) -> tuple[Any, int]:
         """
         Record continuation step event for playbook execution.
@@ -347,12 +348,16 @@ class StepEventRecorder:
                 step_index=step_index
             )
 
+            # Determine step status based on completion state
+            # If step is not complete, it means we're waiting for user input/confirmation
+            step_status = "completed" if is_complete else "waiting_confirmation"
+
             # Record playbook step with full payload using WorkflowTracker
             step_event = self.workflow_tracker.create_playbook_step_event(
                 execution_id=execution_id,
                 step_index=step_index,
                 step_name=step_name,
-                status="completed",  # Always mark as completed for conversation mode
+                status=step_status,  # Use waiting_confirmation if step is not complete
                 step_type=step_type,
                 agent_type=agent_type,
                 used_tools=used_tools,

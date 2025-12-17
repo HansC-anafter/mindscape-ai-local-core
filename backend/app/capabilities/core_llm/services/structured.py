@@ -17,7 +17,8 @@ async def extract(
     example_output: Optional[Dict[str, Any]] = None,
     llm_provider: Optional[Any] = None,
     locale: Optional[str] = None,
-    target_language: Optional[str] = None
+    target_language: Optional[str] = None,
+    profile_id: Optional[str] = None  # Accept but not used (for compatibility with workflow_orchestrator)
 ) -> Dict[str, Any]:
     """
     Extract structured JSON from long text based on schema/description
@@ -38,25 +39,10 @@ async def extract(
     """
     try:
         if not llm_provider:
-            from ....services.agent_runner import LLMProviderManager
-            from ....services.config_store import ConfigStore
-            import os
-
-            config_store = ConfigStore()
-            config = config_store.get_or_create_config("default-user")
-
-            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-            vertex_api_key = config.agent_backend.vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("VERTEX_API_KEY")
-            vertex_project_id = config.agent_backend.vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT_ID")
-            vertex_location = config.agent_backend.vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
-            llm_provider = LLMProviderManager(
-                openai_key=openai_key,
-                anthropic_key=anthropic_key,
-                vertex_api_key=vertex_api_key,
-                vertex_project_id=vertex_project_id,
-                vertex_location=vertex_location
-            )
+            # Use the standard system method for creating LLM provider (same as workspace chat)
+            from ....shared.llm_provider_helper import create_llm_provider_manager, get_llm_provider_from_settings
+            llm_manager = create_llm_provider_manager()
+            llm_provider = get_llm_provider_from_settings(llm_manager)
 
         target_lang = target_language or locale
 
@@ -93,24 +79,43 @@ Please output the extraction result in JSON format."""
             user_prompt=user_prompt
         )
 
+        # Get conversation model from system settings (same as generate.py)
+        from ....services.system_settings_store import SystemSettingsStore
+        settings_store = SystemSettingsStore()
+        chat_setting = settings_store.get_setting("chat_model")
+
+        model_to_use = None
+        if chat_setting and chat_setting.value:
+            model_to_use = str(chat_setting.value)
+
         # Call LLM
         result = await call_llm(
             messages=messages,
             llm_provider=llm_provider,
+            model=model_to_use,
             temperature=0.3  # Use lower temperature for structured extraction
         )
 
         # Extract JSON from response
         response_text = result.get('text', '')
+        logger.debug(f"Structured extract LLM response (first 500 chars): {response_text[:500]}")
         extracted_data = extract_json_from_text(response_text)
 
         if not extracted_data:
-            logger.warning("Failed to extract JSON from LLM response")
+            logger.warning(f"Failed to extract JSON from LLM response. Response text: {response_text[:200]}")
             extracted_data = {}
             confidence = 0.0
         else:
             # Simple confidence calculation (can be adjusted based on actual needs)
             confidence = 0.8 if len(extracted_data) > 0 else 0.0
+            logger.debug(f"Extracted data keys: {list(extracted_data.keys())}")
+            for key, value in extracted_data.items():
+                if value is None:
+                    logger.warning(f"Extracted data key '{key}' is None")
+                elif isinstance(value, list) and len(value) == 0:
+                    logger.warning(f"Extracted data key '{key}' is empty list")
+                elif isinstance(value, dict) and len(value) == 0:
+                    logger.warning(f"Extracted data key '{key}' is empty dict")
 
         logger.info(f"Extracted structured data ({len(extracted_data)} keys, confidence: {confidence:.2f})")
 

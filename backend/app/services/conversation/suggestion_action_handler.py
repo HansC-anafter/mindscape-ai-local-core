@@ -40,7 +40,7 @@ class SuggestionActionHandler:
             store: MindscapeStore instance
             playbook_runner: PlaybookRunner instance
             task_manager: TaskManager instance
-            execution_coordinator: ExecutionCoordinator instance (optional, for execute_pack)
+            execution_coordinator: CoordinatorFacade instance (optional, for execute_pack)
             default_locale: Default locale for i18n
             playbook_service: PlaybookService instance (optional, for unified query/execution)
             intent_infra: IntentInfraService instance (optional, for intent_extraction tasks)
@@ -725,28 +725,47 @@ class SuggestionActionHandler:
 
             if pack_id_lower == "intent_extraction" and task:
                 from ...models.workspace import TaskStatus
-                result = await self.intent_infra.handle_extraction_task(
-                    ctx=ctx,
-                    task=task,
-                    original_message_id=original_message_id
-                )
-                self.task_manager.tasks_store.update_task_status(
-                    task_id=task.id,
-                    status=TaskStatus.SUCCEEDED,
-                    error=None,
-                    completed_at=datetime.utcnow()
-                )
                 try:
-                    self.task_manager.tasks_store.db.execute(
-                        "UPDATE tasks SET execution_id = NULL WHERE id = ?",
-                        (task.id,)
+                    extraction_result = await self.intent_infra.handle_extraction_task(
+                        ctx=ctx,
+                        task=task,
+                        original_message_id=original_message_id
                     )
-                    self.task_manager.tasks_store.db.commit()
-                    logger.info(f"Cleared execution_id for intent_extraction task {task.id}")
-                except Exception as e:
-                    logger.warning(f"Failed to clear execution_id for intent_extraction task: {e}")
+                    logger.info(f"Intent extraction task {task.id} handle_extraction_task returned: {extraction_result}")
 
-                logger.info(f"Intent extraction task {task.id} completed via IntentInfraService")
+                    # Update task status to succeeded
+                    self.task_manager.tasks_store.update_task_status(
+                        task_id=task.id,
+                        status=TaskStatus.SUCCEEDED,
+                        error=None,
+                        completed_at=datetime.utcnow()
+                    )
+
+                    # Clear execution_id if set
+                    try:
+                        with self.task_manager.tasks_store.get_connection() as conn:
+                            conn.execute(
+                                "UPDATE tasks SET execution_id = NULL WHERE id = ?",
+                                (task.id,)
+                            )
+                            conn.commit()
+                        logger.info(f"Cleared execution_id for intent_extraction task {task.id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clear execution_id for intent_extraction task: {e}")
+
+                    logger.info(f"Intent extraction task {task.id} completed via IntentInfraService")
+
+                    # Return result in expected format (intent_extraction doesn't need execution_id)
+                    result = {
+                        "pack_id": "intent_extraction",
+                        "intents_added": extraction_result.get("intents_added", 0) if extraction_result else 0,
+                        "timeline_item_id": extraction_result.get("timeline_item_id") if extraction_result else None,
+                        "executed_tasks": [task.id]  # Mark as executed to pass validation
+                    }
+                    logger.info(f"Intent extraction result prepared: {result}")
+                except Exception as e:
+                    logger.error(f"Error in intent_extraction execution: {e}", exc_info=True)
+                    raise
             else:
                 # Determine execution method: check PlaybookService first (handles all playbooks),
                 # then CapabilityRegistry (handles capability packs with pack_executor)
@@ -977,7 +996,15 @@ class SuggestionActionHandler:
                             raise ValueError(f"Pack {pack_id} cannot be executed: no playbook found and execution failed")
 
             # Only log success if we have a valid result (execution_id or executed_tasks, but NOT suggestion_cards)
-            if result and (result.get("execution_id") or (result.get("executed_tasks") and not result.get("suggestion_cards"))):
+            # For intent_extraction, we accept intents_added as valid result
+            is_valid_result = (
+                result and (
+                    result.get("execution_id") or
+                    (result.get("executed_tasks") and not result.get("suggestion_cards")) or
+                    (pack_id_lower == "intent_extraction" and result.get("intents_added") is not None)
+                )
+            )
+            if is_valid_result:
                 logger.info(f"Successfully executed pack {pack_id} from pending task")
             else:
                 logger.error(f"Pack {pack_id} execution failed - no valid result or only suggestion cards returned")

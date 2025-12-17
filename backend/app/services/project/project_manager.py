@@ -39,11 +39,12 @@ class ProjectManager:
         project_type: str,
         title: str,
         workspace_id: str,
-        flow_id: str,
-        initiator_user_id: str,
+        flow_id: Optional[str] = None,
+        initiator_user_id: str = None,
         human_owner_user_id: Optional[str] = None,
         ai_pm_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        playbook_sequence: Optional[List[str]] = None
     ) -> Project:
         """
         Create a new Project
@@ -65,6 +66,12 @@ class ProjectManager:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         project_id = f"{project_type}_{timestamp}_{uuid.uuid4().hex[:8]}"
 
+        # Generate unique flow_id for this project (if not provided)
+        # Use UUID to avoid conflicts between projects
+        if not flow_id:
+            flow_id = f"flow_{uuid.uuid4().hex[:12]}"
+            logger.info(f"Generated unique flow_id for project: {flow_id}")
+
         project = Project(
             id=project_id,
             type=project_type,
@@ -85,9 +92,39 @@ class ProjectManager:
         if not workspace:
             raise ValueError(f"Workspace not found: {workspace_id}")
 
+        # Validate flow exists, create default if not
+        from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
+        from backend.app.models.playbook_flow import PlaybookFlow
+        flows_store = PlaybookFlowsStore(self.store.db_path)
+        flow = flows_store.get_flow(flow_id)
+
+        if not flow:
+            logger.warning(f"Flow {flow_id} not found, creating default flow")
+            # Validate playbook_sequence before creating flow
+            from backend.app.services.project.playbook_validator import validate_playbook_sequence
+            from pathlib import Path
+
+            base_dir = Path(__file__).parent.parent.parent.parent
+            validated_playbook_sequence = validate_playbook_sequence(playbook_sequence or [], base_dir)
+
+            flow = PlaybookFlow(
+                id=flow_id,
+                name=f"{project_type.title()} Flow",
+                description=f"Flow for {project_type} projects",
+                flow_definition={
+                    "nodes": [],
+                    "edges": [],
+                    "playbook_sequence": validated_playbook_sequence
+                },
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            flows_store.create_flow(flow)
+            logger.info(f"Created flow: {flow_id} with {len(validated_playbook_sequence)} validated playbooks")
+
         # Save project
         self.projects_store.create_project(project)
-        logger.info(f"Created project: {project_id} in workspace: {workspace_id}")
+        logger.info(f"Created project: {project_id} in workspace: {workspace_id} with flow_id: {flow_id}")
 
         return project
 
@@ -121,6 +158,7 @@ class ProjectManager:
         self,
         workspace_id: Optional[str] = None,
         state: Optional[str] = None,
+        project_type: Optional[str] = None,
         limit: int = 50
     ) -> List[Project]:
         """
@@ -129,6 +167,7 @@ class ProjectManager:
         Args:
             workspace_id: Optional workspace filter
             state: Optional state filter (open, closed, archived)
+            project_type: Optional project type filter
             limit: Maximum number of projects to return
 
         Returns:
@@ -137,6 +176,7 @@ class ProjectManager:
         return self.projects_store.list_projects(
             workspace_id=workspace_id,
             state=state,
+            project_type=project_type,
             limit=limit
         )
 

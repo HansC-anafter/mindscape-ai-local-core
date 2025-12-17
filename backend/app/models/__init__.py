@@ -95,6 +95,9 @@ __all__ = [
     "UpdateToolConnectionRequest",
     "ValidateToolConnectionRequest",
     "ToolConnectionValidationResult",
+    # Workspace Blueprint
+    "WorkspaceBlueprint",
+    "WorkspaceGoals",
     # Core Export (Opensource)
     "BackupConfiguration",
     "PortableConfiguration",

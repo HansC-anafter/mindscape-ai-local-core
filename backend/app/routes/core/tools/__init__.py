@@ -23,6 +23,7 @@ from .providers import local_filesystem
 from .providers import wordpress
 from .providers import notion
 from .providers import canva
+from . import tool_slots
 from .providers import google_drive
 from .providers import langchain
 from .providers import mcp
@@ -48,6 +49,9 @@ router.include_router(execution_router)
 
 # Include registration router (enhanced tool registration)
 router.include_router(registration_router)
+
+# Include tool slots router (tool slot mapping management)
+router.include_router(tool_slots.router)
 
 # Include base router LAST (core endpoints: /providers, /discover, /, /{tool_id}, etc.)
 # This must be last because /{tool_id} is a catch-all route

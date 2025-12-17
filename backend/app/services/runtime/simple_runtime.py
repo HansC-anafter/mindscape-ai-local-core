@@ -90,20 +90,29 @@ class SimpleRuntime(RuntimePort):
                     metadata={"runtime": "simple"}
                 )
 
+            # Get playbook_code from context tags (passed from executor) or playbook metadata
+            playbook_code_from_context = context.tags.get("playbook_code") if context.tags else None
+
             # Convert playbook_run to HandoffPlan
-            handoff_plan = self._convert_to_handoff_plan(playbook_run, inputs or {})
+            handoff_plan = self._convert_to_handoff_plan(playbook_run, inputs or {}, playbook_code_from_context)
 
             # Get execution_id from context tags or generate one
             execution_id = context.tags.get("execution_id") if context.tags else None
             profile_id = context.actor_id
 
             # Execute using orchestrator
+            logger.info(f"SimpleRuntime: Executing workflow with handoff_plan.steps count: {len(handoff_plan.steps)}")
             result = await self.orchestrator.execute_workflow(
                 handoff_plan=handoff_plan,
                 execution_id=execution_id,
                 workspace_id=context.workspace_id,
                 profile_id=profile_id
             )
+
+            # Log result structure for debugging
+            logger.info(f"SimpleRuntime: orchestrator result keys: {list(result.keys())}")
+            logger.info(f"SimpleRuntime: orchestrator result['steps'] keys: {list(result.get('steps', {}).keys())}")
+            logger.info(f"SimpleRuntime: orchestrator result['steps'] count: {len(result.get('steps', {}))}")
 
             # Determine status from result
             status = "completed"
@@ -114,12 +123,27 @@ class SimpleRuntime(RuntimePort):
 
             # Extract outputs from result context
             outputs = result.get("context", {})
+            steps_info = result.get("steps", {})
+
+            # Log steps info for debugging
+            logger.info(f"SimpleRuntime: steps_info keys: {list(steps_info.keys()) if steps_info else 'empty'}")
+            logger.info(f"SimpleRuntime: steps_info count: {len(steps_info)}")
+            if steps_info:
+                for step_code, step_result in steps_info.items():
+                    logger.info(f"SimpleRuntime: step_code={step_code}, step_result type={type(step_result)}, step_result keys={list(step_result.keys()) if isinstance(step_result, dict) else 'not dict'}")
+
             if "steps" in result:
                 # If result has steps, extract outputs from each step
                 step_outputs = {}
                 for step_code, step_result in result.get("steps", {}).items():
-                    if step_result.get("outputs"):
-                        step_outputs[step_code] = step_result["outputs"]
+                    logger.debug(f"SimpleRuntime: step_code={step_code}, step_result keys={list(step_result.keys()) if isinstance(step_result, dict) else 'not dict'}")
+                    # step_result may contain 'step_outputs' (from _execute_playbook_steps) or 'outputs'
+                    if isinstance(step_result, dict):
+                        # Check for step_outputs first (from _execute_playbook_steps)
+                        if step_result.get("step_outputs"):
+                            step_outputs[step_code] = step_result["step_outputs"]
+                        elif step_result.get("outputs"):
+                            step_outputs[step_code] = step_result["outputs"]
                 if step_outputs:
                     outputs = step_outputs
 
@@ -130,7 +154,8 @@ class SimpleRuntime(RuntimePort):
                 error=error,
                 metadata={
                     "runtime": "simple",
-                    "steps_completed": len(result.get("steps", {}))
+                    "steps_completed": len(steps_info),
+                    "steps": steps_info  # Preserve full step information
                 }
             )
 
@@ -247,7 +272,8 @@ class SimpleRuntime(RuntimePort):
     def _convert_to_handoff_plan(
         self,
         playbook_run: PlaybookRun,
-        inputs: Dict[str, Any]
+        inputs: Dict[str, Any],
+        playbook_code: Optional[str] = None
     ) -> HandoffPlan:
         """
         Convert PlaybookRun to HandoffPlan
@@ -262,31 +288,41 @@ class SimpleRuntime(RuntimePort):
         if not playbook_run.playbook_json:
             raise ValueError("Cannot convert PlaybookRun to HandoffPlan: playbook_json is None")
 
-        # Create workflow steps from playbook.json steps
-        workflow_steps = []
-        for step in playbook_run.playbook_json.steps:
-            # Determine playbook kind from playbook metadata
-            kind = playbook_run.playbook.metadata.kind if playbook_run.playbook.metadata else PlaybookKind.USER_WORKFLOW
+        # For playbook.json with tool steps, we should NOT convert to HandoffPlan
+        # Instead, the orchestrator should execute playbook.json steps directly
+        # This method should only be used for multi-playbook workflows (HandoffPlan)
+        # For single playbook execution, use _execute_playbook_steps instead
 
-            # Get interaction mode from playbook metadata
-            interaction_modes = (
-                playbook_run.playbook.metadata.interaction_mode
-                if playbook_run.playbook.metadata
-                else [InteractionMode.CONVERSATIONAL]
-            )
+        # Create a single WorkflowStep for the entire playbook
+        # The orchestrator will handle executing the internal steps
+        kind = playbook_run.playbook.metadata.kind if playbook_run.playbook.metadata else PlaybookKind.USER_WORKFLOW
+        interaction_modes = (
+            playbook_run.playbook.metadata.interaction_mode
+            if playbook_run.playbook.metadata
+            else [InteractionMode.CONVERSATIONAL]
+        )
 
-            workflow_step = WorkflowStep(
-                playbook_code=step.tool,  # In playbook.json, tool is the playbook_code
-                kind=kind,
-                inputs=step.inputs,
-                input_mapping=step.outputs,  # Map outputs to next step inputs
-                interaction_mode=interaction_modes
-            )
-            workflow_steps.append(workflow_step)
+        # Get playbook_code from parameter, playbook.metadata, or playbook_json
+        if not playbook_code:
+            if playbook_run.playbook and playbook_run.playbook.metadata:
+                playbook_code = playbook_run.playbook.metadata.playbook_code
+            elif playbook_run.playbook_json:
+                playbook_code = playbook_run.playbook_json.playbook_code
 
-        # Create HandoffPlan
+        if not playbook_code:
+            raise ValueError("Cannot determine playbook_code from PlaybookRun or context")
+
+        workflow_step = WorkflowStep(
+            playbook_code=playbook_code,
+            kind=kind,
+            inputs=inputs,
+            input_mapping={},
+            interaction_mode=interaction_modes
+        )
+
+        # Create HandoffPlan with single step (the playbook itself)
         handoff_plan = HandoffPlan(
-            steps=workflow_steps,
+            steps=[workflow_step],
             context=inputs
         )
 

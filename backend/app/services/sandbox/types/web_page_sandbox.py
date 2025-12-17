@@ -147,9 +147,9 @@ class WebPageSandbox(BaseSandbox):
     async def initialize_template(self) -> bool:
         """
         Initialize Next.js project template for preview support.
-        
+
         Creates package.json, tsconfig.json, and basic Next.js structure.
-        
+
         Returns:
             True if initialization successful, False otherwise
         """
@@ -159,10 +159,10 @@ class WebPageSandbox(BaseSandbox):
                 if not await self.file_exists(file_path):
                     await self.write_file(file_path, content)
                     logger.info(f"Created template file: {file_path}")
-            
+
             logger.info(f"Initialized Next.js template for sandbox {self.sandbox_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize template: {e}")
             return False
@@ -170,7 +170,7 @@ class WebPageSandbox(BaseSandbox):
     async def sync_pages_to_app(self) -> bool:
         """
         Sync pages/index.tsx to app/page.tsx for Next.js routing.
-        
+
         Returns:
             True if sync successful, False otherwise
         """

@@ -678,7 +678,7 @@ class ContextBuilder:
 
             # Generate summary using LLM
             # Use the same API key source as main LLM calls (ConfigStore, not just env var)
-            from backend.app.config_store import ConfigStore
+            from backend.app.services.config_store import ConfigStore
             import os
 
             config_store = ConfigStore()
