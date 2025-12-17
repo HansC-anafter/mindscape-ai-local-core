@@ -1,0 +1,10 @@
+{
+  "workspace_type": "brand",
+  "default_locale": "zh-TW",
+  "execution_mode": "hybrid",
+  "execution_priority": "medium",
+  "metadata": {
+    "blueprint_id": "brand_mindscape",
+    "blueprint_version": "1.0.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "blueprint_id": "brand_mindscape",
+  "title": "Brand Mindscape OS",
+  "description": "CIS 治理 + 多專案故事線的預設套裝",
+  "version": "1.0.0",
+  "workspace_type": "brand",
+  "playbooks": [
+    "cis_mind_identity",
+    "cross_channel_story",
+    "brand_monthly_review"
+  ]
+}
