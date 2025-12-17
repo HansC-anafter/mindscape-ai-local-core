@@ -489,30 +489,6 @@ The local core provides foundational mechanisms for:
 
 For detailed implementation of identity and scope mechanisms, see the internal implementation documentation.
 
-#### 10.1.1 Local exchange: importing playbooks, AI team members, and mind-lens bundles
-
-Even in a purely local, single-user deployment, we expect **exchange** to be a natural part of how people use
-`mindscape-ai-local-core`:
-
-- You may want to **import** a book-writing playbook that someone else open-sourced.
-- You may share your own **AI team presets** and mind-lens configurations as reusable kits.
-- You may publish or consume small "bundles" such as:
-  `{ AI team member profile + mind-lens config + playbooks }` for a specific domain.
-
-The identity & scope model in local core is deliberately designed to support this:
-
-- Imported artifacts can be marked with `owner_type = external_provider` and `visibility = public_template` so they
-  show up as **templates** rather than first-class system workflows.
-- When a user wants to adopt a template into their own workspace, the system (or UI) can **fork** it into a
-  `workspace` or `user`-owned playbook while preserving provenance in metadata
-  (e.g. `imported_from_provider`, `imported_from_playbook_id`).
-- The `effective_playbooks` resolution ensures that even with many imported workflows, only the **right subset**
-  is visible and executable for a given workspace / project / user context.
-
-This means that local core is already modeling the "governable exchange of cognitive modules" – playbooks, AI team members,
-and mind-lens bundles – without requiring a cloud or multi-tenant environment. Cloud deployments simply reuse the same
-model at a larger scale (tenants, teams, shared catalogs) rather than inventing a different one.
-
 ### 10.2 Cloud Version: Extended Governance Architecture
 
 When moving to a cloud-based multi-tenant / multi-workspace / multi-user environment, the governance architecture extends significantly:

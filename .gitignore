@@ -89,3 +89,6 @@ docs-internal/
 # Internal scripts (not for open source)
 scripts-internal/
 
+
+# Local development overrides
+docker-compose.override.yml
