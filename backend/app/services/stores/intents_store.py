@@ -20,11 +20,11 @@ class IntentsStore(StoreBase):
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO intents (
-                    id, profile_id, title, description, status, priority, tags,
+                    id, profile_id, title, description, status, priority, tags, storyline_tags,
                     category, progress_percentage, created_at, updated_at,
                     started_at, completed_at, due_date, parent_intent_id,
                     child_intent_ids, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 intent.id,
                 intent.profile_id,
@@ -33,6 +33,7 @@ class IntentsStore(StoreBase):
                 intent.status.value,
                 intent.priority.value,
                 self.serialize_json(intent.tags),
+                self.serialize_json(intent.storyline_tags),
                 intent.category,
                 intent.progress_percentage,
                 self.to_isoformat(intent.created_at),
@@ -78,8 +79,67 @@ class IntentsStore(StoreBase):
             rows = cursor.fetchall()
             return [self._row_to_intent(row) for row in rows]
 
+    def update_intent(self, intent: IntentCard) -> Optional[IntentCard]:
+        """Update an existing intent"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE intents SET
+                    title = ?,
+                    description = ?,
+                    status = ?,
+                    priority = ?,
+                    tags = ?,
+                    storyline_tags = ?,
+                    category = ?,
+                    progress_percentage = ?,
+                    updated_at = ?,
+                    started_at = ?,
+                    completed_at = ?,
+                    due_date = ?,
+                    parent_intent_id = ?,
+                    child_intent_ids = ?,
+                    metadata = ?
+                WHERE id = ?
+            ''', (
+                intent.title,
+                intent.description,
+                intent.status.value,
+                intent.priority.value,
+                self.serialize_json(intent.tags),
+                self.serialize_json(intent.storyline_tags),
+                intent.category,
+                intent.progress_percentage,
+                self.to_isoformat(intent.updated_at),
+                self.to_isoformat(intent.started_at),
+                self.to_isoformat(intent.completed_at),
+                self.to_isoformat(intent.due_date),
+                intent.parent_intent_id,
+                self.serialize_json(intent.child_intent_ids),
+                self.serialize_json(intent.metadata),
+                intent.id
+            ))
+            conn.commit()
+            if cursor.rowcount > 0:
+                return intent
+            return None
+
+    def delete_intent(self, intent_id: str) -> bool:
+        """Delete an intent by ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM intents WHERE id = ?', (intent_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
     def _row_to_intent(self, row) -> IntentCard:
         """Convert database row to IntentCard"""
+        # Handle storyline_tags field - it may not exist in older database rows
+        try:
+            storyline_tags = self.deserialize_json(row['storyline_tags'], []) if row['storyline_tags'] else []
+        except (KeyError, IndexError):
+            storyline_tags = []
+
         return IntentCard(
             id=row['id'],
             profile_id=row['profile_id'],
@@ -88,6 +148,7 @@ class IntentsStore(StoreBase):
             status=IntentStatus(row['status']),
             priority=PriorityLevel(row['priority']),
             tags=self.deserialize_json(row['tags'], []),
+            storyline_tags=storyline_tags,
             category=row['category'],
             progress_percentage=row['progress_percentage'],
             created_at=self.from_isoformat(row['created_at']),

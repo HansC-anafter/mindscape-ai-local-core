@@ -201,6 +201,7 @@ interface PendingTasksPanelProps {
       auto_execute?: boolean;
     }>;
   };
+  onTaskCountChange?: (count: number) => void;
 }
 
 export default function PendingTasksPanel({
@@ -209,6 +210,7 @@ export default function PendingTasksPanel({
   onViewArtifact,
   onSwitchToOutcomes,
   workspace: workspaceProp,
+  onTaskCountChange,
 }: PendingTasksPanelProps) {
   const t = useT();
 
@@ -236,7 +238,11 @@ export default function PendingTasksPanel({
   const processedTasks = useMemo(() => {
     const allTasks = contextData ? allTasksFromContext : localTasks;
 
+    // Debug: Log task sources
+    console.log('[PendingTasksPanel] processedTasks - contextData:', !!contextData, 'allTasksFromContext:', allTasksFromContext.length, 'localTasks:', localTasks.length, 'allTasks:', allTasks?.length || 0);
+
     if (!allTasks || allTasks.length === 0) {
+      console.log('[PendingTasksPanel] No tasks available');
       return [];
     }
 
@@ -261,13 +267,50 @@ export default function PendingTasksPanel({
       return !isBackground;
     });
 
-    // Only show PENDING tasks in pending panel
-    const activeTasks = foregroundTasks.filter(
+    // Filter out auto-executed intent_extraction tasks
+    // These are already executed automatically and should not appear in pending decisions
+    const tasksNeedingDecision = foregroundTasks.filter((task: any) => {
+      // Exclude auto_intent_extraction tasks (already auto-executed)
+      if (task.task_type === 'auto_intent_extraction') {
+        console.log('[PendingTasksPanel] Filtered out auto_intent_extraction task:', task.id);
+        return false;
+      }
+      // Exclude intent_extraction tasks that are already auto-executed (status SUCCEEDED with auto_executed flag)
+      if ((task.pack_id === 'intent_extraction' || task.playbook_id === 'intent_extraction') &&
+          task.status?.toUpperCase() === 'SUCCEEDED' &&
+          (task.params?.auto_executed || task.result?.auto_executed)) {
+        console.log('[PendingTasksPanel] Filtered out auto-executed intent_extraction task:', task.id);
+        return false;
+      }
+      return true;
+    });
+
+    // Debug: Log tasks needing decision
+    console.log('[PendingTasksPanel] Tasks needing decision:', tasksNeedingDecision.length, tasksNeedingDecision.map((t: any) => ({
+      id: t.id,
+      pack_id: t.pack_id,
+      task_type: t.task_type,
+      status: t.status
+    })));
+
+        // Only show PENDING tasks in pending panel
+    const activeTasks = tasksNeedingDecision.filter(
       (task: any) => task.status?.toUpperCase() === 'PENDING'
     );
 
+    // Debug: Log filtered tasks
+    if (activeTasks.length > 0) {
+      console.log('[PendingTasksPanel] Active tasks after filtering:', activeTasks.map((t: any) => ({
+        id: t.id,
+        pack_id: t.pack_id,
+        task_type: t.task_type,
+        status: t.status
+      })));
+    }
+
     // Also include recently completed foreground tasks (within last 5 minutes)
-    const recentCompletedTasks = foregroundTasks.filter((task: any) => {
+    // Exclude auto-executed intent_extraction tasks
+    const recentCompletedTasks = tasksNeedingDecision.filter((task: any) => {
       if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
       const completedAt = task.completed_at || task.updated_at || task.created_at;
       if (!completedAt) return false;
@@ -284,6 +327,13 @@ export default function PendingTasksPanel({
   }, [contextData ? allTasksFromContext : localTasks]);
 
   const tasks = processedTasks;
+
+  // Notify parent component of task count changes
+  useEffect(() => {
+    if (onTaskCountChange) {
+      onTaskCountChange(tasks.length);
+    }
+  }, [tasks.length, onTaskCountChange]);
 
   useEffect(() => {
     // Only load tasks if not using context
@@ -390,13 +440,40 @@ export default function PendingTasksPanel({
           return !isBackground;
         });
 
+        // Filter out auto-executed intent_extraction tasks
+        // These are already executed automatically and should not appear in pending decisions
+        const tasksNeedingDecision = foregroundTasks.filter((task: Task) => {
+          // Exclude auto_intent_extraction tasks (already auto-executed)
+          if (task.task_type === 'auto_intent_extraction') {
+            return false;
+          }
+          // Exclude intent_extraction tasks that are already auto-executed (status SUCCEEDED with auto_executed flag)
+          if ((task.pack_id === 'intent_extraction' || task.playbook_id === 'intent_extraction') &&
+              task.status?.toUpperCase() === 'SUCCEEDED' &&
+              (task.params?.auto_executed || (task.result as any)?.auto_executed)) {
+            return false;
+          }
+          return true;
+        });
+
         // Only show PENDING tasks in pending panel (RUNNING tasks should appear in execution console, not here)
-        const activeTasks = foregroundTasks.filter(
+        const activeTasks = tasksNeedingDecision.filter(
           (task: Task) => task.status?.toUpperCase() === 'PENDING'
         );
 
+        // Debug: Log filtered tasks
+        if (activeTasks.length > 0) {
+          console.log('[PendingTasksPanel] Active tasks after filtering (loadTasks):', activeTasks.map((t: Task) => ({
+            id: t.id,
+            pack_id: t.pack_id,
+            task_type: t.task_type,
+            status: t.status
+          })));
+        }
+
         // Also include recently completed foreground tasks (within last 5 minutes) that have artifacts
-        const recentCompletedTasks = foregroundTasks.filter((task: Task) => {
+        // Exclude auto-executed intent_extraction tasks
+        const recentCompletedTasks = tasksNeedingDecision.filter((task: Task) => {
           if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
           const completedAt = task.completed_at || task.updated_at || task.created_at;
           if (!completedAt) return false;
@@ -649,6 +726,7 @@ export default function PendingTasksPanel({
                                     task.result?.llm_analysis?.is_background ||
                                     task.data?.execution_context?.run_mode === 'background';
                 if (isBackground) {
+                  console.log('[PendingTasksPanel] Skipping background task:', task.id);
                   return; // Skip rendering background tasks
                 }
 
@@ -656,8 +734,17 @@ export default function PendingTasksPanel({
                 // Filter them out here (they are already filtered in activeTasks, but double-check for safety)
                 const isRunning = task.status?.toUpperCase() === 'RUNNING';
                 if (isRunning) {
+                  console.log('[PendingTasksPanel] Skipping RUNNING task:', task.id);
                   return; // Skip RUNNING tasks - they belong in execution console, not pending panel
                 }
+
+                // Debug: Log task being rendered
+                console.log('[PendingTasksPanel] Rendering task:', {
+                  id: task.id,
+                  pack_id: task.pack_id,
+                  task_type: task.task_type,
+                  status: task.status
+                });
 
                 // For PENDING or SUCCEEDED tasks, show compact details
                 const isSucceeded = task.status?.toUpperCase() === 'SUCCEEDED';
