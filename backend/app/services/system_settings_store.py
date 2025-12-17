@@ -68,6 +68,9 @@ class SystemSettingsStore:
         # Initialize default settings
         self._init_default_settings()
 
+        # Migrate existing settings (e.g., enable_capability_profile)
+        self._migrate_settings()
+
     def _init_default_settings(self):
         """Initialize default system settings"""
         default_settings = [
@@ -90,6 +93,16 @@ class SystemSettingsStore:
                 "is_sensitive": False,
                 "is_user_editable": True,
                 "default_value": "openai"
+            },
+            {
+                "key": "enable_capability_profile",
+                "value": "true",
+                "value_type": SettingType.BOOLEAN,
+                "category": "llm",
+                "description": "Enable capability profile system for staged model switching (default: true)",
+                "is_sensitive": False,
+                "is_user_editable": True,
+                "default_value": "true"
             },
             {
                 "key": "chat_model",
@@ -219,6 +232,24 @@ class SystemSettingsStore:
                     self.save_setting(setting)
             except Exception as e:
                 logger.warning(f"Failed to initialize default setting {setting_data['key']}: {e}")
+
+    def _migrate_settings(self):
+        """Migrate existing settings to ensure compatibility"""
+        try:
+            # Migrate enable_capability_profile: if not set or False, set to True
+            enable_flag = self.get_setting("enable_capability_profile")
+            if not enable_flag or str(enable_flag.value).lower() not in ["true", "1"]:
+                logger.info("Migrating enable_capability_profile: setting to True (default)")
+                self.set_setting(
+                    key="enable_capability_profile",
+                    value=True,
+                    value_type=SettingType.BOOLEAN,
+                    category="llm",
+                    description="Enable capability profile system for staged model switching (default: true)",
+                    is_user_editable=True
+                )
+        except Exception as e:
+            logger.warning(f"Failed to migrate settings: {e}", exc_info=True)
 
     def _serialize_value(self, value: Union[str, int, float, bool, Dict[str, Any], List[Any]], value_type: SettingType) -> str:
         """Serialize value to string for storage"""
@@ -491,3 +522,138 @@ class SystemSettingsStore:
             logger.info(f"Deleted system setting: {key}")
 
         return deleted
+
+    def set_capability_profile_mapping(self, mapping: Dict[str, str]) -> None:
+        """
+        Set stage to capability profile mapping
+
+        Args:
+            mapping: Dictionary mapping stage names to capability profile names
+                    Example: {"intent_analysis": "fast", "plan_generation": "precise"}
+        """
+        self.set_setting(
+            key="capability_profile_mapping",
+            value=mapping,
+            value_type=SettingType.JSON,
+            category="llm",
+            description="Stage to capability profile mapping for staged model switching"
+        )
+
+    def get_capability_profile_mapping(self) -> Dict[str, str]:
+        """
+        Get stage to capability profile mapping
+
+        Returns:
+            Dictionary mapping stage names to capability profile names
+            Returns empty dict if not set
+        """
+        setting = self.get_setting("capability_profile_mapping")
+        if setting and isinstance(setting.value, dict):
+            return setting.value
+        return {}
+
+    def set_profile_model_mapping(self, mapping: Dict[str, List[str]]) -> None:
+        """
+        Set capability profile to model list mapping
+
+        Args:
+            mapping: Dictionary mapping profile names to model candidate lists
+                    Example: {"fast": ["gpt-3.5-turbo", "gpt-4o-mini"], "precise": ["gpt-4", "claude-3-opus"]}
+        """
+        self.set_setting(
+            key="profile_model_mapping",
+            value=mapping,
+            value_type=SettingType.JSON,
+            category="llm",
+            description="Capability profile to model candidate list mapping"
+        )
+
+    def get_profile_model_mapping(self) -> Dict[str, List[str]]:
+        """
+        Get capability profile to model list mapping
+
+        Returns:
+            Dictionary mapping profile names to model candidate lists
+            Returns empty dict if not set
+        """
+        setting = self.get_setting("profile_model_mapping")
+        if setting and isinstance(setting.value, dict):
+            return setting.value
+        return {}
+
+    def set_custom_model_provider_mapping(self, mapping: Dict[str, str]) -> None:
+        """
+        Set custom model name to provider mapping
+
+        Args:
+            mapping: Dictionary mapping custom model names to provider names
+                    Example: {"custom-model-1": "openai", "my-claude-model": "anthropic"}
+        """
+        self.set_setting(
+            key="custom_model_provider_mapping",
+            value=mapping,
+            value_type=SettingType.JSON,
+            category="llm",
+            description="Custom model name to provider mapping for tenant-specific models"
+        )
+
+    def get_custom_model_provider_mapping(self) -> Dict[str, str]:
+        """
+        Get custom model name to provider mapping
+
+        Returns:
+            Dictionary mapping custom model names to provider names
+            Returns empty dict if not set
+        """
+        setting = self.get_setting("custom_model_provider_mapping")
+        if setting:
+            if isinstance(setting.value, dict):
+                return setting.value
+            elif isinstance(setting.value, str):
+                try:
+                    return json.loads(setting.value)
+                except json.JSONDecodeError:
+                    return {}
+        return {}
+
+    def set_setting(
+        self,
+        key: str,
+        value: Union[str, int, float, bool, Dict[str, Any], List[Any]],
+        value_type: SettingType,
+        category: str = "general",
+        description: Optional[str] = None,
+        is_sensitive: bool = False,
+        is_user_editable: bool = True,
+        default_value: Optional[Union[str, int, float, bool, Dict[str, Any], List[Any]]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> SystemSetting:
+        """
+        Set a system setting (convenience method)
+
+        Args:
+            key: Setting key
+            value: Setting value
+            value_type: Value type
+            category: Setting category
+            description: Setting description
+            is_sensitive: Whether the setting is sensitive
+            is_user_editable: Whether the setting is user-editable
+            default_value: Default value
+            metadata: Additional metadata
+
+        Returns:
+            Saved SystemSetting instance
+        """
+        setting = SystemSetting(
+            key=key,
+            value=value,
+            value_type=value_type,
+            category=category,
+            description=description,
+            is_sensitive=is_sensitive,
+            is_user_editable=is_user_editable,
+            default_value=default_value,
+            metadata=metadata or {}
+        )
+        return self.save_setting(setting)

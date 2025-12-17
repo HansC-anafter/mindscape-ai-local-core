@@ -104,7 +104,18 @@ class ConversationOrchestrator:
             default_locale=default_locale
         )
 
-        self.plan_builder = PlanBuilder(store=store, default_locale=default_locale)
+        # Create stage router for capability profile system
+        from backend.app.services.conversation.stage_profile_mapper import StageProfileMapper
+        from backend.app.services.conversation.capability_profile import CapabilityProfileRegistry
+        registry = CapabilityProfileRegistry()
+        self.stage_router = StageProfileMapper(registry)
+
+        # Create PlanBuilder with stage_router injection
+        self.plan_builder = PlanBuilder(
+            store=store,
+            default_locale=default_locale,
+            stage_router=self.stage_router
+        )
         self.task_manager = TaskManager(
             tasks_store=self.tasks_store,
             timeline_items_store=self.timeline_items_store,
@@ -428,6 +439,20 @@ class ConversationOrchestrator:
             if execution_plan:
                 execution_plan.project_id = final_project_id
                 execution_plan.project_assignment_decision = project_assignment.to_dict()
+
+                # Integrate ExecutionPlan → PlanState
+                try:
+                    from backend.app.core.state.state_integration import StateIntegrationAdapter
+                    state_adapter = StateIntegrationAdapter()
+                    model_name = self.plan_builder._select_model_for_plan(risk_level="read") if hasattr(self.plan_builder, '_select_model_for_plan') else None
+                    plan_state = state_adapter.execution_plan_to_plan_state(
+                        execution_plan=execution_plan,
+                        model_name=model_name,
+                        reasoning=execution_plan.reasoning
+                    )
+                    logger.debug(f"ConversationOrchestrator: Converted ExecutionPlan to PlanState (state_id={plan_state.state_id}, versions={len(plan_state.versions)})")
+                except Exception as e:
+                    logger.warning(f"Failed to integrate ExecutionPlan to PlanState: {e}", exc_info=True)
 
             execution_results = await self.execution_coordinator.execute_plan(
                 execution_plan=execution_plan,

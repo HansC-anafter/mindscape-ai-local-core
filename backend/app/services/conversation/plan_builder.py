@@ -8,11 +8,13 @@ import logging
 import os
 import asyncio
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
 from ...capabilities.registry import get_registry
 from backend.app.services.pack_info_collector import PackInfoCollector
 from backend.app.services.external_backend import load_external_backend, validate_mindscape_boundary, filter_mindscape_results
 from ...shared.llm_provider_helper import get_llm_provider_from_settings
+from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
 
 logger = logging.getLogger(__name__)
 
@@ -24,20 +26,146 @@ class PlanBuilder:
     Determines side_effect_level for packs and generates TaskPlan objects.
     """
 
-    def __init__(self, store, default_locale: str = "en"):
+    def __init__(
+        self,
+        store,
+        default_locale: str = "en",
+        capability_profile: Optional[str] = None,
+        stage_router: Optional[Any] = None,
+        model_name: Optional[str] = None
+    ):
         """
         Initialize PlanBuilder
 
         Args:
             store: MindscapeStore instance (for db_path access)
             default_locale: Default locale for i18n
+            capability_profile: Capability profile override (optional)
+            stage_router: Stage router instance (optional)
+            model_name: Direct model name override (highest priority, optional)
         """
         self.store = store
         self.default_locale = default_locale
+        self.capability_profile = capability_profile
+        self.stage_router = stage_router
+        self.model_name = model_name  # Direct model name (highest priority)
         from ...services.config_store import ConfigStore
         self.config_store = ConfigStore(db_path=store.db_path)
         self.external_backend = None
         self._external_backend_loaded = False
+        # Cache LLMProviderManager to avoid recreating it on every call
+        self._llm_manager_cache: Dict[str, Any] = {}  # profile_id -> LLMProviderManager
+
+    def _select_model_for_plan(self, risk_level: str = "read", profile_id: Optional[str] = None) -> str:
+        """
+        Select model for plan generation stage
+
+        Priority:
+        1. Direct model_name (highest priority)
+        2. stage_router selection
+        3. capability_profile selection
+        4. SystemSettings selection
+        5. chat_model fallback (final fallback)
+
+        Args:
+            risk_level: Risk level ("read", "write", "publish")
+            profile_id: Profile ID for LLM provider
+
+        Returns:
+            Model name
+        """
+        # 1. Direct model_name (highest priority)
+        if self.model_name:
+            return self.model_name
+
+        # 2. stage_router selection
+        if self.stage_router:
+            try:
+                from backend.app.services.conversation.capability_profile import CapabilityProfileRegistry
+                profile = self.stage_router.get_profile_for_stage("plan_generation", risk_level=risk_level)
+                registry = CapabilityProfileRegistry()
+                # Get or reuse cached LLMProviderManager
+                cache_key = profile_id or "default-user"
+                if cache_key not in self._llm_manager_cache:
+                    from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+                    config = self.config_store.get_or_create_config(cache_key)
+                    self._llm_manager_cache[cache_key] = create_llm_provider_manager(
+                        openai_key=config.agent_backend.openai_api_key,
+                        anthropic_key=config.agent_backend.anthropic_api_key,
+                        vertex_api_key=config.agent_backend.vertex_api_key,
+                        vertex_project_id=config.agent_backend.vertex_project_id,
+                        vertex_location=config.agent_backend.vertex_location
+                    )
+                llm_manager = self._llm_manager_cache[cache_key]
+                model_name = registry.select_model(profile, llm_manager, profile_id=profile_id)
+                if model_name:
+                    return model_name
+            except Exception as e:
+                logger.debug(f"Failed to use stage_router: {e}, trying next option")
+
+        # 3. capability_profile selection
+        if self.capability_profile:
+            try:
+                from backend.app.services.conversation.capability_profile import CapabilityProfile, CapabilityProfileRegistry
+                profile = CapabilityProfile(self.capability_profile)
+                registry = CapabilityProfileRegistry()
+                # Reuse cached LLMProviderManager
+                cache_key = profile_id or "default-user"
+                if cache_key not in self._llm_manager_cache:
+                    from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+                    config = self.config_store.get_or_create_config(cache_key)
+                    self._llm_manager_cache[cache_key] = create_llm_provider_manager(
+                        openai_key=config.agent_backend.openai_api_key,
+                        anthropic_key=config.agent_backend.anthropic_api_key,
+                        vertex_api_key=config.agent_backend.vertex_api_key,
+                        vertex_project_id=config.agent_backend.vertex_project_id,
+                        vertex_location=config.agent_backend.vertex_location
+                    )
+                llm_manager = self._llm_manager_cache[cache_key]
+                model_name = registry.select_model(profile, llm_manager, profile_id=profile_id)
+                if model_name:
+                    return model_name
+            except Exception as e:
+                logger.debug(f"Failed to use capability_profile: {e}, trying next option")
+
+        # 4. SystemSettings selection
+        try:
+            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.services.conversation.capability_profile import CapabilityProfile, CapabilityProfileRegistry
+            settings_store = SystemSettingsStore()
+            mapping = settings_store.get_capability_profile_mapping()
+            profile_name = mapping.get("plan_generation", "precise")
+            profile = CapabilityProfile(profile_name)
+            registry = CapabilityProfileRegistry()
+            # Reuse cached LLMProviderManager
+            cache_key = profile_id or "default-user"
+            if cache_key not in self._llm_manager_cache:
+                from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+                config = self.config_store.get_or_create_config(cache_key)
+                self._llm_manager_cache[cache_key] = create_llm_provider_manager(
+                    openai_key=config.agent_backend.openai_api_key,
+                    anthropic_key=config.agent_backend.anthropic_api_key,
+                    vertex_api_key=config.agent_backend.vertex_api_key,
+                    vertex_project_id=config.agent_backend.vertex_project_id,
+                    vertex_location=config.agent_backend.vertex_location
+                )
+            llm_manager = self._llm_manager_cache[cache_key]
+            model_name = registry.select_model(profile, llm_manager, profile_id=profile_id)
+            if model_name:
+                return model_name
+        except Exception as e:
+            logger.debug(f"Failed to use SystemSettings: {e}, trying next option")
+
+        # 5. chat_model fallback (final fallback)
+        from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+        model_name = get_model_name_from_chat_model()
+        if model_name:
+            logger.debug(f"Using chat_model fallback: {model_name}")
+            return model_name
+
+        # Ultimate fallback
+        logger.warning("PlanBuilder: All model selection methods failed, using default gpt-4")
+        return "gpt-4"
 
     async def _ensure_external_backend_loaded(self, profile_id: Optional[str] = None):
         """
@@ -298,15 +426,18 @@ class PlanBuilder:
             import json
 
             config = self.config_store.get_or_create_config(profile_id)
-            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
-
-            llm_manager = create_llm_provider_manager(
-                openai_key=config.agent_backend.openai_api_key,
-                anthropic_key=config.agent_backend.anthropic_api_key,
-                vertex_api_key=config.agent_backend.vertex_api_key,
-                vertex_project_id=config.agent_backend.vertex_project_id,
-                vertex_location=config.agent_backend.vertex_location
-            )
+            # Reuse cached LLMProviderManager
+            cache_key = profile_id or "default-user"
+            if cache_key not in self._llm_manager_cache:
+                from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+                self._llm_manager_cache[cache_key] = create_llm_provider_manager(
+                    openai_key=config.agent_backend.openai_api_key,
+                    anthropic_key=config.agent_backend.anthropic_api_key,
+                    vertex_api_key=config.agent_backend.vertex_api_key,
+                    vertex_project_id=config.agent_backend.vertex_project_id,
+                    vertex_location=config.agent_backend.vertex_location
+                )
+            llm_manager = self._llm_manager_cache[cache_key]
 
             # Get user's selected chat model to determine provider
             from backend.app.services.system_settings_store import SystemSettingsStore
@@ -336,16 +467,15 @@ class PlanBuilder:
 
             timeline_items_store = TimelineItemsStore(self.store.db_path)
 
-            from ...services.system_settings_store import SystemSettingsStore
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
+            # Use _select_model_for_plan to select model (with fallback to chat_model)
+            # Determine risk_level from project_assignment_decision or default to "read"
+            risk_level = "read"
+            if project_assignment_decision:
+                # Try to infer risk_level from project_assignment_decision
+                # This is a simplified version - full implementation would check actual tool policies
+                pass
 
-            if not chat_setting or not chat_setting.value:
-                raise ValueError(
-                    "LLM model not configured. Please select a model in the system settings panel."
-                )
-
-            model_name = str(chat_setting.value)
+            model_name = self._select_model_for_plan(risk_level=risk_level, profile_id=profile_id)
             if not model_name or model_name.strip() == "":
                 raise ValueError(
                     "LLM model is empty. Please select a valid model in the system settings panel."
@@ -727,12 +857,88 @@ Message analysis hints:
                 ]
             }
 
-            result = await extract(
-                text=context_with_history,
-                schema_description=schema_description,
-                example_output=example_output,
-                llm_provider=llm_provider
-            )
+            # Start trace node for LLM call
+            trace_node_id = None
+            trace_id = None
+            try:
+                trace_recorder = get_trace_recorder()
+                # Try to get trace_id from execution context if available
+                # For now, we'll create a new trace if needed
+                # In the future, this should be passed from ConversationOrchestrator
+                trace_id = trace_recorder.create_trace(
+                    workspace_id=workspace_id,
+                    execution_id=f"plan_{profile_id}_{int(datetime.utcnow().timestamp())}",
+                    user_id=profile_id,
+                )
+                trace_node_id = trace_recorder.start_node(
+                    trace_id=trace_id,
+                    node_type=TraceNodeType.LLM,
+                    name=f"llm:plan_generation",
+                    input_data={
+                        "message": message[:200],
+                        "model_name": model_name,
+                        "available_packs_count": len(available_packs),
+                    },
+                    metadata={
+                        "model_name": model_name,
+                        "capability_profile": self.capability_profile,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to start trace node for LLM plan generation: {e}")
+
+            llm_start_time = datetime.utcnow()
+            try:
+                result = await extract(
+                    text=context_with_history,
+                    schema_description=schema_description,
+                    example_output=example_output,
+                    llm_provider=llm_provider
+                )
+                llm_end_time = datetime.utcnow()
+                latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
+
+                # End trace node for successful LLM call
+                if trace_node_id and trace_id:
+                    try:
+                        trace_recorder = get_trace_recorder()
+                        # Estimate token count (simplified)
+                        input_tokens = len(context_with_history.split()) * 1.3  # Rough estimate
+                        output_tokens = len(str(result).split()) * 1.3
+                        total_tokens = int(input_tokens + output_tokens)
+
+                        trace_recorder.end_node(
+                            trace_id=trace_id,
+                            node_id=trace_node_id,
+                            status=TraceStatus.SUCCESS,
+                            output_data={
+                                "tasks_count": len(result.get("extracted_data", {}).get("tasks", [])),
+                            },
+                            cost_tokens=total_tokens,
+                            latency_ms=latency_ms,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to end trace node for LLM plan generation: {e}")
+            except Exception as e:
+                llm_end_time = datetime.utcnow()
+                latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
+
+                # End trace node for failed LLM call
+                if trace_node_id and trace_id:
+                    try:
+                        trace_recorder = get_trace_recorder()
+                        import traceback
+                        trace_recorder.end_node(
+                            trace_id=trace_id,
+                            node_id=trace_node_id,
+                            status=TraceStatus.FAILED,
+                            error_message=str(e)[:500],
+                            error_stack=traceback.format_exc(),
+                            latency_ms=latency_ms,
+                        )
+                    except Exception as e2:
+                        logger.warning(f"Failed to end trace node for failed LLM plan generation: {e2}")
+                raise
 
             extracted_data = result.get("extracted_data", {})
             logger.info(f"Full extracted_data: {extracted_data}")
