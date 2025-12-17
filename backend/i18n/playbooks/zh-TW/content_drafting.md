@@ -17,7 +17,11 @@ visible_in:
   - workspace_tools_panel
   - workspace_playbook_menu
 
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 
 language_strategy: model_native
 locale: zh-TW
@@ -73,23 +77,23 @@ icon: ✍️
 ### 階段 5: 文件生成與保存
 
 #### 步驟 5.1: 保存草稿內容
-**必須**使用 `filesystem_write_file` 工具保存起草的內容：
+**必須**使用 `sandbox.write_file` 工具保存起草的內容（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/content_drafting/{{execution_id}}/draft_content.md`
+- 文件路徑: `draft_content.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的草稿內容，包含所有區塊和段落
 - 格式: Markdown 格式
 
 #### 步驟 5.2: 保存內容大綱（如適用）
-如果生成了內容大綱，保存到：
+如果生成了內容大綱，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/content_drafting/{{execution_id}}/outline.md`
+- 文件路徑: `outline.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 內容結構和大綱，包含各區塊的重點和功能
 - 格式: Markdown 格式
 
 #### 步驟 5.3: 保存優化建議（如適用）
-如果提供了優化建議，保存到：
+如果提供了優化建議，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/content_drafting/{{execution_id}}/optimization_suggestions.md`
+- 文件路徑: `optimization_suggestions.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 語氣和風格調整建議、可加強的重點段落、潤飾和優化方向
 - 格式: Markdown 格式
 

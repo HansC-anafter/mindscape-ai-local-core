@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - core_llm.generate
 
@@ -102,7 +106,7 @@ This playbook can work in conjunction with:
 #### 步驟 6.1: 保存完整技術文檔
 **必須**使用 `filesystem_write_file` 工具保存完整的技術文檔：
 
-- 文件路徑: `artifacts/technical_documentation/{{execution_id}}/{project_name}_documentation.md`
+- 文件路徑: `{project_name}_documentation.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的技術文檔，包含：
   - 概述和介紹
   - 安裝和設置指南
@@ -113,16 +117,16 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式，使用標題、代碼塊和列表
 
 #### 步驟 6.2: 保存 API 參考（如適用）
-如果生成了 API 參考文檔，保存到：
+如果生成了 API 參考文檔，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/technical_documentation/{{execution_id}}/api_reference.md`
+- 文件路徑: `api_reference.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的 API 參考，包含所有函數、類和方法的詳細說明
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存使用範例
-**必須**使用 `filesystem_write_file` 工具保存使用範例：
+**必須**使用 `sandbox.write_file` 工具保存使用範例（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/technical_documentation/{{execution_id}}/usage_examples.md`
+- 文件路徑: `usage_examples.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有使用範例，包含常見用例、代碼片段和整合範例
 - 格式: Markdown 格式，包含代碼塊
 

@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.structured_extract
 
 language_strategy: model_native
@@ -80,6 +84,22 @@ Based on user's Mindscape Profile:
 
 If user has related Active Intent (e.g., "Master machine learning"), explicitly reference it in responses:
 > "Since you're working towards 'Master machine learning', I recommend organizing notes around..."
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Organized Notes
+**Must** use `sandbox.write_file` tool to save organized notes (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `organized_notes.md` (relative path, relative to sandbox root)
+- Content: Complete structured notes, including all sections, concepts, and relationships
+- Format: Markdown format
+
+#### Step 6.2: Save Knowledge Structure
+**Must** use `sandbox.write_file` tool to save knowledge structure (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `knowledge_structure.md` (relative path, relative to sandbox root)
+- Content: Knowledge architecture and concept relationship diagram
+- Format: Markdown format
 
 ## Success Criteria
 - Notes are organized into a clear structure

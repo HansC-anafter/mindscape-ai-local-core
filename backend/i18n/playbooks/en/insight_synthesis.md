@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -97,6 +101,25 @@ This playbook can work in conjunction with:
 - `data_analysis` - Use analysis results as input for insight synthesis
 - `strategy_planning` - Use insights to inform strategy development
 - `market_analysis` - Combine with market insights for comprehensive view
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Insights Report
+**Must** use `sandbox.write_file` tool to save insights report (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `insights_report.md` (relative path, relative to sandbox root)
+- Content: Complete insights synthesis report, including:
+  - Key insights and patterns
+  - Business implications
+  - Strategic recommendations
+- Format: Markdown format
+
+#### Step 6.2: Save Action Items
+**Must** use `sandbox.write_file` tool to save action items (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `action_items.md` (relative path, relative to sandbox root)
+- Content: Prioritized action items and recommendations
+- Format: Markdown format
 
 ## Success Criteria
 - Multiple data sources are synthesized

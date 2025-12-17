@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - semantic_seeds.extract_seeds
   - core_llm.structured_extract
 
@@ -96,16 +100,16 @@ This playbook can work in conjunction with:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存知識庫文檔
-**必須**使用 `filesystem_write_file` 工具保存知識庫文檔：
+**必須**使用 `sandbox.write_file` 工具保存知識庫文檔（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/information_organization/{{execution_id}}/knowledge_base.md`
+- 文件路徑: `knowledge_base.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的結構化知識庫，包含所有分類、標籤和資訊
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存分類體系
-**必須**使用 `filesystem_write_file` 工具保存分類體系：
+**必須**使用 `sandbox.write_file` 工具保存分類體系（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/information_organization/{{execution_id}}/taxonomy.md`
+- 文件路徑: `taxonomy.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 分類體系和標籤系統的完整文檔
 - 格式: Markdown 格式
 

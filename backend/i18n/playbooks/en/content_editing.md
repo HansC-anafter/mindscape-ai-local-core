@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - review.suggest
   - core_llm.generate
 optional_tools:
@@ -102,6 +106,22 @@ If content includes audio files or requires audio analysis:
 - Use `voice_recording.transcribe` to transcribe audio content for editing
 - Analyze transcribed text for consistency with written content
 - Ensure audio and written content alignment
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Edited Content
+**Must** use `sandbox.write_file` tool to save edited content (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `edited_content.md` (relative path, relative to sandbox root)
+- Content: Optimized complete content
+- Format: Markdown format
+
+#### Step 6.2: Save Editing Notes
+**Must** use `sandbox.write_file` tool to save editing notes (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `editing_notes.md` (relative path, relative to sandbox root)
+- Content: All editing suggestions, improvement notes, and before/after comparisons
+- Format: Markdown format
 
 ## Success Criteria
 - Content structure and logic are analyzed

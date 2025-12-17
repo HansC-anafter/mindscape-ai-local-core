@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
 optional_tools:
   - canva
@@ -96,30 +100,30 @@ If user has related Active Intent (e.g., "Launch product marketing campaign"), e
 ### Phase 7: 文件生成與保存
 
 #### 步驟 7.1: 保存文案版本
-**必須**使用 `filesystem_write_file` 工具保存所有文案版本：
+**必須**使用 `sandbox.write_file` 工具保存所有文案版本（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/copywriting/{{execution_id}}/copy_variations.md`
+- 文件路徑: `copy_variations.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有生成的文案版本，包含標題、正文和 CTA 選項
 - 格式: Markdown 格式，使用標題和列表組織
 
 #### 步驟 7.2: 保存標題選項
-**必須**使用 `filesystem_write_file` 工具保存標題選項：
+**必須**使用 `sandbox.write_file` 工具保存標題選項（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/copywriting/{{execution_id}}/headlines.md`
+- 文件路徑: `headlines.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有生成的標題變體（3-5 個選項）
 - 格式: Markdown 格式，每個標題一行
 
 #### 步驟 7.3: 保存 CTA 選項
-**必須**使用 `filesystem_write_file` 工具保存行動呼籲選項：
+**必須**使用 `sandbox.write_file` 工具保存行動呼籲選項（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/copywriting/{{execution_id}}/ctas.md`
+- 文件路徑: `ctas.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有生成的 CTA 選項
 - 格式: Markdown 格式
 
 #### 步驟 7.4: 保存優化建議（如適用）
-如果提供了 A/B 測試建議，保存到：
+如果提供了 A/B 測試建議，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/copywriting/{{execution_id}}/ab_testing_recommendations.md`
+- 文件路徑: `ab_testing_recommendations.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: A/B 測試建議和優化方向
 
 ## Success Criteria

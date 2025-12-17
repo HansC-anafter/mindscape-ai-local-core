@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - semantic_seeds.extract_seeds
   - core_llm.structured_extract
@@ -102,7 +106,7 @@ This playbook can work in conjunction with:
 #### 步驟 6.1: 保存研究報告
 **必須**使用 `filesystem_write_file` 工具保存完整的研究報告：
 
-- 文件路徑: `artifacts/research_synthesis/{{execution_id}}/research_report.md`
+- 文件路徑: `research_report.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的研究報告，包含：
   - 執行摘要
   - 研究方法和來源
@@ -113,16 +117,16 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式，使用標題、列表和引用
 
 #### 步驟 6.2: 保存關鍵發現
-**必須**使用 `filesystem_write_file` 工具保存關鍵發現：
+**必須**使用 `sandbox.write_file` 工具保存關鍵發現（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/research_synthesis/{{execution_id}}/key_findings.md`
+- 文件路徑: `key_findings.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 從所有來源提取的關鍵發現和觀點
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存參考資料
-**必須**使用 `filesystem_write_file` 工具保存參考資料：
+**必須**使用 `sandbox.write_file` 工具保存參考資料（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/research_synthesis/{{execution_id}}/references.md`
+- 文件路徑: `references.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有研究來源的參考資料和引用
 - 格式: Markdown 格式
 

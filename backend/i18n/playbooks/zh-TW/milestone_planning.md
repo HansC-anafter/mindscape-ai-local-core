@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -92,9 +96,9 @@ This playbook can work in conjunction with:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存里程碑計劃
-**必須**使用 `filesystem_write_file` 工具保存完整的里程碑計劃：
+**必須**使用 `sandbox.write_file` 工具保存完整的里程碑計劃（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/milestone_planning/{{execution_id}}/milestone_plan.md`
+- 文件路徑: `milestone_plan.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的里程碑計劃，包含：
   - 專案目標和範圍
   - 關鍵節點識別
@@ -104,9 +108,9 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存時間線
-**必須**使用 `filesystem_write_file` 工具保存時間線：
+**必須**使用 `sandbox.write_file` 工具保存時間線（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/milestone_planning/{{execution_id}}/timeline.md`
+- 文件路徑: `timeline.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 詳細的時間線，包含所有里程碑的目標日期和依賴關係
 - 格式: Markdown 格式
 

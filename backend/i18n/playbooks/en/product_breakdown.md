@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -81,6 +85,33 @@ Based on user's Mindscape Profile:
 
 If user has related Active Intent (e.g., "Launch MVP in 3 months"), explicitly reference it in responses:
 > "Since you're working towards 'Launch MVP in 3 months', I recommend focusing on..."
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Product Specification
+**Must** use `sandbox.write_file` tool to save complete product specification (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `product_specification.md` (relative path, relative to sandbox root)
+- Content: Complete product specification document, including:
+  - Product overview and value proposition
+  - Feature module breakdown
+  - Functional requirements specification
+  - Acceptance criteria
+- Format: Markdown format
+
+#### Step 6.2: Save Feature List
+**Must** use `sandbox.write_file` tool to save feature list (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `feature_list.md` (relative path, relative to sandbox root)
+- Content: Detailed list of all feature modules and features
+- Format: Markdown format
+
+#### Step 6.3: Save User Flows
+**Must** use `sandbox.write_file` tool to save user flows (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `user_flows.md` (relative path, relative to sandbox root)
+- Content: User journeys and flow diagrams for key scenarios
+- Format: Markdown format
 
 ## Success Criteria
 - User understands the product structure

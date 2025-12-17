@@ -98,9 +98,9 @@ This playbook can work in conjunction with:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存策略計劃
-**必須**使用 `filesystem_write_file` 工具保存完整的策略計劃：
+**必須**使用 `sandbox.write_file` 工具保存完整的策略計劃（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/strategy_planning/{{execution_id}}/strategy_plan.md`
+- 文件路徑: `strategy_plan.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的策略計劃，包含：
   - 商業目標和現狀
   - 市場和競爭分析
@@ -110,16 +110,16 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存路線圖
-**必須**使用 `filesystem_write_file` 工具保存執行路線圖：
+**必須**使用 `sandbox.write_file` 工具保存執行路線圖（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/strategy_planning/{{execution_id}}/roadmap.md`
+- 文件路徑: `execution_roadmap.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 詳細的路線圖，包含時間線、里程碑和交付物
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存里程碑
-**必須**使用 `filesystem_write_file` 工具保存里程碑計劃：
+**必須**使用 `sandbox.write_file` 工具保存里程碑計劃（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/strategy_planning/{{execution_id}}/milestones.md`
+- 文件路徑: `milestone_plan.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有里程碑、交付物和成功指標
 - 格式: Markdown 格式
 

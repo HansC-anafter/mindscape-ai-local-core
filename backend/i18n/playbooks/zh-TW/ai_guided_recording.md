@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - voice_recording.record_line
   - voice_recording.play_demo
   - voice_recording.transcribe
@@ -125,16 +129,16 @@ This playbook deeply integrates with Voice Recording capability pack:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存錄製筆記
-**必須**使用 `filesystem_write_file` 工具保存錄製筆記：
+**必須**使用 `sandbox.write_file` 工具保存錄製筆記（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/ai_guided_recording/{{execution_id}}/recording_notes.md`
+- 文件路徑: `recording_notes.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的錄製過程記錄，包含參數設定、指導說明和品質檢查結果
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存轉錄稿（如已生成）
 如果已生成轉錄稿，保存到：
 
-- 文件路徑: `artifacts/ai_guided_recording/{{execution_id}}/transcript.md`
+- 文件路徑: `transcript.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的音頻轉錄稿
 - 格式: Markdown 格式
 

@@ -35,7 +35,11 @@ mindscape_requirements:
     - milestone
     - risk
 icon: 📦
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 scope:
   visibility: system
   editable: false
@@ -90,30 +94,30 @@ owner:
 ### 階段 6: 文件生成與保存
 
 #### 步驟 6.1: 保存專案結構
-**必須**使用 `filesystem_write_file` 工具保存專案結構：
+**必須**使用 `sandbox.write_file` 工具保存專案結構（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/project_structure.md`
+- 文件路徑: `project_structure.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的專案結構，包含所有階段、交付物和依賴關係
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存任務分解
-**必須**使用 `filesystem_write_file` 工具保存任務分解：
+**必須**使用 `sandbox.write_file` 工具保存任務分解（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/task_breakdown.md`
+- 文件路徑: `task_breakdown.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 詳細的任務分解，包含每個階段的具體任務和行動項目
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存時間線
-**必須**使用 `filesystem_write_file` 工具保存時間線：
+**必須**使用 `sandbox.write_file` 工具保存時間線（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/timeline.md`
+- 文件路徑: `timeline.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 專案時間線，包含所有里程碑的時間節點和驗收標準
 - 格式: Markdown 格式
 
 #### 步驟 6.4: 保存風險分析（如適用）
-如果識別了風險，保存到：
+如果識別了風險，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/project_breakdown/{{execution_id}}/risk_analysis.md`
+- 文件路徑: `risk_analysis.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 風險識別和緩解建議
 - 格式: Markdown 格式
 

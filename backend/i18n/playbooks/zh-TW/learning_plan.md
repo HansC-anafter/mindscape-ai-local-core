@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -85,9 +89,9 @@ If user has related Active Intent (e.g., "Master Python programming"), explicitl
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存學習計劃
-**必須**使用 `filesystem_write_file` 工具保存完整的學習計劃：
+**必須**使用 `sandbox.write_file` 工具保存完整的學習計劃（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/learning_plan/{{execution_id}}/learning_plan.md`
+- 文件路徑: `learning_plan.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的學習計劃，包含：
   - 學習目標
   - 內容分解
@@ -97,16 +101,16 @@ If user has related Active Intent (e.g., "Master Python programming"), explicitl
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存課程大綱
-**必須**使用 `filesystem_write_file` 工具保存課程大綱：
+**必須**使用 `sandbox.write_file` 工具保存課程大綱（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/learning_plan/{{execution_id}}/curriculum.md`
+- 文件路徑: `curriculum.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 結構化的課程大綱，包含所有模組和主題
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存學習里程碑
-**必須**使用 `filesystem_write_file` 工具保存學習里程碑：
+**必須**使用 `sandbox.write_file` 工具保存學習里程碑（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/learning_plan/{{execution_id}}/milestones.md`
+- 文件路徑: `milestones.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有里程碑、檢查點和時間線
 - 格式: Markdown 格式
 

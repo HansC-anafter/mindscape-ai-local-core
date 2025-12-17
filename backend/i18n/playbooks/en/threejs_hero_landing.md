@@ -21,6 +21,8 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
   - filesystem_write_file
   - filesystem_read_file
 
@@ -362,21 +364,21 @@ When user provides natural language description, extract:
 - Use existing flow (standalone generation)
 
 #### Step 6.2: Save Generated Component Code
-**Must** use `filesystem_write_file` tool to save generated React Three Fiber component:
+**Must** use `sandbox.write_file` tool to save generated React Three Fiber component (preferred) or `filesystem_write_file` (requires manual confirmation):
 
 - **File Path**: Path determined in Step 6.1
 - **Content**: Complete component code (including all imports, type definitions, component logic)
 - **Ensure file can be used directly in project**
 
 #### Step 6.3: Save Conversation History
-**Must** use `filesystem_write_file` tool to save complete conversation history:
+**Must** use `sandbox.write_file` tool to save complete conversation history (preferred) or `filesystem_write_file` (requires manual confirmation):
 
 - **File Path**: `artifacts/threejs_hero_landing/{{execution_id}}/conversation_history.json`
 - **Content**: Complete conversation history (including all user and assistant messages)
 - **Format**: JSON format with timestamps and role information
 
 #### Step 6.4: Save Execution Summary
-**Must** use `filesystem_write_file` tool to save execution summary:
+**Must** use `sandbox.write_file` tool to save execution summary (preferred) or `filesystem_write_file` (requires manual confirmation):
 
 - **File Path**: `artifacts/threejs_hero_landing/{{execution_id}}/execution_summary.md`
 - **Content**:

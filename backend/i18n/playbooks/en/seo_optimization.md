@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -95,6 +99,27 @@ If user has related Active Intent (e.g., "Improve website SEO ranking"), explici
 This playbook can work in conjunction with:
 - `content_analysis` - Use content analysis results to inform SEO optimization
 - `content_editing` - Apply SEO optimizations during content editing
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save SEO Report
+**Must** use `sandbox.write_file` tool to save SEO report (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `seo_report.md` (relative path, relative to sandbox root)
+- Content: Complete SEO report, including:
+  - Keyword analysis
+  - Competitor insights
+  - Title and description optimizations
+  - Content structure improvements
+  - Action items and priorities
+- Format: Markdown format
+
+#### Step 6.2: Save Optimization Checklist
+**Must** use `sandbox.write_file` tool to save optimization checklist (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `optimization_checklist.md` (relative path, relative to sandbox root)
+- Content: Implementation checklist and optimization steps
+- Format: Markdown format
 
 ## Success Criteria
 - Target keywords are identified and analyzed

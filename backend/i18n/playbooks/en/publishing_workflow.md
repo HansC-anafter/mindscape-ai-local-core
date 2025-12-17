@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
 optional_tools:
   - wp_sync.sync
@@ -110,6 +114,22 @@ If content includes audio files:
 - Use `voice_recording.transcribe` to ensure transcripts are ready
 - Verify audio quality and accessibility
 - Prepare audio descriptions if needed
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Publishing Plan
+**Must** use `sandbox.write_file` tool to save publishing plan (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `publishing_plan.md` (relative path, relative to sandbox root)
+- Content: Complete publishing plan, including checklist, publishing notes, and schedule
+- Format: Markdown format
+
+#### Step 6.2: Save Content Calendar
+**Must** use `sandbox.write_file` tool to save content calendar (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `content_calendar.md` (relative path, relative to sandbox root)
+- Content: Publishing schedule and content sequencing plan
+- Format: Markdown format
 
 ## Success Criteria
 - Content completeness is verified

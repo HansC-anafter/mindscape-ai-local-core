@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -85,9 +89,9 @@ If user has related Active Intent (e.g., "Launch MVP in 3 months"), explicitly r
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存產品規格
-**必須**使用 `filesystem_write_file` 工具保存完整的產品規格：
+**必須**使用 `sandbox.write_file` 工具保存完整的產品規格（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/product_breakdown/{{execution_id}}/product_specification.md`
+- 文件路徑: `product_specification.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的產品規格文檔，包含：
   - 產品概述和價值主張
   - 功能模組分解
@@ -96,16 +100,16 @@ If user has related Active Intent (e.g., "Launch MVP in 3 months"), explicitly r
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存功能列表
-**必須**使用 `filesystem_write_file` 工具保存功能列表：
+**必須**使用 `sandbox.write_file` 工具保存功能列表（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/product_breakdown/{{execution_id}}/feature_list.md`
+- 文件路徑: `feature_list.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有功能模組和功能的詳細列表
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存用戶流程
-**必須**使用 `filesystem_write_file` 工具保存用戶流程：
+**必須**使用 `sandbox.write_file` 工具保存用戶流程（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/product_breakdown/{{execution_id}}/user_flows.md`
+- 文件路徑: `user_flows.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 關鍵場景的用戶旅程和流程圖
 - 格式: Markdown 格式
 

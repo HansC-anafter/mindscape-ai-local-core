@@ -35,7 +35,11 @@ mindscape_requirements:
     - focus
     - overwhelm
 icon: 🗓
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 scope:
   visibility: system
   editable: false
@@ -76,6 +80,22 @@ Based on user's Mindscape Profile:
 
 If the user has relevant Active Intents (e.g., "Complete Three-Cluster Cold Start MVP"), explicitly mention in the response:
 > "Since you're working on 'Complete Three-Cluster Cold Start MVP', I would suggest..."
+
+### Phase 4: File Generation and Saving
+
+#### Step 4.1: Save Daily Plan
+**Must** use `sandbox.write_file` tool to save daily plan (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `daily_plan.md` (relative path, relative to sandbox root)
+- Content: Complete daily plan, including all tasks and priorities
+- Format: Markdown format
+
+#### Step 4.2: Save Task List
+**Must** use `sandbox.write_file` tool to save task list (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `task_list.md` (relative path, relative to sandbox root)
+- Content: Detailed task list, including time estimates and execution suggestions
+- Format: Markdown format
 
 ## Success Criteria
 - User understands task priorities

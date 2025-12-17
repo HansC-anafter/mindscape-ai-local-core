@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.upload
   - core_files.extract_text
   - core_llm.generate
@@ -83,10 +87,30 @@ This Playbook will:
 3. Write sections (iterative)
 4. Assemble complete document and export
 
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Proposal Draft
+**Must** use `sandbox.write_file` tool to save proposal draft (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `proposal_draft.md` (relative path, relative to sandbox root)
+- Content: Complete proposal draft (Markdown format)
+- Format: Markdown format
+
+#### Step 6.2: Save Proposal Outline
+**Must** use `sandbox.write_file` tool to save proposal outline (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `proposal_outline.md` (relative path, relative to sandbox root)
+- Content: Proposal structure and outline, including all sections and key points
+- Format: Markdown format
+
+#### Step 6.3: Save DOCX File (if generated)
+If DOCX file has been generated, record the file path in the execution summary.
+
 ## Notes
 
 - Template parsing: System automatically analyzes template structure, but may require manual confirmation and adjustment
 - Content generation: AI-generated content requires manual review and adjustment
 - Format requirements: Ensure final document meets application unit's format requirements
 - Deadline: Note application deadline and reserve sufficient time to complete document
+- All generated proposal documents are saved to files for future reference
 

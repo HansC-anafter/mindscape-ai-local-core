@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.analyze
   - core_llm.generate
 
@@ -84,16 +88,16 @@ icon: 📱
 ### 階段 5: 文件生成與保存
 
 #### 步驟 5.1: 保存貼文列表（JSON 格式）
-**必須**使用 `filesystem_write_file` 工具保存貼文列表（JSON 格式）：
+**必須**使用 `sandbox.write_file` 工具保存貼文列表（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/ig_post_generation/{{execution_id}}/ig_posts.json`
+- 文件路徑: `ig_posts.json`（相對路徑，相對於 sandbox 根目錄）
 - 內容: JSON 格式的貼文列表，包含 text 和 hashtags
 - 格式: JSON 格式，使用 UTF-8 編碼
 
 #### 步驟 5.2: 保存貼文內容（可讀格式）
-**必須**使用 `filesystem_write_file` 工具保存貼文內容（可讀格式）：
+**必須**使用 `sandbox.write_file` 工具保存貼文內容（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/ig_post_generation/{{execution_id}}/ig_posts.md`
+- 文件路徑: `ig_posts.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: Markdown 格式的貼文內容，方便閱讀和編輯
 - 格式: Markdown 格式
 

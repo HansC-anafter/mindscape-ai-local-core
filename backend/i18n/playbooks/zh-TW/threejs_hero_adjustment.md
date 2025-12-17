@@ -19,7 +19,11 @@ visible_in:
   - workspace_tools_panel
   - workspace_playbook_menu
 
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 
 language_strategy: model_native
 locale: zh-TW
@@ -108,16 +112,16 @@ icon: 🎨
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存調整後的組件
-**必須**使用 `filesystem_write_file` 工具保存調整後的組件：
+**必須**使用 `sandbox.write_file` 工具保存調整後的組件（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/threejs_hero_adjustment/{{execution_id}}/{ComponentName}_adjusted.tsx`
+- 文件路徑: `{ComponentName}_adjusted.tsx`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 調整後的 React Three Fiber 組件代碼
 - 格式: TypeScript/TSX 格式
 
 #### 步驟 6.2: 保存調整說明
-**必須**使用 `filesystem_write_file` 工具保存調整說明：
+**必須**使用 `sandbox.write_file` 工具保存調整說明（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/threejs_hero_adjustment/{{execution_id}}/adjustment_notes.md`
+- 文件路徑: `adjustment_notes.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 程式碼結構分析、轉換指引和整合任務規劃
 - 格式: Markdown 格式
 

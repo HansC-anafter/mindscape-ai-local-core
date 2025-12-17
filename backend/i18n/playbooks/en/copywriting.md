@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
 optional_tools:
   - canva
@@ -92,6 +96,35 @@ Based on user's Mindscape Profile:
 
 If user has related Active Intent (e.g., "Launch product marketing campaign"), explicitly reference it in responses:
 > "Since you're working towards 'Launch product marketing campaign', I recommend focusing on..."
+
+### Phase 7: File Generation and Saving
+
+#### Step 7.1: Save Copy Versions
+**Must** use `sandbox.write_file` tool to save all copy versions (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `copy_variations.md` (relative path, relative to sandbox root)
+- Content: All generated copy versions, including headlines, body copy, and CTA options
+- Format: Markdown format, organized with headings and lists
+
+#### Step 7.2: Save Headline Options
+**Must** use `sandbox.write_file` tool to save headline options (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `headlines.md` (relative path, relative to sandbox root)
+- Content: All generated headline variations (3-5 options)
+- Format: Markdown format, one headline per line
+
+#### Step 7.3: Save CTA Options
+**Must** use `sandbox.write_file` tool to save call-to-action options (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `ctas.md` (relative path, relative to sandbox root)
+- Content: All generated CTA options
+- Format: Markdown format
+
+#### Step 7.4: Save Optimization Recommendations (if applicable)
+If A/B testing recommendations are provided, **must** use `sandbox.write_file` tool to save (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `ab_testing_recommendations.md` (relative path, relative to sandbox root)
+- Content: A/B testing recommendations and optimization directions
 
 ## Success Criteria
 - Multiple copy versions are generated

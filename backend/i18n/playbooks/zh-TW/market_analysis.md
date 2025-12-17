@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - research_synthesis
   - core_llm.structured_extract
 
@@ -101,9 +105,9 @@ This playbook can work in conjunction with:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存市場分析報告
-**必須**使用 `filesystem_write_file` 工具保存完整的市場分析報告：
+**必須**使用 `sandbox.write_file` 工具保存完整的市場分析報告（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/market_analysis/{{execution_id}}/market_analysis_report.md`
+- 文件路徑: `market_analysis_report.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的市場分析報告，包含：
   - 執行摘要
   - 市場概述和規模
@@ -114,9 +118,9 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存競爭分析
-**必須**使用 `filesystem_write_file` 工具保存競爭分析：
+**必須**使用 `sandbox.write_file` 工具保存競爭分析（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/market_analysis/{{execution_id}}/competitive_analysis.md`
+- 文件路徑: `competitive_analysis.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 詳細的競爭對手分析和比較
 - 格式: Markdown 格式
 

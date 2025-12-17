@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - core_llm.structured_extract
 
@@ -103,7 +107,7 @@ This playbook can work in conjunction with:
 #### 步驟 6.1: 保存分析報告
 **必須**使用 `filesystem_write_file` 工具保存完整的數據分析報告：
 
-- 文件路徑: `artifacts/data_analysis/{{execution_id}}/data_analysis_report.md`
+- 文件路徑: `data_analysis_report.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的分析報告，包含：
   - 執行摘要
   - 數據概述和品質評估
@@ -115,16 +119,16 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式，使用標題、列表和表格
 
 #### 步驟 6.2: 保存洞察摘要
-**必須**使用 `filesystem_write_file` 工具保存洞察摘要：
+**必須**使用 `sandbox.write_file` 工具保存洞察摘要（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/data_analysis/{{execution_id}}/insights_summary.md`
+- 文件路徑: `insights_summary.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 關鍵洞察和可執行的觀察結果
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存視覺化說明（如適用）
-如果生成了視覺化描述，保存到：
+如果生成了視覺化描述，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/data_analysis/{{execution_id}}/visualizations.md`
+- 文件路徑: `visualizations.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 圖表和圖形的描述和建議
 - 格式: Markdown 格式
 

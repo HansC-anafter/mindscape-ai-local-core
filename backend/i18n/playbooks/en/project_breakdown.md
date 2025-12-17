@@ -35,7 +35,11 @@ mindscape_requirements:
     - milestone
     - risk
 icon: 📦
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 scope:
   visibility: system
   editable: false
@@ -86,6 +90,36 @@ Based on user's Mindscape Profile:
 
 If the user has relevant Active Intents, explicitly mention in the response:
 > "Since you're working on 'Complete Three-Cluster Cold Start MVP', I would suggest dividing the project into three phases..."
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Project Structure
+**Must** use `sandbox.write_file` tool to save project structure (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `project_structure.md` (relative path, relative to sandbox root)
+- Content: Complete project structure, including all phases, deliverables, and dependencies
+- Format: Markdown format
+
+#### Step 6.2: Save Task Breakdown
+**Must** use `sandbox.write_file` tool to save task breakdown (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `task_breakdown.md` (relative path, relative to sandbox root)
+- Content: Detailed task breakdown, including specific tasks and action items for each phase
+- Format: Markdown format
+
+#### Step 6.3: Save Timeline
+**Must** use `sandbox.write_file` tool to save timeline (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `timeline.md` (relative path, relative to sandbox root)
+- Content: Project timeline, including time points and acceptance criteria for all milestones
+- Format: Markdown format
+
+#### Step 6.4: Save Risk Analysis (if applicable)
+If risks are identified, **must** use `sandbox.write_file` tool to save (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `risk_analysis.md` (relative path, relative to sandbox root)
+- Content: Risk identification and mitigation recommendations
+- Format: Markdown format
 
 ## Success Criteria
 - Project is clearly broken down into phases and milestones

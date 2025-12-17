@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - voice_recording.record_line
   - voice_recording.play_demo
   - voice_recording.transcribe
@@ -121,6 +125,22 @@ This playbook deeply integrates with Voice Recording capability pack:
 4. Record each segment with quality checks
 5. Transcribe and verify content
 6. Merge recordings into final audio file
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Recording Notes
+**Must** use `sandbox.write_file` tool to save recording notes (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `recording_notes.md` (relative path, relative to sandbox root)
+- Content: Complete recording process log, including parameter settings, guidance instructions, and quality check results
+- Format: Markdown format
+
+#### Step 6.2: Save Transcript (if generated)
+If transcript has been generated, save to:
+
+- File Path: `transcript.md` (relative path, relative to sandbox root)
+- Content: Complete audio transcript
+- Format: Markdown format
 
 ## Success Criteria
 - Course outline and script are prepared

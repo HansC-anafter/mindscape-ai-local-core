@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
 
 language_strategy: model_native
@@ -87,23 +91,23 @@ icon: 🎬
 ### 階段 5: 文件生成與保存
 
 #### 步驟 5.1: 保存影片腳本
-**必須**使用 `filesystem_write_file` 工具保存完整的影片腳本：
+**必須**使用 `sandbox.write_file` 工具保存完整的影片腳本（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/yt_script_generation/{{execution_id}}/video_script.md`
+- 文件路徑: `video_script.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的影片腳本，包含開場、主體、結尾和所有段落
 - 格式: Markdown 格式
 
 #### 步驟 5.2: 保存時間戳記（如適用）
-如果腳本包含時間點標註，保存到：
+如果腳本包含時間點標註，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/yt_script_generation/{{execution_id}}/timestamps.md`
+- 文件路徑: `timestamps.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有時間點標註，包含時間和對應的內容段落
 - 格式: Markdown 格式
 
 #### 步驟 5.3: 保存關鍵要點
-**必須**使用 `filesystem_write_file` 工具保存關鍵要點：
+**必須**使用 `sandbox.write_file` 工具保存關鍵要點（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/yt_script_generation/{{execution_id}}/key_points.md`
+- 文件路徑: `key_points.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 腳本中的關鍵要點和重點標註
 - 格式: Markdown 格式
 

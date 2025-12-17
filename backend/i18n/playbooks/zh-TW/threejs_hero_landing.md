@@ -317,14 +317,14 @@ export default function ComponentName({ ...props }: ComponentNameProps) {
 - 使用現有流程（獨立生成）
 
 #### 步驟 6.2: 保存生成的組件代碼
-**必須**使用 `filesystem_write_file` 工具保存生成的 React Three Fiber 組件：
+**必須**使用 `sandbox.write_file` 工具保存生成的 React Three Fiber 組件（首選）或 `filesystem_write_file`（需要人工確認）：
 
 - **文件路徑**：根據步驟 6.1 確定的路徑
 - **內容**：完整的組件代碼（包含所有導入、類型定義、組件邏輯）
 - **確保文件可以直接在項目中使用**
 
 #### 步驟 6.3: 保存對話歷史
-**必須**使用 `filesystem_write_file` 工具保存完整的對話歷史：
+**必須**使用 `sandbox.write_file` 工具保存完整的對話歷史（首選）或 `filesystem_write_file`（需要人工確認）：
 
 - **文件路徑**：
   - 如果有 Project Context：`artifacts/threejs_hero_landing/{{execution_id}}/conversation_history.json`
@@ -333,7 +333,7 @@ export default function ComponentName({ ...props }: ComponentNameProps) {
 - **格式**：JSON 格式，包含時間戳和角色信息
 
 #### 步驟 6.4: 保存執行摘要
-**必須**使用 `filesystem_write_file` 工具保存執行摘要：
+**必須**使用 `sandbox.write_file` 工具保存執行摘要（首選）或 `filesystem_write_file`（需要人工確認）：
 
 - **文件路徑**：`artifacts/threejs_hero_landing/{{execution_id}}/execution_summary.md`
 - **內容**:

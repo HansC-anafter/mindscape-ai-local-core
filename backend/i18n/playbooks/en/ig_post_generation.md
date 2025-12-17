@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.analyze
   - core_llm.generate
 
@@ -80,6 +84,22 @@ This Playbook will:
 
 **Output**:
 - 5 IG posts, each containing text and hashtags
+
+### Phase 5: File Generation and Saving
+
+#### Step 5.1: Save Post List (JSON Format)
+**Must** use `sandbox.write_file` tool to save post list (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `ig_posts.json` (relative path, relative to sandbox root)
+- Content: JSON format post list, containing text and hashtags
+- Format: JSON format, using UTF-8 encoding
+
+#### Step 5.2: Save Post Content (Readable Format)
+**Must** use `sandbox.write_file` tool to save post content (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `ig_posts.md` (relative path, relative to sandbox root)
+- Content: Markdown format post content, easy to read and edit
+- Format: Markdown format
 
 ## Notes
 

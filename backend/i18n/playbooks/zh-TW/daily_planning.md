@@ -35,7 +35,11 @@ mindscape_requirements:
     - focus
     - overwhelm
 icon: 🗓
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 scope:
   visibility: system
   editable: false
@@ -80,16 +84,16 @@ owner:
 ### 階段 4: 文件生成與保存
 
 #### 步驟 4.1: 保存每日計劃
-**必須**使用 `filesystem_write_file` 工具保存每日計劃：
+**必須**使用 `sandbox.write_file` 工具保存每日計劃（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/daily_planning/{{execution_id}}/daily_plan.md`
+- 文件路徑: `daily_plan.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的每日計劃，包含所有任務和優先級
 - 格式: Markdown 格式
 
 #### 步驟 4.2: 保存任務列表
-**必須**使用 `filesystem_write_file` 工具保存任務列表：
+**必須**使用 `sandbox.write_file` 工具保存任務列表（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/daily_planning/{{execution_id}}/task_list.md`
+- 文件路徑: `task_list.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 詳細的任務列表，包含時間估算和執行建議
 - 格式: Markdown 格式
 

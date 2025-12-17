@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.upload
   - core_files.extract_text
   - core_llm.generate
@@ -86,16 +90,16 @@ icon: 📝
 ### 階段 6: 文件生成與保存
 
 #### 步驟 6.1: 保存提案草稿
-**必須**使用 `filesystem_write_file` 工具保存提案草稿：
+**必須**使用 `sandbox.write_file` 工具保存提案草稿（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/major_proposal_writing/{{execution_id}}/proposal_draft.md`
+- 文件路徑: `proposal_draft.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的申請文件草稿（Markdown 格式）
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存提案大綱
-**必須**使用 `filesystem_write_file` 工具保存提案大綱：
+**必須**使用 `sandbox.write_file` 工具保存提案大綱（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/major_proposal_writing/{{execution_id}}/proposal_outline.md`
+- 文件路徑: `proposal_outline.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 提案結構和大綱，包含所有章節和要點
 - 格式: Markdown 格式
 

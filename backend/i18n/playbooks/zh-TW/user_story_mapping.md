@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -95,16 +99,16 @@ This playbook can work in conjunction with:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存用戶故事地圖
-**必須**使用 `filesystem_write_file` 工具保存用戶故事地圖：
+**必須**使用 `sandbox.write_file` 工具保存用戶故事地圖（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/user_story_mapping/{{execution_id}}/user_story_map.md`
+- 文件路徑: `user_story_map.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的用戶故事地圖，包含所有故事、優先級和關係
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存故事分解
-**必須**使用 `filesystem_write_file` 工具保存故事分解：
+**必須**使用 `sandbox.write_file` 工具保存故事分解（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/user_story_mapping/{{execution_id}}/story_breakdown.md`
+- 文件路徑: `story_breakdown.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 詳細的故事分解，包含功能映射和依賴關係
 - 格式: Markdown 格式
 

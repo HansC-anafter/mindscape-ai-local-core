@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.structured_extract
 
 language_strategy: model_native
@@ -84,16 +88,16 @@ If user has related Active Intent (e.g., "Master machine learning"), explicitly 
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存整理後的筆記
-**必須**使用 `filesystem_write_file` 工具保存整理後的筆記：
+**必須**使用 `sandbox.write_file` 工具保存整理後的筆記（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/note_organization/{{execution_id}}/organized_notes.md`
+- 文件路徑: `organized_notes.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的結構化筆記，包含所有章節、概念和關係
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存知識結構
-**必須**使用 `filesystem_write_file` 工具保存知識結構：
+**必須**使用 `sandbox.write_file` 工具保存知識結構（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/note_organization/{{execution_id}}/knowledge_structure.md`
+- 文件路徑: `knowledge_structure.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 知識架構和概念關係圖
 - 格式: Markdown 格式
 

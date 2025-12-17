@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -94,6 +98,34 @@ This playbook can work in conjunction with:
 - `market_analysis` - Use market analysis results to inform strategy
 - `insight_synthesis` - Use business insights to guide strategy development
 - `data_analysis` - Use data analysis to support strategic decisions
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Strategy Plan
+**Must** use `sandbox.write_file` tool to save complete strategy plan (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `strategy_plan.md` (relative path, relative to sandbox root)
+- Content: Complete strategy plan, including:
+  - Business goals and current state
+  - Market and competition analysis
+  - Opportunities and threats identification
+  - Strategy direction and positioning
+  - Execution plan and action items
+- Format: Markdown format
+
+#### Step 6.2: Save Roadmap
+**Must** use `sandbox.write_file` tool to save execution roadmap (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `execution_roadmap.md` (relative path, relative to sandbox root)
+- Content: Detailed roadmap, including timeline, milestones, and deliverables
+- Format: Markdown format
+
+#### Step 6.3: Save Milestones
+**Must** use `sandbox.write_file` tool to save milestone plan (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `milestone_plan.md` (relative path, relative to sandbox root)
+- Content: All milestones, deliverables, and success metrics
+- Format: Markdown format
 
 ## Success Criteria
 - Business goals and current state are documented

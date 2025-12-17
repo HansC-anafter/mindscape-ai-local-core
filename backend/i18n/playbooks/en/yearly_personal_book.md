@@ -17,7 +17,11 @@ visible_in:
   - workspace_tools_panel
   - workspace_playbook_menu
 
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 
 language_strategy: model_native
 locale: en
@@ -76,9 +80,34 @@ This Playbook will:
 - Preview and edit: Can preview and edit after generation before deciding to export
 - No auto-publish: Will not automatically publish or send to anyone
 
+### Stage 6: File Generation and Saving
+
+#### Step 6.1: Save Annual Book Content
+**Must** use `sandbox.write_file` tool to save annual book content (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `yearly_book_content.md` (relative path, relative to sandbox root)
+- Content: Complete annual yearbook content
+- Format: Markdown format
+
+#### Step 6.2: Save Chapter Outline
+**Must** use `sandbox.write_file` tool to save chapter outline (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `chapters_outline.md` (relative path, relative to sandbox root)
+- Content: 12 monthly chapter outlines and structure
+- Format: Markdown format
+
+#### Step 6.3: Save Monthly Chapters (if generated)
+If monthly chapters have been generated, **must** use `sandbox.write_file` tool to save (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `month-{01-12}.md` (relative path, relative to sandbox root, e.g., `month-01.md`, `month-02.md`, etc.)
+- Content: Independent chapter content for each month
+- Format: Markdown format
+
 ## Expected Results
 
-- Complete annual yearbook markdown file (annual.md)
+- Complete annual yearbook markdown file (yearly_book_content.md)
 - 12 independent monthly chapter files (month-01.md ~ month-12.md)
+- Chapter outline file (chapters_outline.md)
 - Can polish, print, and keep for future self
+- All files saved to sandbox for subsequent use
 

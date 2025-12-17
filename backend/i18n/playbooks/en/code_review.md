@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - core_llm.structured_extract
 
@@ -95,6 +99,33 @@ If user has related Active Intent (e.g., "Improve codebase quality"), explicitly
 This playbook can work in conjunction with:
 - `technical_documentation` - Generate documentation after code review
 - `content_editing` - Review code comments and documentation
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Code Review Report
+**Must** use `sandbox.write_file` tool to save code review report (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `code_review_report.md` (relative path, relative to sandbox root)
+- Content: Complete code review report, including:
+  - Code quality assessment
+  - Issue identification and categorization
+  - Code structure analysis
+  - Best practices compliance
+- Format: Markdown format
+
+#### Step 6.2: Save Issue Priority List
+**Must** use `sandbox.write_file` tool to save issue priority list (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `issue_priority_list.md` (relative path, relative to sandbox root)
+- Content: Prioritized list of issues and recommendations
+- Format: Markdown format
+
+#### Step 6.3: Save Improvement Suggestions
+**Must** use `sandbox.write_file` tool to save improvement suggestions (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `improvement_suggestions.md` (relative path, relative to sandbox root)
+- Content: Detailed improvement suggestions and refactoring recommendations
+- Format: Markdown format
 
 ## Success Criteria
 - Code structure is thoroughly analyzed

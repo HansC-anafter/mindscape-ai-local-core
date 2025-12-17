@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -88,6 +92,27 @@ If user has related Active Intent (e.g., "Launch product MVP"), explicitly refer
 This playbook can work in conjunction with:
 - `project_breakdown` - Use project breakdown results to inform milestone planning
 - `daily_planning` - Convert milestones into daily/weekly tasks
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Milestone Plan
+**Must** use `sandbox.write_file` tool to save complete milestone plan (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `milestone_plan.md` (relative path, relative to sandbox root)
+- Content: Complete milestone plan, including:
+  - Project goals and scope
+  - Critical node identification
+  - Milestone criteria definition
+  - Timeline setting
+  - Risks and dependencies
+- Format: Markdown format
+
+#### Step 6.2: Save Timeline
+**Must** use `sandbox.write_file` tool to save timeline (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `timeline.md` (relative path, relative to sandbox root)
+- Content: Detailed timeline, including target dates and dependencies for all milestones
+- Format: Markdown format
 
 ## Success Criteria
 - Clear project goals and scope are established

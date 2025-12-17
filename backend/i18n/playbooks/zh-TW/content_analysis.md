@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - core_llm.structured_extract
 
@@ -101,7 +105,7 @@ This playbook can work in conjunction with:
 #### 步驟 6.1: 保存內容分析報告
 **必須**使用 `filesystem_write_file` 工具保存完整的內容分析報告：
 
-- 文件路徑: `artifacts/content_analysis/{{execution_id}}/content_analysis_report.md`
+- 文件路徑: `content_analysis_report.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的分析報告，包含：
   - 內容結構分析
   - 關鍵字密度分析
@@ -111,9 +115,9 @@ This playbook can work in conjunction with:
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存指標摘要
-**必須**使用 `filesystem_write_file` 工具保存指標摘要：
+**必須**使用 `sandbox.write_file` 工具保存指標摘要（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/content_analysis/{{execution_id}}/metrics_summary.md`
+- 文件路徑: `metrics_summary.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 所有分析指標和分數的摘要
 - 格式: Markdown 格式
 

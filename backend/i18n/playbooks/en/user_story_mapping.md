@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -91,6 +95,22 @@ If user has related Active Intent (e.g., "Launch product MVP"), explicitly refer
 This playbook can work in conjunction with:
 - `product_breakdown` - Use product breakdown results to inform feature-to-story mapping
 - `milestone_planning` - Use story priorities to inform milestone planning
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save User Story Map
+**Must** use `sandbox.write_file` tool to save user story map (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `user_story_map.md` (relative path, relative to sandbox root)
+- Content: Complete user story map, including all stories, priorities, and relationships
+- Format: Markdown format
+
+#### Step 6.2: Save Story Breakdown
+**Must** use `sandbox.write_file` tool to save story breakdown (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `story_breakdown.md` (relative path, relative to sandbox root)
+- Content: Detailed story breakdown, including feature mapping and dependencies
+- Format: Markdown format
 
 ## Success Criteria
 - User roles and scenarios are clearly identified

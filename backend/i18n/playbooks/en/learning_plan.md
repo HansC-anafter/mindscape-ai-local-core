@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
   - core_llm.structured_extract
 
@@ -81,6 +85,34 @@ Based on user's Mindscape Profile:
 
 If user has related Active Intent (e.g., "Master Python programming"), explicitly reference it in responses:
 > "Since you're working towards 'Master Python programming', I recommend focusing on..."
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Learning Plan
+**Must** use `sandbox.write_file` tool to save complete learning plan (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `learning_plan.md` (relative path, relative to sandbox root)
+- Content: Complete learning plan, including:
+  - Learning objectives
+  - Content breakdown
+  - Learning path
+  - Practice methods
+  - Milestones and checkpoints
+- Format: Markdown format
+
+#### Step 6.2: Save Course Outline
+**Must** use `sandbox.write_file` tool to save course outline (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `curriculum.md` (relative path, relative to sandbox root)
+- Content: Structured course outline, including all modules and topics
+- Format: Markdown format
+
+#### Step 6.3: Save Learning Milestones
+**Must** use `sandbox.write_file` tool to save learning milestones (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `milestones.md` (relative path, relative to sandbox root)
+- Content: All milestones, checkpoints, and timeline
+- Format: Markdown format
 
 ## Success Criteria
 - Clear learning objectives are established

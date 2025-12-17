@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
 
 language_strategy: model_native
@@ -83,6 +87,29 @@ This Playbook will:
 
 **Output**:
 - Complete YT video script with timestamps and structured content
+
+### Phase 5: File Generation and Saving
+
+#### Step 5.1: Save Video Script
+**Must** use `sandbox.write_file` tool to save complete video script (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `video_script.md` (relative path, relative to sandbox root)
+- Content: Complete video script, including intro, main body, outro, and all sections
+- Format: Markdown format
+
+#### Step 5.2: Save Timestamps (if applicable)
+If script includes timestamp annotations, **must** use `sandbox.write_file` tool to save (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `timestamps.md` (relative path, relative to sandbox root)
+- Content: All timestamp annotations, including time and corresponding content sections
+- Format: Markdown format
+
+#### Step 5.3: Save Key Points
+**Must** use `sandbox.write_file` tool to save key points (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `key_points.md` (relative path, relative to sandbox root)
+- Content: Key points and highlights from the script
+- Format: Markdown format
 
 ## Notes
 

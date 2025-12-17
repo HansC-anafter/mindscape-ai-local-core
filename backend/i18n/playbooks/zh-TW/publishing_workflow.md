@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_llm.generate
 optional_tools:
   - wp_sync.sync
@@ -114,16 +118,16 @@ If content includes audio files:
 ### Phase 6: 文件生成與保存
 
 #### 步驟 6.1: 保存發布計劃
-**必須**使用 `filesystem_write_file` 工具保存發布計劃：
+**必須**使用 `sandbox.write_file` 工具保存發布計劃（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/publishing_workflow/{{execution_id}}/publishing_plan.md`
+- 文件路徑: `publishing_plan.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的發布計劃，包含檢查清單、發布說明和時程
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存內容日曆
-**必須**使用 `filesystem_write_file` 工具保存內容日曆：
+**必須**使用 `sandbox.write_file` 工具保存內容日曆（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/publishing_workflow/{{execution_id}}/content_calendar.md`
+- 文件路徑: `content_calendar.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 發布時程和內容序列規劃
 - 格式: Markdown 格式
 

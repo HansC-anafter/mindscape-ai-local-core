@@ -17,7 +17,11 @@ visible_in:
   - workspace_tools_panel
   - workspace_playbook_menu
 
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 
 language_strategy: model_native
 locale: zh-TW
@@ -79,23 +83,23 @@ icon: 📖
 ### 階段 6: 文件生成與保存
 
 #### 步驟 6.1: 保存年度書籍內容
-**必須**使用 `filesystem_write_file` 工具保存年度書籍內容：
+**必須**使用 `sandbox.write_file` 工具保存年度書籍內容（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/yearly_personal_book/{{execution_id}}/yearly_book_content.md`
+- 文件路徑: `yearly_book_content.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 完整的年度年鑑內容
 - 格式: Markdown 格式
 
 #### 步驟 6.2: 保存章節大綱
-**必須**使用 `filesystem_write_file` 工具保存章節大綱：
+**必須**使用 `sandbox.write_file` 工具保存章節大綱（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/yearly_personal_book/{{execution_id}}/chapters_outline.md`
+- 文件路徑: `chapters_outline.md`（相對路徑，相對於 sandbox 根目錄）
 - 內容: 12 個月的章節大綱和結構
 - 格式: Markdown 格式
 
 #### 步驟 6.3: 保存月度章節（如已生成）
-如果已生成月度章節，保存到：
+如果已生成月度章節，**必須**使用 `sandbox.write_file` 工具保存（首選）或 `filesystem_write_file`（需要人工確認）：
 
-- 文件路徑: `artifacts/yearly_personal_book/{{execution_id}}/month-{01-12}.md`
+- 文件路徑: `month-{01-12}.md`（相對路徑，相對於 sandbox 根目錄，例如 `month-01.md`, `month-02.md` 等）
 - 內容: 每個月的獨立章節內容
 - 格式: Markdown 格式
 

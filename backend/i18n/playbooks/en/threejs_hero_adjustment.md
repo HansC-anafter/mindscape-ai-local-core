@@ -19,7 +19,11 @@ visible_in:
   - workspace_tools_panel
   - workspace_playbook_menu
 
-required_tools: []
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
 
 language_strategy: model_native
 locale: en
@@ -111,6 +115,22 @@ If the user has relevant Active Intents (e.g., "Build Interactive Landing Page")
 - Conversion task list is comprehensive and actionable
 - User has clear guidance for integrating code into Mindscape
 - Performance considerations are addressed
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Adjusted Component
+**Must** use `sandbox.write_file` tool to save adjusted component (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `{ComponentName}_adjusted.tsx` (relative path, relative to sandbox root)
+- Content: Adjusted React Three Fiber component code
+- Format: TypeScript/TSX format
+
+#### Step 6.2: Save Adjustment Notes
+**Must** use `sandbox.write_file` tool to save adjustment notes (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `adjustment_notes.md` (relative path, relative to sandbox root)
+- Content: Code structure analysis, conversion guidance, and integration task planning
+- Format: Markdown format
 
 ## Notes
 - This playbook assumes code is generated externally (e.g., from Gemini) and needs integration

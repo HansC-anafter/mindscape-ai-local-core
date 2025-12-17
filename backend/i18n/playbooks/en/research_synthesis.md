@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - semantic_seeds.extract_seeds
   - core_llm.structured_extract
@@ -96,6 +100,33 @@ If user has related Active Intent (e.g., "Complete research paper"), explicitly 
 This playbook can work in conjunction with:
 - `information_organization` - Use synthesis results to organize knowledge base
 - `note_organization` - Organize research notes before synthesis
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Research Report
+**Must** use `sandbox.write_file` tool to save research report (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `research_report.md` (relative path, relative to sandbox root)
+- Content: Complete research synthesis report, including:
+  - Executive summary
+  - Research findings synthesis
+  - Key insights and conclusions
+  - Recommendations
+- Format: Markdown format
+
+#### Step 6.2: Save Key Findings
+**Must** use `sandbox.write_file` tool to save key findings (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `key_findings.md` (relative path, relative to sandbox root)
+- Content: Key findings and insights extracted from research
+- Format: Markdown format
+
+#### Step 6.3: Save References
+**Must** use `sandbox.write_file` tool to save references (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `references.md` (relative path, relative to sandbox root)
+- Content: Complete bibliography and reference list
+- Format: Markdown format
 
 ## Success Criteria
 - Research materials are collected and organized

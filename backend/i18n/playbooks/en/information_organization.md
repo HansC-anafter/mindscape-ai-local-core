@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - semantic_seeds.extract_seeds
   - core_llm.structured_extract
 
@@ -92,6 +96,22 @@ If user has related Active Intent (e.g., "Build research knowledge base"), expli
 This playbook can work in conjunction with:
 - `research_synthesis` - Use synthesis results to organize knowledge base
 - `note_organization` - Similar process for learning notes
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Knowledge Base Document
+**Must** use `sandbox.write_file` tool to save knowledge base document (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `knowledge_base.md` (relative path, relative to sandbox root)
+- Content: Complete structured knowledge base, including all categories, tags, and information
+- Format: Markdown format
+
+#### Step 6.2: Save Taxonomy
+**Must** use `sandbox.write_file` tool to save taxonomy (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `taxonomy.md` (relative path, relative to sandbox root)
+- Content: Complete documentation of taxonomy and tagging system
+- Format: Markdown format
 
 ## Success Criteria
 - Scattered information is collected and organized

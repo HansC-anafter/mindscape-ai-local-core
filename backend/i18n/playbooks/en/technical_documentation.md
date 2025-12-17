@@ -18,6 +18,10 @@ visible_in:
   - workspace_playbook_menu
 
 required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
   - core_files.extract_text
   - core_llm.generate
 
@@ -96,6 +100,33 @@ If user has related Active Intent (e.g., "Complete API documentation"), explicit
 This playbook can work in conjunction with:
 - `code_review` - Use code review results to inform documentation priorities
 - `content_editing` - Edit and refine documentation after generation
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Technical Documentation
+**Must** use `sandbox.write_file` tool to save technical documentation (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `{project_name}_documentation.md` (relative path, relative to sandbox root)
+- Content: Complete technical documentation, including:
+  - API reference
+  - Architecture overview
+  - Configuration guide
+  - Troubleshooting guide
+- Format: Markdown format
+
+#### Step 6.2: Save Usage Examples
+**Must** use `sandbox.write_file` tool to save usage examples (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `{project_name}_examples.md` (relative path, relative to sandbox root)
+- Content: Code examples and usage scenarios
+- Format: Markdown format
+
+#### Step 6.3: Save API Reference (if applicable)
+If API reference documentation is generated, **must** use `sandbox.write_file` tool to save (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `api_reference.md` (relative path, relative to sandbox root)
+- Content: Complete API reference, including detailed descriptions of all functions, classes, and methods
+- Format: Markdown format
 
 ## Success Criteria
 - Code structure and functionality are analyzed
