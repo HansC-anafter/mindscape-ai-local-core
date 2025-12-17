@@ -5,7 +5,10 @@ Run this on service startup to ensure tables exist
 
 import os
 import logging
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 
 logger = logging.getLogger(__name__)
 
