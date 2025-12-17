@@ -62,12 +62,16 @@ export default function OutcomesPanel({
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100`);
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100`;
+      console.log('[OutcomesPanel] Loading artifacts from:', url);
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to load artifacts: ${response.statusText}`);
       }
       const data = await response.json();
-      const newArtifacts = data.artifacts || [];
+      console.log('[OutcomesPanel] API response data:', JSON.stringify(data, null, 2));
+      const newArtifacts = data.artifacts || data || [];
+      console.log('[OutcomesPanel] Loaded artifacts:', { count: newArtifacts.length, artifacts: newArtifacts });
 
       // Detect newly added artifacts (compare before and after lists)
       if (previousArtifactsRef.current.length > 0) {
@@ -302,12 +306,15 @@ export default function OutcomesPanel({
   }
 
   if (artifacts.length === 0) {
+    console.log('[OutcomesPanel] No artifacts to display, showing empty state');
     return (
       <div className="flex items-center justify-center h-full px-2">
         <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes') || '尚無成果'}</div>
       </div>
     );
   }
+
+  console.log('[OutcomesPanel] Rendering', artifacts.length, 'artifacts');
 
   return (
     <>
@@ -328,12 +335,73 @@ export default function OutcomesPanel({
       <div className="h-full overflow-y-auto p-2 space-y-2">
         {artifacts.map((artifact) => {
           const isHighlighted = highlightedArtifactIds.has(artifact.id);
+          // Extract filePath from multiple possible sources: file_path (API response), storage_ref, or content
+          const filePath = (artifact as any).file_path || artifact.storage_ref || (artifact.content && typeof artifact.content === 'object' ? (artifact.content.file_path || artifact.content.file_name) : null) || null;
+          const fileName = (artifact.content && typeof artifact.content === 'object' && artifact.content.file_name) ? artifact.content.file_name : artifact.title;
+          // Extract execution_id from metadata if not directly available
+          const executionId = (artifact as any).execution_id || (artifact.metadata && (artifact.metadata as any).execution_id) || (artifact.metadata && (artifact.metadata as any).navigate_to) || null;
+          const createdDate = new Date(artifact.created_at);
+          const formattedDate = createdDate.toLocaleString('zh-TW', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+
+          // Debug: Log to verify code execution
+          console.log('[OutcomesPanel] Rendering artifact:', {
+            id: artifact.id,
+            fileName,
+            playbook_code: artifact.playbook_code,
+            formattedDate,
+            filePath,
+            execution_id: executionId
+          });
+
+          const handleFileClick = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            // Priority: 1. Open sandbox if execution_id exists, 2. Open artifact detail, 3. Download file
+            if (executionId) {
+              // Open sandbox/execution detail page
+              window.open(`/workspaces/${workspaceId}/executions/${executionId}`, '_blank');
+            } else if (onArtifactClick) {
+              // Open artifact detail dialog
+              onArtifactClick(artifact);
+            } else if (filePath) {
+              // Last resort: download file
+              const fileUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/file`;
+              window.open(fileUrl, '_blank');
+            }
+          };
+
+          const handleSandboxClick = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            // Try to find sandbox from execution_id or file path
+            if (executionId) {
+              // Navigate to execution detail page which should show sandbox
+              window.open(`/workspaces/${workspaceId}/executions/${executionId}`, '_blank');
+            } else if (filePath) {
+              // Extract sandbox ID from file path if available
+              // Format: workspace/{workspaceId}/sandboxes/{sandboxId}/...
+              const sandboxMatch = filePath.match(/sandboxes\/([^\/]+)/);
+              if (sandboxMatch) {
+                const sandboxId = sandboxMatch[1];
+                window.open(`/workspaces/${workspaceId}/executions?sandbox=${sandboxId}`, '_blank');
+              } else {
+                // If no sandbox ID, open artifact detail
+                handleFileClick(e);
+              }
+            } else {
+              // Fallback: open artifact detail
+              handleFileClick(e);
+            }
+          };
+
           return (
           <div
             key={artifact.id}
-            onClick={() => handleArtifactClick(artifact)}
             className={`
-              bg-white dark:bg-gray-800 border rounded-lg p-3 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all cursor-pointer
+              bg-white dark:bg-gray-800 border rounded-lg p-2.5 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all
               ${isHighlighted
                 ? 'border-blue-400 dark:border-blue-500 shadow-lg bg-blue-50 dark:bg-blue-900/20 animate-pulse'
                 : 'border-gray-200 dark:border-gray-700'
@@ -343,52 +411,45 @@ export default function OutcomesPanel({
               animation: 'fadeInHighlight 0.5s ease-in-out'
             } : undefined}
           >
-          {/* Header */}
-          <div className="flex items-start gap-1.5 mb-1">
-            <span className="text-lg flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
+          {/* First Row: File Name (Clickable) */}
+          <div
+            onClick={handleFileClick}
+            className="flex items-center gap-2 mb-1 cursor-pointer group"
+          >
+            <span className="text-base flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
             <div className="flex-1 min-w-0">
-              <h4 className="font-semibold text-xs text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h4>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{artifact.summary}</p>
+              <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                {fileName}
+              </div>
             </div>
-          </div>
-
-          {/* Meta Info */}
-          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-500 mb-1">
-            <span>{artifact.playbook_code}</span>
-            <span>•</span>
-            <span>{new Date(artifact.created_at).toLocaleDateString('zh-TW')}</span>
-            {artifact.intent_id && (
-              <>
-                <span>•</span>
-                <span className="text-blue-500 dark:text-blue-400">{t('sourceIntent') || '來源 Intent'}</span>
-              </>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-1.5 mt-1">
-            {artifact.primary_action_type === 'copy' && (
+            {artifact.primary_action_type === 'download' && filePath && (
               <button
-                onClick={(e) => handleCopy(artifact, e)}
-                className="px-1.5 py-0.5 text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenExternal(artifact, e);
+                }}
+                className="px-2 py-0.5 text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors flex-shrink-0"
+                title="下載檔案"
               >
-                {t('copy') || '複製'}
+                <span>⬇</span>
               </button>
             )}
-            {artifact.primary_action_type === 'open_external' && (
+          </div>
+
+          {/* Second Row: Playbook & Time (Secondary Info) */}
+          <div className="flex items-center justify-between text-[10px] text-gray-400 dark:text-gray-500">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <span className="truncate">{artifact.playbook_code}</span>
+              <span>•</span>
+              <span className="flex-shrink-0">{formattedDate}</span>
+            </div>
+            {(filePath || executionId) && (
               <button
-                onClick={(e) => handleOpenExternal(artifact, e)}
-                className="px-1.5 py-0.5 text-[10px] bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
+                onClick={handleSandboxClick}
+                className="text-[10px] text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 hover:underline flex-shrink-0 ml-2 px-1 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                title="在 Sandbox 中查看"
               >
-                {t('open') || '開啟'}
-              </button>
-            )}
-            {artifact.primary_action_type === 'download' && (
-              <button
-                onClick={(e) => handleOpenExternal(artifact, e)}
-                className="px-1.5 py-0.5 text-[10px] bg-gray-50 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-800/40 transition-colors"
-              >
-                {t('download') || '下載'}
+                <span className="mr-0.5">📁</span> Sandbox
               </button>
             )}
           </div>

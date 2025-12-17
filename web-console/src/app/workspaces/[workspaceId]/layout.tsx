@@ -5,6 +5,7 @@ import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
 import Header from '../../../components/Header';
 import UpdateBanner from '../../../components/sync/UpdateBanner';
+import BrandNavigation from '../../../components/brand/BrandNavigation';
 
 interface WorkspaceLayoutProps {
   children: React.ReactNode;
@@ -16,6 +17,7 @@ interface WorkspaceLayoutProps {
  *
  * Provides dynamic left sidebar (dispatch center) and fixed right sidebar.
  * Left sidebar changes based on active playbook, right sidebar remains fixed.
+ * For brand workspaces, shows brand-specific navigation.
  */
 export default function WorkspaceLayout({
   children,
@@ -30,6 +32,7 @@ export default function WorkspaceLayout({
           <Header />
           <UpdateBanner clientVersion="1.0.0" />
           <div className="flex flex-1 overflow-hidden">
+            <BrandNavigation workspaceId={workspaceId} />
             <main className="flex-1 overflow-hidden">
               {children}
             </main>

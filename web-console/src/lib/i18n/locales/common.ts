@@ -272,6 +272,12 @@ export const commonEn = {
   noArtifactsYet: 'No artifacts yet',
   view: 'View',
   viewSandbox: 'View Sandbox',
+  loadingPreview: 'Loading preview...',
+  previewError: 'Preview Error',
+  portConflictMessage: 'Port conflict detected',
+  portConflictWarning: 'Port 3000 is in use, using alternative port',
+  usingPort: 'Using port',
+  noPreviewAvailable: 'No preview available',
 
   // Execution
   executionStartedButNoId: 'Execution started but failed to get execution ID',

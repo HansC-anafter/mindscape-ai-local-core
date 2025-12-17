@@ -7,3 +7,5 @@ export { default as ArtifactsList, type Artifact } from './ArtifactsList';
 export { default as ExecutionTree, type TreeStep } from './ExecutionTree';
 export { default as ThinkingTimeline, type TimelineEntry } from './ThinkingTimeline';
 export { default as AITeamPanel, type AITeamMember } from './AITeamPanel';
+export { default as ExecutionSidebar } from './ExecutionSidebar';
+export { default as ExecutionOverviewCard } from './ExecutionOverviewCard';

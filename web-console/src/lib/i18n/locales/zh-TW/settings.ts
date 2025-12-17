@@ -296,6 +296,8 @@ export const settingsZhTW = {
   testConnection: '測試連接',
   testFailedWithError: '測試失敗',
   modelConfiguration: '模型設定',
+  modelOverride: '模型覆寫 (進階)',
+  saveModelOverride: '儲存模型覆寫',
   modelOverrideDescription: '覆寫此特定模型的提供者設定 (通常不需要)',
   override: '覆寫',
   location: '位置',
@@ -589,6 +591,13 @@ export const settingsZhTW = {
   aboutCloudProvidersItem5: '您可以隨時停用提供商而不會遺失資料',
   aboutCloudProvidersItem6: '設定需要重啟服務才能生效',
   enterProviderId: '輸入提供商 ID（例如：provider_http_1）',
+  enterApiUrl: '輸入 API URL',
+  enterLicenseKey: '輸入您的授權金鑰',
+  enterProviderName: '輸入提供商名稱',
+  enterToken: '輸入 Bearer token',
+  apiUrlPlaceholder: 'https://api.cloud.mindscape.ai',
+  licenseKeyPlaceholder: '輸入您的授權金鑰',
+  providerNamePlaceholder: '我的自訂雲端',
   apiUrlPlaceholderGeneric: 'https://api.example.com',
 
   // SaaS integrations - imported from modular files

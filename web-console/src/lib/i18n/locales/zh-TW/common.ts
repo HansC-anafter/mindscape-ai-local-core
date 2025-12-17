@@ -135,8 +135,11 @@ export const commonZhTW = {
 
   // Sidebar Tabs
   tabScheduling: '調度',
+  tabSchedulingSubtitle: '任務 & 執行',
   tabOutcomes: '成果',
-  tabBackgroundTasks: '背景任務',
+  tabOutcomesSubtitle: '產出總覽',
+  tabBackgroundTasks: '思維',
+  tabBackgroundTasksSubtitle: '大綱 & 策略',
   backgroundTasksPanel: '背景任務面板',
   running: '執行中',
   pending: '等待中',
@@ -189,6 +192,7 @@ export const commonZhTW = {
   location: '位置',
   provider: '提供者',
   override: '覆蓋',
+  token: 'Token',
 
   // Sync
   updateRequired: '需要更新',

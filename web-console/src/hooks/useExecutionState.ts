@@ -538,7 +538,10 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         const eventsData = await eventsResponse.json();
         const executionPlanEvents = eventsData.events || [];
 
+        console.log('[useExecutionState] Loaded execution plan events:', executionPlanEvents.length);
+
         if (executionPlanEvents.length === 0) {
+          console.log('[useExecutionState] No execution plan events found');
           return;
         }
 
@@ -546,7 +549,15 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         const latestPlanEvent = executionPlanEvents[0];
         const planPayload = latestPlanEvent.payload;
 
+        console.log('[useExecutionState] Latest plan payload:', {
+          hasSteps: !!planPayload?.steps,
+          stepsCount: planPayload?.steps?.length || 0,
+          hasAiTeamMembers: !!planPayload?.ai_team_members,
+          aiTeamMembersCount: planPayload?.ai_team_members?.length || 0
+        });
+
         if (!planPayload || !planPayload.steps) {
+          console.log('[useExecutionState] No plan payload or steps found');
           return;
         }
 
@@ -577,16 +588,45 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         };
 
         // Check if there's a running execution to determine status
+        // Also collect AI team members from all running and recent playbook executions
         const executionsResponse = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=1&include_steps_for=active`
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=20&include_steps_for=all`
         );
 
         let isExecuting = false;
+        const runningPlaybookCodes = new Set<string>();
+        const recentPlaybookCodes = new Set<string>();
         if (executionsResponse.ok) {
           const execData = await executionsResponse.json();
-          const activeExecutions = (execData.executions || []).filter(
+          const allExecutions = execData.executions || [];
+          const activeExecutions = allExecutions.filter(
             (e: any) => e.status === 'running'
           );
+
+          // Collect playbook codes from all running executions
+          activeExecutions.forEach((execution: any) => {
+            const playbookCode = execution.playbook_code || execution.task?.execution_context?.playbook_code;
+            if (playbookCode) {
+              runningPlaybookCodes.add(playbookCode);
+            }
+          });
+
+          // Also collect playbook codes from recent executions (last 5, including completed)
+          // This ensures we show AI team even when executions are completed but still relevant
+          const recentExecutions = allExecutions
+            .filter((e: any) => {
+              const playbookCode = e.playbook_code || e.task?.execution_context?.playbook_code;
+              return playbookCode && playbookCode !== 'execution_status_query'; // Exclude system playbooks
+            })
+            .slice(0, 5);
+
+          recentExecutions.forEach((execution: any) => {
+            const playbookCode = execution.playbook_code || execution.task?.execution_context?.playbook_code;
+            if (playbookCode) {
+              recentPlaybookCodes.add(playbookCode);
+            }
+          });
+
           if (activeExecutions.length > 0) {
             isExecuting = true;
             timelineEntry.status = 'in_progress';
@@ -643,6 +683,70 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           ? Math.round(((completed + inProgressWeight) / trainSteps.length) * 100)
           : 0;
 
+        // Restore AI team members from plan payload
+        let aiTeamMembers = (planPayload.ai_team_members && planPayload.ai_team_members.length > 0)
+          ? planPayload.ai_team_members.map((m: any) => ({
+              id: m.pack_id || m.id,
+              name: m.name || m.pack_id,
+              name_zh: m.name_zh,
+              role: m.role || '',
+              icon: m.icon || '🤖',
+              status: 'pending' as const
+            }))
+          : [];
+
+        // Also collect AI team members from all running and recent playbook executions
+        // This ensures we show AI team even when the latest execution_plan doesn't have members
+        // Use recent playbook codes if no running ones (to show AI team from recent executions)
+        const playbookCodesToFetch = runningPlaybookCodes.size > 0 ? runningPlaybookCodes : recentPlaybookCodes;
+        if (playbookCodesToFetch.size > 0) {
+          try {
+            // Fetch AI team members for playbooks from backend API
+            const playbookCodesArray = Array.from(playbookCodesToFetch);
+            console.log('[useExecutionState] Fetching AI team members for playbooks:', {
+              running: Array.from(runningPlaybookCodes),
+              recent: Array.from(recentPlaybookCodes),
+              toFetch: playbookCodesArray
+            });
+
+            const membersResponse = await fetch(
+              `${apiUrl}/api/v1/workspaces/${workspaceId}/ai-team-members?playbook_codes=${playbookCodesArray.join(',')}`
+            );
+
+            if (membersResponse.ok) {
+              const membersData = await membersResponse.json();
+              const executionMembers = (membersData.members || []).map((m: any) => ({
+                id: m.pack_id || m.id,
+                name: m.name || m.pack_id,
+                name_zh: m.name_zh,
+                role: m.role || '',
+                icon: m.icon || '🤖',
+                status: 'in_progress' as const
+              }));
+
+              // Merge with existing members, avoiding duplicates
+              const existingIds = new Set(aiTeamMembers.map(m => m.id));
+              executionMembers.forEach(member => {
+                if (!existingIds.has(member.id)) {
+                  aiTeamMembers.push(member);
+                }
+              });
+
+              console.log('[useExecutionState] Added AI team members from running executions:', executionMembers.length);
+            }
+          } catch (err) {
+            console.warn('[useExecutionState] Failed to get AI team members from running executions:', err);
+          }
+        }
+
+        console.log('[useExecutionState] Restored AI team members:', {
+          fromPlan: planPayload.ai_team_members?.length || 0,
+          fromRunningExecutions: runningPlaybookCodes.size,
+          fromRecentExecutions: recentPlaybookCodes.size,
+          total: aiTeamMembers.length,
+          members: aiTeamMembers
+        });
+
         // Restore state
         setState(prev => ({
           ...prev,
@@ -652,6 +756,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           thinkingSummary: planPayload.plan_summary,
           overallProgress: calculatedProgress,
           isExecuting,
+          aiTeamMembers,
         }));
 
       } catch (err) {

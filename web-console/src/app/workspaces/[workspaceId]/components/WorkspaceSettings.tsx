@@ -8,6 +8,7 @@ import DataSourceOverlayPanel from './DataSourceOverlayPanel';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid';
 type ExecutionPriority = 'low' | 'medium' | 'high';
+type ProjectAssignmentMode = 'auto_silent' | 'assistive' | 'manual_first';
 
 interface Workspace {
   id: string;
@@ -18,6 +19,11 @@ interface Workspace {
   execution_mode?: ExecutionMode;
   expected_artifacts?: string[];
   execution_priority?: ExecutionPriority;
+  project_assignment_mode?: ProjectAssignmentMode;
+  playbook_auto_execution_config?: Record<string, {
+    auto_execute?: boolean;
+    confidence_threshold?: number;
+  }>;
 }
 
 interface WorkspaceSettingsProps {
@@ -39,6 +45,12 @@ const EXECUTION_PRIORITY_OPTIONS: { value: ExecutionPriority; label: string; des
   { value: 'high', label: '積極', description: '低門檻快速執行 (60%)' },
 ];
 
+const PROJECT_ASSIGNMENT_MODE_OPTIONS: { value: ProjectAssignmentMode; label: string; description: string }[] = [
+  { value: 'auto_silent', label: '自動歸類', description: '自動歸類，僅顯示標籤，除非很不確定' },
+  { value: 'assistive', label: '輔助確認', description: '自動歸類，中低信心時彈出確認提示' },
+  { value: 'manual_first', label: '手動選擇', description: '預設需手動選擇，AI 只當候選參考' },
+];
+
 const COMMON_ARTIFACTS = ['docx', 'pptx', 'xlsx', 'pdf', 'md', 'html'];
 
 export default function WorkspaceSettings({
@@ -57,11 +69,22 @@ export default function WorkspaceSettings({
   // Execution mode settings state
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('qa');
   const [executionPriority, setExecutionPriority] = useState<ExecutionPriority>('medium');
+  const [projectAssignmentMode, setProjectAssignmentMode] = useState<ProjectAssignmentMode>('auto_silent');
   const [expectedArtifacts, setExpectedArtifacts] = useState<string[]>([]);
   const [originalExecutionMode, setOriginalExecutionMode] = useState<ExecutionMode>('qa');
   const [originalExecutionPriority, setOriginalExecutionPriority] = useState<ExecutionPriority>('medium');
+  const [originalProjectAssignmentMode, setOriginalProjectAssignmentMode] = useState<ProjectAssignmentMode>('auto_silent');
   const [originalExpectedArtifacts, setOriginalExpectedArtifacts] = useState<string[]>([]);
   const [executionSettingsChanged, setExecutionSettingsChanged] = useState(false);
+
+  // Intent extraction auto-execution settings
+  const [intentExtractionAutoExecute, setIntentExtractionAutoExecute] = useState(false);
+  const [intentExtractionThreshold, setIntentExtractionThreshold] = useState(0.8);
+  const [originalIntentExtractionAutoExecute, setOriginalIntentExtractionAutoExecute] = useState(false);
+  const [originalIntentExtractionThreshold, setOriginalIntentExtractionThreshold] = useState(0.8);
+  const [savingIntentExtraction, setSavingIntentExtraction] = useState(false);
+  const [intentExtractionError, setIntentExtractionError] = useState<string | null>(null);
+  const [intentExtractionSuccess, setIntentExtractionSuccess] = useState(false);
 
   // UI state
   const [saving, setSaving] = useState(false);
@@ -86,14 +109,26 @@ export default function WorkspaceSettings({
       // Execution mode settings
       const mode = workspace.execution_mode || 'qa';
       const priority = workspace.execution_priority || 'medium';
+      const assignmentMode = workspace.project_assignment_mode || 'auto_silent';
       const artifacts = workspace.expected_artifacts || [];
       setExecutionMode(mode);
       setExecutionPriority(priority);
+      setProjectAssignmentMode(assignmentMode);
       setExpectedArtifacts(artifacts);
       setOriginalExecutionMode(mode);
       setOriginalExecutionPriority(priority);
+      setOriginalProjectAssignmentMode(assignmentMode);
       setOriginalExpectedArtifacts(artifacts);
       setExecutionSettingsChanged(false);
+
+      // Intent extraction auto-execution settings
+      const intentConfig = workspace.playbook_auto_execution_config?.intent_extraction;
+      const autoExecute = intentConfig?.auto_execute || false;
+      const threshold = intentConfig?.confidence_threshold || 0.8;
+      setIntentExtractionAutoExecute(autoExecute);
+      setIntentExtractionThreshold(threshold);
+      setOriginalIntentExtractionAutoExecute(autoExecute);
+      setOriginalIntentExtractionThreshold(threshold);
     }
   }, [workspace]);
 
@@ -108,9 +143,10 @@ export default function WorkspaceSettings({
     const changed =
       executionMode !== originalExecutionMode ||
       executionPriority !== originalExecutionPriority ||
+      projectAssignmentMode !== originalProjectAssignmentMode ||
       JSON.stringify(expectedArtifacts.sort()) !== JSON.stringify(originalExpectedArtifacts.sort());
     setExecutionSettingsChanged(changed);
-  }, [executionMode, executionPriority, expectedArtifacts, originalExecutionMode, originalExecutionPriority, originalExpectedArtifacts]);
+  }, [executionMode, executionPriority, projectAssignmentMode, expectedArtifacts, originalExecutionMode, originalExecutionPriority, originalProjectAssignmentMode, originalExpectedArtifacts]);
 
   const handleToggleArtifact = (artifact: string) => {
     setExpectedArtifacts(prev =>
@@ -132,6 +168,7 @@ export default function WorkspaceSettings({
         body: JSON.stringify({
           execution_mode: executionMode,
           execution_priority: executionPriority,
+          project_assignment_mode: projectAssignmentMode,
           expected_artifacts: expectedArtifacts,
         }),
       });
@@ -144,6 +181,7 @@ export default function WorkspaceSettings({
       const updated = await response.json();
       setOriginalExecutionMode(updated.execution_mode || 'qa');
       setOriginalExecutionPriority(updated.execution_priority || 'medium');
+      setOriginalProjectAssignmentMode(updated.project_assignment_mode || 'auto_silent');
       setOriginalExpectedArtifacts(updated.expected_artifacts || []);
       setExecutionSettingsChanged(false);
       setExecutionSuccess(true);
@@ -337,6 +375,132 @@ export default function WorkspaceSettings({
             </p>
           </div>
         )}
+
+        {/* Project Assignment Mode */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            專案歸類模式
+          </label>
+          <div className="flex gap-2">
+            {PROJECT_ASSIGNMENT_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setProjectAssignmentMode(option.value)}
+                className={`
+                  px-4 py-2 rounded-lg border text-sm transition-all
+                  ${projectAssignmentMode === option.value
+                    ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300'
+                  }
+                `}
+                title={option.description}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {PROJECT_ASSIGNMENT_MODE_OPTIONS.find(o => o.value === projectAssignmentMode)?.description}
+          </p>
+        </div>
+
+        {/* Intent Extraction Auto-Execution */}
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Intent 提取自動執行
+          </label>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="intent-extraction-auto-execute"
+                checked={intentExtractionAutoExecute}
+                onChange={(e) => setIntentExtractionAutoExecute(e.target.checked)}
+                className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+              />
+              <label htmlFor="intent-extraction-auto-execute" className="text-sm text-gray-700 dark:text-gray-300">
+                自動執行 Intent 提取（當信心度達到閾值時）
+              </label>
+            </div>
+            {intentExtractionAutoExecute && (
+              <div className="ml-7 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span>信心度閾值</span>
+                  <span className="text-purple-700 dark:text-purple-300 font-bold">
+                    {intentExtractionThreshold.toFixed(1)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={1.0}
+                  step={0.1}
+                  value={intentExtractionThreshold}
+                  onChange={(e) => setIntentExtractionThreshold(parseFloat(e.target.value))}
+                  className="w-full accent-purple-600"
+                />
+                <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500">
+                  {[0.5, 0.6, 0.7, 0.8, 0.9, 1.0].map(v => (
+                    <span key={v}>{v.toFixed(1)}</span>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  當 Intent 提取的信心度 ≥ {intentExtractionThreshold.toFixed(1)} 時，將自動執行而不需要手動確認
+                </p>
+              </div>
+            )}
+            <button
+              onClick={async () => {
+                setSavingIntentExtraction(true);
+                setIntentExtractionError(null);
+                setIntentExtractionSuccess(false);
+
+                try {
+                  const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/playbook-auto-exec-config`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      playbook_code: 'intent_extraction',
+                      auto_execute: intentExtractionAutoExecute,
+                      confidence_threshold: intentExtractionThreshold,
+                    }),
+                  });
+
+                  if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: 'Failed to update' }));
+                    throw new Error(errorData.detail || 'Failed to update intent extraction settings');
+                  }
+
+                  setOriginalIntentExtractionAutoExecute(intentExtractionAutoExecute);
+                  setOriginalIntentExtractionThreshold(intentExtractionThreshold);
+                  setIntentExtractionSuccess(true);
+                  setTimeout(() => setIntentExtractionSuccess(false), 3000);
+                  onUpdate?.();
+                } catch (err: any) {
+                  setIntentExtractionError(err.message || 'Failed to save settings');
+                } finally {
+                  setSavingIntentExtraction(false);
+                }
+              }}
+              disabled={savingIntentExtraction ||
+                (intentExtractionAutoExecute === originalIntentExtractionAutoExecute &&
+                 intentExtractionThreshold === originalIntentExtractionThreshold)}
+              className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              {savingIntentExtraction ? '儲存中...' : '儲存 Intent 提取設定'}
+            </button>
+            {intentExtractionError && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2">
+                <p className="text-xs text-red-700 dark:text-red-300">{intentExtractionError}</p>
+              </div>
+            )}
+            {intentExtractionSuccess && (
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2">
+                <p className="text-xs text-green-700 dark:text-green-300">Intent 提取設定已儲存</p>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Expected Artifacts */}
         <div>

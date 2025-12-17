@@ -122,6 +122,8 @@ export default function ExecutionChatPanel({
         );
 
         let currentStepStatus: string | null = null;
+        let currentStepRequiresConfirmation = false;
+        let currentStepConfirmationStatus: string | null = null;
         if (stepsResponse.ok) {
           const stepsData = await stepsResponse.json();
           const stepsArray = stepsData.steps || [];
@@ -131,6 +133,8 @@ export default function ExecutionChatPanel({
           const currentStep = stepsArray.find((s: any) => s.step_index === currentStepIndex + 1);
           if (currentStep) {
             currentStepStatus = currentStep.status;
+            currentStepRequiresConfirmation = currentStep.requires_confirmation === true;
+            currentStepConfirmationStatus = currentStep.confirmation_status || null;
           }
         }
 
@@ -146,7 +150,8 @@ export default function ExecutionChatPanel({
           execStatus === 'paused' ||
           pausedAt !== null ||
           pausedAtFromContext !== null ||
-          currentStepStatus === 'waiting_confirmation';
+          currentStepStatus === 'waiting_confirmation' ||
+          (currentStepRequiresConfirmation && currentStepConfirmationStatus === 'pending');
 
         setNeedsContinue(shouldContinue);
         setCurrentStepStatus(currentStepStatus);
@@ -155,6 +160,8 @@ export default function ExecutionChatPanel({
           executionId,
           execStatus,
           currentStepStatus,
+          currentStepRequiresConfirmation,
+          currentStepConfirmationStatus,
           pausedAt,
           pausedAtFromContext,
           needsContinue: shouldContinue,
@@ -185,6 +192,14 @@ export default function ExecutionChatPanel({
       apiUrl,
       timestamp: new Date().toISOString()
     });
+
+    // Skip if executionId is invalid
+    if (!executionId || executionId === 'undefined') {
+      console.log('[ExecutionChatPanel] ⚠️ Skipping load - invalid executionId:', executionId);
+      setIsLoading(false);
+      setMessages([]);
+      return;
+    }
 
     // Reset state when executionId changes
     console.log('[ExecutionChatPanel] Resetting state for executionId:', executionId);
@@ -307,10 +322,20 @@ export default function ExecutionChatPanel({
       if (update.type === 'execution_chat') {
         const newMessage = update.message as ExecutionChatMessage;
         setMessages(prev => {
-          // Check if message already exists
-          const exists = prev.some(m => m.id === newMessage.id);
+          // Check if message already exists (by id or by content for user messages)
+          const exists = prev.some(m => {
+            if (m.id === newMessage.id) return true;
+            // For user messages, also check by content and timestamp to avoid duplicates
+            if (m.role === 'user' && newMessage.role === 'user' &&
+                m.content === newMessage.content &&
+                Math.abs(new Date(m.created_at).getTime() - new Date(newMessage.created_at).getTime()) < 5000) {
+              return true;
+            }
+            return false;
+          });
+
           if (exists) {
-            // Update existing message (replace thinking placeholder)
+            // Update existing message (replace thinking placeholder or update user message)
             const updated = prev.map(m => {
               if (m.id === newMessage.id) {
                 // Remove thinking state when real message arrives
@@ -318,6 +343,13 @@ export default function ExecutionChatPanel({
                   setIsWaitingForReply(false);
                   thinkingMessageIdRef.current = null;
                 }
+                return newMessage;
+              }
+              // Also update user message if content matches (SSE returned the same user message)
+              if (m.role === 'user' && newMessage.role === 'user' &&
+                  m.content === newMessage.content &&
+                  Math.abs(new Date(m.created_at).getTime() - new Date(newMessage.created_at).getTime()) < 5000) {
+                // Use the server's version which has the correct id
                 return newMessage;
               }
               return m;
@@ -330,7 +362,7 @@ export default function ExecutionChatPanel({
             }, 10);
             return updated;
           } else {
-            // Add new message
+            // Add new message (from SSE)
             const updated = [...prev, newMessage].sort((a, b) =>
               new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             );
@@ -421,6 +453,35 @@ export default function ExecutionChatPanel({
     setInput('');
     setIsSending(true);
 
+    // Immediately add user message to UI for instant feedback
+    const userMessageId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const userMessage: ExecutionChatMessage = {
+      id: userMessageId,
+      execution_id: executionId,
+      role: 'user',
+      content: content,
+      message_type: 'question',
+      created_at: new Date().toISOString(),
+    };
+
+    setMessages(prev => {
+      const updated = [...prev, userMessage].sort((a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      return updated;
+    });
+
+    // Scroll to bottom immediately after adding user message
+    setUserScrolled(false);
+    setAutoScroll(true);
+    userScrolledRef.current = false;
+    autoScrollRef.current = true;
+    setTimeout(() => {
+      if (scrollToBottomRef.current) {
+        scrollToBottomRef.current(true, true);
+      }
+    }, 10);
+
     try {
       let response: Response;
 
@@ -461,7 +522,8 @@ export default function ExecutionChatPanel({
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Failed to send message:', response.status, errorText);
-        // Restore input on error
+        // Remove user message on error and restore input
+        setMessages(prev => prev.filter(m => m.id !== userMessageId));
         setInput(content);
         setIsWaitingForReply(false);
         if (thinkingMessageIdRef.current) {
@@ -471,8 +533,26 @@ export default function ExecutionChatPanel({
       } else {
         // Message sent successfully
         if (needsContinue) {
-          // For continue API, the response might contain execution result
-          // We'll rely on SSE stream for updates
+          // For continue API, add thinking placeholder to show LLM is processing
+          const thinkingId = `thinking-${Date.now()}`;
+          thinkingMessageIdRef.current = thinkingId;
+          const thinkingMessage: ExecutionChatMessage = {
+            id: thinkingId,
+            execution_id: executionId,
+            role: 'assistant',
+            content: t('aiThinking') || 'AI 正在思考...',
+            message_type: 'question',
+            created_at: new Date().toISOString(),
+          };
+
+          setMessages(prev => {
+            const updated = [...prev, thinkingMessage].sort((a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+            return updated;
+          });
+
+          setIsWaitingForReply(true);
           console.log('[ExecutionChatPanel] Continue request sent, waiting for execution updates via SSE');
         } else {
           // For chat API, add thinking placeholder
@@ -482,13 +562,12 @@ export default function ExecutionChatPanel({
             id: thinkingId,
             execution_id: executionId,
             role: 'assistant',
-            content: t('aiThinking'),
+            content: t('aiThinking') || 'AI 正在思考...',
             message_type: 'question',
             created_at: new Date().toISOString(),
           };
 
           setMessages(prev => {
-            // User message will be added by SSE, we just add thinking placeholder
             const updated = [...prev, thinkingMessage].sort((a, b) =>
               new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             );
@@ -498,11 +577,7 @@ export default function ExecutionChatPanel({
           setIsWaitingForReply(true);
         }
 
-        // Scroll to bottom immediately (instant, no smooth)
-        setUserScrolled(false);
-        setAutoScroll(true);
-        userScrolledRef.current = false;
-        autoScrollRef.current = true;
+        // Scroll to bottom after adding thinking message
         setTimeout(() => {
           if (scrollToBottomRef.current) {
             scrollToBottomRef.current(true, true);
@@ -511,7 +586,8 @@ export default function ExecutionChatPanel({
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      // Restore input on error
+      // Remove user message on error and restore input
+      setMessages(prev => prev.filter(m => m.id !== userMessageId));
       setInput(content);
     } finally {
       setIsSending(false);

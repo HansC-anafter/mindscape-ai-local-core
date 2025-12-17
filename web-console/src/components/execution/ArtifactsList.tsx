@@ -13,6 +13,7 @@ export interface Artifact {
 
 interface ArtifactsListProps {
   artifacts: Artifact[];
+  latestArtifact?: Artifact;
   onView?: (artifact: Artifact) => void;
   onDownload?: (artifact: Artifact) => void;
   onViewSandbox?: (sandboxId: string) => void;
@@ -39,6 +40,7 @@ function getTypeIcon(type: string): string {
 
 export default function ArtifactsList({
   artifacts,
+  latestArtifact,
   onView,
   onDownload,
   onViewSandbox,
@@ -47,27 +49,47 @@ export default function ArtifactsList({
   const t = useT();
 
   if (artifacts.length === 0) {
-    return (
-      <div className="artifacts-list mb-3">
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 flex items-center gap-1">
-            <span>{t('artifactsProduced')}</span>
-          </h4>
-        </div>
-        <div className="text-xs text-gray-400 dark:text-gray-500 italic">
-          {t('noArtifactsYet')}
-        </div>
-      </div>
-    );
+    // Don't render anything when there are no artifacts to save space
+    return null;
   }
 
   return (
     <div className="artifacts-list mb-3">
+      {/* Latest Artifact Highlight - Always visible when available */}
+      {latestArtifact && (
+        <div
+          className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/30 border-l-4 border-yellow-500 dark:border-yellow-400 rounded-r cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors shadow-sm"
+          onClick={() => onView?.(latestArtifact)}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-sm font-semibold text-yellow-700 dark:text-yellow-300 flex-shrink-0">
+                🆕 {t('latestArtifact') || 'Latest'} →
+              </span>
+              <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">
+                {latestArtifact.name}
+              </span>
+            </div>
+            <span className="text-xs text-yellow-600 dark:text-yellow-400 flex-shrink-0 ml-2">
+              {t('clickToView') || 'Click to view'}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <span>{t('artifactsProduced')}</span>
+          <span>📦 {t('stepArtifacts') || 'Step Artifacts'}</span>
           <span className="text-[10px] text-gray-400 ml-1">({artifacts.length})</span>
         </h4>
+        {onViewSandbox && sandboxId && (
+          <button
+            onClick={() => onViewSandbox(sandboxId)}
+            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            {t('viewInSandbox') || 'View in Sandbox'} →
+          </button>
+        )}
       </div>
 
       <div className="space-y-1">

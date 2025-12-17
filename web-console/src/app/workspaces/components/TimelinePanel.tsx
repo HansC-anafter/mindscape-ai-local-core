@@ -1046,32 +1046,49 @@ export default function TimelinePanel({
 
           const isSectionCollapsed = (section: string) => collapsedSections.has(section);
 
-          // If showArchivedOnly is true, only show archived section
+          // If showArchivedOnly is true, show OutcomesPanel first, then archived section
           if (showArchivedOnly) {
             return (
-              <div className="space-y-1">
-                <div
-                  className="text-xs font-semibold text-gray-500 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
-                  onClick={() => toggleSection('archived')}
-                >
-                  <span className="select-none">{isSectionCollapsed('archived') ? '▶' : '▼'}</span>
-                  <span>{t('timelineArchived')} {archivedExecutions.length > 0 && `(${archivedExecutions.length})`}</span>
+              <div className="space-y-4">
+                {/* Outcomes Section - Show OutcomesPanel first */}
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10">
+                    <span>{t('tabOutcomes') || '成果'}</span>
+                  </div>
+                  <div className="px-1">
+                    <OutcomesPanel
+                      workspaceId={workspaceId}
+                      apiUrl={apiUrl}
+                      onArtifactClick={onArtifactClick}
+                    />
+                  </div>
                 </div>
-                {!isSectionCollapsed('archived') && (
-                  archivedExecutions.length > 0 ? (
-                    archivedExecutions.map((execution) => (
-                      <ArchivedTimelineItem
-                        key={execution.execution_id}
-                        execution={execution}
-                        onOpenConsole={() => handleExecutionClick(execution.execution_id)}
-                      />
-                    ))
-                  ) : (
-                    <div className="text-xs text-gray-400 dark:text-gray-300 px-1 py-2 opacity-60">
-                      {t('noArchivedExecutions')}
-                    </div>
-                  )
-                )}
+
+                {/* Archived Executions Section - Show below Outcomes */}
+                <div className="space-y-1">
+                  <div
+                    className="text-xs font-semibold text-gray-500 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+                    onClick={() => toggleSection('archived')}
+                  >
+                    <span className="select-none">{isSectionCollapsed('archived') ? '▶' : '▼'}</span>
+                    <span>{t('timelineArchived')} {archivedExecutions.length > 0 && `(${archivedExecutions.length})`}</span>
+                  </div>
+                  {!isSectionCollapsed('archived') && (
+                    archivedExecutions.length > 0 ? (
+                      archivedExecutions.map((execution) => (
+                        <ArchivedTimelineItem
+                          key={execution.execution_id}
+                          execution={execution}
+                          onOpenConsole={() => handleExecutionClick(execution.execution_id)}
+                        />
+                      ))
+                    ) : (
+                      <div className="text-xs text-gray-400 dark:text-gray-300 px-1 py-2 opacity-60">
+                        {t('noArchivedExecutions')}
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             );
           }

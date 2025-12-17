@@ -118,8 +118,11 @@ export const commonJa = {
 
   // Sidebar Tabs
   tabScheduling: 'スケジュール',
+  tabSchedulingSubtitle: 'タスク & 実行',
   tabOutcomes: '成果',
-  tabBackgroundTasks: 'バックグラウンドタスク',
+  tabOutcomesSubtitle: '成果概要',
+  tabBackgroundTasks: '思考',
+  tabBackgroundTasksSubtitle: '概要 & 戦略',
   backgroundTasksPanel: 'バックグラウンドタスクパネル',
 
   // Copy actions

@@ -7,10 +7,10 @@ import { getSandbox, Sandbox } from '@/lib/sandbox-api';
 
 /**
  * Standalone Sandbox Page
- * 
+ *
  * Opens sandbox viewer in a dedicated page/window.
  * URL: /workspaces/[workspaceId]/sandbox/[sandboxId]
- * 
+ *
  * Benefits:
  * - Persists when switching playbooks
  * - Can be opened in new browser window
@@ -20,7 +20,7 @@ export default function SandboxPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
   const sandboxId = params.sandboxId as string;
-  
+
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

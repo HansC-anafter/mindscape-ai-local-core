@@ -60,13 +60,32 @@ export default function LeftSidebarTabs({
 
       {/* Tab Content - Scrollable */}
       <div className="flex-1 overflow-hidden min-h-0">
-        {activeTab === 'timeline'
-          ? timelineContent
-          : activeTab === 'outcomes'
-          ? outcomesContent
-          : backgroundContent || <div className="p-4 text-sm text-gray-500 dark:text-gray-400">{t('backgroundTasksPanel') || 'Background Tasks Panel'}</div>}
+        <div
+          className={`h-full ${activeTab === 'timeline' ? 'block' : 'hidden'}`}
+          aria-hidden={activeTab !== 'timeline'}
+          role="tabpanel"
+        >
+          {timelineContent}
+        </div>
+        <div
+          className={`h-full ${activeTab === 'outcomes' ? 'block' : 'hidden'}`}
+          aria-hidden={activeTab !== 'outcomes'}
+          role="tabpanel"
+        >
+          {outcomesContent}
+        </div>
+        <div
+          className={`h-full ${activeTab === 'background' ? 'block' : 'hidden'}`}
+          aria-hidden={activeTab !== 'background'}
+          role="tabpanel"
+        >
+          {backgroundContent || (
+            <div className="p-4 text-sm text-gray-500 dark:text-gray-400">
+              {t('backgroundTasksPanel') || 'Background Tasks Panel'}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-

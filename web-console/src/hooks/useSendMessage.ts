@@ -12,11 +12,12 @@ interface SendMessageOptions {
   confirm?: boolean;
   mode?: string;
   stream?: boolean;
+  project_id?: string;  // Current project ID
   onChunk?: (chunk: string) => void;
   onComplete?: (fullText: string, contextTokens?: number) => void;
 }
 
-export function useSendMessage(workspaceId: string, apiUrl: string = '') {
+export function useSendMessage(workspaceId: string, apiUrl: string = '', projectId?: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +35,23 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
       confirm,
       mode = 'auto',
       stream = false,
+      project_id,
       onChunk,
       onComplete
     } = options;
+
+    // Use project_id from options, fallback to hook parameter
+    const finalProjectId = project_id || projectId;
+
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[useSendMessage] Sending message with project_id:', {
+        project_id_from_options: project_id,
+        project_id_from_hook: projectId,
+        final_project_id: finalProjectId,
+        message_preview: message.substring(0, 50)
+      });
+    }
 
     setIsLoading(true);
     setError(null);
@@ -59,7 +74,8 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
               timeline_item_id,
               confirm,
               mode,
-              stream: true
+              stream: true,
+              project_id: finalProjectId  // Pass project_id to API
             })
           }
         );
@@ -97,11 +113,20 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                     onChunk(data.content);
                   }
                 } else if (data.type === 'complete') {
-                  const contextTokens = data.context_tokens;
-                  if (onComplete) {
-                    onComplete(fullText, contextTokens);
+                  // Only process final complete event (ignore quick_response_complete)
+                  if (data.is_final !== false) {  // is_final can be true or undefined (both mean final)
+                    const contextTokens = data.context_tokens;
+                    if (onComplete) {
+                      onComplete(fullText, contextTokens);
+                    }
+                    window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
                   }
-                  window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+                } else if (data.type === 'quick_response_complete') {
+                  // QuickQA response completed, but main response will continue
+                  // Don't call onComplete here - wait for final 'complete' event
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[useSendMessage] QuickQA response completed, waiting for main response...');
+                  }
                 } else if (data.type === 'task_update') {
                   // Notify frontend about task creation/update
                   if (process.env.NODE_ENV === 'development') {
@@ -118,7 +143,15 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
                   if (process.env.NODE_ENV === 'development') {
                     console.log('[useSendMessage] Received execution_results event:', data.executed_tasks?.length || 0, 'executed tasks,', data.suggestion_cards?.length || 0, 'suggestions');
                   }
+                  // Dispatch event to update task list
                   window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+                  // Dispatch event to add summary message to workspace chat
+                  window.dispatchEvent(new CustomEvent('execution-results-summary', {
+                    detail: {
+                      executed_tasks: data.executed_tasks || [],
+                      suggestion_cards: data.suggestion_cards || []
+                    }
+                  }));
                 } else if (data.type === 'playbook_triggered') {
                   // Notify frontend about playbook trigger result
                   if (process.env.NODE_ENV === 'development') {
@@ -340,7 +373,8 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
               action_params,
               timeline_item_id,
               confirm,
-              mode
+              mode,
+              project_id: finalProjectId  // Pass project_id to API
             })
           }
         );
@@ -373,7 +407,7 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '') {
       setIsLoading(false);
       throw err;
     }
-  }, [workspaceId, apiUrl]);
+  }, [workspaceId, apiUrl, projectId]);
 
   return {
     sendMessage,

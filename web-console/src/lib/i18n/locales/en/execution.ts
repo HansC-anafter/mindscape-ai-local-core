@@ -108,5 +108,8 @@ export const executionEn = {
   recommended: '(Recommended)',
   autoStart: 'Auto start: ',
   aiThinking: 'AI thinking...',
+  enterResponseToContinue: 'Enter response to continue execution...',
+  playbookWaitingForResponse: 'Playbook is waiting for your response',
+  sendMessageToContinue: 'Sending a message will continue execution to the next step.',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

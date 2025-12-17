@@ -52,16 +52,18 @@ export class MindscapeAPIClient {
 
     if (this.context.tags?.mode === 'cloud') {
       const token = this.getAuthToken();
+      const headersRecord = headers as Record<string, string>;
+
       if (token) {
-        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+        headersRecord['Authorization'] = `Bearer ${token}`;
       }
 
       if (this.context.tags.tenant_id) {
-        headers['X-Tenant-ID'] = this.context.tags.tenant_id;
+        headersRecord['X-Tenant-ID'] = this.context.tags.tenant_id;
       }
 
       if (this.context.tags.group_id) {
-        headers['X-Group-ID'] = this.context.tags.group_id;
+        headersRecord['X-Group-ID'] = this.context.tags.group_id;
       }
     }
 

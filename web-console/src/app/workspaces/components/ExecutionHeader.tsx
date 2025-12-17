@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { useT } from '@/lib/i18n';
+import { RunProvenanceChips, ExecutionProvenance } from './RunProvenanceChips';
+import { useParams } from 'next/navigation';
 
 interface ExecutionSession {
   execution_id: string;
@@ -13,11 +15,20 @@ interface ExecutionSession {
   started_at?: string;
   failure_type?: string;
   failure_reason?: string;
+  provenance?: ExecutionProvenance; // Web generation provenance data
 }
 
 interface ExecutionHeaderProps {
   execution: ExecutionSession;
   playbookTitle?: string;
+  workspaceName?: string;
+  projectName?: string;
+  executionRunNumber?: number;
+  stats?: {
+    concurrent: number;
+    waitingConfirmation: number;
+    completed: number;
+  };
   onRetry?: () => void;
   onStop?: () => void | Promise<void>;
   onEditPlaybook?: () => void;
@@ -27,12 +38,18 @@ interface ExecutionHeaderProps {
 export default function ExecutionHeader({
   execution,
   playbookTitle,
+  workspaceName,
+  projectName,
+  executionRunNumber,
+  stats,
   onRetry,
   onStop,
   onEditPlaybook,
   isStopping = false
 }: ExecutionHeaderProps) {
   const t = useT();
+  const params = useParams();
+  const workspaceId = params.workspaceId as string;
   const getStatusBadge = (status: string) => {
     if (!status) {
       return { label: t('executionStatusUnknown'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
@@ -82,8 +99,33 @@ export default function ExecutionHeader({
     }
   };
 
+  const displayRunNumber = executionRunNumber || parseInt(execution.execution_id.slice(-8), 16) % 10 + 1;
+
   return (
-    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-2">
+    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-3">
+      {/* Breadcrumb - Always show for navigation context */}
+      <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-2">
+        <span className="text-gray-500 dark:text-gray-500">Workspace</span>
+        <span className="text-gray-400 dark:text-gray-500">/</span>
+        <span className="text-gray-700 dark:text-gray-300">{workspaceName || '...'}</span>
+
+        {projectName && (
+          <>
+            <span className="text-gray-400 dark:text-gray-500">/</span>
+            <span className="text-gray-500 dark:text-gray-500">Project：</span>
+            <span className="text-gray-700 dark:text-gray-300">{projectName}</span>
+          </>
+        )}
+
+        <span className="text-gray-400 dark:text-gray-500">/</span>
+        <span className="text-gray-500 dark:text-gray-500">Playbook：</span>
+        <span className="text-gray-700 dark:text-gray-300">{playbookTitle || execution.playbook_code || '...'}</span>
+
+        <span className="text-gray-400 dark:text-gray-500">/</span>
+        <span className="text-gray-500 dark:text-gray-500">Execution</span>
+        <span className="text-gray-700 dark:text-gray-300 font-medium">#{displayRunNumber}</span>
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -118,31 +160,58 @@ export default function ExecutionHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 ml-4">
-          {execution.status === 'failed' && onRetry && (
-            <button
-              onClick={onRetry}
-              className="px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
-            >
-              {t('retry')}
-            </button>
-          )}
-          {execution.status === 'running' && onStop && (
-            <button
-              onClick={onStop}
-              disabled={isStopping}
-              className="px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              {isStopping ? (
-                <>
-                  <span className="inline-block w-3 h-3 border-2 border-red-700 dark:border-red-500 border-t-transparent rounded-full animate-spin"></span>
-                  <span>{t('stopping')}</span>
-                </>
-              ) : (
-                <span>{t('stop')}</span>
+        <div className="flex items-center gap-4 ml-4">
+          {/* Summary stats */}
+          {stats && (
+            <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
+              {stats.concurrent > 0 && (
+                <span className="flex items-center gap-1">
+                  <span>🔄</span>
+                  <span>{stats.concurrent} {t('concurrent') || 'concurrent'}</span>
+                </span>
               )}
-            </button>
+              {stats.waitingConfirmation > 0 && (
+                <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+                  <span>⏸️</span>
+                  <span>{stats.waitingConfirmation} {t('waitingConfirmation') || 'waiting confirmation'}</span>
+                </span>
+              )}
+              {stats.completed > 0 && (
+                <span className="flex items-center gap-1">
+                  <span>✅</span>
+                  <span>{stats.completed} {t('completed') || 'completed'}</span>
+                </span>
+              )}
+            </div>
           )}
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-1.5">
+            {execution.status === 'failed' && onRetry && (
+              <button
+                onClick={onRetry}
+                className="px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+              >
+                {t('retry')}
+              </button>
+            )}
+            {execution.status === 'running' && onStop && (
+              <button
+                onClick={onStop}
+                disabled={isStopping}
+                className="px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              >
+                {isStopping ? (
+                  <>
+                    <span className="inline-block w-3 h-3 border-2 border-red-700 dark:border-red-500 border-t-transparent rounded-full animate-spin"></span>
+                    <span>{t('stopping')}</span>
+                  </>
+                ) : (
+                  <span>{t('stop')}</span>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -152,6 +221,14 @@ export default function ExecutionHeader({
             <span className="font-medium">{t('errorLabel')}</span> {execution.failure_reason}
           </p>
         </div>
+      )}
+
+      {/* Web Generation Provenance */}
+      {execution.provenance && (
+        <RunProvenanceChips
+          provenance={execution.provenance}
+          workspaceId={workspaceId || ''}
+        />
       )}
     </div>
   );

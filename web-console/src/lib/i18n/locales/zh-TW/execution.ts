@@ -108,5 +108,8 @@ export const executionZhTW = {
   recommended: '（推薦）',
   autoStart: '自動開始：',
   aiThinking: 'AI 思考中...',
+  enterResponseToContinue: '輸入回應以繼續執行...',
+  playbookWaitingForResponse: 'Playbook 正在等待您的回應',
+  sendMessageToContinue: '發送消息將繼續執行下一步。',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

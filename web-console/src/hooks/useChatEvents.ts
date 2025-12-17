@@ -2,6 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+export interface ProjectAssignment {
+  project_id?: string;
+  phase_id?: string;
+  project_title?: string;
+  relation: string;
+  confidence: number;
+  reasoning?: string;
+  requires_ui_confirmation: boolean;
+  candidates?: Array<{
+    project_id?: string;
+    project?: any;
+    similarity?: number;
+  }>;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -22,6 +37,8 @@ export interface ChatMessage {
     part2: string;  // Executable Next Steps
     executable_tasks: string[];  // Extracted task list
   };
+  // Project Assignment support
+  project_assignment?: ProjectAssignment;
 }
 
 export function useChatEvents(workspaceId: string, apiUrl: string = '') {
@@ -88,6 +105,7 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
             status: e.payload.status || 'triggered',
             message: e.payload.message
           } : undefined,
+          project_assignment: e.metadata?.project_assignment || undefined,
           _originalEvent: e  // Store original event for metadata access
         }));
 

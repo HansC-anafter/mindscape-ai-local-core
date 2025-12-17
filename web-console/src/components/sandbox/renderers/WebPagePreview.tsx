@@ -1,7 +1,16 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { SandboxFileContent, listSandboxFiles, getSandboxFileContent } from '@/lib/sandbox-api';
+import {
+  SandboxFileContent,
+  listSandboxFiles,
+  getSandboxFileContent,
+  startPreviewServer,
+  stopPreviewServer,
+  getPreviewServerStatus,
+  PreviewServerStatus,
+} from '@/lib/sandbox-api';
+import { useT } from '@/lib/i18n';
 
 interface WebPagePreviewProps {
   workspaceId: string;
@@ -15,91 +24,118 @@ export default function WebPagePreview({
   version,
 }: WebPagePreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [portConflict, setPortConflict] = useState(false);
+  const [actualPort, setActualPort] = useState<number | null>(null);
+  const t = useT();
 
   useEffect(() => {
+    let isMounted = true;
+
     const loadPreview = async () => {
       try {
         setLoading(true);
         setError(null);
+        setPortConflict(false);
+        setActualPort(null);
 
-        const files = await listSandboxFiles(workspaceId, sandboxId, '', version);
-        const indexFile = files.find(f => f.path === 'pages/index.tsx' || f.path === 'index.tsx');
-
-        if (!indexFile) {
-          setError('No index file found');
-          setLoading(false);
+        const status = await getPreviewServerStatus(workspaceId, sandboxId);
+        if (status.running && status.url) {
+          if (isMounted) {
+            setPreviewUrl(status.url);
+            setActualPort(status.port);
+            setLoading(false);
+          }
           return;
         }
 
-        const indexContent = await getSandboxFileContent(
+        const result: PreviewServerStatus = await startPreviewServer(
           workspaceId,
           sandboxId,
-          indexFile.path,
-          version
+          3000
         );
 
-        if (!containerRef.current) return;
+        if (!isMounted) return;
 
-        const container = containerRef.current;
-        container.innerHTML = '';
-
-        const iframe = document.createElement('iframe');
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
-        iframe.style.border = 'none';
-
-        const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Web Page Preview</title>
-  <style>
-    body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module">
-    // React component code
-    ${indexContent.content}
-  </script>
-</body>
-</html>
-        `;
-
-        iframe.srcdoc = htmlContent;
-        container.appendChild(iframe);
+        if (result.success && result.url) {
+          setPreviewUrl(result.url);
+          setActualPort(result.port);
+          if (result.port_conflict) {
+            setPortConflict(true);
+          }
+        } else {
+          setError(result.error || 'Failed to start preview server');
+          if (result.port_conflict) {
+            setPortConflict(true);
+          }
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load preview');
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : 'Failed to load preview');
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     loadPreview();
+
+    return () => {
+      isMounted = false;
+      stopPreviewServer(workspaceId, sandboxId).catch(() => {
+        // Ignore errors when stopping
+      });
+    };
   }, [workspaceId, sandboxId, version]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500">Loading preview...</div>
+        <div className="text-sm text-gray-500">{t('loadingPreview')}</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-red-500">Error: {error}</div>
+      <div className="flex flex-col items-center justify-center h-full p-4">
+        <div className="text-sm text-red-500 mb-2">{t('previewError')}: {error}</div>
+        {portConflict && (
+          <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+            {t('portConflictMessage')} {actualPort && `(${t('usingPort')} ${actualPort})`}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (previewUrl) {
+    return (
+      <div className="web-page-preview h-full w-full flex flex-col">
+        {portConflict && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-2 text-xs text-yellow-800 dark:text-yellow-200">
+            {t('portConflictWarning')} {actualPort && `(${t('usingPort')} ${actualPort})`}
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          src={previewUrl}
+          className="flex-1 w-full border-0"
+          title="Web Page Preview"
+        />
       </div>
     );
   }
 
   return (
-    <div className="web-page-preview h-full w-full" ref={containerRef} />
+    <div className="flex items-center justify-center h-full">
+      <div className="text-sm text-gray-500">{t('noPreviewAvailable')}</div>
+    </div>
   );
 }
 

@@ -276,7 +276,7 @@ export interface EnsurePreviewResult {
 
 /**
  * Ensure preview is ready (one-click preview setup)
- * 
+ *
  * This is the main entry point for preview. It will:
  * 1. Find or create a web_page sandbox
  * 2. Sync workspace files to sandbox

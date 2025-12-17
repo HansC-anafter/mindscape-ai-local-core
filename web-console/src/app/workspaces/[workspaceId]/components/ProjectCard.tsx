@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Project } from '@/types/project';
 
 interface ProjectCardData {
@@ -32,6 +33,13 @@ interface ProjectCardData {
     stepName?: string;
     timestamp: string;
     metadata?: Record<string, any>;
+    projectId?: string;  // 添加 project 归属信息
+    projectName?: string;
+  }>;
+  playbooks?: Array<{
+    code: string;
+    name: string;
+    description: string;
   }>;
 }
 
@@ -114,6 +122,7 @@ export default function ProjectCard({
   onOpenExecution,
   apiUrl = ''
 }: ProjectCardProps) {
+  const router = useRouter();
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const [cardData, setCardData] = useState<ProjectCardData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -123,7 +132,9 @@ export default function ProjectCard({
   const handleToggleExpand = onToggleExpand || (() => setInternalExpanded(!internalExpanded));
 
   useEffect(() => {
-    if (!isExpanded || cardData || loadingRef.current || !apiUrl || !workspaceId) {
+    // Load data when component mounts or when project changes, not just when expanded
+    // This ensures statistics are visible even when card is collapsed
+    if (cardData || loadingRef.current || !apiUrl || !workspaceId) {
       return;
     }
 
@@ -181,7 +192,7 @@ export default function ProjectCard({
       controller.abort();
       loadingRef.current = false;
     };
-  }, [isExpanded, cardData, apiUrl, project.id, workspaceId]);
+  }, [cardData, apiUrl, project.id, workspaceId]);
 
   const handleOpenExecution = (executionId: string) => {
     if (onOpenExecution) {
@@ -342,24 +353,70 @@ export default function ProjectCard({
               載入中...
             </div>
           ) : cardData ? (
-            <div className="events-column w-full">
-              <div className="events-header text-[10px] font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                即時動態
-              </div>
-              <div className="events-list space-y-1 max-h-48 overflow-y-auto">
-                {cardData.recentEvents.length > 0 ? (
-                  cardData.recentEvents.slice(0, 5).map(event => (
-                    <EventItem
-                      key={event.id}
-                      event={event}
-                      onClick={() => handleOpenExecution(event.executionId)}
-                    />
-                  ))
-                ) : (
-                  <div className="text-[10px] text-gray-400 dark:text-gray-500 text-center py-4">
-                    尚無動態
+            <div className="events-column w-full space-y-4">
+              {/* Playbook List */}
+              {cardData.playbooks && cardData.playbooks.length > 0 && (
+                <div className="mb-4">
+                  <div className="events-header text-[10px] font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Playbook 任務 ({cardData.playbooks.length})
                   </div>
-                )}
+                  <div className="space-y-1">
+                    {cardData.playbooks.map((playbook, index) => (
+                      <div
+                        key={playbook.code}
+                        className="flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded"
+                      >
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {index + 1}.
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-gray-900 dark:text-gray-100">
+                            {playbook.name}
+                          </div>
+                          {playbook.description && (
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                              {playbook.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Events */}
+              <div>
+                <div className="events-header text-[10px] font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                  即時動態
+                </div>
+                <div className="events-list space-y-1 max-h-48 overflow-y-auto">
+                  {(() => {
+                    // 过滤只显示属于当前 project 的 events
+                    const filteredEvents = cardData.recentEvents.filter(event => {
+                      // 如果 event 有 projectId，只显示匹配的
+                      if (event.projectId) {
+                        return event.projectId === project.id;
+                      }
+                      // 如果没有 projectId 信息，假设属于当前 project（向后兼容）
+                      return true;
+                    });
+
+                    return filteredEvents.length > 0 ? (
+                      filteredEvents.slice(0, 5).map(event => (
+                        <EventItem
+                          key={event.id}
+                          event={event}
+                          onClick={() => handleOpenExecution(event.executionId)}
+                        />
+                      ))
+                    ) : (
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 text-center py-4">
+                        尚無動態
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
           ) : (
@@ -372,30 +429,80 @@ export default function ProjectCard({
 
       <div className="px-3 pb-2 pt-1.5 border-t border-gray-200 dark:border-gray-700">
         <button
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation();
-            console.log('[ProjectCard] View button clicked', { cardData, onOpenExecution });
+            console.log('[ProjectCard] View button clicked', { cardData, onOpenExecution, project });
 
-            if (onOpenExecution && cardData) {
-              if (cardData.recentEvents && cardData.recentEvents.length > 0) {
-                for (const event of cardData.recentEvents) {
-                  if (event.executionId) {
-                    console.log('[ProjectCard] Found executionId:', event.executionId);
-                    onOpenExecution(event.executionId);
-                    return;
-                  }
+            // Try to find executionId from cardData events
+            let executionId: string | null = null;
+            if (cardData && cardData.recentEvents && cardData.recentEvents.length > 0) {
+              for (const event of cardData.recentEvents) {
+                if (event.executionId) {
+                  executionId = event.executionId;
+                  console.log('[ProjectCard] Found executionId from events:', executionId);
+                  break;
                 }
               }
-
-              console.log('[ProjectCard] No executionId found in events');
             }
 
+            // If we have executionId, navigate to execution page
+            if (executionId && onOpenExecution) {
+              onOpenExecution(executionId);
+              return;
+            }
+
+            // If no executionId, try to fetch executions for this project
+            if (!executionId && workspaceId && apiUrl) {
+              try {
+                console.log('[ProjectCard] No executionId in events, fetching project executions...');
+                const response = await fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${project.id}/execution-tree`
+                );
+                if (response.ok) {
+                  const data = await response.json();
+                  // Extract executions from playbookGroups
+                  const allExecutions: any[] = [];
+                  if (data.playbookGroups && Array.isArray(data.playbookGroups)) {
+                    data.playbookGroups.forEach((group: any) => {
+                      if (group.executions && Array.isArray(group.executions)) {
+                        allExecutions.push(...group.executions);
+                      }
+                    });
+                  }
+
+                  if (allExecutions.length > 0) {
+                    // Get the first running execution, or the most recent one
+                    const runningExecution = allExecutions.find((e: any) => e.status === 'running');
+                    const targetExecution = runningExecution || allExecutions[0];
+                    if (targetExecution && targetExecution.execution_id) {
+                      executionId = targetExecution.execution_id;
+                      console.log('[ProjectCard] Found executionId from API:', executionId);
+                      if (onOpenExecution) {
+                        onOpenExecution(executionId);
+                        return;
+                      }
+                    }
+                  }
+                }
+              } catch (err) {
+                console.error('[ProjectCard] Failed to fetch executions:', err);
+              }
+            }
+
+            // Fallback: if we still have no executionId, try to navigate to workspace page with project focus
+            if (!executionId && workspaceId) {
+              console.log('[ProjectCard] No execution found, navigating to workspace page');
+              router.push(`/workspaces/${workspaceId}?project_id=${project.id}`);
+              return;
+            }
+
+            // Last fallback: use onFocus if available
             if (onFocus) {
               console.log('[ProjectCard] Using onFocus fallback');
               onFocus();
             }
           }}
-          className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+          className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
         >
           查看 →
         </button>

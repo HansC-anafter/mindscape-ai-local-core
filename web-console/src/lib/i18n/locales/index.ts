@@ -51,6 +51,8 @@ import { systemEn } from './en/system';
 import { executionZhTW } from './zh-TW/execution';
 import { executionEn } from './en/execution';
 import { executionJa } from './ja/execution';
+import { workspaceZhTW } from './zh-TW/workspace';
+import { workspaceEn } from './en/workspace';
 
 /**
  * Merge multiple message objects into one
@@ -80,6 +82,7 @@ const mergeZhTW = {
   ...workbenchZhTW,
   ...systemZhTW,
   ...executionZhTW,
+  ...workspaceZhTW,
 } as const;
 
 /**
@@ -102,6 +105,7 @@ const mergeEn = {
   ...workbenchEn,
   ...systemEn,
   ...executionEn,
+  ...workspaceEn,
 } as const;
 
 /**

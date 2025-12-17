@@ -124,8 +124,11 @@ export const commonEn = {
 
   // Sidebar Tabs
   tabScheduling: 'Scheduling',
+  tabSchedulingSubtitle: 'Tasks & Execution',
   tabOutcomes: 'Outcomes',
-  tabBackgroundTasks: 'Background Tasks',
+  tabOutcomesSubtitle: 'Output Overview',
+  tabBackgroundTasks: 'Thinking',
+  tabBackgroundTasksSubtitle: 'Outline & Strategy',
   backgroundTasksPanel: 'Background Tasks Panel',
   running: 'Running',
   pending: 'Pending',
@@ -170,6 +173,7 @@ export const commonEn = {
   location: 'Location',
   provider: 'Provider',
   override: 'Override',
+  token: 'Token',
 
   // Sync
   updateRequired: 'Update Required',
@@ -209,5 +213,22 @@ export const commonEn = {
   manualMerge: 'Manual Merge',
   manualMergeDescription: 'Manually merge local and cloud changes',
   resolve: 'Resolve',
+
+  // Artifacts
+  artifactsProduced: 'Produced',
+  noArtifactsYet: 'No artifacts yet',
+  viewSandbox: 'View Sandbox',
+  loadingPreview: 'Loading preview...',
+  previewError: 'Preview Error',
+  portConflictMessage: 'Port conflict detected',
+  portConflictWarning: 'Port 3000 is in use, using alternative port',
+  usingPort: 'Using port',
+  noPreviewAvailable: 'No preview available',
+
+  // Execution
+  executionStartedButNoId: 'Execution started but failed to get execution ID',
+  restartExecutionFailed: 'Failed to restart execution',
+  restartExecutionFailedRetry: 'Failed to restart execution. Please try again.',
+  confirmRestartExecutionMessage: 'Are you sure you want to restart this execution? This will create a new execution and cancel the current one.',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

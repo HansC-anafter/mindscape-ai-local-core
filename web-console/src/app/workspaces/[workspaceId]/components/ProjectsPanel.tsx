@@ -16,25 +16,47 @@ export default function ProjectsPanel({
   apiUrl,
   onProjectSelect
 }: ProjectsPanelProps) {
-  const { projects, activeProjects, closedProjects, refreshProjects, isLoadingProjects } = useWorkspaceData();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+
+  // Provide safe defaults for projects arrays
+  const safeActiveProjects = projects.filter(p => p.state === 'open') || [];
+  const safeClosedProjects = projects.filter(p => p.state === 'closed' || p.state === 'archived') || [];
+
+  const refreshProjects = async () => {
+    setIsLoadingProjects(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/projects`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${response.status}`);
+      }
+      const data = await response.json();
+      setProjects(data.projects || []);
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+      setProjects([]);
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  };
 
   useEffect(() => {
     refreshProjects();
-  }, [workspaceId, refreshProjects]);
+  }, [workspaceId, apiUrl]);
 
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 py-2 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
         <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-          Projects ({activeProjects.length})
+          Projects ({safeActiveProjects.length})
         </div>
-        {closedProjects.length > 0 && (
+        {safeClosedProjects.length > 0 && (
           <button
             onClick={() => setShowClosed(!showClosed)}
             className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
           >
-            {showClosed ? 'Hide' : 'Show'} Closed ({closedProjects.length})
+            {showClosed ? 'Hide' : 'Show'} Closed ({safeClosedProjects.length})
           </button>
         )}
       </div>
@@ -44,12 +66,12 @@ export default function ProjectsPanel({
           <div className="text-xs text-gray-500 dark:text-gray-400">Loading...</div>
         ) : (
           <>
-            {activeProjects.length === 0 ? (
+            {safeActiveProjects.length === 0 ? (
               <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-8">
                 No active projects
               </div>
             ) : (
-              activeProjects.map(project => (
+              safeActiveProjects.map(project => (
                 <ProjectCard
                   key={project.id}
                   project={project}
@@ -58,12 +80,12 @@ export default function ProjectsPanel({
               ))
             )}
 
-            {showClosed && closedProjects.length > 0 && (
+            {showClosed && safeClosedProjects.length > 0 && (
               <>
                 <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mt-4 mb-2">
-                  Closed ({closedProjects.length})
+                  Closed ({safeClosedProjects.length})
                 </div>
-                {closedProjects.map(project => (
+                {safeClosedProjects.map(project => (
                   <ProjectCard
                     key={project.id}
                     project={project}
@@ -78,5 +100,12 @@ export default function ProjectsPanel({
     </div>
   );
 }
+
+
+
+
+
+
+
 
 

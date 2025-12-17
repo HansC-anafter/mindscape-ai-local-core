@@ -1,0 +1,1780 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { useT } from '@/lib/i18n';
+import { useExecutionStream } from '@/hooks/useExecutionStream';
+import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
+import ExecutionChatPanel from './ExecutionChatPanel';
+import ExecutionHeader from './ExecutionHeader';
+import StepTimelineWithDetails from './StepTimelineWithDetails';
+import PlaybookRevisionArea from './PlaybookRevisionArea';
+import WorkflowVisualization from './WorkflowVisualization';
+import ExecutionSummaryBar from './ExecutionSummaryBar';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import SandboxModal from '@/components/sandbox/SandboxModal';
+import { getSandboxByProject } from '@/lib/sandbox-api';
+import { ArtifactsList } from '@/components/execution';
+
+interface ExecutionSession {
+  execution_id: string;
+  workspace_id: string;
+  status: string;
+  playbook_code?: string;
+  playbook_version?: string;
+  trigger_source?: 'auto' | 'suggestion' | 'manual';
+  current_step_index: number;
+  total_steps: number;
+  paused_at?: string;
+  origin_intent_label?: string;
+  origin_intent_id?: string;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  failure_type?: string;
+  failure_reason?: string;
+  [key: string]: any;
+}
+
+interface ExecutionStep {
+  id: string;
+  execution_id: string;
+  step_index: number;
+  step_name: string;
+  total_steps?: number;  // Add total_steps field
+  status: string;
+  step_type: string;
+  agent_type?: string;
+  used_tools?: string[];
+  assigned_agent?: string;
+  collaborating_agents?: string[];
+  description?: string;
+  log_summary?: string;
+  requires_confirmation: boolean;
+  confirmation_prompt?: string;
+  confirmation_status?: string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+  failure_type?: string;
+  [key: string]: any;
+}
+
+interface AgentCollaboration {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  collaboration_type: string;
+  participants: string[];
+  topic: string;
+  discussion?: Array<{ agent: string; content: string; timestamp?: string }>;
+  status: string;
+  result?: Record<string, any>;
+  started_at?: string;
+  completed_at?: string;
+}
+
+interface ToolCall {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  tool_name: string;
+  tool_id?: string;
+  parameters?: Record<string, any>;
+  response?: Record<string, any>;
+  status: string;
+  error?: string;
+  duration_ms?: number;
+  factory_cluster?: string;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+interface StageResult {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  stage_name: string;
+  result_type: string;
+  content: Record<string, any>;
+  preview?: string;
+  requires_review: boolean;
+  review_status?: string;
+  artifact_id?: string;
+  created_at: string;
+}
+
+interface PlaybookMetadata {
+  playbook_code: string;
+  title?: string;
+  description?: string;
+  version?: string;
+  parameters?: Record<string, any>;
+  [key: string]: any;
+}
+
+interface ExecutionInspectorProps {
+  executionId: string;
+  workspaceId: string;
+  apiUrl: string;
+  onClose?: () => void;
+}
+
+export default function ExecutionInspector({
+  executionId,
+  workspaceId,
+  apiUrl,
+  onClose
+}: ExecutionInspectorProps) {
+  console.log('[ExecutionInspector] Component rendered with executionId:', executionId, 'last8:', executionId?.slice(-8));
+  const t = useT();
+  const [execution, setExecution] = useState<ExecutionSession | null>(null);
+  const [steps, setSteps] = useState<ExecutionStep[]>([]);
+  // step_index is 1-based (1, 2, 3, ...), so initialize to 1
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(1);
+  const [loading, setLoading] = useState(true);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [collaborations, setCollaborations] = useState<AgentCollaboration[]>([]);
+  const [stageResults, setStageResults] = useState<StageResult[]>([]);
+  const [playbookMetadata, setPlaybookMetadata] = useState<PlaybookMetadata | null>(null);
+  const [playbookStepDefinitions, setPlaybookStepDefinitions] = useState<Array<{
+    step_index: number;
+    step_name: string;
+    description?: string;
+    agent_type?: string;
+    used_tools?: string[];
+  }>>([]);
+  const [rightPanelTab, setRightPanelTab] = useState<'info' | 'chat'>('info');
+  const [duration, setDuration] = useState<string>('');
+  const [stepEvents, setStepEvents] = useState<Array<{
+    id: string;
+    type: 'step' | 'tool' | 'collaboration';
+    timestamp: Date;
+    agent?: string;
+    tool?: string;
+    content: string;
+  }>>([]);
+  const [workflowData, setWorkflowData] = useState<{
+    workflow_result?: any;
+    handoff_plan?: any;
+  } | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [sandboxId, setSandboxId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | undefined>();
+  const [projectName, setProjectName] = useState<string | undefined>();
+  const [executionStats, setExecutionStats] = useState<{
+    concurrent: number;
+    waitingConfirmation: number;
+    completed: number;
+  } | undefined>();
+  const [artifacts, setArtifacts] = useState<Array<{
+    id: string;
+    name: string;
+    type: string;
+    createdAt?: string;
+    url?: string;
+  }>>([]);
+  const [latestArtifact, setLatestArtifact] = useState<{
+    id: string;
+    name: string;
+    type: string;
+    createdAt?: string;
+    url?: string;
+  } | undefined>();
+
+  const workspaceData = useWorkspaceDataOptional();
+
+  // Reset all state when executionId changes to ensure UI updates immediately
+  useEffect(() => {
+    setExecution(null);
+    setSteps([]);
+    setCurrentStepIndex(1);
+    setLoading(true);
+    setToolCalls([]);
+    setCollaborations([]);
+    setStageResults([]);
+    setPlaybookMetadata(null);
+    setPlaybookStepDefinitions([]);
+    setStepEvents([]);
+    setWorkflowData(null);
+  }, [executionId]);
+
+  // Load execution details
+  useEffect(() => {
+    const loadExecution = async () => {
+      const currentExecutionId = executionId; // Capture executionId for logging
+      console.log('[ExecutionInspector] Loading execution for executionId:', currentExecutionId);
+
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${currentExecutionId}`
+        );
+        console.log('[ExecutionInspector] Execution fetch response status:', response.status, 'for executionId:', currentExecutionId);
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[ExecutionInspector] Loaded execution data:', {
+            executionId: data.execution_id,
+            last8: data.execution_id?.slice(-8),
+            status: data.status,
+            currentExecutionId
+          });
+
+          // Verify the loaded execution matches the requested executionId
+          if (data.execution_id !== currentExecutionId) {
+            console.error('[ExecutionInspector] Execution ID mismatch!', {
+              requested: currentExecutionId,
+              received: data.execution_id
+            });
+          }
+
+          setExecution(data);
+          // current_step_index is 0-based, convert to 1-based for display
+          const maxStepIndex = data.total_steps || ((data.current_step_index || 0) + 1);
+          const stepIndex0Based = data.current_step_index || 0;
+          const stepIndex1Based = stepIndex0Based + 1;
+          const validStepIndex = Math.min(Math.max(1, stepIndex1Based), maxStepIndex);
+          setCurrentStepIndex(validStepIndex);
+
+          // Extract project_id from execution
+          const execProjectId = data.project_id || data.execution_context?.project_id;
+          if (execProjectId) {
+            setProjectId(execProjectId);
+          }
+        } else {
+          console.error('[ExecutionInspector] Failed to load execution:', response.status, 'for executionId:', currentExecutionId);
+        }
+      } catch (err) {
+        console.error('[ExecutionInspector] Failed to load execution:', err, 'for executionId:', currentExecutionId);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (executionId) {
+      loadExecution();
+    } else {
+      console.log('[ExecutionInspector] No executionId provided, clearing execution state');
+      setExecution(null);
+      setLoading(false);
+    }
+  }, [executionId, workspaceId, apiUrl]);
+
+  // Load workspace name
+  useEffect(() => {
+    if (workspaceData?.workspace?.title) {
+      setWorkspaceName(workspaceData.workspace.title);
+    } else {
+      const loadWorkspace = async () => {
+        try {
+          const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setWorkspaceName(data.title || data.name);
+          }
+        } catch (err) {
+          console.error('Failed to load workspace:', err);
+        }
+      };
+      loadWorkspace();
+    }
+  }, [workspaceId, apiUrl, workspaceData]);
+
+  // Load project name
+  useEffect(() => {
+    if (!projectId) return;
+    const loadProject = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${projectId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setProjectName(data.name || data.title);
+        }
+      } catch (err) {
+        console.error('Failed to load project:', err);
+      }
+    };
+    loadProject();
+  }, [projectId, workspaceId, apiUrl]);
+
+  // Calculate execution stats
+  useEffect(() => {
+    if (!projectId) return;
+    const loadStats = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${projectId}/execution-tree`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          let concurrent = 0;
+          let waitingConfirmation = 0;
+          let completed = 0;
+
+          if (data.playbookGroups) {
+            data.playbookGroups.forEach((group: any) => {
+              if (group.executions) {
+                group.executions.forEach((exec: any) => {
+                  if (exec.status === 'running') {
+                    concurrent++;
+                  } else if (exec.status === 'paused' || exec.currentStep?.status === 'waiting_confirmation') {
+                    waitingConfirmation++;
+                  } else if (exec.status === 'completed' || exec.status === 'succeeded') {
+                    completed++;
+                  }
+                });
+              }
+            });
+          }
+
+          setExecutionStats({
+            concurrent,
+            waitingConfirmation,
+            completed
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load execution stats:', err);
+      }
+    };
+    loadStats();
+  }, [projectId, workspaceId, apiUrl]);
+
+  // Extract artifacts from stageResults and calculate latest artifact
+  useEffect(() => {
+    const extractedArtifacts: Array<{
+      id: string;
+      name: string;
+      type: string;
+      createdAt?: string;
+      url?: string;
+    }> = [];
+
+    stageResults.forEach((result) => {
+      // Try multiple sources for artifact data
+      const artifactId = result.artifact_id || result.id;
+      const artifactUrl = result.content?.url || result.content?.file_url ||
+                          result.content?.artifact_url || result.preview ||
+                          result.content?.path;
+      const artifactName = result.content?.filename || result.content?.name ||
+                           result.stage_name || result.id || 'Artifact';
+
+      // Include results that have either artifact_id, file content, or preview
+      if (artifactId || artifactUrl || result.preview) {
+        extractedArtifacts.push({
+          id: artifactId || `artifact-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: artifactName,
+          type: result.result_type || result.content?.type ||
+                (artifactName.includes('.') ? artifactName.split('.').pop() : 'file') || 'file',
+          createdAt: result.created_at,
+          url: artifactUrl
+        });
+      }
+    });
+
+    // Remove duplicates based on id
+    const uniqueArtifacts = Array.from(
+      new Map(extractedArtifacts.map(a => [a.id, a])).values()
+    );
+
+    setArtifacts(uniqueArtifacts);
+
+    if (uniqueArtifacts.length > 0) {
+      const sorted = [...uniqueArtifacts].sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
+      setLatestArtifact(sorted[0]);
+    } else {
+      setLatestArtifact(undefined);
+    }
+  }, [stageResults]);
+
+  // Load workflow data for multi-step workflows
+  useEffect(() => {
+    const loadWorkflowData = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/workflow`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.workflow_result || data.handoff_plan) {
+            setWorkflowData(data);
+          }
+        } else if (response.status === 404) {
+          setWorkflowData(null);
+        }
+      } catch (err) {
+        console.error('Failed to load workflow data:', err);
+        setWorkflowData(null);
+      }
+    };
+
+    if (executionId) {
+      loadWorkflowData();
+    }
+  }, [executionId, workspaceId, apiUrl]);
+
+  // Set default tab to 'chat' if playbook supports execution chat
+  useEffect(() => {
+    if (playbookMetadata?.supports_execution_chat) {
+      setRightPanelTab('chat');
+    }
+  }, [playbookMetadata?.supports_execution_chat]);
+
+  // Calculate and update duration
+  useEffect(() => {
+    if (!execution?.started_at) {
+      setDuration('');
+      return;
+    }
+
+    const updateDuration = () => {
+      const start = new Date(execution.started_at!);
+      // Use completed_at if execution is finished, otherwise use current time
+      const end = execution.completed_at
+        ? new Date(execution.completed_at)
+        : new Date();
+      const diffMs = end.getTime() - start.getTime();
+
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+      if (hours > 0) {
+        setDuration(`${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+      } else if (minutes > 0) {
+        setDuration(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      } else {
+        setDuration(`${seconds}s`);
+      }
+    };
+
+    updateDuration();
+
+    // Only poll if execution is still running
+    // If execution is completed (succeeded/failed), duration is fixed and doesn't need updates
+    if (execution.status === 'running') {
+      const interval = setInterval(updateDuration, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [execution?.started_at, execution?.status, execution?.completed_at]);
+
+  // Load playbook metadata (optional - endpoint may not exist yet)
+  useEffect(() => {
+    if (!execution?.playbook_code) return;
+
+    const loadPlaybookMetadata = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/playbooks/${execution.playbook_code}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setPlaybookMetadata(data);
+
+          // Extract step definitions from playbook if available
+          const stepDefs: Array<{
+            step_index: number;
+            step_name: string;
+            description?: string;
+            agent_type?: string;
+            used_tools?: string[];
+          }> = [];
+
+          try {
+            // Try to parse steps from various sources
+            let playbookSteps: any[] = [];
+
+            // First, try direct steps array in metadata or root
+            console.log('[ExecutionInspector] Playbook data structure:', {
+              hasSteps: Array.isArray(data.steps),
+              stepsLength: Array.isArray(data.steps) ? data.steps.length : 0,
+              hasMetadataSteps: Array.isArray(data.metadata?.steps),
+              metadataStepsLength: Array.isArray(data.metadata?.steps) ? data.metadata.steps.length : 0,
+              hasWorkflowSteps: Array.isArray(data.workflow?.steps),
+              workflowStepsLength: Array.isArray(data.workflow?.steps) ? data.workflow.steps.length : 0,
+              dataKeys: Object.keys(data),
+              firstStepSample: Array.isArray(data.steps) && data.steps.length > 0 ? data.steps[0] : null,
+              fullData: JSON.stringify(data, null, 2).substring(0, 2000) // Log first 2000 chars of full data
+            });
+
+            if (Array.isArray(data.steps) && data.steps.length > 0) {
+              playbookSteps = data.steps;
+              console.log('[ExecutionInspector] Using data.steps, count:', playbookSteps.length);
+            } else if (data.metadata?.steps && Array.isArray(data.metadata.steps) && data.metadata.steps.length > 0) {
+              playbookSteps = data.metadata.steps;
+              console.log('[ExecutionInspector] Using data.metadata.steps, count:', playbookSteps.length);
+            } else if (data.workflow?.steps && Array.isArray(data.workflow.steps) && data.workflow.steps.length > 0) {
+              playbookSteps = data.workflow.steps;
+              console.log('[ExecutionInspector] Using data.workflow.steps, count:', playbookSteps.length);
+            } else if (data.sop_content) {
+              // sop_content might be JSON string or Markdown text
+              // Only try JSON parse if it looks like JSON (starts with { or [)
+              const sopStr = typeof data.sop_content === 'string' ? data.sop_content.trim() : String(data.sop_content);
+              console.log('[ExecutionInspector] Checking sop_content, length:', sopStr.length, 'starts with:', sopStr.substring(0, 50));
+              if (sopStr.startsWith('{') || sopStr.startsWith('[')) {
+                try {
+                  const parsed = JSON.parse(sopStr);
+                  console.log('[ExecutionInspector] Parsed sop_content, keys:', Object.keys(parsed));
+                  if (parsed.steps && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+                    playbookSteps = parsed.steps;
+                    console.log('[ExecutionInspector] Found steps in sop_content, count:', playbookSteps.length);
+                  }
+                } catch (e) {
+                  // sop_content is not JSON, might be Markdown - skip it
+                  console.warn('[ExecutionInspector] sop_content is not JSON format, skipping:', e);
+                }
+              } else {
+                // sop_content is Markdown or other text format - try to extract steps from Markdown
+                console.log('[ExecutionInspector] sop_content is Markdown format, attempting to extract steps...');
+                try {
+                  // Try to extract steps from Markdown by looking for step patterns
+                  // Common patterns: "## Step", "### Step", "1.", "- Step", "步驟", etc.
+                  // Note: We skip sub-steps (lines starting with ".1:", ".2:", etc.)
+                  // All patterns must NOT match lines starting with "." (sub-steps)
+                  const stepPatterns = [
+                    // Match "## Step N: ..." but NOT "## Step N.M: ..." (avoid sub-steps with decimal numbering)
+                    /^##+\s+Step\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
+                    /^##+\s*步驟\s*(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,  // 步驟 1: ... (but not 1.1)
+                    /^###\s+Step\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
+                    /^(\d+)\.\s+Step\s+(\d+)[:：]?\s*(.+)$/gmi,  // 1. Step 2: ... (number at start, not ".")
+                    /^(\d+)\.\s*步驟\s*(\d+)[:：]?\s*(.+)$/gmi,  // 1. 步驟 2: ... (number at start, not ".")
+                    /^-\s+Step\s+(\d+)[:：]?\s*(.+)$/gmi,
+                    /^Step\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,  // Step 1: ... (without ##, but not 1.1)
+                    /^步驟\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,  // 步驟 1: ... (without ##, but not 1.1)
+                    /^##+\s+(\d+)\.\s*(.+)$/gmi,  // ## 1. ... (number after ##, not ".")
+                    /^##+\s+(.+)$/gmi,  // ## Main Step Title (any heading level 2+, but skip if it's a phase/header)
+                    /^[1-9]\d*\.\s+(.+)$/gmi  // 1. ... (number at start, not ".1" - requires digit 1-9 first to avoid matching ".1")
+                  ];
+
+                  const extractedSteps: Array<{ step_index: number; step_name: string; description?: string }> = [];
+                  const lines = sopStr.split('\n');
+
+                  for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+
+                    // Skip empty lines
+                    if (!line) continue;
+
+                    // CRITICAL: Skip ALL lines that start with "." (sub-steps like ".1:", ".2:", etc.)
+                    // These are sub-steps and should NEVER be treated as main steps
+                    // This check must happen BEFORE any regex matching
+                    if (line.startsWith('.')) {
+                      console.log(`[ExecutionInspector] Skipping sub-step line (starts with "."): "${line}"`);
+                      continue;
+                    }
+
+                    // Skip lines with format "#### Step X.Y: ..." (sub-steps with decimal numbering)
+                    // These are sub-steps and should NOT be treated as main steps
+                    if (/^####\s+Step\s+\d+\.\d+[:：]/.test(line)) {
+                      console.log(`[ExecutionInspector] Skipping sub-step line (#### Step X.Y format): "${line}"`);
+                      continue;
+                    }
+
+                    for (let pIdx = 0; pIdx < stepPatterns.length; pIdx++) {
+                      const pattern = stepPatterns[pIdx];
+                      pattern.lastIndex = 0; // Reset regex
+                      const match = pattern.exec(line);
+                      if (match) {
+                        console.log(`[ExecutionInspector] Pattern ${pIdx} matched line: "${line}", match:`, match);
+                        // Double-check: Skip if line starts with "." (sub-step)
+                        // This should never happen if the check above works, but adding as safety
+                        if (line.startsWith('.')) {
+                          console.log(`[ExecutionInspector] ERROR: Sub-step passed first check! Skipping: "${line}"`);
+                          continue;
+                        }
+
+                        // Skip Pattern 9 matches that are not actual steps (like "## Goal", "## Execution Steps", etc.)
+                        // BUT: "Phase X" should be treated as a main step!
+                        if (pIdx === 9) { // Pattern 9 is /^##+\s+(.+)$/gmi
+                          const title = match[1] || match[2] || '';
+                          // Skip common non-step headings, but KEEP "Phase X" as it's a main step
+                          if (/^(Goal|Execution Steps|Personalization|Integration|Success Criteria|Notes|Related Documentation)$/i.test(title)) {
+                            console.log(`[ExecutionInspector] Skipping non-step heading: "${line}"`);
+                            continue;
+                          }
+                          // If it's a Phase, extract the phase number as step_index
+                          const phaseMatch = title.match(/^Phase\s+(\d+)[:：]?\s*(.+)$/i);
+                          if (phaseMatch) {
+                            const phaseNumber = parseInt(phaseMatch[1], 10);
+                            const phaseName = phaseMatch[2] || title;
+                            console.log(`[ExecutionInspector] Found Phase ${phaseNumber}: "${phaseName}"`);
+
+                            // Try to get description from next few lines (until next Phase or main heading)
+                            let description = '';
+                            for (let j = i + 1; j < Math.min(i + 50, lines.length); j++) {
+                              const nextLine = lines[j].trim();
+                              // Stop at next Phase or main heading (## or ###)
+                              if (nextLine.match(/^###\s+Phase\s+\d+/i) ||
+                                  (nextLine.match(/^##+/) && !nextLine.match(/^####/))) {
+                                break;
+                              }
+                              // Include content lines (skip empty lines and sub-steps starting with ####)
+                              if (nextLine && !nextLine.match(/^####/)) {
+                                description += (description ? ' ' : '') + nextLine;
+                                // Limit description length
+                                if (description.length > 200) {
+                                  description = description.substring(0, 200) + '...';
+                                  break;
+                                }
+                              }
+                            }
+
+                            // Use phase number as step_index, but we'll re-index later
+                            extractedSteps.push({
+                              step_index: phaseNumber,
+                              step_name: phaseName.trim() || `Phase ${phaseNumber}`,
+                              description: description.trim()
+                            });
+                            continue; // Skip to next line, don't process this match further
+                          }
+                        }
+
+                        // Extract step index - could be in match[1] or match[2] depending on pattern
+                        const stepIndex = parseInt(match[1] || match[2] || '0', 10);
+
+                        // CRITICAL: If stepIndex was extracted from a line starting with ".", this is a bug
+                        // This should never happen if the check above works, but adding as safety
+                        if (line.startsWith('.')) {
+                          console.error(`[ExecutionInspector] CRITICAL BUG: Step index ${stepIndex} extracted from sub-step line: "${line}"`);
+                          continue;
+                        }
+
+                        // Extract step name - could be in match[2], match[3], or match[4] depending on pattern
+                        // For patterns like "1. Step 2: Name", match[1]=1, match[2]=2, match[3]=Name
+                        // For patterns like "## Step 1: Name", match[1]=1, match[2]=Name
+                        let stepName = '';
+                        if (match.length >= 4 && match[3]) {
+                          // Pattern with format "1. Step 2: Name" - name is in match[3]
+                          stepName = match[3];
+                        } else if (match.length >= 3 && match[2]) {
+                          // Pattern with format "## Step 1: Name" or "步驟 1: Name" - name is in match[2]
+                          // But check if match[2] is a number (step index) or text (step name)
+                          if (/^\d+$/.test(match[2])) {
+                            // match[2] is a number, so name might be in match[3] or use default
+                            stepName = match[3] || `Step ${stepIndex}`;
+                          } else {
+                            // match[2] is the step name
+                            stepName = match[2];
+                          }
+                        } else {
+                          // Fallback to default name
+                          stepName = `Step ${stepIndex}`;
+                        }
+
+                        if (stepIndex > 0) {
+                          // Try to get description from next few lines (including sub-steps)
+                          let description = '';
+                          for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
+                            const nextLine = lines[j].trim();
+                            // Stop at next main step (##, ###, numbered list, or another step pattern)
+                            if (nextLine.match(/^##+\s+(Step|步驟|Step|步驟)\s+\d+/i) ||
+                                nextLine.match(/^(\d+)\.\s+(Step|步驟)\s+\d+/i) ||
+                                (nextLine.match(/^##+/) && !nextLine.match(/^\.\d+/))) {
+                              break;
+                            }
+                            // Include sub-steps (lines starting with ".1:", ".2:", etc.) in description
+                            if (nextLine && (nextLine.match(/^\.\d+[:：]/) || !nextLine.match(/^##+|^###+/))) {
+                              description += (description ? ' ' : '') + nextLine;
+                            }
+                          }
+                          extractedSteps.push({
+                            step_index: stepIndex,
+                            step_name: stepName.trim() || `Step ${stepIndex}`,
+                            description: description.trim()
+                          });
+                          console.log(`[ExecutionInspector] Extracted step ${stepIndex} from Markdown: "${stepName.trim() || `Step ${stepIndex}`}"`);
+                          break;
+                        }
+                      }
+                    }
+                  }
+
+                  if (extractedSteps.length > 0) {
+                    // Re-index steps sequentially from 1, ignoring the original step_index from extraction
+                    // This ensures each step has a unique, sequential index
+                    console.log('[ExecutionInspector] Extracted steps from Markdown (before re-indexing):', extractedSteps.map(s => ({ step_index: s.step_index, step_name: s.step_name })));
+                    playbookSteps = extractedSteps.map((step, index) => ({
+                      id: `step_${index + 1}`,
+                      name: step.step_name,
+                      step_name: step.step_name,
+                      description: step.description,
+                      step_index: index + 1  // Re-index sequentially from 1
+                    }));
+                    console.log('[ExecutionInspector] Extracted', playbookSteps.length, 'steps from Markdown sop_content');
+                    console.log('[ExecutionInspector] Mapped playbookSteps:', playbookSteps.map(s => ({ step_index: s.step_index, step_name: s.step_name })));
+                  } else {
+                    console.warn('[ExecutionInspector] Could not extract steps from Markdown sop_content');
+                  }
+                } catch (e) {
+                  console.warn('[ExecutionInspector] Failed to extract steps from Markdown:', e);
+                }
+              }
+            }
+
+            // If still no steps found, try to check if there are any other fields that might contain step information
+            if (playbookSteps.length === 0) {
+              console.warn('[ExecutionInspector] No steps found in any expected location. Checking alternative fields...');
+              // Check for other possible step locations
+              if (data.definition?.steps && Array.isArray(data.definition.steps)) {
+                playbookSteps = data.definition.steps;
+                console.log('[ExecutionInspector] Found steps in data.definition.steps, count:', playbookSteps.length);
+              } else if (data.content?.steps && Array.isArray(data.content.steps)) {
+                playbookSteps = data.content.steps;
+                console.log('[ExecutionInspector] Found steps in data.content.steps, count:', playbookSteps.length);
+              }
+            }
+
+            // Extract step information from playbook structure
+            console.log('[ExecutionInspector] Processing playbookSteps:', playbookSteps.length, 'steps');
+            playbookSteps.forEach((step: any, index: number) => {
+              console.log('[ExecutionInspector] Processing step', index, ':', step);
+
+              // Extract description from inputs.text (contains the step instructions)
+              let description = '';
+              if (step.inputs?.text) {
+                // Format: "{{...}}\n\n{{...}}\n\n[Instruction text]"
+                // Split by double newlines and find the last part that doesn't contain template variables
+                const textParts = step.inputs.text.split('\n\n').map((p: string) => p.trim()).filter((p: string) => p);
+
+                // Find the last part without template variables (usually the instruction)
+                for (let i = textParts.length - 1; i >= 0; i--) {
+                  const part = textParts[i];
+                  if (part && !part.includes('{{') && part.length > 10) {
+                    description = part;
+                    break;
+                  }
+                }
+
+                // If no clean part found, use the last part anyway (might have templates but still useful)
+                if (!description && textParts.length > 0) {
+                  description = textParts[textParts.length - 1];
+                }
+              }
+
+              // Convert step ID to readable name (e.g., "understand_requirements" -> "Understand Requirements")
+              // Priority: step_name (from Markdown extraction) > name > step.id > title > default
+              const stepName = step.step_name
+                ? step.step_name
+                : (step.name
+                  ? step.name
+                  : (step.id && !step.id.startsWith('step_') // Only use step.id if it's not a generated ID like "step_1"
+                    ? step.id.split('_').map((word: string) =>
+                        word.charAt(0).toUpperCase() + word.slice(1)
+                      ).join(' ')
+                    : (step.title || `Step ${index + 1}`)));
+
+              stepDefs.push({
+                step_index: index + 1, // Convert to 1-based to match execution steps
+                step_name: stepName,
+                description: description || step.description || step.instructions || step.prompt || '',
+                agent_type: step.agent_type || step.agent,
+                used_tools: step.tool ? [step.tool] : (step.tools || step.used_tools || [])
+              });
+            });
+
+            console.log('[ExecutionInspector] Extracted stepDefs:', stepDefs.length, stepDefs);
+            console.log('[ExecutionInspector] stepDefs step_indices:', stepDefs.map(s => s.step_index));
+            console.log('[ExecutionInspector] stepDefs step_names (first 10):', stepDefs.slice(0, 10).map(s => s.step_name));
+
+            if (stepDefs.length > 0) {
+              console.log('[ExecutionInspector] Extracted step definitions:', stepDefs.length, 'steps');
+              console.log('[ExecutionInspector] Setting playbookStepDefinitions with', stepDefs.length, 'steps');
+              setPlaybookStepDefinitions(stepDefs);
+              console.log('[ExecutionInspector] playbookStepDefinitions state will be updated to:', stepDefs.length, 'steps');
+            } else {
+              console.warn('[ExecutionInspector] No step definitions extracted. Playbook data structure:', {
+                hasSteps: Array.isArray(data.steps),
+                hasMetadataSteps: Array.isArray(data.metadata?.steps),
+                hasWorkflowSteps: Array.isArray(data.workflow?.steps),
+                hasSopContent: !!data.sop_content,
+                sopContentType: typeof data.sop_content,
+                sopContentPreview: typeof data.sop_content === 'string' ? data.sop_content.substring(0, 50) : 'N/A',
+                dataKeys: Object.keys(data),
+                metadataKeys: data.metadata ? Object.keys(data.metadata) : [],
+                fullData: data
+              });
+              // Clear step definitions if none found (will use execution steps as fallback)
+              setPlaybookStepDefinitions([]);
+            }
+          } catch (e) {
+            console.warn('Failed to extract step definitions from playbook:', e);
+          }
+        } else if (response.status === 404) {
+          // Endpoint not implemented yet, use basic metadata from execution
+          setPlaybookMetadata({
+            playbook_code: execution.playbook_code || '',
+            version: execution.playbook_version || '1.0.0'
+          });
+        }
+      } catch (err) {
+        // Silently ignore errors, use basic metadata from execution
+        setPlaybookMetadata({
+          playbook_code: execution.playbook_code || '',
+          version: execution.playbook_version || '1.0.0'
+        });
+      }
+    };
+
+    if (execution?.playbook_code) {
+      loadPlaybookMetadata();
+    }
+  }, [execution?.playbook_code, execution?.playbook_version, apiUrl, executionId]);
+
+  // Load steps, tool calls, collaborations, and stage results
+  useEffect(() => {
+    const loadStepDetails = async () => {
+      try {
+        // Load steps
+        const stepsResponse = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps`
+        );
+        if (stepsResponse.ok) {
+          const stepsData = await stepsResponse.json();
+          const stepsArray = stepsData.steps || [];
+          const uniqueSteps = Array.from(
+            new Map(stepsArray.map((step: ExecutionStep) => [step.id, step])).values()
+          ) as ExecutionStep[];
+          uniqueSteps.sort((a, b) => a.step_index - b.step_index);
+          setSteps(uniqueSteps);
+          // Debug: Log steps and total_steps
+          console.log('[ExecutionInspector] Loaded steps:', uniqueSteps.length, 'steps');
+          if (uniqueSteps.length > 0) {
+            console.log('[ExecutionInspector] Step total_steps values:', uniqueSteps.map(s => ({ step_index: s.step_index, total_steps: (s as any).total_steps })));
+          }
+        } else {
+          console.error('[ExecutionInspector] Failed to load steps:', stepsResponse.status, stepsResponse.statusText);
+        }
+
+        // Load tool calls (optional - endpoint may not exist yet)
+        try {
+          const toolCallsResponse = await fetch(
+            `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/tool-calls`
+          );
+          if (toolCallsResponse.ok) {
+            const toolCallsData = await toolCallsResponse.json();
+            setToolCalls(toolCallsData.tool_calls || []);
+          } else if (toolCallsResponse.status === 404) {
+            // Endpoint not implemented yet, silently ignore
+            setToolCalls([]);
+          }
+        } catch (err) {
+          // Silently ignore errors for optional endpoints
+          setToolCalls([]);
+        }
+
+        // Load stage results (optional - endpoint may not exist yet)
+        try {
+          const stageResultsResponse = await fetch(
+            `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/stage-results`
+          );
+          if (stageResultsResponse.ok) {
+            const stageResultsData = await stageResultsResponse.json();
+            setStageResults(stageResultsData.stage_results || []);
+          } else if (stageResultsResponse.status === 404) {
+            // Endpoint not implemented yet, silently ignore
+            setStageResults([]);
+          }
+        } catch (err) {
+          // Silently ignore errors for optional endpoints
+          setStageResults([]);
+        }
+
+        // Load agent collaborations
+        try {
+          const eventsResponse = await fetch(
+            `${apiUrl}/api/v1/workspaces/${workspaceId}/events?event_types=AGENT_EXECUTION&execution_id=${executionId}&limit=100`
+          );
+          if (eventsResponse.ok) {
+            const eventsData = await eventsResponse.json();
+            const collaborationEvents = (eventsData.events || []).filter(
+              (e: any) => e.event_type === 'AGENT_EXECUTION' && e.payload?.is_agent_collaboration
+            );
+            setCollaborations(collaborationEvents.map((e: any) => ({
+              id: e.id,
+              execution_id: e.payload?.execution_id,
+              step_id: e.payload?.step_id,
+              collaboration_type: e.payload?.collaboration_type,
+              participants: e.payload?.participants || [],
+              topic: e.payload?.topic,
+              discussion: e.payload?.discussion || [],
+              status: e.payload?.status,
+              result: e.payload?.result,
+              started_at: e.payload?.started_at,
+              completed_at: e.payload?.completed_at
+            })));
+          }
+        } catch (err) {
+          console.warn('Failed to load agent collaborations:', err);
+        }
+      } catch (err) {
+        console.error('Failed to load step details:', err);
+      }
+    };
+
+    if (executionId) {
+      loadStepDetails();
+    }
+  }, [executionId, workspaceId, apiUrl]);
+
+  // Load sandbox for project
+  useEffect(() => {
+    const loadSandbox = async () => {
+      if (!projectId) {
+        setSandboxId(null);
+        return;
+      }
+
+      try {
+        const sandbox = await getSandboxByProject(workspaceId, projectId);
+        if (sandbox) {
+          setSandboxId(sandbox.sandbox_id);
+        } else {
+          setSandboxId(null);
+        }
+      } catch (err) {
+        console.error('Failed to load sandbox:', err);
+        setSandboxId(null);
+      }
+    };
+
+    if (projectId) {
+      loadSandbox();
+    }
+  }, [projectId, workspaceId]);
+
+  // Connect to SSE stream for real-time updates using unified stream manager
+  useExecutionStream(
+    executionId,
+    workspaceId,
+    apiUrl,
+    (update) => {
+      if (update.type === 'execution_update') {
+        setExecution(update.execution);
+        // current_step_index is 0-based, convert to 1-based for display
+        if (update.execution) {
+          const maxStepIndex = update.execution.total_steps || ((update.execution.current_step_index || 0) + 1);
+          const stepIndex0Based = update.execution.current_step_index || 0;
+          const stepIndex1Based = stepIndex0Based + 1;
+          const validStepIndex = Math.min(Math.max(1, stepIndex1Based), maxStepIndex);
+          setCurrentStepIndex(validStepIndex);
+        } else {
+          setCurrentStepIndex(1);
+        }
+      } else if (update.type === 'step_update') {
+        setSteps(prev => {
+          const index = prev.findIndex(s => s.id === update.step.id);
+          if (index >= 0) {
+            const updated = [...prev];
+            updated[index] = update.step;
+            // Remove duplicates and sort by step_index
+            const uniqueSteps = Array.from(
+              new Map(updated.map((step: ExecutionStep) => [step.id, step])).values()
+            );
+            uniqueSteps.sort((a, b) => a.step_index - b.step_index);
+            return uniqueSteps;
+          } else {
+            const newSteps = [...prev, update.step];
+            // Remove duplicates and sort by step_index
+            const uniqueSteps = Array.from(
+              new Map(newSteps.map((step: ExecutionStep) => [step.id, step])).values()
+            );
+            uniqueSteps.sort((a, b) => a.step_index - b.step_index);
+            return uniqueSteps;
+          }
+        });
+        // Add to step events if it's the current step (will be handled by useEffect below)
+      } else if (update.type === 'tool_call_update') {
+        // Add tool call event if it belongs to current step (will be handled by useEffect below)
+        setStepEvents(prev => {
+          // Check if event already exists to avoid duplicates
+          const exists = prev.some(e => e.id === update.tool_call?.id && e.type === 'tool');
+          if (exists) {
+            return prev;
+          }
+          const currentStep = steps.find(s => s.step_index === currentStepIndex);
+          if (update.tool_call && currentStep && update.tool_call.step_id === currentStep.id) {
+            return [...prev, {
+              id: update.tool_call.id,
+              type: 'tool',
+              timestamp: new Date(),
+              tool: update.tool_call.tool_name,
+              content: `Tool: ${update.tool_call.tool_name} completed, ${update.tool_call.summary || 'execution completed'}`
+            }];
+          }
+          return prev;
+        });
+      } else if (update.type === 'collaboration_update') {
+        // Add collaboration event if it belongs to current step (will be handled by useEffect below)
+        setStepEvents(prev => {
+          // Check if event already exists to avoid duplicates
+          const exists = prev.some(e => e.id === update.collaboration?.id && e.type === 'collaboration');
+          if (exists) {
+            return prev;
+          }
+          const currentStep = steps.find(s => s.step_index === currentStepIndex);
+          if (update.collaboration && currentStep && update.collaboration.step_id === currentStep.id) {
+            return [...prev, {
+              id: update.collaboration.id,
+              type: 'collaboration',
+              timestamp: new Date(),
+              agent: update.collaboration.participants?.[0] || 'Agent',
+              content: `Collaboration: ${update.collaboration.topic || 'Agent discussion'}`
+            }];
+          }
+          return prev;
+        });
+      } else if (update.type === 'execution_completed') {
+        window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+      }
+    }
+  );
+
+  const currentStep = steps.find(s => s.step_index === currentStepIndex);
+  const currentStepToolCalls = toolCalls.filter(tc => tc.step_id === currentStep?.id);
+  const currentStepCollaborations = collaborations.filter(c => c.step_id === currentStep?.id);
+  const currentStepStageResults = stageResults.filter(sr => sr.step_id === currentStep?.id);
+
+  // Filter step events for current step only
+  useEffect(() => {
+    if (currentStep) {
+      setStepEvents(prev => prev.filter(e => {
+        // Keep events that match current step context
+        if (e.type === 'step') {
+          const step = steps.find(s => s.id === e.id);
+          return step?.step_index === currentStepIndex;
+        } else if (e.type === 'tool') {
+          const toolCall = toolCalls.find(tc => tc.id === e.id);
+          return toolCall?.step_id === currentStep.id;
+        } else if (e.type === 'collaboration') {
+          const collab = collaborations.find(c => c.id === e.id);
+          return collab?.step_id === currentStep.id;
+        }
+        return false;
+      }));
+    }
+  }, [currentStepIndex, currentStep?.id, steps, toolCalls, collaborations]);
+
+  const getStepStatusIcon = (step: ExecutionStep) => {
+    const effectiveStatus = getEffectiveStepStatus(step);
+    switch (effectiveStatus) {
+      case 'completed':
+        return '✓';
+      case 'running':
+        return '⟳';
+      case 'waiting_confirmation':
+        return '⏸';
+      case 'failed':
+      case 'timeout':
+        return '✗';
+      default:
+        return '○';
+    }
+  };
+
+  const getEffectiveStepStatus = (step: ExecutionStep): string => {
+    if (execution?.status?.toLowerCase() === 'failed' && step.status === 'running') {
+      return 'timeout'; // Show timeout instead of running when execution failed
+    }
+    return step.status;
+  };
+
+  const getStepStatusColor = (step: ExecutionStep) => {
+    if (step.status === 'completed') return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700';
+    if (step.status === 'running') return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700';
+    if (step.status === 'waiting_confirmation') return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700';
+    if (step.status === 'failed') return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700';
+    return 'text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+  };
+
+  const getTriggerSourceBadge = (source?: string) => {
+    switch (source) {
+      case 'auto':
+        return { label: t('triggerSourceAuto'), color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700' };
+      case 'suggestion':
+        return { label: t('triggerSourceSuggested'), color: 'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 border-gray-400 dark:border-gray-600' };
+      case 'manual':
+        return { label: t('triggerSourceManual'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+      default:
+        return { label: t('triggerSourceUnknown'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+    }
+  };
+
+  const getAgentAvatar = (agentType: string) => {
+    const avatars: Record<string, string> = {
+      'researcher': '🔬',
+      'editor': '✍️',
+      'engineer': '⚙️',
+      'coordinator': '🎯',
+    };
+    return avatars[agentType] || '🤖';
+  };
+
+  const handleConfirm = async () => {
+    if (!currentStep) return;
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps/${currentStep.id}/confirm`,
+        { method: 'POST' }
+      );
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+        const execResponse = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+        );
+        if (execResponse.ok) {
+          const execData = await execResponse.json();
+          setExecution(execData);
+          // current_step_index is 0-based, convert to 1-based for display
+          setCurrentStepIndex((execData.current_step_index || 0) + 1);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to confirm step:', err);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!currentStep) return;
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps/${currentStep.id}/reject`,
+        { method: 'POST' }
+      );
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+        const execResponse = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+        );
+        if (execResponse.ok) {
+          const execData = await execResponse.json();
+          setExecution(execData);
+          // current_step_index is 0-based, convert to 1-based for display
+          setCurrentStepIndex((execData.current_step_index || 0) + 1);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to reject step:', err);
+    }
+  };
+
+  // Don't return early on loading - show layout with loading state in middle content
+
+  // Calculate total steps:
+  // Priority: playbookStepDefinitions.length > max step_index from steps > step.total_steps (from first step) > execution.total_steps > steps.length > 1
+  // Use playbook step definitions count as most authoritative source
+  // If not available, try to get total_steps from the first step (which might have this info)
+  // Also check the maximum step_index from executed steps to infer total steps
+  const stepTotalSteps = steps.length > 0 && (steps[0] as any).total_steps
+    ? (steps[0] as any).total_steps
+    : null;
+
+  // Find the maximum step_index from executed steps
+  const maxStepIndex = steps.length > 0
+    ? Math.max(...steps.map(s => s.step_index || 0))
+    : 0;
+
+  // Calculate totalSteps with priority:
+  // 1. playbookStepDefinitions.length (most authoritative if available)
+  // 2. maxStepIndex (from executed steps - indicates actual step count)
+  // 3. stepTotalSteps (from first step's total_steps field)
+  // 4. execution.total_steps
+  // 5. steps.length (fallback)
+  const totalSteps = playbookStepDefinitions.length > 0
+    ? playbookStepDefinitions.length
+    : (maxStepIndex > 0)
+    ? maxStepIndex
+    : (stepTotalSteps && stepTotalSteps > 0)
+    ? stepTotalSteps
+    : (execution && execution.total_steps && execution.total_steps > 0)
+    ? execution.total_steps
+    : (steps.length > 0 ? steps.length : 1);
+
+  // Debug: Log totalSteps calculation
+  console.log('[ExecutionInspector] totalSteps calculation:', {
+    playbookStepDefinitions_length: playbookStepDefinitions.length,
+    maxStepIndex: maxStepIndex,
+    stepTotalSteps: stepTotalSteps,
+    execution_total_steps: execution?.total_steps,
+    steps_length: steps.length,
+    step_indices: steps.map(s => s.step_index),
+    firstStepTotalSteps: steps.length > 0 ? (steps[0] as any).total_steps : null,
+    final_totalSteps: totalSteps,
+    execution_id: execution?.execution_id,
+    playbook_code: execution?.playbook_code
+  });
+  // current_step_index is 0-based, convert to 1-based for display
+  const currentStepIndexValid = execution
+    ? Math.min(Math.max(1, (execution.current_step_index ?? 0) + 1), Math.max(1, totalSteps))
+    : 1;
+  const progressPercentage = execution && totalSteps > 0
+    ? (currentStepIndexValid / totalSteps) * 100
+    : 0;
+
+  const triggerBadge = getTriggerSourceBadge(execution?.trigger_source);
+
+  // Extract errors from execution for RunOverview
+  const executionErrors = execution?.failure_reason
+    ? [{
+        timestamp: execution.completed_at || execution.started_at || new Date().toISOString(),
+        message: execution.failure_reason,
+        details: execution.failure_type ? { failure_type: execution.failure_type } : undefined
+      }]
+    : [];
+
+  const runNumber = parseInt(executionId.slice(-1), 16) % 10 + 1; // Simple run number calculation
+
+  return (
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
+      {/* Execution Header with Sandbox Button */}
+      {execution && (
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between px-6 py-2">
+            <div className="flex-1">
+              <ExecutionHeader
+                execution={{
+                  ...execution,
+                  total_steps: totalSteps // Use calculated totalSteps instead of execution.total_steps
+                }}
+                playbookTitle={playbookMetadata?.title || playbookMetadata?.playbook_code}
+                workspaceName={workspaceName}
+                projectName={projectName}
+                executionRunNumber={parseInt(executionId.slice(-1), 16) % 10 + 1}
+                stats={executionStats}
+                onRetry={execution.status === 'failed' ? () => {
+                  // TODO: Implement retry functionality
+                } : undefined}
+                isStopping={isStopping}
+                onStop={execution.status === 'running' ? async () => {
+            if (isStopping) return;
+            setIsStopping(true);
+            try {
+              const response = await fetch(
+                `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/cancel`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                }
+              );
+              if (response.ok) {
+                const result = await response.json();
+                // Reload execution to get updated status
+                const execResponse = await fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
+                );
+                if (execResponse.ok) {
+                  const execData = await execResponse.json();
+                  setExecution(execData);
+                }
+              } else {
+                const errorData = await response.json().catch(() => ({ detail: 'Failed to cancel execution' }));
+                console.error('Failed to cancel execution:', errorData);
+                alert(errorData.detail || 'Failed to cancel execution');
+              }
+            } catch (error) {
+              console.error('Error cancelling execution:', error);
+              alert('Failed to cancel execution. Please try again.');
+            } finally {
+              setIsStopping(false);
+            }
+          } : undefined}
+          onReloadPlaybook={async () => {
+            if (!execution?.playbook_code) return;
+            setIsReloading(true);
+            try {
+              const response = await fetch(
+                `${apiUrl}/api/v1/playbooks/${execution.playbook_code}/reload?locale=zh-TW`,
+                { method: 'POST' }
+              );
+              if (response.ok) {
+                window.dispatchEvent(new CustomEvent('playbook-reloaded', {
+                  detail: { playbookCode: execution.playbook_code }
+                }));
+                // Reload the page to reflect changes
+                window.location.reload();
+              } else {
+                const error = await response.json().catch(() => ({ detail: 'Failed to reload playbook' }));
+                alert(error.detail || 'Failed to reload playbook');
+              }
+            } catch (error) {
+              console.error('Error reloading playbook:', error);
+              alert('Failed to reload playbook. Please try again.');
+            } finally {
+              setIsReloading(false);
+            }
+          }}
+          onRestartExecution={async () => {
+            if (!execution?.playbook_code || !executionId) return;
+
+            // Show confirmation dialog
+            setShowRestartConfirm(true);
+          }}
+              />
+            </div>
+            {sandboxId && (
+              <button
+                onClick={() => setShowSandboxModal(true)}
+                className="ml-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                title={t('viewSandbox') || 'View Sandbox'}
+              >
+                {t('viewSandbox') || 'View Sandbox'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area - No left sidebar here, it's in the workspace page left sidebar */}
+      <div className="flex-1 flex flex-row overflow-hidden">
+        {/* Middle Content Area */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-500"></div>
+            </div>
+          ) : (
+            <>
+              {/* Execution Main Area with New Layout */}
+              <div className="execution-main grid grid-rows-[auto,minmax(0,1fr)] gap-0 h-full flex-1 overflow-hidden">
+                {/* Execution Summary Bar - Lightweight, one-line summary */}
+                <ExecutionSummaryBar
+              playbookCode={execution?.playbook_code}
+              revisionPatches={[]}
+              aiSummary={execution?.status === 'failed' && execution.failure_reason
+                ? t('thisExecutionFailed', { reason: execution.failure_reason })
+                : undefined}
+              outputCount={artifacts.length}
+              expectedOutputCount={0}
+              onOpenInsights={() => {
+                // TODO: Open insights drawer/modal
+              }}
+              onOpenDrafts={() => {
+                // TODO: Open drafts drawer/modal
+              }}
+              onOpenOutputs={() => {
+                // TODO: Open outputs drawer/modal - could scroll to artifacts section
+              }}
+                />
+
+                {/* Steps Timeline & Current Step Details - Main Work Area */}
+                <div className="grid grid-cols-[280px,minmax(0,1fr)] gap-0 overflow-hidden bg-gray-50 dark:bg-gray-950 h-full">
+              {workflowData && workflowData.workflow_result && workflowData.handoff_plan ? (
+                <div className="col-span-2 h-full overflow-y-auto p-3">
+                  <WorkflowVisualization
+                    workflowResult={workflowData.workflow_result}
+                    handoffPlan={workflowData.handoff_plan}
+                    executionId={executionId}
+                  />
+                </div>
+              ) : (
+                <>
+                  {/* Left: Steps Timeline - Directly in grid column 1 */}
+                  <div className="h-full overflow-y-auto bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-3">
+                    <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('stepsTimeline')}</h3>
+                    <div className="space-y-1.5">
+                      {(() => {
+                        // Generate allSteps from playbookSteps or totalSteps
+                        const allSteps: Array<{ step_index: number; step_name: string; description?: string; executed?: ExecutionStep }> = [];
+                        const executedStepsMap = new Map(steps.map(s => [s.step_index, s]));
+
+                        if (playbookStepDefinitions && playbookStepDefinitions.length > 0) {
+                          playbookStepDefinitions.forEach((playbookStep, index) => {
+                            const uniqueStepIndex = index + 1;
+                            allSteps.push({
+                              step_index: uniqueStepIndex,
+                              step_name: playbookStep.step_name,
+                              description: playbookStep.description,
+                              executed: executedStepsMap.get(playbookStep.step_index) || executedStepsMap.get(uniqueStepIndex)
+                            });
+                          });
+                        } else if (totalSteps && totalSteps > 0) {
+                          for (let i = 1; i <= totalSteps; i++) {
+                            const executed = executedStepsMap.get(i);
+                            allSteps.push({
+                              step_index: i,
+                              step_name: executed?.step_name || `Step ${i}`,
+                              executed
+                            });
+                          }
+                        }
+
+                        return allSteps.map((stepInfo) => {
+                          const step = stepInfo.executed;
+                          const isSelected = stepInfo.step_index === currentStepIndex;
+                          const statusColor = step ? getStepStatusColor(step) : 'text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+                          const statusIcon = step ? getStepStatusIcon(step) : '○';
+
+                          return (
+                            <button
+                              key={`step-${stepInfo.step_index}-${stepInfo.step_name}`}
+                              onClick={() => setCurrentStepIndex(stepInfo.step_index)}
+                              disabled={!step}
+                              className={`w-full text-left p-2 rounded border transition-all ${
+                                !step
+                                  ? 'opacity-50 cursor-not-allowed'
+                                  : isSelected
+                                  ? 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 shadow-sm ring-1 ring-blue-200 dark:ring-blue-800'
+                                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                              }`}
+                            >
+                              <div className="flex items-start gap-1.5">
+                                <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium border ${statusColor}`}>
+                                  {statusIcon}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
+                                    {t('stepNumber', { number: stepInfo.step_index })}: {stepInfo.step_name || t('unnamed')}
+                                  </div>
+                                  {step?.agent_type && (
+                                    <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
+                                      {step.agent_type}
+                                      {step.used_tools && step.used_tools.length > 0 && (
+                                        <span className="ml-1">· {step.used_tools.length} {t('tools')}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="mt-1">
+                                    <span className={`px-1 py-0.5 rounded text-[10px] font-medium border ${statusColor}`}>
+                                      {step ? getEffectiveStepStatus(step) : 'pending'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Right: Current Step Details - Directly in grid column 2 */}
+                  <div className="h-full overflow-y-auto bg-white dark:bg-gray-800 p-3 min-w-0">
+                    {(() => {
+                      // Re-generate allSteps and executedStepsMap for this scope
+                      const executedStepsMap = new Map(steps.map(s => [s.step_index, s]));
+                      const allSteps: Array<{ step_index: number; step_name: string; description?: string; executed?: ExecutionStep }> = [];
+
+                      if (playbookStepDefinitions && playbookStepDefinitions.length > 0) {
+                        playbookStepDefinitions.forEach((playbookStep, index) => {
+                          const uniqueStepIndex = index + 1;
+                          allSteps.push({
+                            step_index: uniqueStepIndex,
+                            step_name: playbookStep.step_name,
+                            description: playbookStep.description,
+                            executed: executedStepsMap.get(playbookStep.step_index) || executedStepsMap.get(uniqueStepIndex)
+                          });
+                        });
+                      } else if (totalSteps && totalSteps > 0) {
+                        for (let i = 1; i <= totalSteps; i++) {
+                          const executed = executedStepsMap.get(i);
+                          allSteps.push({
+                            step_index: i,
+                            step_name: executed?.step_name || `Step ${i}`,
+                            executed
+                          });
+                        }
+                      }
+
+                      const currentStep = executedStepsMap.get(currentStepIndex) || allSteps.find(s => s.step_index === currentStepIndex)?.executed;
+                      const currentStepInfo = allSteps.find(s => s.step_index === currentStepIndex);
+
+                      return currentStepInfo ? (
+                        <>
+                          <div className="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                {t('stepNumber', { number: currentStepIndex })}: {currentStepInfo.step_name || t('unnamed')}
+                              </h3>
+                              {currentStep && (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${getStepStatusColor(currentStep)}`}>
+                                  {getEffectiveStepStatus(currentStep)}
+                                </span>
+                              )}
+                            </div>
+                            {(currentStep?.description || currentStep?.log_summary || currentStepInfo?.description) && (
+                              <p className="text-xs text-gray-600 dark:text-gray-300 mb-1.5 whitespace-pre-wrap">
+                                {currentStep?.description || currentStep?.log_summary || currentStepInfo?.description}
+                              </p>
+                            )}
+                            {currentStep?.agent_type && (
+                              <div className="text-xs text-gray-500 dark:text-gray-300">
+                                {t('agent')} <span className="font-medium">{currentStep.agent_type}</span>
+                              </div>
+                            )}
+                            {!currentStep && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 italic">{t('stepNotExecutedYet') || 'This step has not been executed yet.'}</p>
+                            )}
+                          </div>
+
+                          {/* Event Stream */}
+                          <div className="mb-3">
+                            <h4 className="text-xs font-medium text-gray-900 dark:text-gray-100 mb-1.5">{t('eventStream')}</h4>
+                            {stepEvents.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {stepEvents.map((event) => (
+                                  <div
+                                    key={event.id}
+                                    className="flex gap-2 p-1.5 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
+                                  >
+                                    <div className="flex-shrink-0 text-[10px] text-gray-500 dark:text-gray-300 w-14">
+                                      {event.timestamp.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[10px] text-gray-600 dark:text-gray-300">
+                                        {event.type === 'tool' && event.tool && (
+                                          <span className="font-medium">{t('tool')} {event.tool}</span>
+                                        )}
+                                        {event.type === 'collaboration' && event.agent && (
+                                          <span className="font-medium">{t('collaboration')} {event.agent}</span>
+                                        )}
+                                        {event.type === 'step' && event.agent && (
+                                          <span className="font-medium">{t('agent')} {event.agent}</span>
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-gray-900 dark:text-gray-100 mt-0.5">{event.content}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-gray-500 dark:text-gray-300 italic py-3 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-700">
+                                {t('noEventsYet')}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Tool Calls */}
+                          {currentStepToolCalls.length > 0 && (
+                            <div className="mb-4">
+                              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">{t('toolCalls')}</h4>
+                              <div className="space-y-2">
+                                {currentStepToolCalls.map((toolCall) => (
+                                  <div
+                                    key={toolCall.id}
+                                    className="p-3 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
+                                  >
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{toolCall.tool_name}</span>
+                                      <span className={`text-xs px-2 py-0.5 rounded ${
+                                        toolCall.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' :
+                                        toolCall.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
+                                        'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                      }`}>
+                                        {toolCall.status}
+                                      </span>
+                                    </div>
+                                    {toolCall.started_at && (
+                                      <div className="text-xs text-gray-500 dark:text-gray-300">
+                                        {new Date(toolCall.started_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                        {toolCall.completed_at && ` - ${new Date(toolCall.completed_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
+                                      </div>
+                                    )}
+                                    {toolCall.error && (
+                                      <div className="text-xs text-red-600 dark:text-red-400 mt-1">{toolCall.error}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Error */}
+                          {currentStep?.error && (
+                            <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded">
+                              <div className="text-sm font-medium text-red-700 dark:text-red-300 mb-1">{t('error')}</div>
+                              <div className="text-sm text-red-600 dark:text-red-400">{currentStep?.error}</div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500 dark:text-gray-300">
+                          {t('selectStepToViewDetails') || '請選擇步驟以查看詳情'}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </>
+              )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 4️⃣ Right: Artifacts & Playbook Inspector / Conversation */}
+        <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          {/* Artifacts List */}
+          <div className="p-4 border-b dark:border-gray-700 overflow-y-auto flex-shrink-0 max-h-96">
+            <ArtifactsList
+              artifacts={artifacts}
+              latestArtifact={latestArtifact}
+              onView={(artifact) => {
+                if (artifact.url) {
+                  window.open(artifact.url, '_blank');
+                } else if (artifact.id) {
+                  window.open(`${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/download`, '_blank');
+                }
+              }}
+              onViewSandbox={sandboxId ? () => setShowSandboxModal(true) : undefined}
+              sandboxId={sandboxId || undefined}
+            />
+          </div>
+
+          {/* Playbook Inspector / Conversation */}
+          {playbookMetadata?.supports_execution_chat && (
+            <div className="flex-1 overflow-hidden">
+              <ExecutionChatPanel
+                key={executionId}
+                executionId={executionId}
+                workspaceId={workspaceId}
+                apiUrl={apiUrl}
+                playbookMetadata={playbookMetadata}
+                executionStatus={execution?.status}
+                runNumber={execution?.execution_id ? parseInt(execution.execution_id.slice(-4), 16) % 1000 : 1}
+                collapsible={true}
+                defaultCollapsed={false}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Restart Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showRestartConfirm}
+        onClose={() => setShowRestartConfirm(false)}
+        onConfirm={() => {
+          setShowRestartConfirm(false);
+          if (execution?.playbook_code && executionId) {
+            setIsRestarting(true);
+
+            try {
+              // Immediately navigate back to workspace to avoid long wait
+              // Store restart info in sessionStorage for progress indicator
+              const restartInfo = {
+                playbook_code: execution.playbook_code,
+                workspace_id: workspaceId,
+                timestamp: Date.now()
+              };
+              sessionStorage.setItem('pending_restart', JSON.stringify(restartInfo));
+
+              // Store flag to force refresh executions on workspace page load
+              sessionStorage.setItem('force_refresh_executions', 'true');
+
+              // Navigate to workspace immediately
+              window.location.href = `/workspaces/${workspaceId}`;
+
+              // Start new execution in background (don't wait for response)
+              // Cancel current execution if running (fire and forget)
+              if (execution.status === 'running') {
+                fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/cancel`,
+                  { method: 'POST' }
+                ).catch(err => console.warn('Failed to cancel execution:', err));
+              }
+
+              // Start new execution
+              // Remove execution_id from inputs to ensure a new execution is created
+              const inputs = { ...(execution.execution_context || {}) };
+              delete inputs.execution_id;
+              delete inputs.status;
+              delete inputs.current_step_index;
+
+              fetch(
+                `${apiUrl}/api/v1/workspaces/${workspaceId}/playbooks/${execution.playbook_code}/execute`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    inputs: inputs,
+                    execution_mode: 'async'
+                  })
+                }
+              )
+                .then(async (response) => {
+                  if (response.ok) {
+                    const result = await response.json();
+                    const newExecutionId = result.execution_id || result.result?.execution_id;
+                    if (newExecutionId) {
+                      // Store new execution ID in sessionStorage for notification
+                      sessionStorage.setItem('restart_success', JSON.stringify({
+                        execution_id: newExecutionId,
+                        workspace_id: workspaceId,
+                        playbook_code: execution.playbook_code,
+                        timestamp: Date.now()
+                      }));
+                      // Clear restart info
+                      sessionStorage.removeItem('pending_restart');
+                      // Trigger custom event to show notification in workspace
+                      window.dispatchEvent(new CustomEvent('execution-restarted', {
+                        detail: {
+                          execution_id: newExecutionId,
+                          workspace_id: workspaceId,
+                          playbook_code: execution.playbook_code
+                        }
+                      }));
+                    } else {
+                      sessionStorage.removeItem('pending_restart');
+                      console.error('Execution started but failed to get execution ID');
+                      // Show error notification
+                      window.dispatchEvent(new CustomEvent('execution-restart-error', {
+                        detail: { message: t('executionStartedButNoId') || 'Execution started but failed to get execution ID' }
+                      }));
+                    }
+                  } else {
+                    sessionStorage.removeItem('pending_restart');
+                    const error = await response.json().catch(() => ({ detail: 'Failed to restart execution' }));
+                    // Show error notification
+                    window.dispatchEvent(new CustomEvent('execution-restart-error', {
+                      detail: { message: error.detail || t('restartExecutionFailed') || 'Failed to restart execution' }
+                    }));
+                  }
+                })
+                .catch((error) => {
+                  sessionStorage.removeItem('pending_restart');
+                  console.error('Error restarting execution:', error);
+                  // Show error notification
+                  window.dispatchEvent(new CustomEvent('execution-restart-error', {
+                    detail: { message: t('restartExecutionFailedRetry') || 'Failed to restart execution. Please try again.' }
+                  }));
+                });
+            } catch (error) {
+              sessionStorage.removeItem('pending_restart');
+              console.error('Error restarting execution:', error);
+              alert('Failed to restart execution. Please try again.');
+            } finally {
+              setIsRestarting(false);
+            }
+          }
+        }}
+        title={t('confirmRestartExecution') || 'Confirm Restart Execution'}
+        message={t('confirmRestartExecutionMessage') || 'Are you sure you want to restart this execution? This will create a new execution and cancel the current one.'}
+        confirmText={t('accept') || '確定'}
+        cancelText={t('cancel') || '取消'}
+        confirmButtonClassName="bg-blue-600 hover:bg-blue-700"
+      />
+
+      {/* Sandbox Modal */}
+      {showSandboxModal && sandboxId && (
+        <SandboxModal
+          isOpen={showSandboxModal}
+          onClose={() => setShowSandboxModal(false)}
+          workspaceId={workspaceId}
+          sandboxId={sandboxId}
+          projectId={projectId || undefined}
+          executionId={executionId}
+        />
+      )}
+    </div>
+  );
+}

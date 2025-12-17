@@ -294,6 +294,10 @@ export function WorkspaceDataProvider({
   // Load tasks with timeout
   const loadTasks = useCallback(async () => {
     if (loadingTasksRef.current || !mountedRef.current) return;
+    if (!workspaceId || workspaceId === 'new') {
+      console.log('[WorkspaceDataContext] Skipping loadTasks - invalid workspaceId:', workspaceId);
+      return;
+    }
 
     loadingTasksRef.current = true;
     setIsLoadingTasks(true);
@@ -319,7 +323,9 @@ export function WorkspaceDataProvider({
 
       const data = await response.json();
       if (mountedRef.current) {
-        setTasks(data.tasks || []);
+        const tasks = data.tasks || [];
+        setTasks(tasks);
+        console.log(`[WorkspaceDataContext] Loaded ${tasks.length} tasks for workspace ${workspaceId}`);
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -511,16 +517,17 @@ export function WorkspaceDataProvider({
       }
 
       // Load other data sequentially with delays to avoid overwhelming the browser
-      // Only load if workspace was successfully loaded
-      if (mountedRef.current && workspace) {
+      // Load tasks and executions regardless of workspace state (they can exist independently)
+      // Use workspaceId instead of workspace state since state updates are async
+      if (mountedRef.current && workspaceId && workspaceId !== 'new') {
         await new Promise(resolve => setTimeout(resolve, 300));
         await loadTasks();
       }
-      if (mountedRef.current && workspace) {
+      if (mountedRef.current && workspaceId && workspaceId !== 'new') {
         await new Promise(resolve => setTimeout(resolve, 300));
         await loadExecutions();
       }
-      if (mountedRef.current && workspace) {
+      if (mountedRef.current && workspaceId && workspaceId !== 'new') {
         await loadSystemStatus();
       }
 

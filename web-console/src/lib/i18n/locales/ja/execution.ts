@@ -108,5 +108,8 @@ export const executionJa = {
   recommended: '（推奨）',
   autoStart: '自動開始：',
   aiThinking: 'AIが考えています...',
+  enterResponseToContinue: '実行を続行するために応答を入力...',
+  playbookWaitingForResponse: 'プレイブックが応答を待っています',
+  sendMessageToContinue: 'メッセージを送信すると、次のステップに実行が続行されます。',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

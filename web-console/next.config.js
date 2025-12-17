@@ -15,6 +15,14 @@ const nextConfig = {
       },
     ];
   },
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@/capabilities': '/mindscape-ai-cloud/capabilities',
+    };
+    config.resolve.symlinks = false;
+    return config;
+  },
   // Disable RSC prefetching for client components to avoid 404 errors
   experimental: {
     serverActions: {

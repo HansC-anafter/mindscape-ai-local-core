@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import WorkspaceChat from '../../../components/WorkspaceChat';
 import MindscapeAIWorkbench from '../../../components/MindscapeAIWorkbench';
@@ -11,7 +11,6 @@ import PlanningModePanel from '../../../components/PlanningModePanel';
 import IntegratedSystemStatusCard from '../../../components/IntegratedSystemStatusCard';
 import WorkspaceScopePanel from '../components/WorkspaceScopePanel';
 import TimelinePanel from '../components/TimelinePanel';
-import PendingTasksPanel from '../components/PendingTasksPanel';
 import LeftSidebarTabs from './components/LeftSidebarTabs';
 import ProjectCard from './components/ProjectCard';
 import OutcomesPanel, { Artifact } from './components/OutcomesPanel';
@@ -23,6 +22,7 @@ import { t } from '@/lib/i18n';
 import ConfirmDialog from '../../../components/ConfirmDialog';
 import HelpIcon from '../../../components/HelpIcon';
 import ExecutionInspector from '../components/ExecutionInspector';
+import { ExecutionSidebar } from '@/components/execution';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
 import WorkspaceSettingsModal from './components/WorkspaceSettingsModal';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
@@ -32,13 +32,14 @@ import {
   TrainHeader,
   ExecutionModeSelector,
   ThinkingContext,
-  ArtifactsList,
   ThinkingTimeline,
   ExecutionTree,
 } from '../../../components/execution';
 import AITeamPanel from '../../../components/execution/AITeamPanel';
 import { useExecutionState } from '@/hooks/useExecutionState';
-import { IntentCardPanel } from '../../../components/workspace/IntentCardPanel';
+import { ArtifactsSummary } from '../../../components/workspace/ArtifactsSummary';
+import { DecisionPanel } from '../../../components/workspace/DecisionPanel';
+import { ResizablePanel } from '../../../components/ui/ResizablePanel';
 import { Project } from '@/types/project';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -84,6 +85,7 @@ interface Workspace {
 function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const contextData = useWorkspaceData();
   const router = useRouter();
+  const pathname = usePathname();
 
   // Use Context data instead of local state
   const workspace = contextData.workspace;
@@ -97,10 +99,12 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [workbenchRefreshTrigger, setWorkbenchRefreshTrigger] = useState(0);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Execution pages now use dedicated routes: /workspaces/{workspaceId}/executions/{executionId}
+  // These states are kept for backward compatibility but should not be used
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [focusExecutionId, setFocusExecutionId] = useState<string | null>(null);
-  const [focusedExecution, setFocusedExecution] = useState<any>(null);
-  const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
+  const [focusedExecution] = useState<any>(null);
+  const [focusedPlaybookMetadata] = useState<any>(null);
   const [showSystemTools, setShowSystemTools] = useState(false);
   const [showFullSettings, setShowFullSettings] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
@@ -108,6 +112,10 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [sandboxProjectId, setSandboxProjectId] = useState<string | null>(null);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
 
   // Execution state from hook (SSE-driven)
   const executionState = useExecutionState(workspaceId, API_URL);
@@ -122,155 +130,105 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   // Use Context's methods for manual refresh
   const loadWorkspace = contextData.refreshWorkspace;
 
-  // Listen for open-execution-inspector event
+  // Listen for open-execution-inspector event - navigate to dedicated execution page
   useEffect(() => {
     const handleOpenExecutionInspector = (event: CustomEvent) => {
       const { executionId, workspaceId: eventWorkspaceId } = event.detail;
       // Only handle events for current workspace
       if (executionId && (!eventWorkspaceId || eventWorkspaceId === workspaceId)) {
-        setSelectedExecutionId(executionId);
-        setFocusExecutionId(executionId); // Set focus mode
+        // Navigate to dedicated execution page
+        const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
+        console.log('[WorkspacePage] Navigating to execution page:', executionUrl);
+        router.push(executionUrl);
       }
-    };
-
-    // Listen for clear-focus event to return to workspace overview
-    const handleClearFocus = () => {
-      setFocusExecutionId(null);
-      setSelectedExecutionId(null);
     };
 
     window.addEventListener('open-execution-inspector', handleOpenExecutionInspector as EventListener);
-    window.addEventListener('clear-execution-focus', handleClearFocus as EventListener);
     return () => {
       window.removeEventListener('open-execution-inspector', handleOpenExecutionInspector as EventListener);
-      window.removeEventListener('clear-execution-focus', handleClearFocus as EventListener);
     };
-  }, [workspaceId]);
+  }, [workspaceId, router]);
 
-  // Load focused execution and playbook metadata when focusExecutionId changes
+  // Execution pages now use dedicated routes, so we don't need to load execution data here
+
+  // Load projects list
   useEffect(() => {
-    if (!focusExecutionId || !workspaceId) {
-      setFocusedExecution(null);
-      setFocusedPlaybookMetadata(null);
-      return;
-    }
-
-    const loadFocusedExecution = async () => {
+    const loadProjects = async () => {
+      setIsLoadingProjects(true);
       try {
-        // Load execution and check for project_id
-        const execResponse = await fetch(
-          `${API_URL}/api/v1/workspaces/${workspaceId}/executions/${focusExecutionId}`
-        );
-        if (execResponse.ok) {
-          const execData = await execResponse.json();
-          setFocusedExecution(execData);
+        const url = new URL(`${API_URL}/api/v1/workspaces/${workspaceId}/projects`);
+        url.searchParams.set('state', 'open');
+        url.searchParams.set('limit', '20');
+        if (selectedType) {
+          url.searchParams.set('project_type', selectedType);
+        }
 
-          // Check for project_id and load sandbox
-          const projectId = execData.project_id || execData.execution_context?.project_id;
-          if (projectId) {
-            setSandboxProjectId(projectId);
-            try {
-              const sandbox = await getSandboxByProject(workspaceId, projectId);
-              if (sandbox) {
-                setSandboxId(sandbox.sandbox_id);
-              } else {
-                setSandboxId(null);
-              }
-            } catch (err) {
-              console.error('Failed to load sandbox:', err);
-              setSandboxId(null);
-            }
-          } else {
-            setSandboxProjectId(null);
-            setSandboxId(null);
-          }
+        const response = await fetch(url.toString());
+        if (response.ok) {
+          const data = await response.json();
+          setProjects(data.projects || []);
 
-          // Load playbook metadata if playbook_code exists
-          if (execData.playbook_code) {
-            try {
-              const playbookResponse = await fetch(
-                `${API_URL}/api/v1/playbooks/${execData.playbook_code}`
-              );
-              if (playbookResponse.ok) {
-                const playbookData = await playbookResponse.json();
-                setFocusedPlaybookMetadata(playbookData);
-              } else {
-                // Use basic metadata from execution
-                setFocusedPlaybookMetadata({
-                  playbook_code: execData.playbook_code || '',
-                  version: execData.playbook_version || '1.0.0'
-                });
-              }
-            } catch (err) {
-              // Use basic metadata from execution
-              setFocusedPlaybookMetadata({
-                playbook_code: execData.playbook_code || '',
-                version: execData.playbook_version || '1.0.0'
-              });
-            }
+          // Set selected project
+          if (workspace?.primary_project_id) {
+            setSelectedProjectId(workspace.primary_project_id);
+          } else if (data.projects && data.projects.length > 0) {
+            setSelectedProjectId(data.projects[0].id);
           }
         }
       } catch (err) {
-        console.error('Failed to load focused execution:', err);
-        setFocusedExecution(null);
-        setFocusedPlaybookMetadata(null);
+        console.error('[WorkspacePage] Failed to load projects:', err);
+        setProjects([]);
+      } finally {
+        setIsLoadingProjects(false);
       }
     };
 
-    loadFocusedExecution();
-  }, [focusExecutionId, workspaceId]);
+    loadProjects();
+  }, [workspaceId, workspace?.primary_project_id, selectedType]);
 
-  // Load current project when workspace.primary_project_id changes
+  // Load current project when workspace.primary_project_id or selectedProjectId changes
   useEffect(() => {
-    if (!workspace?.primary_project_id) {
-      // If no primary_project_id, try to get the first active project
-      const loadFirstProject = async () => {
-        try {
-          const response = await fetch(
-            `${API_URL}/api/v1/workspaces/${workspaceId}/projects?state=open&limit=1`
-          );
-          if (response.ok) {
-            const data = await response.json();
-            if (data.projects && data.projects.length > 0) {
-              setCurrentProject(data.projects[0]);
-              return;
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load projects:', err);
-        }
-        setCurrentProject(null);
-      };
-      loadFirstProject();
+    const projectIdToLoad = selectedProjectId || workspace?.primary_project_id;
+
+    console.log('[WorkspacePage] Workspace data:', {
+      workspace_id: workspace?.id,
+      primary_project_id: workspace?.primary_project_id,
+      selected_project_id: selectedProjectId,
+      project_id_to_load: projectIdToLoad,
+      has_workspace: !!workspace
+    });
+
+    if (!projectIdToLoad) {
+      console.log('[WorkspacePage] No project ID to load, setting currentProject to null');
+      setCurrentProject(null);
       return;
     }
 
     const loadProject = async () => {
       setIsLoadingProject(true);
       try {
+        console.log('[WorkspacePage] Loading project:', {
+          workspaceId,
+          project_id: projectIdToLoad
+        });
         const response = await fetch(
-          `${API_URL}/api/v1/workspaces/${workspaceId}/projects/${workspace.primary_project_id}`
+          `${API_URL}/api/v1/workspaces/${workspaceId}/projects/${projectIdToLoad}`
         );
         if (response.ok) {
           const projectData = await response.json();
+          console.log('[WorkspacePage] Project loaded:', {
+            project_id: projectData.id,
+            project_title: projectData.title,
+            project_type: projectData.type,
+            full_data: projectData
+          });
           setCurrentProject(projectData);
         } else {
-          // If primary project not found, try to get first active project
-          try {
-            const fallbackResponse = await fetch(
-              `${API_URL}/api/v1/workspaces/${workspaceId}/projects?state=open&limit=1`
-            );
-            if (fallbackResponse.ok) {
-              const data = await fallbackResponse.json();
-              if (data.projects && data.projects.length > 0) {
-                setCurrentProject(data.projects[0]);
-              } else {
-                setCurrentProject(null);
-              }
-            } else {
-              setCurrentProject(null);
-            }
-          } catch (err) {
+          // If project not found, try to get first active project from list
+          if (projects && projects.length > 0) {
+            setCurrentProject(projects[0]);
+            setSelectedProjectId(projects[0].id);
+          } else {
             setCurrentProject(null);
           }
         }
@@ -283,9 +241,50 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
     };
 
     loadProject();
-  }, [workspace?.primary_project_id, workspaceId]);
+  }, [selectedProjectId, workspace?.primary_project_id, workspaceId, projects]);
+
+  // Debug: Log currentProject changes
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[WorkspacePage] currentProject changed:', {
+        currentProject_id: currentProject?.id,
+        currentProject_title: currentProject?.title,
+        has_currentProject: !!currentProject,
+        workspace_primary_project_id: workspace?.primary_project_id,
+        isLoadingProject
+      });
+    }
+  }, [currentProject, workspace?.primary_project_id, isLoadingProject]);
 
   // Workspace loading is handled by WorkspaceDataContext - no need for useEffect here
+
+  // Route by launch_status (state machine routing)
+  // IMPORTANT: Only redirect pending workspaces to setup, don't force ready/active to home
+  // This preserves the original "click to work" behavior
+  useEffect(() => {
+    if (!workspace || loading || !pathname) return;
+
+    // Check if we're already on a specific route (home or work)
+    // Only redirect if we're on the base /workspaces/:id route
+    if (pathname !== `/workspaces/${workspaceId}`) {
+      // Already on a specific route (home/work), don't auto-redirect
+      return;
+    }
+
+    // Route based on launch_status
+    const launchStatus = (workspace as any).launch_status || 'pending';
+    console.log(`[WorkspacePage] Routing workspace ${workspaceId} with status: ${launchStatus}`);
+
+    // ONLY redirect pending workspaces to setup
+    // ready and active should stay on work page (preserve original behavior)
+    if (launchStatus === 'pending') {
+      // New workspace needs setup - redirect to home with setup drawer
+      console.log(`[WorkspacePage] Redirecting pending workspace to /home?setup=true`);
+      router.replace(`/workspaces/${workspaceId}/home?setup=true`);
+    }
+    // ready and active: stay on work page (no redirect)
+    // Users can navigate to /home manually if they want to see Launchpad
+  }, [workspace, loading, workspaceId, router, pathname]);
 
 
   const handleModeChange = async (mode: WorkspaceMode) => {
@@ -396,6 +395,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             steps={executionState.trainSteps}
             progress={executionState.overallProgress}
             isExecuting={executionState.isExecuting}
+            workspaceId={workspaceId}
             onWorkspaceNameEdit={() => {
               setEditedName(workspace.title);
               setIsEditingName(true);
@@ -413,28 +413,100 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
-                    {/* Project Card or Placeholder - According to spec 2.2.1-2.2.3 */}
-                    <div className="flex-shrink-0 border-b dark:border-gray-700">
+                    {/* Projects List - Above Project Card */}
+                    {projects.length > 0 && (
+                      <div className="flex-shrink-0 border-b dark:border-gray-700">
+                        {/* Project Type Filter */}
+                        {(() => {
+                          const projectTypes = Array.from(new Set(projects.map(p => p.type || 'other')));
+                          return projectTypes.length > 1 ? (
+                            <div className="px-3 py-2 border-b dark:border-gray-700">
+                              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                專案分類
+                              </div>
+                              <div className="flex gap-1 flex-wrap">
+                                <button
+                                  onClick={() => setSelectedType(null)}
+                                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    selectedType === null
+                                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                  }`}
+                                >
+                                  全部 ({projects.length})
+                                </button>
+                                {projectTypes.map(type => {
+                                  const count = projects.filter(p => (p.type || 'other') === type).length;
+                                  return (
+                                    <button
+                                      key={type}
+                                      onClick={() => setSelectedType(type)}
+                                      className={`px-2 py-1 text-xs rounded transition-colors ${
+                                        selectedType === type
+                                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                      }`}
+                                    >
+                                      {type} ({count})
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {/* Projects List */}
+                        {projects.length > 1 && (
+                          <div className="px-3 py-2">
+                            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                              專案列表 ({projects.length})
+                            </div>
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {projects.map(project => (
+                                <button
+                                  key={project.id}
+                                  onClick={() => {
+                                    setSelectedProjectId(project.id);
+                                    setCurrentProject(project);
+                                  }}
+                                  className={`w-full text-left px-2 py-1.5 text-xs rounded transition-colors ${
+                                    selectedProjectId === project.id
+                                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                      : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+                                  }`}
+                                >
+                                  <div className="truncate font-medium">{project.title}</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {project.type || 'general'} • {project.state || 'open'}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Project Card */}
+                    <div className="flex-shrink-0 border-b dark:border-gray-700 p-3">
                       {isLoadingProject ? (
-                        <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           載入中...
                         </div>
                       ) : currentProject ? (
-                        <div className="px-3 py-2">
-                          <ProjectCard
-                            project={currentProject}
-                            workspaceId={workspaceId}
-                            apiUrl={API_URL}
-                            defaultExpanded={true}
-                            onOpenExecution={(executionId) => {
-                              console.log('[WorkspacePage] onOpenExecution called with executionId:', executionId);
-                              setFocusExecutionId(executionId);
-                              setSelectedExecutionId(executionId);
-                              setLeftSidebarTab('timeline');
-                              console.log('[WorkspacePage] focusExecutionId and selectedExecutionId set to:', executionId, 'leftSidebarTab set to: timeline');
-                            }}
-                          />
-                        </div>
+                        <ProjectCard
+                          project={currentProject}
+                          workspaceId={workspaceId}
+                          apiUrl={API_URL}
+                          defaultExpanded={false}
+                          onOpenExecution={(executionId) => {
+                            // Navigate to dedicated execution page
+                            const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
+                            console.log('[WorkspacePage] ProjectCard onOpenExecution, navigating to:', executionUrl);
+                            router.push(executionUrl);
+                          }}
+                        />
                       ) : (
                         <div className="px-3 py-2">
                           <div className="project-placeholder text-center py-8">
@@ -445,26 +517,48 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                             <div className="text-xs text-gray-500 dark:text-gray-400">
                               開始對話後，系統會自動建立專案
                             </div>
+                            {/* Debug info */}
+                            {process.env.NODE_ENV === 'development' && (
+                              <div className="mt-4 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-left">
+                                <div><strong>🔍 Debug Info:</strong></div>
+                                <div>workspace.primary_project_id: {workspace?.primary_project_id || '❌ null'}</div>
+                                <div>currentProject exists: {currentProject ? '✅ YES' : '❌ NO'}</div>
+                                {(() => {
+                                  if (!currentProject) return null;
+                                  const project = currentProject;
+                                  return (
+                                    <>
+                                      <div>currentProject.id: {project.id || '❌ MISSING!'}</div>
+                                      <div>currentProject.title: {project.title}</div>
+                                      <div>currentProject.type: {project.type}</div>
+                                    </>
+                                  );
+                                })()}
+                                <div>isLoadingProject: {isLoadingProject ? '⏳ true' : '✅ false'}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Debug: Show currentProject info when it exists */}
+                      {process.env.NODE_ENV === 'development' && currentProject && (
+                        <div className="px-3 py-2 border-t dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20">
+                          <div className="text-xs text-gray-700 dark:text-gray-300">
+                            <div><strong>✅ Current Project Debug:</strong></div>
+                            <div>ID: <code className="bg-white dark:bg-gray-800 px-1 rounded">{currentProject.id || '❌ MISSING ID!'}</code></div>
+                            <div>Title: {currentProject.title}</div>
+                            <div>Type: {currentProject.type}</div>
+                            <div>State: {currentProject.state}</div>
+                            <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">
+                              <div><strong>Will be passed to WorkspaceChat:</strong></div>
+                              <div>projectId prop: <code className="bg-white dark:bg-gray-800 px-1 rounded">{currentProject.id || 'undefined'}</code></div>
+                            </div>
                           </div>
                         </div>
                       )}
                     </div>
 
-                    {/* Collapsible Timeline - According to spec 2.2.4 */}
-                    <div className="flex-1 min-h-0 overflow-y-auto">
-                      <TimelinePanel
-                        workspaceId={workspaceId}
-                        apiUrl={API_URL}
-                        isInSettingsPage={false}
-                        focusExecutionId={focusExecutionId}
-                        onClearFocus={() => {
-                          setFocusExecutionId(null);
-                          setSelectedExecutionId(null);
-                          window.dispatchEvent(new CustomEvent('clear-execution-focus'));
-                        }}
-                        onArtifactClick={setSelectedArtifact}
-                      />
-                    </div>
+                    {/* ExecutionSidebar 已移除 - 左侧边栏主要显示 project card */}
                   </div>
                 }
                 outcomesContent={
@@ -472,12 +566,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                     workspaceId={workspaceId}
                     apiUrl={API_URL}
                     isInSettingsPage={false}
-                    focusExecutionId={focusExecutionId}
-                    onClearFocus={() => {
-                      setFocusExecutionId(null);
-                      setSelectedExecutionId(null);
-                      window.dispatchEvent(new CustomEvent('clear-execution-focus'));
-                    }}
                     showArchivedOnly={true}
                   />
                 }
@@ -555,7 +643,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             )}
           </div>
 
-          {/* Main Area - Execution Inspector or Workspace Chat */}
+          {/* Main Area - Workspace Chat */}
           <div className="flex-1 flex flex-col" style={{ minWidth: 0, overflow: 'hidden' }}>
             {selectedExecutionId ? (
               <ExecutionInspector
@@ -565,6 +653,9 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onClose={() => {
                   setSelectedExecutionId(null);
                   setFocusExecutionId(null); // Clear focus mode
+                  // Update URL to remove execution query parameter
+                  const newUrl = `/workspaces/${workspaceId}`;
+                  router.push(newUrl);
                   // Dispatch event to ensure all components are notified
                   window.dispatchEvent(new CustomEvent('clear-execution-focus'));
                 }}
@@ -573,6 +664,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
               <WorkspaceChat
                 workspaceId={workspaceId}
                 apiUrl={API_URL}
+                projectId={currentProject?.id}  // Pass current project ID
                 onFileAnalyzed={() => {
                   // Refresh workbench when file is analyzed
                   setWorkbenchRefreshTrigger(prev => prev + 1);
@@ -634,47 +726,67 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
               </div>
             ) : (
               <div className="flex-1 flex flex-col overflow-hidden">
-                <section className="sidebar-section ai-team-section border-b dark:border-gray-700">
-                  <div className="section-header neutral bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                    <span className="title text-xs font-semibold">AI Collaboration Team</span>
-                  </div>
-                  <div className="flex-1 overflow-y-auto min-h-0 bg-blue-50/30 dark:bg-blue-900/10">
-                    <div className="p-3">
-                      {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') &&
-                       executionState.isExecuting && (
-                        <>
-                          <ThinkingContext
-                            summary={executionState.thinkingSummary}
-                            pipelineStage={executionState.pipelineStage}
-                            isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
-                          />
+                <ResizablePanel
+                  defaultTopHeight={50}
+                  minTopHeight={20}
+                  minBottomHeight={20}
+                  top={
+                    <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
+                      <div className="flex-1 overflow-y-auto min-h-0 bg-blue-50/30 dark:bg-blue-900/10">
+                        <div className="p-3">
+                          {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') && (
+                            <>
+                              {executionState.isExecuting && (
+                                <ThinkingContext
+                                  summary={executionState.thinkingSummary}
+                                  pipelineStage={executionState.pipelineStage}
+                                  isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
+                                />
+                              )}
 
-                          {executionState.aiTeamMembers.length > 0 &&
-                           executionState.pipelineStage?.stage !== 'no_action_needed' &&
-                           executionState.pipelineStage?.stage !== 'no_playbook_found' && (
-                            <div className="mt-3">
-                              <AITeamPanel
-                                members={executionState.aiTeamMembers}
-                                isLoading={executionState.isExecuting}
-                              />
-                            </div>
+                              {(() => {
+                                // Show AI Team if there are members, regardless of execution state
+                                // AI Team should be visible even when not actively executing (shows recent/relevant team members)
+                                const shouldShow = executionState.aiTeamMembers.length > 0;
+                                console.log('[WorkspacePage] AITeamPanel render check:', {
+                                  aiTeamMembersCount: executionState.aiTeamMembers.length,
+                                  pipelineStage: executionState.pipelineStage?.stage,
+                                  isExecuting: executionState.isExecuting,
+                                  shouldShow,
+                                  members: executionState.aiTeamMembers,
+                                  executionMode: workspace?.execution_mode
+                                });
+                                if (shouldShow) {
+                                  console.log('[WorkspacePage] Rendering AITeamPanel with members:', executionState.aiTeamMembers);
+                                } else {
+                                  console.log('[WorkspacePage] Not rendering AITeamPanel - no members');
+                                }
+                                return shouldShow ? (
+                                  <div className="mt-3">
+                                    <AITeamPanel
+                                      members={executionState.aiTeamMembers}
+                                      isLoading={executionState.isExecuting}
+                                    />
+                                  </div>
+                                ) : null;
+                              })()}
+                            </>
                           )}
-                        </>
-                      )}
 
-                      <ArtifactsList
-                        artifacts={executionState.producedArtifacts}
-                        onView={(artifact: any) => {
-                          setSelectedArtifact(artifact);
-                        }}
-                        onViewSandbox={(sandboxId: string) => {
-                          setSandboxId(sandboxId);
-                          setShowSandboxModal(true);
-                        }}
-                        sandboxId={sandboxId || undefined}
-                      />
-
-                      <PendingTasksPanel
+                          <ArtifactsSummary
+                            count={executionState.producedArtifacts.length}
+                            onViewAll={() => {
+                              // 跳轉到左側「成果」Tab
+                              setLeftSidebarTab('outcomes');
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </section>
+                  }
+                  bottom={
+                    <section className="sidebar-section decision-section h-full overflow-hidden flex flex-col">
+                      <DecisionPanel
                         workspaceId={workspaceId}
                         apiUrl={API_URL}
                         onViewArtifact={setSelectedArtifact}
@@ -683,13 +795,9 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                           playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config
                         } : undefined}
                       />
-                    </div>
-                  </div>
-                </section>
-
-                <section className="sidebar-section intent-section flex-1 overflow-hidden flex flex-col">
-                  <IntentCardPanel workspaceId={workspaceId} apiUrl={API_URL} />
-                </section>
+                    </section>
+                  }
+                />
                     {/* AI Workbench Section - Bottom */}
                     <div className="flex-1 overflow-y-auto min-h-0">
                       <div className="p-4">

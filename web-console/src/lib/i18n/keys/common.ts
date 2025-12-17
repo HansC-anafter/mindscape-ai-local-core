@@ -290,5 +290,22 @@ export const commonKeys = {
   manualMerge: true,
   manualMergeDescription: true,
   resolve: true,
+
+  // Artifacts
+  artifactsProduced: true,
+  noArtifactsYet: true,
+  viewSandbox: true,
+  loadingPreview: true,
+  previewError: true,
+  portConflictMessage: true,
+  portConflictWarning: true,
+  usingPort: true,
+  noPreviewAvailable: true,
+
+  // Execution
+  executionStartedButNoId: true,
+  restartExecutionFailed: true,
+  restartExecutionFailedRetry: true,
+  confirmRestartExecutionMessage: true,
 } as const;
 

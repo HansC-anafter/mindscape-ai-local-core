@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import BaseModal from '@/components/BaseModal';
+import { BaseModal } from '@/components/BaseModal';
 import SandboxViewer from './SandboxViewer';
 
 interface SandboxModalProps {

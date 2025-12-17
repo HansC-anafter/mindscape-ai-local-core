@@ -25,6 +25,7 @@ interface WorkspaceChatProps {
   onFileAnalyzed?: () => void;
   executionMode?: ExecutionMode;
   expectedArtifacts?: string[];
+  projectId?: string;  // Current project ID (if user is in a project context)
 }
 
 export default function WorkspaceChat({
@@ -32,7 +33,8 @@ export default function WorkspaceChat({
   apiUrl = '',
   onFileAnalyzed,
   executionMode,
-  expectedArtifacts
+  expectedArtifacts,
+  projectId
 }: WorkspaceChatProps) {
   const [input, setInput] = useState('');
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('');
@@ -84,7 +86,7 @@ export default function WorkspaceChat({
     sendMessage,
     isLoading: sendLoading,
     error: sendError
-  } = useSendMessage(workspaceId, apiUrl);
+  } = useSendMessage(workspaceId, apiUrl, projectId);
 
   const executionState = useExecutionState(workspaceId, apiUrl);
   const {
@@ -144,29 +146,46 @@ export default function WorkspaceChat({
 
   // Check LLM configuration status and load chat model
   useEffect(() => {
+    let isMounted = true;
+
     const checkLLMConfiguration = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
       try {
         const response = await fetch(`${apiUrl}/api/v1/config/backend?profile_id=default-user`, {
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
         });
-        if (response.ok) {
+        clearTimeout(timeoutId);
+        if (response.ok && isMounted) {
           const config = await response.json();
           const currentBackend = config.available_backends?.[config.current_mode];
           setLlmConfigured(currentBackend?.available || false);
-        } else {
+        } else if (isMounted) {
           setLlmConfigured(false);
         }
-      } catch (err) {
-        console.error('Failed to check LLM configuration:', err);
-        setLlmConfigured(false);
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (isMounted) {
+          if (err.name === 'AbortError') {
+            console.warn('LLM configuration check timed out');
+          } else {
+            console.error('Failed to check LLM configuration:', err);
+          }
+          setLlmConfigured(false);
+        }
       }
     };
 
     const loadChatModel = async (retryCount = 0) => {
       // Prevent duplicate loads for the same API URL
-      if (chatModelLoadedRef.current === apiUrl) {
+      if (chatModelLoadedRef.current === apiUrl || !isMounted) {
         return;
       }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
       try {
         const response = await fetch(`${apiUrl}/api/v1/system-settings/llm-models`, {
@@ -174,7 +193,10 @@ export default function WorkspaceChat({
             'Accept': 'application/json',
             'Content-Type': 'application/json',
           },
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -194,27 +216,37 @@ export default function WorkspaceChat({
           throw new Error(`Failed to parse JSON response: ${parseErr}`);
         }
 
-        if (data.chat_model) {
-          setCurrentChatModel(data.chat_model.model_name);
+        if (isMounted) {
+          if (data.chat_model) {
+            setCurrentChatModel(data.chat_model.model_name);
+          }
+          if (enabledChatModels.length > 0 && !modelsLoading) {
+            setAvailableChatModels(enabledChatModels.map(m => ({
+              model_name: m.model_name,
+              provider: m.provider
+            })));
+          } else if (data.available_chat_models && data.available_chat_models.length > 0) {
+            setAvailableChatModels(data.available_chat_models);
+          }
+
+          // Mark as loaded only on success
+          chatModelLoadedRef.current = apiUrl;
         }
-        if (enabledChatModels.length > 0 && !modelsLoading) {
-          setAvailableChatModels(enabledChatModels.map(m => ({
-            model_name: m.model_name,
-            provider: m.provider
-          })));
-        } else if (data.available_chat_models && data.available_chat_models.length > 0) {
-          setAvailableChatModels(data.available_chat_models);
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+
+        // Handle abort/timeout - don't retry
+        if (err.name === 'AbortError') {
+          console.warn('Chat model load timed out');
+          return;
         }
 
-        // Mark as loaded only on success
-        chatModelLoadedRef.current = apiUrl;
-      } catch (err: any) {
         // Handle Content-Length mismatch and network errors with retry
         const isContentLengthError = err?.message?.includes('Content-Length') ||
                                    err?.message?.includes('ERR_CONTENT_LENGTH_MISMATCH') ||
                                    err?.name === 'TypeError' && err?.message?.includes('Failed to fetch');
 
-        if (isContentLengthError && retryCount < 2) {
+        if (isContentLengthError && retryCount < 2 && isMounted) {
           // Retry after a short delay
           setTimeout(() => {
             loadChatModel(retryCount + 1);
@@ -231,6 +263,10 @@ export default function WorkspaceChat({
 
     checkLLMConfiguration();
     loadChatModel();
+
+    return () => {
+      isMounted = false;
+    };
   }, [apiUrl]);
 
   useEffect(() => {
@@ -248,15 +284,24 @@ export default function WorkspaceChat({
   }, [workspaceId]);
 
   const loadSystemHealth = async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`);
+      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       if (response.ok) {
         const health = await response.json();
         setSystemHealth(health);
         setShowHealthCard(false);
       }
-    } catch (err) {
-      console.error('Failed to load system health:', err);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name !== 'AbortError') {
+        console.error('Failed to load system health:', err);
+      }
     }
   };
 
@@ -370,11 +415,106 @@ export default function WorkspaceChat({
     };
   }, []);
 
-  // Load context token count
+  // Listen for execution results summary (playbook execution completion)
+  useEffect(() => {
+    const handleExecutionResultsSummary = (event: CustomEvent) => {
+      const { executed_tasks, suggestion_cards } = event.detail || {};
+
+      // Format summary message
+      const taskCount = Array.isArray(executed_tasks) ? executed_tasks.length : 0;
+      const suggestionCount = Array.isArray(suggestion_cards) ? suggestion_cards.length : 0;
+
+      // Skip if no results
+      if (taskCount === 0 && suggestionCount === 0) {
+        return;
+      }
+
+      let summaryContent = '';
+
+      if (taskCount > 0 && suggestionCount > 0) {
+        summaryContent = `✅ **執行完成！**\n\n已建立 ${taskCount} 個任務，並產生 ${suggestionCount} 個建議。`;
+      } else if (taskCount > 0) {
+        summaryContent = `✅ **執行完成！**\n\n已建立 ${taskCount} 個任務。`;
+      } else if (suggestionCount > 0) {
+        summaryContent = `✅ **執行完成！**\n\n已產生 ${suggestionCount} 個建議。`;
+      }
+
+      // Add task details if available
+      if (taskCount > 0 && Array.isArray(executed_tasks)) {
+        const taskNames = executed_tasks
+          .map((task: any) => {
+            // Try multiple possible fields for task name
+            return task.title || task.name || task.intent || task.task_name || task.id || '';
+          })
+          .filter((name: string) => name && name.trim().length > 0)
+          .slice(0, 5); // Show first 5 tasks
+
+        if (taskNames.length > 0) {
+          summaryContent += '\n\n**已建立的任務：**\n';
+          taskNames.forEach((name: string, index: number) => {
+            summaryContent += `${index + 1}. ${name}\n`;
+          });
+          if (taskCount > 5) {
+            summaryContent += `\n... 還有 ${taskCount - 5} 個任務`;
+          }
+        }
+      }
+
+      // Add suggestion details if available
+      if (suggestionCount > 0 && Array.isArray(suggestion_cards)) {
+        const suggestionTitles = suggestion_cards
+          .map((card: any) => {
+            // Try multiple possible fields for suggestion title
+            return card.title || card.suggestion || card.text || card.name || card.id || '';
+          })
+          .filter((title: string) => title && title.trim().length > 0)
+          .slice(0, 3); // Show first 3 suggestions
+
+        if (suggestionTitles.length > 0) {
+          summaryContent += '\n\n**建議：**\n';
+          suggestionTitles.forEach((title: string) => {
+            summaryContent += `• ${title}\n`;
+          });
+          if (suggestionCount > 3) {
+            summaryContent += `\n... 還有 ${suggestionCount - 3} 個建議`;
+          }
+        }
+      }
+
+      const summaryMessage: ChatMessage = {
+        id: `execution-summary-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant',
+        content: summaryContent.trim(),
+        timestamp: new Date(),
+        event_type: 'execution_results'
+      };
+
+      setMessages(prev => [...prev, summaryMessage]);
+
+      // Auto-scroll to show the summary
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 100);
+    };
+
+    window.addEventListener('execution-results-summary', handleExecutionResultsSummary as EventListener);
+    return () => {
+      window.removeEventListener('execution-results-summary', handleExecutionResultsSummary as EventListener);
+    };
+  }, [scrollToBottom]);
+
+  // Load context token count with timeout
   const loadContextTokenCount = useCallback(async () => {
     if (!workspaceId || !apiUrl) return;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout (non-critical)
+
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/workbench/context-token-count`);
+      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/workbench/context-token-count`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       if (response.ok) {
         const data = await response.json();
         // Support both token_count and context_tokens field names
@@ -384,6 +524,7 @@ export default function WorkspaceChat({
         setContextTokenCount(null);
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       // Silently fail - this is a non-critical feature
       setContextTokenCount(null);
     }
@@ -406,14 +547,23 @@ export default function WorkspaceChat({
   }, []);
 
   const loadWorkspaceInfo = async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`);
+      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       if (response.ok) {
         const data = await response.json();
         setWorkspaceTitle(data.title || 'Workspace');
       }
-    } catch (err) {
-      console.error('Failed to load workspace info:', err);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name !== 'AbortError') {
+        console.error('Failed to load workspace info:', err);
+      }
     }
   };
 
@@ -1115,6 +1265,8 @@ export default function WorkspaceChat({
                     message={message}
                     suggestions={suggestions}
                     onExecuteSuggestion={handleExecuteSuggestion}
+                    workspaceId={workspaceId}
+                    apiUrl={apiUrl}
                   />
                 );
               })}
