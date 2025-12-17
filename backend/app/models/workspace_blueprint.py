@@ -54,28 +54,28 @@ class WorkspaceBlueprint(BaseModel):
         description="Workspace brief (1-2 paragraphs): what to do / what not to do / success criteria"
     )
 
-    # 1. Goals and boundaries
+    # Goals and boundaries
     goals: Optional[WorkspaceGoals] = None
 
-    # 2. Initial intent set
+    # Initial intent set
     initial_intents: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Initial intent cards (3-7 items)"
     )
 
-    # 3. AI Team roster
+    # AI Team roster
     ai_team: List[str] = Field(
         default_factory=list,
         description="AI role IDs for this workspace"
     )
 
-    # 4. Playbook Pack
+    # Playbook Pack
     playbooks: List[str] = Field(
         default_factory=list,
         description="Playbook codes to preload"
     )
 
-    # 5. Tool Connections
+    # Tool Connections
     # Important: Use List instead of Dict for sortability and multiple entries,
     # and to align with starter-kit YAML format
     tool_connections: List[ToolConnectionTemplate] = Field(

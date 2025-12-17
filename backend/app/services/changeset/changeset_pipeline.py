@@ -79,7 +79,7 @@ class ChangeSetPipeline:
             ChangeSetIR instance with preview_url and diff
         """
         try:
-            # 1. Create change set
+            # Create change set
             changeset = self.creator.create_from_tool_result(
                 workspace_id=workspace_id,
                 tool_id=tool_id,
@@ -89,19 +89,19 @@ class ChangeSetPipeline:
                 plan_id=plan_id
             )
 
-            # 2. Apply to sandbox
+            # Apply to sandbox
             changeset = await self.applier.apply_to_sandbox(
                 changeset=changeset,
                 sandbox_id=sandbox_id,
                 sandbox_type=sandbox_type
             )
 
-            # 3. Generate diff
+            # Generate diff
             diff_result = self.diff_generator.generate_diff(changeset)
             changeset.diff_summary = diff_result["diff_summary"]
             changeset.diff_details = diff_result["diff_details"]
 
-            # 4. Create rollback point (if requested)
+            # Create rollback point (if requested)
             if auto_create_rollback and changeset.preview_url:
                 try:
                     # Get sandbox_id from changeset metadata or use the one we created
@@ -114,7 +114,7 @@ class ChangeSetPipeline:
                 except Exception as e:
                     logger.warning(f"ChangeSetPipeline: Failed to create rollback point: {e}", exc_info=True)
 
-            # 5. Update status to pending review
+            # Update status to pending review
             changeset.status = ChangeSetStatus.PENDING_REVIEW
 
             logger.info(f"ChangeSetPipeline: Created and applied changeset {changeset.changeset_id}")
@@ -151,14 +151,14 @@ class ChangeSetPipeline:
             This method enforces the rule: only allowed with human confirmation.
         """
         try:
-            # 1. Approve (human confirmation)
+            # Approve (human confirmation)
             changeset = await self.promotion_manager.approve(
                 changeset=changeset,
                 approved_by=approved_by,
                 notes=approval_notes
             )
 
-            # 2. Promote to production
+            # Promote to production
             changeset = await self.promotion_manager.promote_to_prod(
                 changeset=changeset,
                 promoted_by=promoted_by or approved_by,

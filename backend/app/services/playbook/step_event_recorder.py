@@ -65,8 +65,8 @@ class StepEventRecorder:
                 and e.payload.get('execution_id') == execution_id
             ]
             # Total steps is the maximum of:
-            # 1. Current step_index + 1 (which is the step we're about to create)
-            # 2. Number of existing steps + 1 (for the new step we're creating)
+            # Current step_index + 1 (which is the step we're about to create)
+            # Number of existing steps + 1 (for the new step we're creating)
             dynamic_total_steps = max(current_step_index + 1, len(existing_steps) + 1)
 
             # Use dynamic total_steps for conversation mode

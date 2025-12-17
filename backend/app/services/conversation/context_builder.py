@@ -1057,7 +1057,7 @@ Please generate the summary in English, keep it within 300 words."""
                 context_parts.append("\nKey Long-term Intents:")
                 context_parts.extend(active_intents_summary)
 
-        # 2. Recent Conversation (compressed with summary support)
+        # Recent Conversation (compressed with summary support)
         # Use token budget to determine how much conversation to include
         conversation_budget = int(target_tokens * 0.4)
         max_events = self.preset["MAX_EVENTS_FOR_QUERY"]

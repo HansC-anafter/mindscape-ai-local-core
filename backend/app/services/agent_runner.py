@@ -335,7 +335,7 @@ class VertexAIProvider(LLMProvider):
             temperature=temperature,
             max_output_tokens=max_output
         )
-        # 將 max_output 存儲在對象上以便後續讀取
+        # Store max_output on the config object for later retrieval
         config._actual_max_output_tokens = max_output
         return config
 
@@ -374,7 +374,7 @@ class VertexAIProvider(LLMProvider):
                 if hasattr(candidate, 'finish_reason'):
                     logger.info(f"Vertex AI finish_reason: {candidate.finish_reason}")
                     import sys
-                    # 從我們存儲的屬性讀取 max_output_tokens
+                    # Read max_output_tokens from stored attribute
                     max_output_val = getattr(generation_config, '_actual_max_output_tokens', 'N/A')
                     # Get actual output token count from usage_metadata
                     actual_output_tokens = 'N/A'
@@ -395,11 +395,11 @@ class VertexAIProvider(LLMProvider):
 
                     print(f"[DEBUG] finish_reason: {candidate.finish_reason} ({finish_reason_name}), max_output_tokens={max_output_val}, prompt_tokens={prompt_tokens}, output_tokens={actual_output_tokens}, total_tokens={total_tokens}", file=sys.stderr)
 
-                    # 如果 finish_reason=2 但 output_tokens 遠低於 max_output_tokens，記錄警告
+                    # If finish_reason=2 but output_tokens is much lower than max_output_tokens, log warning
                     if candidate.finish_reason == 2 and max_output_val != 'N/A' and actual_output_tokens != 'N/A':
                         if isinstance(max_output_val, int) and isinstance(actual_output_tokens, int):
-                            if actual_output_tokens < max_output_val * 0.5:  # 如果實際輸出小於設置值的 50%
-                                print(f"[WARNING] finish_reason=2 但 output_tokens ({actual_output_tokens}) 遠低於 max_output_tokens ({max_output_val})，可能是其他限制觸發（安全過濾、思考預算等）", file=sys.stderr)
+                            if actual_output_tokens < max_output_val * 0.5:  # If actual output is less than 50% of set value
+                                print(f"[WARNING] finish_reason=2 but output_tokens ({actual_output_tokens}) is much lower than max_output_tokens ({max_output_val}), may be triggered by other limits (safety filter, thinking budget, etc.)", file=sys.stderr)
 
                     if candidate.finish_reason and candidate.finish_reason != 1:  # 1 = STOP (normal completion)
                         logger.warning(f"Vertex AI response finished with reason: {candidate.finish_reason} (1=STOP, 2=MAX_TOKENS, 3=SAFETY)")

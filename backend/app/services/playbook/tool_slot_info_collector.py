@@ -118,7 +118,7 @@ class ToolSlotInfoCollector:
                 selected_model_name = None
                 profile_id = None  # Can be passed from context if available
 
-                # 1. Use stage_router if provided
+                # Use stage_router if provided
                 if stage_router:
                     try:
                         profile = stage_router.get_profile_for_stage("intent_analysis")
@@ -132,7 +132,7 @@ class ToolSlotInfoCollector:
                     except Exception as e:
                         logger.debug(f"Failed to use stage_router: {e}, trying next option")
 
-                # 2. Use capability_profile if provided (and stage_router didn't work)
+                # Use capability_profile if provided (and stage_router didn't work)
                 if not selected_model_name and capability_profile:
                     try:
                         profile = CapabilityProfile(capability_profile)
@@ -145,7 +145,7 @@ class ToolSlotInfoCollector:
                     except Exception as e:
                         logger.debug(f"Failed to use capability_profile: {e}, trying next option")
 
-                # 3. Use SystemSettings if available (and previous options didn't work)
+                # Use SystemSettings if available (and previous options didn't work)
                 if not selected_model_name:
                     try:
                         settings_store = SystemSettingsStore()
