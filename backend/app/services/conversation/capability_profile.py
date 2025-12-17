@@ -124,14 +124,14 @@ class CapabilityProfileRegistry:
 
         config = self.get_profile(profile)
 
-        # 1. Prioritize tenant-specific model mappings (if profile_id provided)
+        # Prioritize tenant-specific model mappings (if profile_id provided)
         custom_models = self._get_custom_model_mapping(profile_id, profile)
         if custom_models:
             model_candidates = custom_models + config.model_candidates
         else:
             model_candidates = config.model_candidates
 
-        # 2. Override with SystemSettingsStore profile_model_mapping if available
+        # Override with SystemSettingsStore profile_model_mapping if available
         profile_mapping = settings_store.get_profile_model_mapping()
         if profile_mapping and profile.value in profile_mapping:
             # Prepend custom models to the list
@@ -140,9 +140,9 @@ class CapabilityProfileRegistry:
                 m for m in model_candidates if m not in custom_models_from_settings
             ]
 
-        # 3. Iterate through candidate models, check availability
+        # Iterate through candidate models and check availability
         for model_name in model_candidates:
-            # 3.1 Resolve provider for model (prioritize config, then infer from model name)
+            # Resolve provider for model (prioritize config, then infer from model name)
             provider_name = self._resolve_provider_for_model(
                 model_name=model_name,
                 profile_id=profile_id,
@@ -155,7 +155,7 @@ class CapabilityProfileRegistry:
                 )
                 continue
 
-            # 3.2 Check provider availability (using real LLMProviderManager API)
+            # Check provider availability (using real LLMProviderManager API)
             try:
                 provider = llm_provider_manager.get_provider(provider_name)
                 if not provider:
@@ -168,7 +168,7 @@ class CapabilityProfileRegistry:
                 logger.debug(f"Provider {provider_name} not available (Exception): {e}")
                 continue
 
-            # 3.3 Check model support
+            # Check model support
             if self._is_model_supported(provider, model_name):
                 logger.debug(f"Selected model {model_name} from provider {provider_name}")
                 return model_name
@@ -177,7 +177,7 @@ class CapabilityProfileRegistry:
                     f"Model {model_name} not supported by provider {provider_name}, trying next candidate"
                 )
 
-        # 4. If all candidates failed, try fallback_profile
+        # If all candidates failed, try fallback_profile
         if config.fallback_profile:
             logger.debug(
                 f"All candidates failed for profile {profile.value}, "
@@ -185,7 +185,7 @@ class CapabilityProfileRegistry:
             )
             return self.select_model(config.fallback_profile, llm_provider_manager, profile_id=profile_id)
 
-        # 5. If fallback also failed, return None (will trigger chat_model fallback)
+        # If fallback also failed, return None (will trigger chat_model fallback)
         logger.warning(
             f"All model selection methods failed for profile {profile.value}, will fallback to chat_model"
         )
