@@ -1,8 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useT } from '@/lib/i18n';
+import { List, AlertCircle, UserCheck, AtSign, Clock } from 'lucide-react';
 import PendingTasksPanel from '@/app/workspaces/components/PendingTasksPanel';
+import { DecisionCard, DecisionCardData } from './DecisionCard';
+import {
+  subscribeEventStream,
+  eventToBlockerCard,
+  UnifiedEvent
+} from './eventProjector';
+import { InputDialog } from './InputDialog';
+import { BranchSelectionDialog } from './BranchSelectionDialog';
 
 // IntentCard type definition
 export interface IntentCard {
@@ -30,6 +39,7 @@ interface DecisionPanelProps {
       confidence_threshold?: number;
       auto_execute?: boolean;
     }>;
+    owner_user_id?: string;
   };
 }
 
@@ -45,6 +55,23 @@ export function DecisionPanel({
   const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
+
+  const [decisionCards, setDecisionCards] = useState<DecisionCardData[]>([]);
+  const [events, setEvents] = useState<UnifiedEvent[]>([]);
+  const [filter, setFilter] = useState<'all' | 'blockers' | 'assigned-to-me' | 'mentioned-me' | 'waiting-on-others'>('all');
+  const [showLegacyTasks, setShowLegacyTasks] = useState(false);
+  const [inputDialog, setInputDialog] = useState<{
+    title: string;
+    fields: Array<{ key: string; label: string; type?: 'text' | 'textarea' | 'file'; required?: boolean; placeholder?: string }>;
+    onSubmit: (values: Record<string, string>) => void;
+  } | null>(null);
+  const [branchDialog, setBranchDialog] = useState<{
+    title: string;
+    alternatives: Array<{ playbook_code: string; confidence: number; rationale: string; differences?: string[] }>;
+    recommendedBranch?: string;
+    onSubmit: (selectedPlaybookCode: string) => void;
+  } | null>(null);
+  const currentUserId = workspace?.owner_user_id || 'default-user';
 
   const loadIntentCards = React.useCallback(async () => {
     try {
@@ -75,6 +102,244 @@ export function DecisionPanel({
     } finally {
       setLoading(false);
     }
+  }, [workspaceId, apiUrl]);
+
+  const handleDecisionCardAction = useCallback(async (detail: any) => {
+    const { decisionId, actionType, event, payload } = detail;
+    try {
+      const action = actionType === 'upload' ? 'clarify' : actionType === 'review' ? 'override' : 'confirm';
+      const requestBody: any = { action };
+
+      if (actionType === 'upload' && payload.missing_inputs) {
+        // Open input dialog to collect missing inputs
+        return new Promise<void>((resolve) => {
+          setInputDialog({
+            title: 'Provide Missing Inputs',
+            fields: payload.missing_inputs.map((input: string) => ({
+              key: input,
+              label: input,
+              type: 'text',
+              required: true,
+              placeholder: `Enter ${input}`
+            })),
+            onSubmit: async (values) => {
+              setInputDialog(null);
+              requestBody.providedInputs = values;
+              // Continue with the API call
+              try {
+                const response = await fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/decision-cards/${decisionId}/confirm`,
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                  }
+                );
+
+                if (!response.ok) {
+                  const error = await response.json().catch(() => ({}));
+                  throw new Error(error.detail || 'Failed to confirm decision');
+                }
+
+                // Remove processed card
+                setDecisionCards(prev => prev.filter(c => c.id !== decisionId));
+
+                // Trigger refresh
+                window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+                resolve();
+              } catch (err) {
+                console.error('Failed to handle decision card action:', err);
+                alert(`Operation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                resolve();
+              }
+            }
+          });
+        });
+      }
+
+      if (actionType === 'review' && payload.clarification_questions) {
+        // Open clarification dialog to collect answers
+        return new Promise<void>((resolve) => {
+          setInputDialog({
+            title: 'Clarify Questions',
+            fields: payload.clarification_questions.map((q: string, index: number) => ({
+              key: `question_${index}`,
+              label: q,
+              type: 'textarea',
+              required: true,
+              placeholder: `Answer: ${q}`
+            })),
+            onSubmit: async (values) => {
+              setInputDialog(null);
+              // Map back to question -> answer format
+              requestBody.clarificationAnswers = payload.clarification_questions.reduce((acc: any, q: string, index: number) => {
+                acc[q] = values[`question_${index}`] || '';
+                return acc;
+              }, {});
+              // Continue with the API call
+              try {
+                const response = await fetch(
+                  `${apiUrl}/api/v1/workspaces/${workspaceId}/decision-cards/${decisionId}/confirm`,
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                  }
+                );
+
+                if (!response.ok) {
+                  const error = await response.json().catch(() => ({}));
+                  throw new Error(error.detail || 'Failed to confirm decision');
+                }
+
+                // Remove processed card
+                setDecisionCards(prev => prev.filter(c => c.id !== decisionId));
+
+                // Trigger refresh
+                window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+                resolve();
+              } catch (err) {
+                console.error('Failed to handle decision card action:', err);
+                alert(`Operation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                resolve();
+              }
+            }
+          });
+        });
+      }
+
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/decision-cards/${decisionId}/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || 'Failed to confirm decision');
+      }
+
+      setDecisionCards(prev => prev.filter(c => c.id !== decisionId));
+      window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+    } catch (err) {
+      console.error('Failed to handle decision card action:', err);
+      alert(`Operation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  }, [workspaceId, apiUrl]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeEventStream(
+      workspaceId,
+      {
+        apiUrl,
+        eventTypes: ['decision_required', 'branch_proposed', 'run_state_changed', 'artifact_created'],
+        onEvent: (event: UnifiedEvent) => {
+          setEvents(prev => {
+            if (prev.find(e => e.id === event.id)) {
+              return prev;
+            }
+            return [...prev, event];
+          });
+
+          if (event.type === 'decision_required' || event.type === 'branch_proposed') {
+            const card = eventToBlockerCard(event);
+            if (card) {
+              setDecisionCards(prev => {
+                if (prev.find(c => c.id === card.id)) {
+                  return prev.map(c => c.id === card.id ? card : c);
+                }
+                return [...prev, card];
+              });
+            }
+          }
+
+          if (event.type === 'run_state_changed' && event.payload.new_state === 'DONE') {
+            setDecisionCards(prev => prev.filter(c =>
+              c.status !== 'DONE' && c.status !== 'REJECTED'
+            ));
+          }
+        },
+        onError: (error) => {
+          console.error('Event stream error:', error);
+        },
+      }
+    );
+
+    const handleCardAction = (e: any) => {
+      handleDecisionCardAction(e.detail);
+    };
+    window.addEventListener('decision-card-action', handleCardAction);
+
+    const handleBranchSelection = (e: any) => {
+      const { alternatives, recommendedBranch } = e.detail;
+      setBranchDialog({
+        title: 'Select Execution Plan',
+        alternatives,
+        recommendedBranch,
+        onSubmit: async (selectedPlaybookCode: string) => {
+          setBranchDialog(null);
+          try {
+            const response = await fetch(
+              `${apiUrl}/api/v1/workspaces/${workspaceId}/decision-cards/${e.detail.branchId}/confirm`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'override',
+                  overridePlaybookCode: selectedPlaybookCode,
+                  overrideReason: 'User selected from multiple candidate plans',
+                }),
+              }
+            );
+
+            if (!response.ok) {
+              const error = await response.json().catch(() => ({}));
+              throw new Error(error.detail || 'Failed to select branch');
+            }
+
+            setDecisionCards(prev => prev.filter(c => c.id !== e.detail.branchId));
+            window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+          } catch (err) {
+            console.error('Failed to select branch:', err);
+            alert(`Operation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          }
+        },
+      });
+    };
+    window.addEventListener('branch-selection', handleBranchSelection);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('decision-card-action', handleCardAction);
+      window.removeEventListener('branch-selection', handleBranchSelection);
+    };
+  }, [workspaceId, handleDecisionCardAction]);
+
+  useEffect(() => {
+    const loadInitialEvents = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/events?event_types=decision_required,branch_proposed&limit=50`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const initialEvents = data.events || [];
+          setEvents(initialEvents);
+
+          const cards = initialEvents
+            .map((e: UnifiedEvent) => eventToBlockerCard(e))
+            .filter((c: DecisionCardData | null): c is DecisionCardData => c !== null);
+          setDecisionCards(cards);
+        }
+      } catch (err) {
+        console.error('Failed to load initial events:', err);
+      }
+    };
+
+    loadInitialEvents();
   }, [workspaceId, apiUrl]);
 
   useEffect(() => {
@@ -110,81 +375,219 @@ export function DecisionPanel({
   const historyCards = intentCards.filter(c => c.status !== 'pending_decision');
   const highPriorityCount = pendingCards.filter(c => c.priority === 'high').length;
 
-  const totalPending = pendingTaskCount + pendingCards.length;
+  const sortedDecisionCards = useMemo(() => {
+    return [...decisionCards].sort((a, b) => {
+      if (a.priority === 'blocker' && b.priority !== 'blocker') return -1;
+      if (a.priority !== 'blocker' && b.priority === 'blocker') return 1;
+
+      const aIsMine = a.assignee === currentUserId;
+      const bIsMine = b.assignee === currentUserId;
+      if (aIsMine && !bIsMine) return -1;
+      if (!aIsMine && bIsMine) return 1;
+      if (a.dueAt && b.dueAt) {
+        return a.dueAt.getTime() - b.dueAt.getTime();
+      }
+      if (a.dueAt && !b.dueAt) return -1;
+      if (!a.dueAt && b.dueAt) return 1;
+
+      return 0;
+    });
+  }, [decisionCards, currentUserId]);
+
+  const filteredDecisionCards = useMemo(() => {
+    switch (filter) {
+      case 'blockers':
+        return sortedDecisionCards.filter(c => c.priority === 'blocker' && c.status === 'OPEN');
+      case 'assigned-to-me':
+        return sortedDecisionCards.filter(c => c.assignee === currentUserId && c.status === 'OPEN');
+      case 'mentioned-me':
+        return sortedDecisionCards.filter(c => c.watchers?.includes(currentUserId) && c.status === 'OPEN');
+      case 'waiting-on-others':
+        return sortedDecisionCards.filter(c => c.assignee && c.assignee !== currentUserId && c.status === 'OPEN');
+      default:
+        return sortedDecisionCards.filter(c => c.status === 'OPEN' || c.status === 'NEED_INFO');
+    }
+  }, [sortedDecisionCards, filter, currentUserId]);
+
+  const blockerCount = useMemo(() => {
+    return decisionCards.filter(c => c.priority === 'blocker' && c.status === 'OPEN').length;
+  }, [decisionCards]);
+
+  const assignedToMeCount = useMemo(() => {
+    return decisionCards.filter(c => c.assignee === currentUserId && c.status === 'OPEN').length;
+  }, [decisionCards, currentUserId]);
+
+  const totalPending = pendingTaskCount + pendingCards.length + filteredDecisionCards.length;
 
   return (
     <div className="decision-panel flex-1 flex flex-col overflow-hidden">
       {/* Panel Header */}
-      <div className={`section-header decision-section-header ${highPriorityCount > 0 ? 'has-high-priority' : ''} px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700`}>
-        <div className="flex items-center justify-between">
+      <div className={`section-header decision-section-header ${blockerCount > 0 ? 'has-high-priority' : ''} px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700`}>
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold">待處理決策</span>
-            {totalPending > 0 && (
+            <span className="text-xs font-semibold">Pending Decisions</span>
+            {filteredDecisionCards.length > 0 && (
               <span className="badge pending text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">
-                {totalPending}
+                {filteredDecisionCards.length}
               </span>
             )}
-            {highPriorityCount > 0 && (
+            {blockerCount > 0 && (
               <span
                 className="badge high-priority text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300"
-                title={`${highPriorityCount} 項高優先級`}
+                title={`${blockerCount} blocker${blockerCount !== 1 ? 's' : ''}`}
               >
-                {highPriorityCount}
+                {blockerCount}
               </span>
             )}
           </div>
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex gap-1 overflow-x-auto">
+          {[
+            {
+              id: 'all',
+              label: 'All',
+              icon: List,
+              count: decisionCards.filter(c => c.status === 'OPEN' || c.status === 'NEED_INFO').length
+            },
+            {
+              id: 'blockers',
+              label: 'Blockers',
+              icon: AlertCircle,
+              count: blockerCount
+            },
+            {
+              id: 'assigned-to-me',
+              label: 'Assigned to Me',
+              icon: UserCheck,
+              count: assignedToMeCount
+            },
+            {
+              id: 'mentioned-me',
+              label: 'Mentioned Me',
+              icon: AtSign,
+              count: decisionCards.filter(c => c.watchers?.includes(currentUserId) && c.status === 'OPEN').length
+            },
+            {
+              id: 'waiting-on-others',
+              label: 'Waiting on Others',
+              icon: Clock,
+              count: decisionCards.filter(c => c.assignee && c.assignee !== currentUserId && c.status === 'OPEN').length
+            },
+          ].map(option => {
+            const Icon = option.icon;
+            const isActive = filter === option.id;
+            return (
+              <button
+                key={option.id}
+                onClick={() => setFilter(option.id as any)}
+                className={`relative flex items-center justify-center gap-1.5 px-2 py-1.5 rounded transition-all ${
+                  isActive
+                    ? 'bg-blue-600 dark:bg-blue-700 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+                title={!isActive ? `${option.label}${option.count > 0 ? ` (${option.count})` : ''}` : undefined}
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                {isActive && (
+                  <span className="text-xs font-medium whitespace-nowrap">
+                    {option.label}
+                  </span>
+                )}
+                {option.count > 0 && (
+                  <span className={`absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 text-[10px] leading-none flex items-center justify-center rounded-full ${
+                    isActive
+                      ? 'bg-white text-blue-600 dark:text-blue-700'
+                      : 'bg-red-500 text-white'
+                  }`}>
+                    {option.count > 99 ? '99+' : option.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Decision Content */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-4">
-        {/* Pending Tasks Section */}
-        <div className="pending-tasks-section">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-            人類需要確認 / 補資料的任務
+      <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
+        {/* Unified Decision Cards (from event stream) */}
+        {filteredDecisionCards.length > 0 ? (
+          <div className="space-y-3">
+            {filteredDecisionCards.map(card => (
+              <DecisionCard
+                key={card.id}
+                card={card}
+                currentUserId={currentUserId}
+                onExpand={(cardId) => {
+                  console.log('Expand card:', cardId);
+                }}
+              />
+            ))}
           </div>
-          <PendingTasksPanel
-            workspaceId={workspaceId}
-            apiUrl={apiUrl}
-            onViewArtifact={onViewArtifact}
-            onSwitchToOutcomes={onSwitchToOutcomes}
-            workspace={workspace}
-            onTaskCountChange={setPendingTaskCount}
-          />
-        </div>
+        ) : (
+          !loading && (
+            <div className="text-xs text-gray-400 dark:text-gray-500 italic py-4 text-center">
+              No pending decisions
+            </div>
+          )
+        )}
 
-        {/* Intent Cards Section */}
-        <div className="intent-cards-section">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-            Intent Card
-          </div>
-          {loading ? (
-            <div className="text-xs text-gray-400 dark:text-gray-500 italic py-2">
-              Loading...
+        {(pendingCards.length > 0 || pendingTaskCount > 0) && (
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                Legacy Tasks - Will be migrated to unified decisions
+              </div>
+              <button
+                onClick={() => setShowLegacyTasks(!showLegacyTasks)}
+                className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
+              >
+                {showLegacyTasks ? 'Hide' : 'Show'}
+              </button>
             </div>
-          ) : pendingCards.length === 0 ? (
-            <div className="text-xs text-gray-400 dark:text-gray-500 italic py-2">
-              目前沒有需要決策的項目
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {pendingCards.map(card => (
-                <IntentCardItem
-                  key={card.id}
-                  card={card}
-                  workspaceId={workspaceId}
-                  apiUrl={apiUrl}
-                  onStatusChange={loadIntentCards}
-                />
-              ))}
-            </div>
-          )}
-        </div>
 
-        {/* Empty State */}
-        {!loading && totalPending === 0 && (
-          <div className="text-xs text-gray-400 dark:text-gray-500 italic py-4 text-center">
-            目前沒有需要決策的項目
+            {showLegacyTasks && (
+              <>
+                {/* Legacy Pending Tasks */}
+                {pendingTaskCount > 0 && (
+                  <div className="mb-4">
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                      Tasks requiring human confirmation / input
+                    </div>
+                    <PendingTasksPanel
+                      workspaceId={workspaceId}
+                      apiUrl={apiUrl}
+                      onViewArtifact={onViewArtifact}
+                      onSwitchToOutcomes={onSwitchToOutcomes}
+                      workspace={workspace}
+                      onTaskCountChange={setPendingTaskCount}
+                    />
+                  </div>
+                )}
+
+                {/* Legacy Intent Cards */}
+                {pendingCards.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                      Intent Card
+                    </div>
+                    <div className="space-y-2">
+                      {pendingCards.map(card => (
+                        <IntentCardItem
+                          key={card.id}
+                          card={card}
+                          workspaceId={workspaceId}
+                          apiUrl={apiUrl}
+                          onStatusChange={loadIntentCards}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -196,7 +599,7 @@ export function DecisionPanel({
               onClick={() => setShowHistory(!showHistory)}
             >
               <span className="chevron">{showHistory ? '▼' : '▶'}</span>
-              <span>歷史決策 ({historyCards.length})</span>
+              <span>History ({historyCards.length})</span>
             </button>
 
             {showHistory && (
@@ -216,6 +619,27 @@ export function DecisionPanel({
           </div>
         )}
       </div>
+
+      {/* Input Dialog */}
+      {inputDialog && (
+        <InputDialog
+          title={inputDialog.title}
+          fields={inputDialog.fields}
+          onSubmit={inputDialog.onSubmit}
+          onCancel={() => setInputDialog(null)}
+        />
+      )}
+
+      {/* Branch Selection Dialog */}
+      {branchDialog && (
+        <BranchSelectionDialog
+          title={branchDialog.title}
+          alternatives={branchDialog.alternatives}
+          recommendedBranch={branchDialog.recommendedBranch}
+          onSubmit={branchDialog.onSubmit}
+          onCancel={() => setBranchDialog(null)}
+        />
+      )}
     </div>
   );
 }
@@ -304,7 +728,7 @@ function IntentCardItem({
             ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300'
             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
         }`}>
-          {card.priority === 'high' ? '高' : card.priority === 'medium' ? '中' : '低'}
+          {card.priority === 'high' ? 'High' : card.priority === 'medium' ? 'Medium' : 'Low'}
         </span>
       </div>
       {!collapsed && card.description && (
@@ -328,7 +752,7 @@ function IntentCardItem({
                 <div className="w-3 h-3 border-2 border-gray-600 dark:border-gray-300 border-t-transparent rounded-full animate-spin mx-auto"></div>
               </>
             ) : (
-              '確認'
+              'Confirm'
             )}
           </button>
           <button
@@ -339,7 +763,7 @@ function IntentCardItem({
             }`}
           >
             <span>✕</span>
-            <span>拒絕</span>
+            <span>Reject</span>
           </button>
         </div>
       )}

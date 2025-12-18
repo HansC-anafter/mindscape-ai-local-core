@@ -18,11 +18,11 @@ export const workspaceZhTW = {
   workspaceDescriptionOptional: '說明（選填）',
   workspaceNamePlaceholder: '例如：專案管理、日常任務等',
   workspaceDescriptionPlaceholder: '描述這個工作區的用途...',
-  workspaceDescriptionLLMPlaceholder: '詳細描述這個工作區的用途、目標、工作流程等，讓 AI 協助您配置...',
+  workspaceDescriptionLLMPlaceholder: '描述工作區用途、目標與工作流程...',
   addReferenceSeed: '加一個引用種子（可跳過）',
-  addReferenceSeedDescription: '可以跳過，稍後再補；這一步不會寫入外部工具',
+  addReferenceSeedDescription: '可選，稍後再補',
   pasteText: '貼上文字',
-  pasteTextPlaceholder: '請貼上您的需求或描述（5-30行）...',
+  pasteTextPlaceholder: '貼上需求或描述...',
   createAndComplete: '建立並完成',
   pleaseSelectCreationMethod: '請先選擇建立方式',
   back: '返回',
@@ -49,14 +49,14 @@ export const workspaceZhTW = {
 
   // Workspace empty state
   workspaceNotConfigured: '工作區尚未配置',
-  workspaceNotConfiguredDescription: '此工作區需要進行初始設定。您可以透過「最小文件引用」快速建立工作台，或手動配置藍圖。',
+  workspaceNotConfiguredDescription: '需要初始設定。使用「最小文件引用」或手動配置。',
   configureWorkspace: '配置工作區',
   startWorkDirectly: '直接開始工作',
 
   // Setup drawer
   assembleWorkspace: '組裝工作區',
   minimumFileReference: '最小文件引用 (MFR)',
-  minimumFileReferenceDescription: '快速建立工作台：貼上一段文字、上傳一個檔案，或貼上網址，系統會自動生成工作區藍圖。',
+  minimumFileReferenceDescription: '快速設定：貼上文字、上傳檔案或貼上網址，自動生成藍圖。',
   referenceTextToStartWorkspace: '引用文字開啟工作區',
   close: '關閉',
   processing: '處理中...',
@@ -74,4 +74,5 @@ export const workspaceZhTW = {
   workspaceNotFound: 'Workspace not found',
   loadingWorkspace: 'Loading workspace...',
 } as const satisfies Partial<Record<MessageKey, string>>;
+
 

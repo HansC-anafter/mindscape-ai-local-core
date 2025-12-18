@@ -327,9 +327,19 @@ Please retry the tool call."""
 
         try:
             normalized_kwargs = kwargs.copy()
+            # Parameter normalization: convert common incorrect parameter names to correct ones
             if tool_fqn == "filesystem_write_file" and "path" in normalized_kwargs and "file_path" not in normalized_kwargs:
                 normalized_kwargs["file_path"] = normalized_kwargs.pop("path")
                 logger.debug(f"Normalized parameter 'path' -> 'file_path' for {tool_fqn}")
+
+            # Normalize core_llm.structured_extract parameters
+            if tool_fqn == "core_llm.structured_extract":
+                if "input" in normalized_kwargs and "text" not in normalized_kwargs:
+                    normalized_kwargs["text"] = normalized_kwargs.pop("input")
+                    logger.debug(f"Normalized parameter 'input' -> 'text' for {tool_fqn}")
+                if "schema" in normalized_kwargs and "schema_description" not in normalized_kwargs:
+                    normalized_kwargs["schema_description"] = normalized_kwargs.pop("schema")
+                    logger.debug(f"Normalized parameter 'schema' -> 'schema_description' for {tool_fqn}")
 
             if tool_fqn.startswith("sandbox."):
                 execution_sandbox_id = self.execution_context.get("sandbox_id")
@@ -419,6 +429,38 @@ Please retry the tool call."""
                     self.store.create_event(event)
                 except Exception as e:
                     logger.warning(f"Failed to record tool call event: {e}")
+
+                # Emit TOOL_RESULT event (ReAct: Observe)
+                try:
+                    tool_result_event = MindEvent(
+                        id=str(uuid.uuid4()),
+                        timestamp=tool_end_time,
+                        actor=EventActor.AGENT,
+                        channel="playbook",
+                        profile_id=profile_id,
+                        project_id=project_id,
+                        workspace_id=workspace_id,
+                        event_type=EventType.TOOL_RESULT,
+                        payload={
+                            "tool_fqn": tool_fqn,
+                            "tool_call_id": tool_call_id,
+                            "execution_id": execution_id,
+                            "step_id": step_id,
+                            "status": "completed",
+                            "result_summary": str(result)[:500] if result else None,  # Truncate for event payload
+                            "duration_seconds": (tool_end_time - tool_start_time).total_seconds(),
+                            "has_changeset": "_changeset_id" in result if isinstance(result, dict) else False,
+                            "changeset_id": result.get("_changeset_id") if isinstance(result, dict) else None,
+                        },
+                        entity_ids=[project_id] if project_id else [],
+                        metadata={
+                            "factory_cluster": factory_cluster,
+                            "tool_params_summary": {k: str(v)[:50] for k, v in list(kwargs.items())[:5] if k != "project_id"},
+                        }
+                    )
+                    self.store.create_event(tool_result_event)
+                except Exception as e:
+                    logger.warning(f"Failed to record tool result event: {e}")
 
             # Integrate with ChangeSet pipeline for write operations
             try:

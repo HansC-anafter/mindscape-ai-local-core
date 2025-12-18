@@ -214,6 +214,34 @@ class PlaybookRunner:
 
             execution_id = str(uuid.uuid4())
 
+            # Emit RUN_STATE_CHANGED event: UNKNOWN → READY
+            try:
+                from backend.app.models.mindscape import MindEvent, EventType, EventActor
+                ready_event = MindEvent(
+                    id=str(uuid.uuid4()),
+                    timestamp=datetime.utcnow(),
+                    actor=EventActor.AGENT,
+                    channel="playbook",
+                    profile_id=profile_id,
+                    project_id=project_id,
+                    workspace_id=workspace_id,
+                    event_type=EventType.RUN_STATE_CHANGED,
+                    payload={
+                        "execution_id": execution_id,
+                        "previous_state": "UNKNOWN",
+                        "new_state": "READY",
+                        "reason": "playbook_execution_started",
+                        "playbook_code": playbook_code,
+                        "blocker_count": 0,
+                    },
+                    entity_ids={"execution_id": execution_id},
+                    metadata={"playbook_code": playbook_code}
+                )
+                self.store.create_event(ready_event)
+                logger.info(f"Emitted RUN_STATE_CHANGED event: UNKNOWN → READY for execution {execution_id}")
+            except Exception as e:
+                logger.warning(f"Failed to emit RUN_STATE_CHANGED event: {e}")
+
             # Re-inject context with execution_id if thread_id exists
             thread_id = inputs.get("thread_id") if inputs else None
             if thread_id and inputs:
@@ -325,6 +353,34 @@ class PlaybookRunner:
 
             conv_manager.add_assistant_message(assistant_response)
 
+            # Emit RUN_STATE_CHANGED event: READY → RUNNING
+            try:
+                from backend.app.models.mindscape import MindEvent, EventType, EventActor
+                running_event = MindEvent(
+                    id=str(uuid.uuid4()),
+                    timestamp=datetime.utcnow(),
+                    actor=EventActor.AGENT,
+                    channel="playbook",
+                    profile_id=profile_id,
+                    project_id=project_id,
+                    workspace_id=workspace_id,
+                    event_type=EventType.RUN_STATE_CHANGED,
+                    payload={
+                        "execution_id": execution_id,
+                        "previous_state": "READY",
+                        "new_state": "RUNNING",
+                        "reason": "tool_execution_started",
+                        "playbook_code": playbook_code,
+                        "blocker_count": 0,
+                    },
+                    entity_ids={"execution_id": execution_id},
+                    metadata={"playbook_code": playbook_code}
+                )
+                self.store.create_event(running_event)
+                logger.info(f"Emitted RUN_STATE_CHANGED event: READY → RUNNING for execution {execution_id}")
+            except Exception as e:
+                logger.warning(f"Failed to emit RUN_STATE_CHANGED event: {e}")
+
             # Parse and execute tool calls (with loop support for multiple iterations)
             # Use tool executor for tool execution loop
             logger.info(f"PlaybookRunner: Starting tool execution loop for {execution_id}")
@@ -385,6 +441,35 @@ class PlaybookRunner:
                     execution_id=execution_id,
                     structured_output=structured_output
                 )
+
+                # Emit RUN_STATE_CHANGED event: RUNNING → DONE
+                try:
+                    from backend.app.models.mindscape import MindEvent, EventType, EventActor
+                    done_event = MindEvent(
+                        id=str(uuid.uuid4()),
+                        timestamp=datetime.utcnow(),
+                        actor=EventActor.AGENT,
+                        channel="playbook",
+                        profile_id=profile_id,
+                        project_id=project_id,
+                        workspace_id=workspace_id,
+                        event_type=EventType.RUN_STATE_CHANGED,
+                        payload={
+                            "execution_id": execution_id,
+                            "previous_state": "RUNNING",
+                            "new_state": "DONE",
+                            "reason": "execution_completed",
+                            "playbook_code": playbook_code,
+                            "blocker_count": 0,
+                        },
+                        entity_ids={"execution_id": execution_id},
+                        metadata={"playbook_code": playbook_code}
+                    )
+                    self.store.create_event(done_event)
+                    logger.info(f"Emitted RUN_STATE_CHANGED event: RUNNING → DONE for execution {execution_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to emit RUN_STATE_CHANGED event: {e}")
+
                 # Cleanup execution from active_conversations
                 self.cleanup_execution(execution_id)
                 logger.info(f"Cleaned up execution {execution_id} from active_conversations")
@@ -394,6 +479,20 @@ class PlaybookRunner:
                 await self.state_store.save_execution_state(execution_id, conv_manager)
             except Exception as e:
                 logger.warning(f"Failed to save initial execution state: {e}", exc_info=True)
+
+            # Preserve sandbox_id in execution_context if available
+            if sandbox_id and workspace_id:
+                try:
+                    from backend.app.services.stores.tasks_store import TasksStore
+                    tasks_store = TasksStore(db_path=self.store.db_path)
+                    task = tasks_store.get_task_by_execution_id(execution_id)
+                    if task:
+                        execution_context = task.execution_context or {}
+                        execution_context["sandbox_id"] = sandbox_id
+                        tasks_store.update_task(task.id, execution_context=execution_context)
+                        logger.info(f"Preserved sandbox_id={sandbox_id} in execution_context for execution {execution_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to preserve sandbox_id in execution_context: {e}", exc_info=True)
 
             result = {
                 "execution_id": execution_id,

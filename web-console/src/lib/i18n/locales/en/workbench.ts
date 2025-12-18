@@ -27,7 +27,7 @@ export const workbenchEn = {
   workspaceCurrentlyDoing: 'Currently Processing',
   processing: 'Processing',
   aiTeamCollaborating: 'AI Team Collaborating',
-  aiTeamCollaboratingHelp: 'Shows **actual tasks** created by **execution plans**.\n\nTasks with **PENDING** status are waiting for user confirmation.\nTasks with **RUNNING** status are currently being executed.\n\nThese are **triggered AI tasks**.',
+  aiTeamCollaboratingHelp: 'Shows tasks created by execution plans.\n\nPENDING: waiting for confirmation. RUNNING: executing.',
   completedTasks: 'Completed Tasks',
   noPendingTasks: 'No pending tasks',
   taskStatusRunning: 'Processing',
@@ -45,7 +45,7 @@ export const workbenchEn = {
   hoursAgo: '{count} hours ago',
   processFile: 'Process this file',
   suggestedNextSteps: 'Suggested Next Steps',
-  suggestedNextStepsHelp: 'System-generated **suggestions** from workbench API based on **current context**.\n\nThese are **recommendations**, not actual tasks yet.\nClicking the action button may **create a task** or **execute directly**.',
+  suggestedNextStepsHelp: 'System-generated suggestions based on current context.\n\nRecommendations only. Click to create task or execute.',
   organizeTasks: 'Organize Task List',
   createTaskChecklist: 'Create today\'s checklist with suggested priority',
   createPlan: 'Create Execution Plan',
@@ -74,7 +74,7 @@ export const workbenchEn = {
   executionSteps: 'Execution Steps',
   lastStep: 'Last Step',
   trackExecution: 'Track Execution',
-  noExecutionSteps: 'No execution steps found - Playbook may not have started or is stuck in initialization phase',
+  noExecutionSteps: 'No execution steps found - Playbook may not have started',
 
   // Workspace Modes
   workspaceMode: 'Workspace Mode',
@@ -199,9 +199,9 @@ export const workbenchEn = {
   workspaceDeleteConfirm: 'Are you sure you want to delete workspace "{workspaceName}"? This action cannot be undone and all associated data will be permanently deleted.',
 
   // Welcome messages (from backend i18n)
-  'welcome.new_workspace': 'Welcome to "{workspace_title}" workspace!\n\nThis is your collaboration space where I can help you:\n\n**I can help you:**\n• Execute Playbook workflows (e.g., daily planning, project breakdown)\n• Manage tasks and track progress\n• Answer questions and provide suggestions\n• Analyze your work patterns\n\n**Quick start:**\n• Tell me directly what you want to accomplish\n• Or click the suggestions below to get started\n\n**Suggestion:**\nIf this is your first time, I recommend completing the "Mindscape" cold-start tasks so I can better understand your needs and work habits.\n\nLet me know what you need help with!',
-  'welcome.returning_workspace': 'Welcome back to "{workspace_title}" workspace!\n\nI can help you:\n• Execute Playbook workflows\n• Manage projects and tasks\n• Answer questions and provide suggestions\n• Analyze your work patterns\n\nTell me directly what you want to do, or click the suggestions below to get started!',
-  'welcome.fallback': 'Welcome to "{workspace_title}" workspace! I can help you execute Playbooks, manage tasks, answer questions, and more. Just tell me what you want to do!',
+  'welcome.new_workspace': 'Welcome to "{workspace_title}" workspace!\n\nI can help you: execute Playbooks, manage tasks, answer questions, analyze work patterns.\n\nQuick start: tell me what you want to accomplish, or click suggestions below.\n\nSuggestion: first-time users should complete "Mindscape" cold-start tasks.',
+  'welcome.returning_workspace': 'Welcome back to "{workspace_title}" workspace!\n\nI can help you execute Playbooks, manage projects, answer questions, analyze patterns.\n\nTell me what you want to do, or click suggestions below!',
+  'welcome.fallback': 'Welcome to "{workspace_title}" workspace! I can help you execute Playbooks, manage tasks, answer questions, and more.',
   'suggestions.organize_tasks': 'Help me organize today\'s tasks',
   'suggestions.daily_planning': 'Execute Daily Planning Playbook',
   'suggestions.view_progress': 'View my project progress',

@@ -45,7 +45,7 @@ export const executionJa = {
   restarting: 'リセット中...',
   reloadPlaybook: 'プレイブックを再読み込み',
   restartExecution: '実行をリセット',
-  confirmRestartExecution: 'この実行をリセットしてもよろしいですか？\n\n最初から新しい実行が作成され、現在の実行がキャンセルされます。',
+  confirmRestartExecution: 'この実行をリセットしますか？\n\n新しい実行が作成され、現在の実行がキャンセルされます。',
   restartingExecution: '実行をリセット中です。しばらくお待ちください...',
   executionRestarted: '実行がリセットされました',
   executionRestartFailed: '実行のリセットに失敗しました',
@@ -104,7 +104,7 @@ export const executionJa = {
   // Execution Chat
   discussPlaybookExecution: 'このプレイブック実行について AI と議論する...',
   itKnowsStepsEventsErrors: 'ステップ、イベント、エラーを知っています。',
-  executionChatDescription: 'これは実行ステータスを尋ねたり、ステップを理解したり、提案を得るためのディスカッションパネルです。操作（再試行、キャンセルなど）が必要な場合は、メイン実行インターフェースのボタンを使用してください。',
+  executionChatDescription: 'ディスカッションパネル：実行ステータス確認、ステップ理解、提案取得。操作はメインインターフェースのボタンを使用。',
   recommended: '（推奨）',
   autoStart: '自動開始：',
   aiThinking: 'AIが考えています...',

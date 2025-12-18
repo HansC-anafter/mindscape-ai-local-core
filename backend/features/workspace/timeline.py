@@ -2,14 +2,18 @@
 Workspace Timeline Routes
 
 Handles /workspaces/{id}/events and /workspaces/{id}/timeline endpoints.
+Also provides SSE streaming for unified event stream (ReAct/ToT loop visualization).
 """
 
 import logging
 import traceback
 import sys
+import json
+import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, AsyncGenerator, List
 from fastapi import APIRouter, HTTPException, Path, Query, Depends
+from fastapi.responses import StreamingResponse
 
 from backend.app.routes.workspace_schemas import EventsListResponse, TimelineListResponse
 from backend.app.routes.workspace_dependencies import get_workspace, get_store, get_timeline_items_store
@@ -17,6 +21,7 @@ from backend.app.models.workspace import Workspace
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
 from backend.app.services.stores.tasks_store import TasksStore
+from backend.app.models.mindscape import EventType
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-timeline"])
 logger = logging.getLogger(__name__)
@@ -248,3 +253,201 @@ async def get_workspace_timeline(
         print(f"ERROR: Timeline error: {str(e)}", file=sys.stderr)
         print(full_traceback, file=sys.stderr)
         raise
+
+
+async def event_stream_generator(
+    workspace_id: str,
+    store: MindscapeStore,
+    event_types: Optional[List[str]] = None,
+    project_id: Optional[str] = None,
+    start_time: Optional[datetime] = None,
+    last_event_id: Optional[str] = None
+) -> AsyncGenerator[str, None]:
+    """
+    Generate SSE event stream for unified events (ReAct/ToT loop visualization)
+
+    Events are projected to UI:
+    - Right panel: DECISION_REQUIRED events → blocker cards
+    - Left panel: RUN_STATE_CHANGED, ARTIFACT_CREATED events → progress
+    - Center panel: All events → timeline
+
+    Args:
+        workspace_id: Workspace ID
+        store: MindscapeStore instance
+        event_types: Optional list of event types to filter
+        project_id: Optional project ID to filter
+        start_time: Optional start time to filter
+        last_event_id: Optional last event ID to resume from
+    """
+    try:
+        # Send initial connection message
+        yield f"data: {json.dumps({'type': 'connected', 'workspace_id': workspace_id})}\n\n"
+
+        # Convert event_types to EventType enum if provided
+        event_type_enums = None
+        if event_types:
+            try:
+                event_type_enums = [EventType(et) for et in event_types]
+            except ValueError as e:
+                logger.warning(f"Invalid event type in filter: {e}")
+
+        # Poll for new events using timestamp-based filtering
+        # Track the latest event timestamp we've seen
+        last_poll_time = start_time or datetime.utcnow()
+        seen_event_ids = set()
+
+        # If resuming from last_event_id, load that event to get its timestamp
+        if last_event_id:
+            # Load events to find the last_event_id and get its timestamp
+            resume_events = store.get_events_by_workspace(
+                workspace_id=workspace_id,
+                start_time=None,
+                limit=1000
+            )
+            for event in resume_events:
+                if event.id == last_event_id:
+                    # Found the resume point - set last_poll_time to this event's timestamp
+                    if isinstance(event.timestamp, datetime):
+                        last_poll_time = event.timestamp
+                    seen_event_ids.add(event.id)
+                    break
+                seen_event_ids.add(event.id)
+
+        # Heartbeat counter to send keepalive messages
+        heartbeat_counter = 0
+        HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
+
+        while True:
+            try:
+                # Query for new events using get_events_by_workspace
+                # Get events after last_poll_time
+                events = store.get_events_by_workspace(
+                    workspace_id=workspace_id,
+                    start_time=last_poll_time,
+                    limit=100
+                )
+
+                # Filter by event types if provided
+                if event_type_enums:
+                    events = [e for e in events if e.event_type in event_type_enums]
+
+                # Filter by project_id if provided
+                if project_id:
+                    events = [e for e in events if e.project_id == project_id]
+
+                # Send new events (only those we haven't seen)
+                new_events = [e for e in events if e.id not in seen_event_ids]
+
+                # Sort by timestamp ascending to process in chronological order
+                new_events.sort(key=lambda e: e.timestamp if isinstance(e.timestamp, datetime) else datetime.min)
+
+                for event in new_events:
+                    seen_event_ids.add(event.id)
+
+                    # Format event for SSE
+                    payload = event.payload if isinstance(event.payload, dict) else {}
+                    entity_ids = event.entity_ids if isinstance(event.entity_ids, list) else []
+                    metadata = event.metadata if isinstance(event.metadata, dict) else {}
+
+                    event_data = {
+                        "id": event.id,
+                        "type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                        "timestamp": (event.timestamp.isoformat() + 'Z' if event.timestamp.tzinfo is None else event.timestamp.isoformat()) if event.timestamp else None,
+                        "actor": event.actor.value if hasattr(event.actor, 'value') else str(event.actor),
+                        "workspace_id": event.workspace_id,
+                        "project_id": event.project_id,
+                        "profile_id": event.profile_id,
+                        "payload": payload,
+                        "entity_ids": entity_ids,
+                        "metadata": metadata,
+                    }
+
+                    # Send SSE formatted event
+                    yield f"id: {event.id}\n"
+                    yield f"event: {event_data['type']}\n"
+                    yield f"data: {json.dumps(event_data)}\n\n"
+
+                    # Update last_poll_time to this event's timestamp
+                    if isinstance(event.timestamp, datetime):
+                        last_poll_time = event.timestamp
+
+                # Send heartbeat to keep connection alive
+                heartbeat_counter += 1
+                if heartbeat_counter >= HEARTBEAT_INTERVAL:
+                    yield f": heartbeat\n\n"  # SSE comment line (keeps connection alive)
+                    heartbeat_counter = 0
+
+                # Wait before next poll
+                await asyncio.sleep(1)  # Poll every 1 second
+
+            except Exception as e:
+                logger.error(f"Error in event stream: {e}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                await asyncio.sleep(5)  # Wait longer on error
+
+    except Exception as e:
+        logger.error(f"Fatal error in event stream: {e}", exc_info=True)
+        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+
+@router.get("/{workspace_id}/events/stream")
+async def stream_workspace_events(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    event_types: Optional[str] = Query(None, description="Comma-separated list of event types to filter"),
+    project_id: Optional[str] = Query(None, description="Optional project ID to filter"),
+    start_time: Optional[str] = Query(None, description="Start time filter (ISO format)"),
+    last_event_id: Optional[str] = Query(None, description="Last event ID to resume from"),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store)
+):
+    """
+    Stream unified events for a workspace (SSE)
+
+    Events are projected to UI:
+    - Right panel: DECISION_REQUIRED events → blocker cards
+    - Left panel: RUN_STATE_CHANGED, ARTIFACT_CREATED events → progress
+    - Center panel: All events → timeline
+
+    Query Parameters:
+    - event_types: Comma-separated list (e.g., "decision_required,tool_result,run_state_changed")
+    - project_id: Filter by project
+    - start_time: ISO format timestamp to start from
+    - last_event_id: Resume from last event ID
+    """
+    try:
+        # Parse event types
+        event_type_list = None
+        if event_types:
+            event_type_list = [et.strip() for et in event_types.split(",")]
+
+        # Parse start_time
+        start_time_dt = None
+        if start_time:
+            try:
+                start_time_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_time format. Use ISO 8601 format.")
+
+        # Create SSE stream
+        return StreamingResponse(
+            event_stream_generator(
+                workspace_id=workspace_id,
+                store=store,
+                event_types=event_type_list,
+                project_id=project_id,
+                start_time=start_time_dt,
+                last_event_id=last_event_id
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+                "Content-Type": "text/event-stream; charset=utf-8",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stream events: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to stream events: {str(e)}")

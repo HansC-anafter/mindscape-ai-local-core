@@ -70,10 +70,13 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
       const eventsResponse = await fetch(url.toString());
 
       if (!eventsResponse.ok) {
-        throw new Error(`Failed to load events: ${eventsResponse.status}`);
+        const errorText = await eventsResponse.text().catch(() => 'Unknown error');
+        console.error(`[useChatEvents] Failed to load events: ${eventsResponse.status}`, errorText);
+        throw new Error(`Failed to load events: ${eventsResponse.status} - ${errorText.substring(0, 100)}`);
       }
 
       const eventsData = await eventsResponse.json();
+      console.log(`[useChatEvents] Loaded ${eventsData.events?.length || 0} events for workspace ${workspaceId}`);
 
       // Store original events for metadata access
       const eventsMap = new Map();
@@ -81,7 +84,11 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
         eventsMap.set(e.id, e);
       });
 
-      const chatMessages: ChatMessage[] = (eventsData.events || [])
+      const allEvents = eventsData.events || [];
+      console.log(`[useChatEvents] Total events: ${allEvents.length}, event types:`,
+        [...new Set(allEvents.map((e: any) => e.event_type))]);
+
+      const chatMessages: ChatMessage[] = allEvents
         .slice()
         .reverse()
         .filter((e: any) =>
@@ -108,6 +115,8 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
           project_assignment: e.metadata?.project_assignment || undefined,
           _originalEvent: e  // Store original event for metadata access
         }));
+
+      console.log(`[useChatEvents] Filtered to ${chatMessages.length} chat messages`);
 
       if (append) {
         setMessages(prev => [...chatMessages, ...prev]);

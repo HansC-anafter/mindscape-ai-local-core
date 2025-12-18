@@ -18,11 +18,11 @@ export const workspaceEn = {
   workspaceDescriptionOptional: 'Description (Optional)',
   workspaceNamePlaceholder: 'e.g., Project Management, Daily Tasks, etc.',
   workspaceDescriptionPlaceholder: 'Describe the purpose of this workspace...',
-  workspaceDescriptionLLMPlaceholder: 'Describe in detail the purpose, goals, workflow of this workspace, let AI help you configure...',
+  workspaceDescriptionLLMPlaceholder: 'Describe workspace purpose, goals, and workflow...',
   addReferenceSeed: 'Add Reference Seed (Optional)',
-  addReferenceSeedDescription: 'Can be skipped, add later; this step will not write to external tools',
+  addReferenceSeedDescription: 'Optional, can be added later',
   pasteText: 'Paste Text',
-  pasteTextPlaceholder: 'Please paste your requirements or description (5-30 lines)...',
+  pasteTextPlaceholder: 'Paste requirements or description...',
   createAndComplete: 'Create and Complete',
   pleaseSelectCreationMethod: 'Please select a creation method first',
   back: 'Back',
@@ -49,14 +49,14 @@ export const workspaceEn = {
 
   // Workspace empty state
   workspaceNotConfigured: 'Workspace Not Configured',
-  workspaceNotConfiguredDescription: 'This workspace requires initial setup. You can quickly create a workspace through "Minimum File Reference" or manually configure the blueprint.',
+  workspaceNotConfiguredDescription: 'Initial setup required. Use "Minimum File Reference" or configure manually.',
   configureWorkspace: 'Configure Workspace',
   startWorkDirectly: 'Start Work Directly',
 
   // Setup drawer
   assembleWorkspace: 'Assemble Workspace',
   minimumFileReference: 'Minimum File Reference (MFR)',
-  minimumFileReferenceDescription: 'Quick workspace creation: paste text, upload a file, or paste URLs, the system will automatically generate workspace blueprint.',
+  minimumFileReferenceDescription: 'Quick setup: paste text, upload file, or paste URLs to auto-generate blueprint.',
   referenceTextToStartWorkspace: 'Reference Text to Start Workspace',
   close: 'Close',
   processing: 'Processing...',
@@ -74,4 +74,5 @@ export const workspaceEn = {
   workspaceNotFound: 'Workspace not found',
   loadingWorkspace: 'Loading workspace...',
 } as const satisfies Partial<Record<MessageKey, string>>;
+
 

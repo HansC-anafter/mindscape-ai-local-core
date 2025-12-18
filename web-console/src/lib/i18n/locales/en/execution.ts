@@ -7,13 +7,13 @@ import type { MessageKey } from '../../keys';
 export const executionEn = {
   // Playbook Execution Inspector
   runInsightDraftChanges: 'Execution insights and draft changes',
-  reviewAISuggestions: 'Review AI suggestions and apply changes to improve this playbook',
+  reviewAISuggestions: 'Review AI suggestions to improve this playbook',
   aiAnalysis: 'AI Analysis',
   apply: 'Apply',
   discard: 'Discard',
   step: 'Step',
   noRevisionSuggestions: 'No revision suggestions yet.',
-  chatWithPlaybookInspector: 'Chat with Playbook Inspector to get suggestions.',
+  chatWithPlaybookInspector: 'Chat with Playbook Inspector for suggestions.',
   revisionDraft: 'Revision Draft',
   aiSuggestedChangesWillAppear: 'AI suggested changes will appear here',
   stepsTimeline: 'Steps Timeline',
@@ -45,7 +45,7 @@ export const executionEn = {
   restarting: 'Resetting...',
   reloadPlaybook: 'Reload Playbook',
   restartExecution: 'Reset Execution',
-  confirmRestartExecution: 'Are you sure you want to reset this execution?\n\nThis will create a new execution from the beginning and cancel the current one.',
+  confirmRestartExecution: 'Reset this execution?\n\nThis will create a new execution and cancel the current one.',
   restartingExecution: 'Resetting execution, please wait...',
   executionRestarted: 'Execution reset',
   executionRestartFailed: 'Execution reset failed',
@@ -77,21 +77,21 @@ export const executionEn = {
   // Playbook Inspector
   playbookInspector: 'Playbook Inspector',
   playbookRun: 'Playbook - Run #{number}',
-  askPlaybookInspector: 'Ask the Playbook Inspector about this execution. It knows steps, events, and errors.',
+  askPlaybookInspector: 'Ask Playbook Inspector about this execution. Knows steps, events, and errors.',
   explainWhyFailed: 'Explain why this execution failed',
   suggestNextSteps: 'Suggest next steps',
   reviewPlaybookSteps: 'Review playbook steps',
-  explainWhyFailedPrompt: 'Can you explain why this execution failed? What went wrong and how to fix it?',
+  explainWhyFailedPrompt: 'Explain why this execution failed and how to fix it.',
   explainWhyFailedPromptAlt: 'What is the current status of this execution?',
-  suggestNextStepsPrompt: 'What should be done next to resolve this issue or continue the execution?',
-  reviewPlaybookStepsPrompt: 'Can you review the playbook steps and provide improvement suggestions?',
+  suggestNextStepsPrompt: 'What should be done next to resolve this issue?',
+  reviewPlaybookStepsPrompt: 'Review playbook steps and provide improvement suggestions.',
   playbookConversation: 'Playbook Conversation',
 
   // Workspace Loading
   workspaceNotFound: 'Workspace not found',
   failedToLoadWorkspace: 'Failed to load workspace',
   loadingWorkspace: 'Loading workspace...',
-  rateLimitExceeded: 'Rate limit exceeded. Please wait {seconds} seconds before refreshing the page.',
+  rateLimitExceeded: 'Rate limit exceeded. Wait {seconds} seconds before refreshing.',
   retryButton: 'Retry',
 
   // Timeline Panel
@@ -104,12 +104,12 @@ export const executionEn = {
   // Execution Chat
   discussPlaybookExecution: 'Discuss this playbook execution with AI...',
   itKnowsStepsEventsErrors: 'It knows steps, events, and errors.',
-  executionChatDescription: 'This is a discussion panel for asking about execution status, understanding steps, or getting suggestions. For actions (retry, cancel, etc.), use the buttons in the main execution interface.',
+  executionChatDescription: 'Discussion panel for execution status, steps, or suggestions. Use main interface buttons for actions.',
   recommended: '(Recommended)',
   autoStart: 'Auto start: ',
   aiThinking: 'AI thinking...',
   enterResponseToContinue: 'Enter response to continue execution...',
   playbookWaitingForResponse: 'Playbook is waiting for your response',
-  sendMessageToContinue: 'Sending a message will continue execution to the next step.',
+  sendMessageToContinue: 'Sending a message continues execution to next step.',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

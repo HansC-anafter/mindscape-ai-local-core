@@ -9,13 +9,30 @@ import { MessageWithSuggestions } from './workspace/MessageWithSuggestions';
 import type { Suggestion } from './workspace/SuggestionChip';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
-import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
+import { useFileHandling } from '@/hooks/useFileHandling';
+import { FilePreviewGrid } from './workspace/FilePreviewGrid';
 import { useExecutionState } from '@/hooks/useExecutionState';
 import IntentChips from '../app/workspaces/components/IntentChips';
-import { useEnabledModels } from '../app/settings/hooks/useEnabledModels';
 import { ExecutionTree } from './execution';
 import { CurrentExecutionBar } from './workspace/CurrentExecutionBar';
 import { useCurrentExecution } from '@/hooks/useCurrentExecution';
+import { DataPromptCard } from './workspace/DataPromptCard';
+import { WorkspaceChatProvider } from '@/contexts/WorkspaceChatContext';
+import { useUIState } from '@/contexts/UIStateContext';
+import { useScrollState } from '@/contexts/ScrollStateContext';
+import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
+import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
+import { useMessages } from '@/contexts/MessagesContext';
+import { useWindowEvents } from '@/hooks/useWindowEvents';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useScrollManagement } from '@/hooks/useScrollManagement';
+import { useLLMConfiguration } from '@/hooks/useLLMConfiguration';
+import { useChatModel } from '@/hooks/useChatModel';
+import { useMessageHandling } from '@/hooks/useMessageHandling';
+import { useWorkspaceData } from '@/hooks/useWorkspaceData';
+import { useTextareaAutoResize } from '@/hooks/useTextareaAutoResize';
+import { eventBus } from '@/services/EventBus';
+import { formatExecutionSummary, createPlaybookErrorMessage, createAgentModeMessage, createExecutionModeMessage } from '@/utils/messageUtils';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
 
@@ -28,7 +45,7 @@ interface WorkspaceChatProps {
   projectId?: string;  // Current project ID (if user is in a project context)
 }
 
-export default function WorkspaceChat({
+function WorkspaceChatContent({
   workspaceId,
   apiUrl = '',
   onFileAnalyzed,
@@ -36,78 +53,116 @@ export default function WorkspaceChat({
   expectedArtifacts,
   projectId
 }: WorkspaceChatProps) {
-  const [input, setInput] = useState('');
-  const [workspaceTitle, setWorkspaceTitle] = useState<string>('');
-  const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
-  const [systemHealth, setSystemHealth] = useState<any>(null);
-  const [showHealthCard, setShowHealthCard] = useState(false);
-  const [analyzingFile, setAnalyzingFile] = useState(false);
-  const [currentChatModel, setCurrentChatModel] = useState<string>('');
-  const { enabledModels: enabledChatModels, loading: modelsLoading } = useEnabledModels('chat');
-  const [availableChatModels, setAvailableChatModels] = useState<Array<{model_name: string; provider: string}>>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [contextTokenCount, setContextTokenCount] = useState<number | null>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [userScrolled, setUserScrolled] = useState(false);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [copiedAll, setCopiedAll] = useState(false);
-  const [duplicateFileToast, setDuplicateFileToast] = useState<{ message: string; count: number } | null>(null);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const scrollPositionRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
-  const userScrolledRef = useRef(false);
-  const autoScrollRef = useRef(true);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const duplicateToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const selectedMessageRef = useRef<string | null>(null);
-  const chatModelLoadedRef = useRef<string | null>(null);
+  // Use Context for state management
+  const {
+    input,
+    setInput,
+    llmConfigured,
+    setLlmConfigured,
+    isStreaming,
+    setIsStreaming,
+    copiedAll,
+    setCopiedAll,
+    dataPrompt,
+    setDataPrompt,
+    analyzingFile,
+    setAnalyzingFile,
+  } = useUIState();
+
+  const {
+    workspaceTitle,
+    setWorkspaceTitle,
+    systemHealth,
+    setSystemHealth,
+    contextTokenCount,
+    setContextTokenCount,
+    currentChatModel,
+    setCurrentChatModel,
+    availableChatModels,
+    setAvailableChatModels,
+  } = useWorkspaceMetadata();
+
+  const { messagesScrollRef, textareaRef, fileInputRef, messagesEndRef, messagesContainerRef } = useWorkspaceRefs();
 
   const {
     messages,
-    loading: messagesLoading,
-    error: messagesError,
+    setMessages,
+    messagesLoading,
+    messagesError,
     quickStartSuggestions,
     fileAnalysisResult,
-    reload: reloadMessages,
-    setMessages,
     setFileAnalysisResult,
     hasMore,
     loadingMore,
-    loadMore
-  } = useChatEvents(workspaceId, apiUrl);
-
-  const prevMessagesLoadingRef = useRef<boolean>(true);
-
-  const {
-    sendMessage,
-    isLoading: sendLoading,
-    error: sendError
-  } = useSendMessage(workspaceId, apiUrl, projectId);
-
-  const executionState = useExecutionState(workspaceId, apiUrl);
-  const {
+    loadMore,
+    reloadMessages,
+    executionState,
+    pipelineStage,
+    executionTree,
     currentExecution,
     handleViewDetail,
     handlePause,
     handleCancel,
-  } = useCurrentExecution(workspaceId, apiUrl);
+  } = useMessages();
 
-  const fileUpload = useFileUpload(workspaceId, apiUrl);
+  const [showHealthCard, setShowHealthCard] = useState(false);
+  const selectedMessageRef = useRef<string | null>(null);
+  const prevMessagesLoadingRef = useRef<boolean>(true);
+
+  // Use new Hooks for LLM configuration and chat model
+  useLLMConfiguration(apiUrl, {
+    workspaceId,
+    enabled: true,
+  });
+
+  const { selectModel } = useChatModel(apiUrl, {
+    workspaceId,
+    enabled: true,
+  });
+
+  // Use new Hooks for message handling, workspace data, and textarea auto-resize
+  const messageHandling = useMessageHandling(workspaceId, apiUrl, {
+    projectId,
+    onFileAnalyzed,
+  });
+  const { handleSend: handleSendMessage, handleCopyAll: handleCopyAllMessages, handleCopyMessage } = messageHandling;
+
+  useWorkspaceData(workspaceId, apiUrl, {
+    enabled: true,
+  });
+
+  useTextareaAutoResize(textareaRef, input, {
+    minHeight: 40,
+    maxHeight: 200,
+    lineHeight: 20,
+  });
+
+  // Use new Hooks
+  const { scrollToBottom, showScrollToBottom } = useScrollManagement();
+  const { setIsInitialLoad } = useScrollState();
+
+  const fileHandling = useFileHandling(workspaceId, apiUrl, {
+    onFileAnalyzed,
+    onAnalysisError: (error, file) => {
+      // Error handling is done in handleAnalyzeFileWithError wrapper
+      console.error(`[useFileHandling] Failed to analyze file ${file.name}:`, error);
+    },
+  });
   const {
     uploadedFiles,
     analyzingFiles,
     isDragging,
-    setIsDragging,
-    analyzeFile,
-    addFiles,
+    duplicateFileToast,
+    handleFileSelect,
+    handleFileInputChange,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleAnalyzeFile,
     removeFile,
     clearFiles,
-    setUploadedFiles
-  } = fileUpload;
+    setUploadedFiles,
+  } = fileHandling;
 
   const isLoading = sendLoading || messagesLoading;
   const error = sendError || messagesError;
@@ -125,149 +180,72 @@ export default function WorkspaceChat({
     return stageLabels[stage] || '處理中';
   }, []);
 
-  // Define scrollToBottom function early so it can be used in other functions
-  const scrollToBottom = useCallback((force: boolean = false) => {
-    if (!messagesScrollRef.current) return;
-
-    if (force) {
-      messagesScrollRef.current.scrollTo({
-        top: messagesScrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
-      setAutoScroll(true);
-      setUserScrolled(false);
-    } else if (autoScroll && !userScrolled && messages.length > 0) {
-      messagesScrollRef.current.scrollTo({
-        top: messagesScrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+  // Use useWindowEvents to replace old event listeners
+  useWindowEvents(
+    {
+      onContinueConversation: (data: any) => {
+        const { intentId, taskId, context } = data || {};
+        if (context?.suggestedMessage) {
+          setInput(context.suggestedMessage);
+          textareaRef.current?.focus();
+          scrollToBottom(true);
+        } else if (context?.requiresData?.prompt) {
+          setInput(context.requiresData.prompt);
+          textareaRef.current?.focus();
+          scrollToBottom(true);
+        }
+        if (context?.requiresData) {
+          setDataPrompt({
+            taskTitle: context.topic,
+            description: context.requiresData.description,
+            dataType: context.requiresData.type || 'both',
+            prompt: context.requiresData.prompt,
+            taskId: taskId,
+          });
+          scrollToBottom(true);
+        }
+      },
+      onPlaybookTriggerError: (data: any) => {
+        const { playbook_code, error } = data;
+        const errorMessage = createPlaybookErrorMessage(playbook_code, error);
+        setMessages(prev => [...prev, errorMessage]);
+      },
+      onAgentModeParsed: (data: any) => {
+        const { part1, part2, executable_tasks } = data;
+        const agentMessage = createAgentModeMessage(part1, part2, executable_tasks || []);
+        setMessages(prev => [...prev, agentMessage]);
+        if (executable_tasks && executable_tasks.length > 0) {
+          window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+        }
+      },
+      onExecutionModePlaybookExecuted: (data: any) => {
+        const { playbook_code, execution_id } = data;
+        const execMessage = createExecutionModeMessage(playbook_code, execution_id);
+        setMessages(prev => [...prev, execMessage]);
+        window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+      },
+      onExecutionResultsSummary: (data: any) => {
+        const { executed_tasks, suggestion_cards } = data || {};
+        const summaryContent = formatExecutionSummary(executed_tasks || [], suggestion_cards || []);
+        if (!summaryContent) return;
+        const summaryMessage: ChatMessage = {
+          id: `execution-summary-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          role: 'assistant',
+          content: summaryContent.trim(),
+          timestamp: new Date(),
+          event_type: 'execution_results',
+        };
+        setMessages(prev => [...prev, summaryMessage]);
+        setTimeout(() => {
+          scrollToBottom(true);
+        }, 100);
+      },
+    },
+    {
+      enabled: true,
     }
-  }, [messages.length, autoScroll, userScrolled]);
+  );
 
-  // Check LLM configuration status and load chat model
-  useEffect(() => {
-    let isMounted = true;
-
-    const checkLLMConfiguration = async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
-      try {
-        const response = await fetch(`${apiUrl}/api/v1/config/backend?profile_id=default-user`, {
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        if (response.ok && isMounted) {
-          const config = await response.json();
-          const currentBackend = config.available_backends?.[config.current_mode];
-          setLlmConfigured(currentBackend?.available || false);
-        } else if (isMounted) {
-          setLlmConfigured(false);
-        }
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-        if (isMounted) {
-          if (err.name === 'AbortError') {
-            console.warn('LLM configuration check timed out');
-          } else {
-            console.error('Failed to check LLM configuration:', err);
-          }
-          setLlmConfigured(false);
-        }
-      }
-    };
-
-    const loadChatModel = async (retryCount = 0) => {
-      // Prevent duplicate loads for the same API URL
-      if (chatModelLoadedRef.current === apiUrl || !isMounted) {
-        return;
-      }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-
-      try {
-        const response = await fetch(`${apiUrl}/api/v1/system-settings/llm-models`, {
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        // Read response as text first to handle potential Content-Length mismatch
-        const text = await response.text();
-
-        if (!text || text.trim().length === 0) {
-          throw new Error('Empty response from server');
-        }
-
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (parseErr) {
-          throw new Error(`Failed to parse JSON response: ${parseErr}`);
-        }
-
-        if (isMounted) {
-          if (data.chat_model) {
-            setCurrentChatModel(data.chat_model.model_name);
-          }
-          if (enabledChatModels.length > 0 && !modelsLoading) {
-            setAvailableChatModels(enabledChatModels.map(m => ({
-              model_name: m.model_name,
-              provider: m.provider
-            })));
-          } else if (data.available_chat_models && data.available_chat_models.length > 0) {
-            setAvailableChatModels(data.available_chat_models);
-          }
-
-          // Mark as loaded only on success
-          chatModelLoadedRef.current = apiUrl;
-        }
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-
-        // Handle abort/timeout - don't retry
-        if (err.name === 'AbortError') {
-          console.warn('Chat model load timed out');
-          return;
-        }
-
-        // Handle Content-Length mismatch and network errors with retry
-        const isContentLengthError = err?.message?.includes('Content-Length') ||
-                                   err?.message?.includes('ERR_CONTENT_LENGTH_MISMATCH') ||
-                                   err?.name === 'TypeError' && err?.message?.includes('Failed to fetch');
-
-        if (isContentLengthError && retryCount < 2 && isMounted) {
-          // Retry after a short delay
-          setTimeout(() => {
-            loadChatModel(retryCount + 1);
-          }, 1000 * (retryCount + 1));
-          return;
-        }
-
-        // Only log error if not a retry attempt or final failure
-        if (retryCount === 0 || retryCount >= 2) {
-          console.warn('Failed to load chat model:', err?.message || err);
-        }
-      }
-    };
-
-    checkLLMConfiguration();
-    loadChatModel();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [apiUrl]);
 
   useEffect(() => {
     if (enabledChatModels.length > 0 && !modelsLoading) {
@@ -278,32 +256,6 @@ export default function WorkspaceChat({
     }
   }, [enabledChatModels, modelsLoading]);
 
-  useEffect(() => {
-    loadWorkspaceInfo();
-    loadSystemHealth();
-  }, [workspaceId]);
-
-  const loadSystemHealth = async () => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (response.ok) {
-        const health = await response.json();
-        setSystemHealth(health);
-        setShowHealthCard(false);
-      }
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name !== 'AbortError') {
-        console.error('Failed to load system health:', err);
-      }
-    }
-  };
 
   // Cleanup file preview URLs and toast timeout on unmount
   useEffect(() => {
@@ -316,226 +268,10 @@ export default function WorkspaceChat({
         });
         return [];
       });
-      if (duplicateToastTimeoutRef.current) {
-        clearTimeout(duplicateToastTimeoutRef.current);
-      }
     };
   }, []);
 
-  // Listen for playbook trigger errors
-  useEffect(() => {
-    const handlePlaybookTriggerError = (event: CustomEvent) => {
-      const { playbook_code, error, message } = event.detail;
 
-      // Use structured error if available, otherwise fallback to message
-      let errorMessage: string;
-      if (error && typeof error === 'object' && error.user_message) {
-        errorMessage = error.user_message;
-      } else if (message) {
-        errorMessage = message;
-      } else {
-        errorMessage = `Playbook "${playbook_code}" execution failed`;
-      }
-
-      const errorChatMessage: ChatMessage = {
-        id: `playbook-error-${Date.now()}`,
-        role: 'assistant',
-        content: errorMessage,
-        timestamp: new Date(),
-        event_type: 'error'
-      };
-      setMessages(prev => [...prev, errorChatMessage]);
-    };
-
-    window.addEventListener('playbook-trigger-error', handlePlaybookTriggerError as EventListener);
-    return () => {
-      window.removeEventListener('playbook-trigger-error', handlePlaybookTriggerError as EventListener);
-    };
-  }, []);
-
-  // Listen for Agent Mode parsed response (P1.4)
-  useEffect(() => {
-    const handleAgentModeParsed = (event: CustomEvent) => {
-      const { part1, part2, executable_tasks } = event.detail;
-
-      // Create two-part message
-      const agentMessage: ChatMessage = {
-        id: `agent-${Date.now()}`,
-        role: 'assistant',
-        content: part1,  // Part 1: Understanding & Response
-        timestamp: new Date(),
-        agentMode: {
-          part1: part1,
-          part2: part2,
-          executable_tasks: executable_tasks || []
-        }
-      };
-
-      setMessages(prev => [...prev, agentMessage]);
-
-      // Trigger workspace task update to show executable tasks in PendingTasksPanel
-      if (executable_tasks && executable_tasks.length > 0) {
-        window.dispatchEvent(new CustomEvent('workspace-task-updated'));
-      }
-    };
-
-    window.addEventListener('agent-mode-parsed', handleAgentModeParsed as EventListener);
-    return () => {
-      window.removeEventListener('agent-mode-parsed', handleAgentModeParsed as EventListener);
-    };
-  }, []);
-
-  // Listen for Execution Mode direct playbook execution (P2)
-  useEffect(() => {
-    const handleExecutionModePlaybookExecuted = (event: CustomEvent) => {
-      const { playbook_code, execution_id } = event.detail;
-
-      // Show execution success message
-      const execMessage: ChatMessage = {
-        id: `exec-${Date.now()}`,
-        role: 'assistant',
-        content: `已開始執行 playbook "${playbook_code}"，請查看執行面板查看進度。`,
-        timestamp: new Date(),
-        triggered_playbook: {
-          playbook_code: playbook_code,
-          execution_id: execution_id,
-          status: 'executed'
-        }
-      };
-
-      setMessages(prev => [...prev, execMessage]);
-
-      // Trigger workspace task update
-      window.dispatchEvent(new CustomEvent('workspace-task-updated'));
-    };
-
-    window.addEventListener('execution-mode-playbook-executed', handleExecutionModePlaybookExecuted as EventListener);
-    return () => {
-      window.removeEventListener('execution-mode-playbook-executed', handleExecutionModePlaybookExecuted as EventListener);
-    };
-  }, []);
-
-  // Listen for execution results summary (playbook execution completion)
-  useEffect(() => {
-    const handleExecutionResultsSummary = (event: CustomEvent) => {
-      const { executed_tasks, suggestion_cards } = event.detail || {};
-
-      // Format summary message
-      const taskCount = Array.isArray(executed_tasks) ? executed_tasks.length : 0;
-      const suggestionCount = Array.isArray(suggestion_cards) ? suggestion_cards.length : 0;
-
-      // Skip if no results
-      if (taskCount === 0 && suggestionCount === 0) {
-        return;
-      }
-
-      let summaryContent = '';
-
-      if (taskCount > 0 && suggestionCount > 0) {
-        summaryContent = `✅ **執行完成！**\n\n已建立 ${taskCount} 個任務，並產生 ${suggestionCount} 個建議。`;
-      } else if (taskCount > 0) {
-        summaryContent = `✅ **執行完成！**\n\n已建立 ${taskCount} 個任務。`;
-      } else if (suggestionCount > 0) {
-        summaryContent = `✅ **執行完成！**\n\n已產生 ${suggestionCount} 個建議。`;
-      }
-
-      // Add task details if available
-      if (taskCount > 0 && Array.isArray(executed_tasks)) {
-        const taskNames = executed_tasks
-          .map((task: any) => {
-            // Try multiple possible fields for task name
-            return task.title || task.name || task.intent || task.task_name || task.id || '';
-          })
-          .filter((name: string) => name && name.trim().length > 0)
-          .slice(0, 5); // Show first 5 tasks
-
-        if (taskNames.length > 0) {
-          summaryContent += '\n\n**已建立的任務：**\n';
-          taskNames.forEach((name: string, index: number) => {
-            summaryContent += `${index + 1}. ${name}\n`;
-          });
-          if (taskCount > 5) {
-            summaryContent += `\n... 還有 ${taskCount - 5} 個任務`;
-          }
-        }
-      }
-
-      // Add suggestion details if available
-      if (suggestionCount > 0 && Array.isArray(suggestion_cards)) {
-        const suggestionTitles = suggestion_cards
-          .map((card: any) => {
-            // Try multiple possible fields for suggestion title
-            return card.title || card.suggestion || card.text || card.name || card.id || '';
-          })
-          .filter((title: string) => title && title.trim().length > 0)
-          .slice(0, 3); // Show first 3 suggestions
-
-        if (suggestionTitles.length > 0) {
-          summaryContent += '\n\n**建議：**\n';
-          suggestionTitles.forEach((title: string) => {
-            summaryContent += `• ${title}\n`;
-          });
-          if (suggestionCount > 3) {
-            summaryContent += `\n... 還有 ${suggestionCount - 3} 個建議`;
-          }
-        }
-      }
-
-      const summaryMessage: ChatMessage = {
-        id: `execution-summary-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        role: 'assistant',
-        content: summaryContent.trim(),
-        timestamp: new Date(),
-        event_type: 'execution_results'
-      };
-
-      setMessages(prev => [...prev, summaryMessage]);
-
-      // Auto-scroll to show the summary
-      setTimeout(() => {
-        scrollToBottom(true);
-      }, 100);
-    };
-
-    window.addEventListener('execution-results-summary', handleExecutionResultsSummary as EventListener);
-    return () => {
-      window.removeEventListener('execution-results-summary', handleExecutionResultsSummary as EventListener);
-    };
-  }, [scrollToBottom]);
-
-  // Load context token count with timeout
-  const loadContextTokenCount = useCallback(async () => {
-    if (!workspaceId || !apiUrl) return;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout (non-critical)
-
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/workbench/context-token-count`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (response.ok) {
-        const data = await response.json();
-        // Support both token_count and context_tokens field names
-        setContextTokenCount(data.token_count || data.context_tokens || null);
-      } else if (response.status === 404) {
-        // Route might not be available yet, silently ignore
-        setContextTokenCount(null);
-      }
-    } catch (err) {
-      clearTimeout(timeoutId);
-      // Silently fail - this is a non-critical feature
-      setContextTokenCount(null);
-    }
-  }, [workspaceId, apiUrl]);
-
-  // Load token count on mount and when messages change
-  useEffect(() => {
-    if (workspaceId && apiUrl && !messagesLoading) {
-      loadContextTokenCount();
-    }
-  }, [workspaceId, apiUrl, messagesLoading, messages.length, loadContextTokenCount]);
 
   // Cleanup scroll timeout on unmount
   useEffect(() => {
@@ -546,61 +282,17 @@ export default function WorkspaceChat({
     };
   }, []);
 
-  const loadWorkspaceInfo = async () => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
+
+  // Wrapper for handleAnalyzeFile to add error message handling
+  const handleAnalyzeFileWithError = async (file: UploadedFile) => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (response.ok) {
-        const data = await response.json();
-        setWorkspaceTitle(data.title || 'Workspace');
-      }
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name !== 'AbortError') {
-        console.error('Failed to load workspace info:', err);
-      }
-    }
-  };
-
-
-  const handleAnalyzeFile = async (file: UploadedFile) => {
-    try {
-      const result = await analyzeFile(file);
-
-      if (result.fileId || result.file_path) {
-        setUploadedFiles(prev => prev.map(f =>
-          f.id === file.id
-            ? {
-                ...f,
-                fileId: result.fileId || result.event_id,
-                filePath: result.file_path || result.saved_file_path
-              }
-            : f
-        ));
-      }
-
+      const result = await handleAnalyzeFile(file);
       setFileAnalysisResult(result);
-
-      if (onFileAnalyzed) {
-        onFileAnalyzed();
-      }
-
       setTimeout(() => {
-        // Only scroll if user hasn't manually scrolled
-        if (!userScrolledRef.current) {
-          scrollToBottom();
-        }
+        scrollToBottom();
       }, 100);
-      // Reset scroll state when new file analysis starts
-      setUserScrolled(false);
-      setAutoScroll(true);
-      userScrolledRef.current = false;
-      autoScrollRef.current = true;
+      return result;
     } catch (err: any) {
       console.error('Failed to analyze file:', err);
       const errorMessage = err.message || t('workspaceFileAnalysisFailed');
@@ -612,6 +304,7 @@ export default function WorkspaceChat({
         event_type: 'error'
       };
       setMessages(prev => [...prev, errorChatMessage]);
+      throw err;
     }
   };
 
@@ -682,246 +375,23 @@ export default function WorkspaceChat({
         scrollToBottom();
       }, 100);
     } finally {
-      // Only scroll to bottom if user hasn't manually scrolled up
-      if (!userScrolledRef.current) {
-        scrollToBottom();
-      }
+      scrollToBottom();
     }
   };
 
   const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!input.trim() && uploadedFiles.length === 0)) return;
-
-    const currentInput = input.trim();
-    const currentFiles = [...uploadedFiles];
-
-    if (currentInput.trim()) {
-      const userMessage: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: currentInput,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, userMessage]);
-    }
-    setUserScrolled(false);
-    setAutoScroll(true);
-    userScrolledRef.current = false;
-    autoScrollRef.current = true;
-    setInput('');
+    await handleSendMessage(e, uploadedFiles, analyzingFiles, handleAnalyzeFileWithError);
     clearFiles();
-
-    // Immediately scroll to bottom when user sends message
-    setTimeout(() => {
-      scrollToBottom(true);
-    }, 50);
-
-    try {
-      if (currentFiles.length > 0 && !currentInput.trim()) {
-        for (const file of currentFiles) {
-          await handleAnalyzeFile(file);
-        }
-        return;
-      }
-
-      if (currentFiles.length > 0) {
-        const filesToAnalyze = currentFiles.filter(file => !analyzingFiles.has(file.id));
-        if (filesToAnalyze.length > 0) {
-          await Promise.all(
-            filesToAnalyze.map(file => handleAnalyzeFile(file).catch(err => {
-              console.error(`Error analyzing file ${file.name}:`, err);
-            }))
-          );
-        }
-
-        const stillAnalyzing = currentFiles.filter(file => analyzingFiles.has(file.id));
-        if (stillAnalyzing.length > 0) {
-          const maxWait = 2000;
-          const startTime = Date.now();
-          while (stillAnalyzing.some(file => analyzingFiles.has(file.id)) && (Date.now() - startTime) < maxWait) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-        }
-      }
-
-      const fileIds = currentFiles
-        .filter(f => f.analysisStatus === 'completed' && f.fileId)
-        .map(f => f.fileId!)
-        .filter(Boolean);
-
-      // Use streaming for better UX
-      let assistantMessageId: string | null = null;
-      let accumulatedText = '';
-      let firstChunkReceived = false;
-
-      const messageText = currentInput || (currentFiles.length > 0 ? `${t('uploadedFile')}：${currentFiles.map(f => f.name).join(', ')}` : '');
-      await sendMessage({
-        message: messageText,
-        files: fileIds,
-        mode: 'auto',
-        stream: true,
-        onChunk: (chunk: string) => {
-          // Hide processing message when first chunk arrives
-          if (!firstChunkReceived) {
-            firstChunkReceived = true;
-            setIsStreaming(true);
-          }
-
-          accumulatedText += chunk;
-          // Update or create assistant message in real-time
-          setMessages(prev => {
-            const existingIndex = prev.findIndex(m => m.id === assistantMessageId);
-            if (existingIndex >= 0) {
-              // Update existing message
-              const updated = [...prev];
-              updated[existingIndex] = {
-                ...updated[existingIndex],
-                content: accumulatedText
-              };
-              return updated;
-            } else {
-              // Create new message
-              assistantMessageId = `assistant-${Date.now()}`;
-              return [...prev, {
-                id: assistantMessageId,
-                role: 'assistant',
-                content: accumulatedText,
-                timestamp: new Date()
-              }];
-            }
-          });
-
-          // Auto-scroll during streaming - use ref to get latest state
-          setTimeout(() => {
-            if (!userScrolledRef.current && autoScrollRef.current) {
-              scrollToBottom();
-            }
-          }, 50);
-
-        },
-        onComplete: (fullText: string, contextTokens?: number) => {
-          setIsStreaming(false);
-          // Final update
-          if (assistantMessageId) {
-            setMessages(prev => prev.map(m =>
-              m.id === assistantMessageId
-                ? { ...m, content: fullText }
-                : m
-            ));
-          }
-          // Update token count if provided
-          if (contextTokens !== undefined) {
-            setContextTokenCount(contextTokens);
-          } else {
-            // Reload token count if not provided in response
-            loadContextTokenCount();
-          }
-          // Scroll to bottom on completion only if user hasn't manually scrolled
-          setTimeout(() => {
-            if (!userScrolledRef.current && autoScrollRef.current) {
-              scrollToBottom();
-            }
-          }, 150);
-        }
-      });
-
-      if (onFileAnalyzed) {
-        onFileAnalyzed();
-      }
-    } catch (err: any) {
-      setIsStreaming(false);
-      const errorMessage = err.message || t('failedToSendMessage');
-      const errorChatMessage: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: errorMessage,
-        timestamp: new Date(),
-        event_type: 'error'
-      };
-      setMessages(prev => [...prev, errorChatMessage]);
-    }
   };
 
-
-  const handleScroll = useCallback(() => {
-    if (!messagesScrollRef.current) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = messagesScrollRef.current;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-    const hasContentBelow = scrollHeight > scrollTop + clientHeight + 50;
-
-    setShowScrollToBottom(hasContentBelow && !isNearBottom);
-
-    if (isNearBottom) {
-      setUserScrolled(false);
-      setAutoScroll(true);
-      userScrolledRef.current = false;
-      autoScrollRef.current = true;
-    } else {
-      setUserScrolled(true);
-      setAutoScroll(false);
-      userScrolledRef.current = true;
-      autoScrollRef.current = false;
-    }
-  }, []);
-
-  // Scroll to bottom on initial load
-  useEffect(() => {
-    if (prevMessagesLoadingRef.current !== messagesLoading) {
-      prevMessagesLoadingRef.current = messagesLoading;
-      if (isInitialLoad && !messagesLoading && messages.length > 0) {
-        setIsInitialLoad(false);
-        setTimeout(() => {
-          if (messagesScrollRef.current) {
-            messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
-          }
-        }, 100);
-      }
-    }
-  }, [messagesLoading, messages.length, isInitialLoad]);
 
   // Reset initial load flag when workspace changes
   useEffect(() => {
     setIsInitialLoad(true);
     prevMessagesLoadingRef.current = true;
-  }, [workspaceId]);
-
-  // Scroll to bottom when new messages arrive (only if user is at bottom)
-  useEffect(() => {
-    if (messages.length > 0 && !userScrolled && autoScroll && messagesScrollRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesScrollRef.current;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-      if (isNearBottom) {
-        setTimeout(() => {
-          if (messagesScrollRef.current) {
-            messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
-          }
-        }, 50);
-      }
-    }
-  }, [messages.length, userScrolled, autoScroll]);
+  }, [workspaceId, setIsInitialLoad]);
 
   // Auto-resize textarea based on content
-  const adjustTextareaHeight = () => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      const maxHeight = 200; // Maximum height in pixels
-      const lineHeight = 20; // Line height in pixels for text-xs
-      const defaultHeight = lineHeight * 2; // Two lines visible by default
-      const scrollHeight = textareaRef.current.scrollHeight;
-      if (scrollHeight <= defaultHeight) {
-        textareaRef.current.style.height = `${defaultHeight}px`;
-      } else {
-        textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
-      }
-    }
-  };
-
-  // Adjust height when input changes
-  useEffect(() => {
-    adjustTextareaHeight();
-  }, [input]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -931,66 +401,19 @@ export default function WorkspaceChat({
   };
 
   // Copy all messages
-  const handleCopyAll = useCallback(async () => {
-    if (messages.length === 0) return;
 
-    const allMessagesText = messages.map(msg => {
-      const timestamp = msg.timestamp instanceof Date
-        ? msg.timestamp
-        : new Date(msg.timestamp);
-      const formattedTime = timestamp.toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-      const roleLabel = msg.role === 'user' ? t('user') : t('assistant');
-      return `[${formattedTime}] ${roleLabel}: ${msg.content}`;
-    }).join('\n\n');
-
-    try {
-      await navigator.clipboard.writeText(allMessagesText);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy all messages:', err);
+  // Use useKeyboardShortcuts to replace old keyboard event listener
+  useKeyboardShortcuts(
+    {
+      onCopyAll: handleCopyAllMessages,
+      onCopySelected: (messageId: string) => {
+        handleCopyMessage(messageId);
+      },
+    },
+    {
+      enabled: true,
     }
-  }, [messages]);
-
-  // Keyboard shortcuts for copy
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + Shift + C: Copy all messages
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'C') {
-        e.preventDefault();
-        handleCopyAll();
-      }
-      // Cmd/Ctrl + C: Copy selected message (if message is focused/selected)
-      else if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !e.shiftKey) {
-        // Only handle if not in input field
-        const activeElement = document.activeElement;
-        if (activeElement && (
-          activeElement.tagName === 'TEXTAREA' ||
-          activeElement.tagName === 'INPUT' ||
-          (activeElement as HTMLElement).isContentEditable
-        )) {
-          return; // Let default copy behavior work in input fields
-        }
-
-        // If a message is selected, copy it
-        if (selectedMessageRef.current) {
-          const message = messages.find(m => m.id === selectedMessageRef.current);
-          if (message) {
-            navigator.clipboard.writeText(message.content).catch(console.error);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [messages, handleCopyAll]);
+  );
 
   const handleMessageCopy = (content: string) => {
     // Optional: Show toast notification
@@ -999,78 +422,6 @@ export default function WorkspaceChat({
     }
   };
 
-  const handleFileSelect = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const filesArray = Array.from(files);
-    const newFiles = addFiles(files);
-    console.log('[handleFileSelect] newFiles:', newFiles);
-
-    const duplicateCount = filesArray.length - (newFiles?.length || 0);
-    if (duplicateCount > 0) {
-      if (duplicateToastTimeoutRef.current) {
-        clearTimeout(duplicateToastTimeoutRef.current);
-      }
-      setDuplicateFileToast({
-        message: duplicateCount === 1
-          ? '重複檔案已跳過'
-          : `${duplicateCount} 個重複檔案已跳過`,
-        count: duplicateCount
-      });
-      duplicateToastTimeoutRef.current = setTimeout(() => {
-        setDuplicateFileToast(null);
-      }, 2000);
-    }
-
-    if (!newFiles || newFiles.length === 0) {
-      console.warn('[handleFileSelect] No new files to analyze (possibly duplicates)');
-      return;
-    }
-
-    newFiles.forEach((file, index) => {
-      console.log(`[handleFileSelect] Scheduling analysis for file ${index + 1}/${newFiles.length}:`, file.name);
-      setTimeout(() => {
-        console.log(`[handleFileSelect] Starting analysis for:`, file.name);
-        handleAnalyzeFile(file).catch(err => {
-          console.error(`[handleFileSelect] Failed to analyze file ${file.name}:`, err);
-        });
-      }, index * 200);
-    });
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFileSelect(e.target.files);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    handleFileSelect(e.dataTransfer.files);
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-  };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative">
@@ -1176,7 +527,6 @@ export default function WorkspaceChat({
 
         <div
           ref={messagesScrollRef}
-          onScroll={handleScroll}
           className="flex-1 overflow-y-auto"
           style={{ height: '100%', minHeight: 0 }}
         >
@@ -1224,13 +574,27 @@ export default function WorkspaceChat({
             </div>
           )}
 
-          {messages.length === 0 && !messagesLoading ? (
+          {messagesError && (
+            <div className="text-center text-red-500 dark:text-red-400 mt-8 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+              <p className="font-semibold">加载消息失败</p>
+              <p className="text-sm mt-2">{messagesError}</p>
+              <button
+                onClick={() => reloadMessages()}
+                className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                重试
+              </button>
+            </div>
+          )}
+          {messages.length === 0 && !messagesLoading && !messagesError ? (
             <div className="text-center text-gray-500 dark:text-gray-300 mt-8">
               <p>{t('noMessagesYet')}</p>
             </div>
-          ) : (
+          ) : messages.length > 0 ? (
             <div className="space-y-2 pb-4">
-              {messages.map((message) => {
+              {messages
+                .filter((message) => message.event_type !== 'playbook_step') // Filter out playbook_step messages as they are shown in sidebar
+                .map((message) => {
                 const suggestions: Suggestion[] | undefined = message.suggestions
                   ? message.suggestions.map((s, idx) => {
                       if (typeof s === 'string') {
@@ -1270,20 +634,26 @@ export default function WorkspaceChat({
                   />
                 );
               })}
+            </div>
+          ) : null}
 
-              {/* Execution Tree - Display at the end of conversation */}
-              {executionState.executionTree.length > 0 && (
-                <div className="mt-4 mb-2">
-                  <div className="bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm">
-                    <div className="px-4 py-3">
-                      <ExecutionTree
-                        steps={executionState.executionTree}
-                        isCollapsed={false}
-                      />
-                    </div>
-                  </div>
+          {/* Execution Tree - Display at the end of conversation */}
+          {executionTree && executionTree.length > 0 && (
+            <div className="mt-4 mb-2">
+              <div className="bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm">
+                <div className="px-4 py-3">
+                  <ExecutionTree
+                    steps={executionTree}
+                    isCollapsed={false}
+                    executionId={currentExecution?.executionId}
+                    onHeaderClick={() => {
+                      if (currentExecution) {
+                        handleViewDetail();
+                      }
+                    }}
+                  />
                 </div>
-              )}
+              </div>
             </div>
           )}
           {isLoading && !analyzingFile && !isStreaming && (
@@ -1299,34 +669,34 @@ export default function WorkspaceChat({
                     />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                    {executionState.pipelineStage?.message ? (
+                    {pipelineStage?.message ? (
                       <>
                         <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                          {executionState.pipelineStage.message}
+                          {pipelineStage.message}
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                            {getStageLabel(executionState.pipelineStage.stage)}
+                            {getStageLabel(pipelineStage.stage)}
                           </span>
-                          {executionState.pipelineStage.stage === 'intent_extraction' && (
+                          {pipelineStage.stage === 'intent_extraction' && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                               <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
                               分析中
                             </span>
                           )}
-                          {executionState.pipelineStage.stage === 'playbook_selection' && (
+                          {pipelineStage.stage === 'playbook_selection' && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                               <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
                               選擇中
                             </span>
                           )}
-                          {executionState.pipelineStage.stage === 'task_assignment' && (
+                          {pipelineStage.stage === 'task_assignment' && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                               <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
                               分配中
                             </span>
                           )}
-                          {executionState.pipelineStage.stage === 'execution_start' && (
+                          {pipelineStage.stage === 'execution_start' && (
                             <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                               <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
                               執行中
@@ -1385,6 +755,44 @@ export default function WorkspaceChat({
         onPause={handlePause}
         onCancel={handleCancel}
       />
+
+      {/* Data Prompt Card - Show when task requires additional data */}
+      {dataPrompt && (
+        <div className="px-3 pt-2">
+          <DataPromptCard
+            taskTitle={dataPrompt.taskTitle}
+            description={dataPrompt.description}
+            dataType={dataPrompt.dataType}
+            prompt={dataPrompt.prompt}
+            taskId={dataPrompt.taskId}
+            onDismiss={() => setDataPrompt(null)}
+            onFileUpload={() => {
+              // Trigger file upload input
+              if (fileInputRef.current) {
+                fileInputRef.current.click();
+                // Note: After file upload, the file upload handler will process it
+                // We keep the prompt visible until user dismisses it or file is successfully uploaded
+              }
+            }}
+            onContinueWithText={(text) => {
+              // Send the text as a message
+              setInput(text);
+              // Auto submit if there's text
+              if (text.trim()) {
+                setTimeout(() => {
+                  const form = document.querySelector('form[onSubmit]') as HTMLFormElement;
+                  if (form) {
+                    // Trigger form submit
+                    const event = new Event('submit', { bubbles: true, cancelable: true });
+                    form.dispatchEvent(event);
+                  }
+                }, 100);
+              }
+              setDataPrompt(null);
+            }}
+          />
+        </div>
+      )}
 
       {/* Quick Start Suggestions - Above input box */}
       {quickStartSuggestions.length > 0 && (
@@ -1544,7 +952,6 @@ export default function WorkspaceChat({
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
-                adjustTextareaHeight();
               }}
               onKeyDown={handleKeyPress}
               placeholder={llmConfigured === false ? t('configureApiKeyFirst') : t('typeMessageOrDropFiles')}
@@ -1618,7 +1025,7 @@ export default function WorkspaceChat({
                         { method: 'PUT', headers: { 'Content-Type': 'application/json' } }
                       );
                       if (response.ok) {
-                        setCurrentChatModel(model.model_name);
+                        selectModel(model.model_name);
                       }
                     } catch (err) {
                       console.error('Failed to update chat model:', err);
@@ -1635,7 +1042,7 @@ export default function WorkspaceChat({
                     </option>
                   ))
                 ) : (
-                  <option value="">{t('noModelsAvailable') || 'No models available'}</option>
+                  <option value="">{'No models available'}</option>
                 )}
               </select>
               {currentChatModel && (
@@ -1683,5 +1090,13 @@ export default function WorkspaceChat({
         </div>
       </form>
     </div>
+  );
+}
+
+export default function WorkspaceChat(props: WorkspaceChatProps) {
+  return (
+    <WorkspaceChatProvider workspaceId={props.workspaceId} apiUrl={props.apiUrl || ''}>
+      <WorkspaceChatContent {...props} />
+    </WorkspaceChatProvider>
   );
 }

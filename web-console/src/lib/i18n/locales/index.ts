@@ -53,6 +53,7 @@ import { executionEn } from './en/execution';
 import { executionJa } from './ja/execution';
 import { workspaceZhTW } from './zh-TW/workspace';
 import { workspaceEn } from './en/workspace';
+import { workspaceJa } from './ja/workspace';
 
 /**
  * Merge multiple message objects into one
@@ -128,6 +129,7 @@ const mergeJa = {
   ...workbenchJa,
   ...systemJa,
   ...executionJa,
+  ...workspaceJa,
 } as const;
 
 /**

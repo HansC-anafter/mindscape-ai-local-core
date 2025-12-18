@@ -104,7 +104,7 @@ export const executionZhTW = {
   // Execution Chat
   discussPlaybookExecution: '與 AI 討論此 Playbook 執行...',
   itKnowsStepsEventsErrors: '它知道步驟、事件和錯誤。',
-  executionChatDescription: '這是一個討論面板，可用於詢問執行狀態、理解步驟或獲取建議。如需操作（重試、取消等），請使用主執行介面的按鈕。',
+  executionChatDescription: '討論面板：詢問執行狀態、理解步驟或獲取建議。操作請使用主介面按鈕。',
   recommended: '（推薦）',
   autoStart: '自動開始：',
   aiThinking: 'AI 思考中...',

@@ -282,6 +282,7 @@ class EventType(str, Enum):
     """Event type enumeration for mindspace timeline"""
     MESSAGE = "message"                    # User/assistant messages
     TOOL_CALL = "tool_call"                # Tool/function calls
+    TOOL_RESULT = "tool_result"            # Tool execution results (ReAct: Observe)
     PLAYBOOK_STEP = "playbook_step"        # Playbook execution steps
     INSIGHT = "insight"                   # Generated insights or observations
     HABIT_OBSERVATION = "habit_observation" # Habit learning observations
@@ -294,6 +295,12 @@ class EventType(str, Enum):
     OBSIDIAN_NOTE_UPDATED = "obsidian_note_updated"  # Obsidian note creation/update events
     EXECUTION_PLAN = "execution_plan"      # Chain-of-Thought execution plan
     PHASE_SUMMARY = "phase_summary"        # Playbook phase summary for external memory
+    # Unified Decision & ReAct Loop Events
+    DECISION_REQUIRED = "decision_required"  # Human-in-the-loop: requires user decision (ReAct: Ask Human)
+    BRANCH_PROPOSED = "branch_proposed"      # Tree of Thoughts: alternative branches proposed
+    ARTIFACT_CREATED = "artifact_created"    # Artifact created/updated
+    ARTIFACT_UPDATED = "artifact_updated"    # Artifact updated
+    RUN_STATE_CHANGED = "run_state_changed"  # Execution state changed (WAITING_HUMAN / READY / RUNNING / DONE)
 
 
 class EventActor(str, Enum):

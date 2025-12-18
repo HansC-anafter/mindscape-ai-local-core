@@ -715,7 +715,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                         onViewArtifact={setSelectedArtifact}
                         onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
                         workspace={workspace ? {
-                          playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config
+                          playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config,
+                          owner_user_id: (workspace as any)?.owner_user_id
                         } : undefined}
                       />
                     </section>

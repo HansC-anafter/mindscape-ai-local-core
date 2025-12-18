@@ -479,21 +479,26 @@ class TaskManager:
             if artifact.intent_id:
                 entity_ids.append(artifact.intent_id)
 
-            # Create MindEvent
+            # Create MindEvent with ARTIFACT_CREATED event type (unified event stream)
             event = MindEvent(
                 id=str(uuid.uuid4()),
                 timestamp=datetime.utcnow(),
-                actor=EventActor.SYSTEM,
+                actor=EventActor.AGENT,
                 channel="workspace",
                 profile_id=workspace.owner_user_id,
                 workspace_id=task.workspace_id,
-                event_type=EventType.PLAYBOOK_STEP,
+                event_type=EventType.ARTIFACT_CREATED,  # Use unified event type
                 payload={
-                    "action": "artifact_created",
                     "artifact_id": artifact.id,
+                    "artifact_type": artifact.artifact_type.value if hasattr(artifact.artifact_type, 'value') else str(artifact.artifact_type),
+                    "title": artifact.title,
+                    "summary": artifact.summary,
                     "playbook_code": artifact.playbook_code,
                     "task_id": task.id,
-                    "intent_id": artifact.intent_id
+                    "execution_id": task.execution_id if hasattr(task, 'execution_id') else None,
+                    "intent_id": artifact.intent_id,
+                    "file_path": artifact.metadata.get("file_path") if artifact.metadata else None,
+                    "storage_ref": artifact.storage_ref,
                 },
                 entity_ids=entity_ids,
                 metadata={

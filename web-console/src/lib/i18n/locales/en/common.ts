@@ -58,16 +58,16 @@ export const commonEn = {
   llmConfidenceScore: 'LLM Confidence Score: {confidence} (range: 0~1)',
   requiresExternalSetup: 'Requires External Setup',
   generalIntegrations: 'General Integrations',
-  generalIntegrationsLocalDescription: 'Common tool integrations that work with local core mode',
+  generalIntegrationsLocalDescription: 'Common tool integrations for local core mode',
   generalIntegrationsDescription: 'Common tool integrations',
   developerIntegrations: 'Developer Integrations',
-  developerIntegrationsDescription: 'Advanced integrations requiring external environments or technical collaboration, primarily for technology partners',
+  developerIntegrationsDescription: 'Advanced integrations for external environments, for tech partners',
 
   // Pending Tasks
   intentBasedOnAISuggestion: 'Intent based on AI suggestion:',
   editIntentLabel: 'Edit intent label',
   backgroundExecution: 'Background Execution',
-  backgroundExecutionDescription: 'This task will execute automatically in the background, no LLM analysis required',
+  backgroundExecutionDescription: 'Executes automatically in background, no LLM analysis',
   enableBackgroundTask: 'Enable Background Task',
   enableFailed: 'Enable failed',
   confidence: 'Confidence:',
@@ -178,12 +178,12 @@ export const commonEn = {
   // Sync
   updateRequired: 'Update Required',
   updateAvailable: 'Update Available',
-  updateRequiredDescription: 'Your application version is outdated. An update is required to continue.',
+  updateRequiredDescription: 'Application version outdated. Update required to continue.',
   downloadUpdate: 'Download Update',
   currentVersion: 'Current Version',
   latestVersion: 'Latest Version',
   changelog: 'Changelog',
-  updateInstructions: 'Please follow the instructions to update the application',
+  updateInstructions: 'Follow instructions to update the application',
   dismiss: 'Dismiss',
   offline: 'Offline',
   online: 'Online',
@@ -228,7 +228,7 @@ export const commonEn = {
   // Execution
   executionStartedButNoId: 'Execution started but failed to get execution ID',
   restartExecutionFailed: 'Failed to restart execution',
-  restartExecutionFailedRetry: 'Failed to restart execution. Please try again.',
-  confirmRestartExecutionMessage: 'Are you sure you want to restart this execution? This will create a new execution and cancel the current one.',
+  restartExecutionFailedRetry: 'Failed to restart execution. Try again.',
+  confirmRestartExecutionMessage: 'Restart this execution? This will create a new execution and cancel the current one.',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

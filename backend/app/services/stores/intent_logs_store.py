@@ -61,6 +61,8 @@ class IntentLogsStore(StoreBase):
     def list_intent_logs(
         self,
         profile_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         has_override: Optional[bool] = None,
@@ -71,6 +73,8 @@ class IntentLogsStore(StoreBase):
 
         Args:
             profile_id: Optional profile filter
+            workspace_id: Optional workspace filter
+            project_id: Optional project filter
             start_time: Optional start time filter
             end_time: Optional end time filter
             has_override: Optional filter for logs with user override
@@ -87,6 +91,14 @@ class IntentLogsStore(StoreBase):
             if profile_id:
                 query += ' AND profile_id = ?'
                 params.append(profile_id)
+
+            if workspace_id:
+                query += ' AND workspace_id = ?'
+                params.append(workspace_id)
+
+            if project_id:
+                query += ' AND project_id = ?'
+                params.append(project_id)
 
             if start_time:
                 query += ' AND timestamp >= ?'
