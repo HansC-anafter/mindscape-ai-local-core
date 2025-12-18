@@ -13,6 +13,7 @@ import WorkspaceScopePanel from '../components/WorkspaceScopePanel';
 import TimelinePanel from '../components/TimelinePanel';
 import LeftSidebarTabs from './components/LeftSidebarTabs';
 import ProjectCard from './components/ProjectCard';
+import ProjectSubTabs from './components/ProjectSubTabs';
 import OutcomesPanel, { Artifact } from './components/OutcomesPanel';
 import OutcomeDetailModal from '../components/OutcomeDetailModal';
 import BackgroundTasksPanel from '../components/BackgroundTasksPanel';
@@ -413,79 +414,17 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
-                    {/* Projects List - Above Project Card */}
                     {projects.length > 0 && (
-                      <div className="flex-shrink-0 border-b dark:border-gray-700">
-                        {/* Project Type Filter */}
-                        {(() => {
-                          const projectTypes = Array.from(new Set(projects.map(p => p.type || 'other')));
-                          return projectTypes.length > 1 ? (
-                            <div className="px-3 py-2 border-b dark:border-gray-700">
-                              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                專案分類
-                              </div>
-                              <div className="flex gap-1 flex-wrap">
-                                <button
-                                  onClick={() => setSelectedType(null)}
-                                  className={`px-2 py-1 text-xs rounded transition-colors ${
-                                    selectedType === null
-                                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                                  }`}
-                                >
-                                  全部 ({projects.length})
-                                </button>
-                                {projectTypes.map(type => {
-                                  const count = projects.filter(p => (p.type || 'other') === type).length;
-                                  return (
-                                    <button
-                                      key={type}
-                                      onClick={() => setSelectedType(type)}
-                                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                                        selectedType === type
-                                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                                      }`}
-                                    >
-                                      {type} ({count})
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ) : null;
-                        })()}
-
-                        {/* Projects List */}
-                        {projects.length > 1 && (
-                          <div className="px-3 py-2">
-                            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                              專案列表 ({projects.length})
-                            </div>
-                            <div className="space-y-1 max-h-32 overflow-y-auto">
-                              {projects.map(project => (
-                                <button
-                                  key={project.id}
-                                  onClick={() => {
-                                    setSelectedProjectId(project.id);
-                                    setCurrentProject(project);
-                                  }}
-                                  className={`w-full text-left px-2 py-1.5 text-xs rounded transition-colors ${
-                                    selectedProjectId === project.id
-                                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                      : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
-                                  }`}
-                                >
-                                  <div className="truncate font-medium">{project.title}</div>
-                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                                    {project.type || 'general'} • {project.state || 'open'}
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <ProjectSubTabs
+                        projects={projects}
+                        selectedType={selectedType}
+                        selectedProjectId={selectedProjectId}
+                        onTypeChange={setSelectedType}
+                        onProjectSelect={(project) => {
+                          setSelectedProjectId(project.id);
+                          setCurrentProject(project);
+                        }}
+                      />
                     )}
 
                     {/* Project Card */}
@@ -499,7 +438,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                           project={currentProject}
                           workspaceId={workspaceId}
                           apiUrl={API_URL}
-                          defaultExpanded={false}
+                          defaultExpanded={true}
                           onOpenExecution={(executionId) => {
                             // Navigate to dedicated execution page
                             const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
@@ -537,22 +476,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                                 <div>isLoadingProject: {isLoadingProject ? '⏳ true' : '✅ false'}</div>
                               </div>
                             )}
-                          </div>
-                        </div>
-                      )}
-                      {/* Debug: Show currentProject info when it exists */}
-                      {process.env.NODE_ENV === 'development' && currentProject && (
-                        <div className="px-3 py-2 border-t dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20">
-                          <div className="text-xs text-gray-700 dark:text-gray-300">
-                            <div><strong>✅ Current Project Debug:</strong></div>
-                            <div>ID: <code className="bg-white dark:bg-gray-800 px-1 rounded">{currentProject.id || '❌ MISSING ID!'}</code></div>
-                            <div>Title: {currentProject.title}</div>
-                            <div>Type: {currentProject.type}</div>
-                            <div>State: {currentProject.state}</div>
-                            <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">
-                              <div><strong>Will be passed to WorkspaceChat:</strong></div>
-                              <div>projectId prop: <code className="bg-white dark:bg-gray-800 px-1 rounded">{currentProject.id || 'undefined'}</code></div>
-                            </div>
                           </div>
                         </div>
                       )}
