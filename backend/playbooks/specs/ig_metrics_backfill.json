@@ -1,0 +1,160 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_metrics_backfill",
+  "kind": "user_workflow",
+  "description": "Manage post-publication metrics including manual backfill, data analysis, and performance element tracking",
+  "steps": [
+    {
+      "id": "backfill",
+      "tool": "ig_metrics_backfill_tool",
+      "inputs": {
+        "action": "backfill",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "metrics": "{{input.metrics}}",
+        "backfill_source": "{{input.backfill_source}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'backfill'}}"
+    },
+    {
+      "id": "analyze",
+      "tool": "ig_metrics_backfill_tool",
+      "inputs": {
+        "action": "analyze",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "threshold_config": "{{input.threshold_config}}"
+      },
+      "outputs": {
+        "analysis": "result.analysis"
+      },
+      "condition": "{{input.action == 'analyze'}}"
+    },
+    {
+      "id": "track_elements",
+      "tool": "ig_metrics_backfill_tool",
+      "inputs": {
+        "action": "track_elements",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "elements": "{{input.elements}}",
+        "performance_level": "{{input.performance_level}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'track_elements'}}"
+    },
+    {
+      "id": "write_rules",
+      "tool": "ig_metrics_backfill_tool",
+      "inputs": {
+        "action": "write_rules",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "rules": "{{input.rules}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'write_rules'}}"
+    },
+    {
+      "id": "aggregate_series",
+      "tool": "ig_metrics_backfill_tool",
+      "inputs": {
+        "action": "aggregate_series",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}",
+        "series_posts": "{{input.series_posts}}"
+      },
+      "outputs": {
+        "aggregation": "result.aggregation"
+      },
+      "condition": "{{input.action == 'aggregate_series'}}"
+    }
+  ],
+  "inputs": {
+    "action": {
+      "type": "string",
+      "enum": ["backfill", "analyze", "track_elements", "write_rules", "aggregate_series"],
+      "required": true,
+      "description": "Action to perform"
+    },
+    "vault_path": {
+      "type": "string",
+      "required": true,
+      "description": "Path to Obsidian Vault"
+    },
+    "post_path": {
+      "type": "string",
+      "required": false,
+      "description": "Path to post file (relative to vault, required for most actions)"
+    },
+    "metrics": {
+      "type": "object",
+      "required": false,
+      "description": "Metrics dictionary (required for backfill action)"
+    },
+    "backfill_source": {
+      "type": "string",
+      "required": false,
+      "description": "Source of backfill (e.g., 'manual', 'api', 'scraper')"
+    },
+    "threshold_config": {
+      "type": "object",
+      "required": false,
+      "description": "Custom threshold configuration"
+    },
+    "elements": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of performance elements (required for track_elements action)"
+    },
+    "performance_level": {
+      "type": "string",
+      "enum": ["good", "average", "poor"],
+      "required": false,
+      "description": "Performance level (default: good)"
+    },
+    "rules": {
+      "type": "array",
+      "items": {"type": "object"},
+      "required": false,
+      "description": "List of performance rules (required for write_rules action)"
+    },
+    "series_code": {
+      "type": "string",
+      "required": false,
+      "description": "Series code (required for aggregate_series action)"
+    },
+    "series_posts": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of post paths in series (required for aggregate_series action)"
+    }
+  },
+  "outputs": {
+    "frontmatter": {
+      "type": "object",
+      "description": "Updated frontmatter",
+      "source": "step.backfill.frontmatter or step.track_elements.frontmatter or step.write_rules.frontmatter"
+    },
+    "analysis": {
+      "type": "object",
+      "description": "Performance analysis results",
+      "source": "step.analyze.analysis"
+    },
+    "aggregation": {
+      "type": "object",
+      "description": "Aggregated series metrics",
+      "source": "step.aggregate_series.aggregation"
+    }
+  }
+}
+

@@ -1,0 +1,188 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_series_manager",
+  "kind": "user_workflow",
+  "description": "Manage IG Post series including creation, updates, querying, and cross-referencing",
+  "steps": [
+    {
+      "id": "create_series",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "create",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}",
+        "series_name": "{{input.series_name}}",
+        "description": "{{input.description}}",
+        "total_posts": "{{input.total_posts}}"
+      },
+      "outputs": {
+        "series": "result.series"
+      },
+      "condition": "{{input.action == 'create'}}"
+    },
+    {
+      "id": "add_post",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "add_post",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}",
+        "post_path": "{{input.post_path}}",
+        "post_slug": "{{input.post_slug}}",
+        "post_number": "{{input.post_number}}"
+      },
+      "outputs": {
+        "series": "result.series"
+      },
+      "condition": "{{input.action == 'add_post'}}"
+    },
+    {
+      "id": "get_series",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "get",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}"
+      },
+      "outputs": {
+        "series": "result.series"
+      },
+      "condition": "{{input.action == 'get'}}"
+    },
+    {
+      "id": "list_series",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "list",
+        "vault_path": "{{input.vault_path}}"
+      },
+      "outputs": {
+        "series_list": "result.series_list"
+      },
+      "condition": "{{input.action == 'list'}}"
+    },
+    {
+      "id": "get_posts",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "get_posts",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}"
+      },
+      "outputs": {
+        "posts": "result.posts"
+      },
+      "condition": "{{input.action == 'get_posts'}}"
+    },
+    {
+      "id": "get_previous_next",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "get_previous_next",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}",
+        "current_post_number": "{{input.current_post_number}}"
+      },
+      "outputs": {
+        "previous": "result.previous",
+        "next": "result.next"
+      },
+      "condition": "{{input.action == 'get_previous_next'}}"
+    },
+    {
+      "id": "update_progress",
+      "tool": "ig_series_manager_tool",
+      "inputs": {
+        "action": "update_progress",
+        "vault_path": "{{input.vault_path}}",
+        "series_code": "{{input.series_code}}"
+      },
+      "outputs": {
+        "series": "result.series"
+      },
+      "condition": "{{input.action == 'update_progress'}}"
+    }
+  ],
+  "inputs": {
+    "action": {
+      "type": "string",
+      "enum": ["create", "add_post", "get", "list", "get_posts", "get_previous_next", "update_progress"],
+      "required": true,
+      "description": "Action to perform"
+    },
+    "vault_path": {
+      "type": "string",
+      "required": true,
+      "description": "Path to Obsidian Vault"
+    },
+    "series_code": {
+      "type": "string",
+      "required": false,
+      "description": "Series code (required for most actions)"
+    },
+    "series_name": {
+      "type": "string",
+      "required": false,
+      "description": "Series name (required for create action)"
+    },
+    "description": {
+      "type": "string",
+      "required": false,
+      "description": "Series description"
+    },
+    "total_posts": {
+      "type": "integer",
+      "required": false,
+      "description": "Total number of posts planned"
+    },
+    "post_path": {
+      "type": "string",
+      "required": false,
+      "description": "Post file path (relative to vault, required for add_post action)"
+    },
+    "post_slug": {
+      "type": "string",
+      "required": false,
+      "description": "Post slug (required for add_post action)"
+    },
+    "post_number": {
+      "type": "integer",
+      "required": false,
+      "description": "Post number in series (optional, auto-increment if not provided)"
+    },
+    "current_post_number": {
+      "type": "integer",
+      "required": false,
+      "description": "Current post number (required for get_previous_next action)"
+    }
+  },
+  "outputs": {
+    "series": {
+      "type": "object",
+      "description": "Series information",
+      "source": "step.create_series.series or step.add_post.series or step.get_series.series or step.update_progress.series"
+    },
+    "series_list": {
+      "type": "list[object]",
+      "description": "List of all series",
+      "source": "step.list_series.series_list"
+    },
+    "posts": {
+      "type": "list[object]",
+      "description": "List of posts in series",
+      "source": "step.get_posts.posts"
+    },
+    "previous": {
+      "type": "object",
+      "description": "Previous post in series",
+      "source": "step.get_previous_next.previous"
+    },
+    "next": {
+      "type": "object",
+      "description": "Next post in series",
+      "source": "step.get_previous_next.next"
+    }
+  }
+}
+
+

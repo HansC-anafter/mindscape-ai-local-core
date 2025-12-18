@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_frontmatter_validator",
+  "kind": "user_workflow",
+  "description": "Validate post frontmatter against Unified Frontmatter Schema v2.0.0 and calculate Readiness Score",
+  "steps": [
+    {
+      "id": "read_post",
+      "tool": "obsidian_read_note",
+      "inputs": {
+        "vault_path": "{{input.vault_path}}",
+        "note_path": "{{input.post_path}}"
+      },
+      "outputs": {
+        "content": "result.content",
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.post_path and input.vault_path}}"
+    },
+    {
+      "id": "validate_frontmatter",
+      "tool": "ig_frontmatter_validator_tool",
+      "inputs": {
+        "frontmatter": "{{step.read_post.frontmatter or input.frontmatter}}",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "strict_mode": "{{input.strict_mode}}",
+        "domain": "{{input.domain}}"
+      },
+      "outputs": {
+        "is_valid": "result.is_valid",
+        "readiness_score": "result.readiness_score",
+        "missing_fields": "result.missing_fields",
+        "warnings": "result.warnings",
+        "errors": "result.errors"
+      },
+      "depends_on": ["read_post"],
+      "condition": "{{step.read_post.frontmatter or input.frontmatter}}"
+    }
+  ],
+  "inputs": {
+    "post_path": {
+      "type": "string",
+      "required": false,
+      "description": "Path to post Markdown file (relative to vault)"
+    },
+    "vault_path": {
+      "type": "string",
+      "required": false,
+      "description": "Path to Obsidian Vault (required if post_path provided)"
+    },
+    "frontmatter": {
+      "type": "object",
+      "required": false,
+      "description": "Frontmatter dictionary to validate (alternative to post_path)"
+    },
+    "strict_mode": {
+      "type": "boolean",
+      "default": false,
+      "description": "Strict mode: all required fields must be present"
+    },
+    "domain": {
+      "type": "string",
+      "enum": ["ig", "wp", "seo", "book", "brand", "ops", "blog"],
+      "required": false,
+      "description": "Expected domain (if None, will use frontmatter['domain'])"
+    }
+  },
+  "outputs": {
+    "is_valid": {
+      "type": "boolean",
+      "description": "Whether frontmatter is valid",
+      "source": "step.validate_frontmatter.is_valid"
+    },
+    "readiness_score": {
+      "type": "integer",
+      "description": "Readiness score (0-100)",
+      "source": "step.validate_frontmatter.readiness_score"
+    },
+    "missing_fields": {
+      "type": "list[string]",
+      "description": "List of missing required fields",
+      "source": "step.validate_frontmatter.missing_fields"
+    },
+    "warnings": {
+      "type": "list[string]",
+      "description": "List of warnings (e.g., v1.0 schema detection)",
+      "source": "step.validate_frontmatter.warnings"
+    },
+    "errors": {
+      "type": "list[string]",
+      "description": "List of validation errors",
+      "source": "step.validate_frontmatter.errors"
+    }
+  }
+}
+
+

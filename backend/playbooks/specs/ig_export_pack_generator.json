@@ -1,0 +1,118 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_export_pack_generator",
+  "kind": "user_workflow",
+  "description": "Generate complete export pack for IG Post including post.md, hashtags.txt, CTA variants, and checklist",
+  "steps": [
+    {
+      "id": "read_post",
+      "tool": "obsidian_read_note",
+      "inputs": {
+        "vault_path": "{{input.vault_path}}",
+        "note_path": "{{input.post_path}}"
+      },
+      "outputs": {
+        "post_content": "result.content",
+        "frontmatter": "result.frontmatter"
+      }
+    },
+    {
+      "id": "get_hashtags",
+      "tool": "ig_hashtag_manager_tool",
+      "inputs": {
+        "action": "combine",
+        "intent": "{{step.read_post.frontmatter.intent}}",
+        "hashtag_count": 25
+      },
+      "outputs": {
+        "hashtags": "result.recommended_hashtags"
+      },
+      "condition": "{{not input.hashtags}}"
+    },
+    {
+      "id": "scan_assets",
+      "tool": "ig_asset_manager_tool",
+      "inputs": {
+        "action": "scan",
+        "post_folder": "{{input.post_folder}}",
+        "vault_path": "{{input.vault_path}}"
+      },
+      "outputs": {
+        "assets_list": "result.asset_list"
+      },
+      "condition": "{{input.include_assets}}"
+    },
+    {
+      "id": "generate_export_pack",
+      "tool": "ig_export_pack_generator_tool",
+      "inputs": {
+        "post_folder": "{{input.post_folder}}",
+        "vault_path": "{{input.vault_path}}",
+        "post_content": "{{step.read_post.post_content}}",
+        "frontmatter": "{{step.read_post.frontmatter}}",
+        "hashtags": "{{step.get_hashtags.hashtags or input.hashtags}}",
+        "cta_variants": "{{input.cta_variants}}",
+        "assets_list": "{{step.scan_assets.assets_list}}"
+      },
+      "outputs": {
+        "export_pack_path": "result.export_pack_path",
+        "files_generated": "result.files_generated",
+        "export_pack": "result.export_pack"
+      },
+      "depends_on": ["read_post", "get_hashtags"]
+    }
+  ],
+  "inputs": {
+    "post_folder": {
+      "type": "string",
+      "required": true,
+      "description": "Post folder path (relative to vault)"
+    },
+    "post_path": {
+      "type": "string",
+      "required": true,
+      "description": "Post markdown file path (relative to vault)"
+    },
+    "vault_path": {
+      "type": "string",
+      "required": true,
+      "description": "Path to Obsidian Vault"
+    },
+    "hashtags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of hashtags (if not provided, will be generated)"
+    },
+    "cta_variants": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of CTA variants"
+    },
+    "include_assets": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to include assets in checklist"
+    }
+  },
+  "outputs": {
+    "export_pack_path": {
+      "type": "string",
+      "description": "Path to export pack folder",
+      "source": "step.generate_export_pack.export_pack_path"
+    },
+    "files_generated": {
+      "type": "list[string]",
+      "description": "List of generated files",
+      "source": "step.generate_export_pack.files_generated"
+    },
+    "export_pack": {
+      "type": "object",
+      "description": "Export pack content",
+      "source": "step.generate_export_pack.export_pack"
+    }
+  }
+}
+
+

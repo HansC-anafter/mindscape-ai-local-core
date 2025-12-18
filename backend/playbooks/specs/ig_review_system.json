@@ -1,0 +1,179 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_review_system",
+  "kind": "user_workflow",
+  "description": "Manage review workflow including changelog tracking, review notes, and decision logs",
+  "steps": [
+    {
+      "id": "add_changelog",
+      "tool": "ig_review_system_tool",
+      "inputs": {
+        "action": "add_changelog",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "version": "{{input.version}}",
+        "changes": "{{input.changes}}",
+        "author": "{{input.author}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'add_changelog'}}"
+    },
+    {
+      "id": "add_review_note",
+      "tool": "ig_review_system_tool",
+      "inputs": {
+        "action": "add_review_note",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "reviewer": "{{input.reviewer}}",
+        "note": "{{input.note}}",
+        "priority": "{{input.priority}}",
+        "status": "{{input.status}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'add_review_note'}}"
+    },
+    {
+      "id": "add_decision_log",
+      "tool": "ig_review_system_tool",
+      "inputs": {
+        "action": "add_decision_log",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "decision": "{{input.decision}}",
+        "rationale": "{{input.rationale}}",
+        "decision_maker": "{{input.decision_maker}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'add_decision_log'}}"
+    },
+    {
+      "id": "update_review_note_status",
+      "tool": "ig_review_system_tool",
+      "inputs": {
+        "action": "update_review_note_status",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}",
+        "note_index": "{{input.note_index}}",
+        "new_status": "{{input.new_status}}"
+      },
+      "outputs": {
+        "frontmatter": "result.frontmatter"
+      },
+      "condition": "{{input.action == 'update_review_note_status'}}"
+    },
+    {
+      "id": "get_summary",
+      "tool": "ig_review_system_tool",
+      "inputs": {
+        "action": "get_summary",
+        "vault_path": "{{input.vault_path}}",
+        "post_path": "{{input.post_path}}"
+      },
+      "outputs": {
+        "summary": "result.summary"
+      },
+      "condition": "{{input.action == 'get_summary'}}"
+    }
+  ],
+  "inputs": {
+    "action": {
+      "type": "string",
+      "enum": ["add_changelog", "add_review_note", "add_decision_log", "update_review_note_status", "get_summary"],
+      "required": true,
+      "description": "Action to perform"
+    },
+    "vault_path": {
+      "type": "string",
+      "required": true,
+      "description": "Path to Obsidian Vault"
+    },
+    "post_path": {
+      "type": "string",
+      "required": true,
+      "description": "Path to post file (relative to vault)"
+    },
+    "version": {
+      "type": "string",
+      "required": false,
+      "description": "Version string (required for add_changelog action)"
+    },
+    "changes": {
+      "type": "string",
+      "required": false,
+      "description": "Description of changes (required for add_changelog action)"
+    },
+    "author": {
+      "type": "string",
+      "required": false,
+      "description": "Author name"
+    },
+    "reviewer": {
+      "type": "string",
+      "required": false,
+      "description": "Reviewer name (required for add_review_note action)"
+    },
+    "note": {
+      "type": "string",
+      "required": false,
+      "description": "Review note content (required for add_review_note action)"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "required": false,
+      "description": "Priority level (default: medium)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "addressed", "resolved", "rejected"],
+      "required": false,
+      "description": "Review status"
+    },
+    "decision": {
+      "type": "string",
+      "required": false,
+      "description": "Decision description (required for add_decision_log action)"
+    },
+    "rationale": {
+      "type": "string",
+      "required": false,
+      "description": "Rationale for decision"
+    },
+    "decision_maker": {
+      "type": "string",
+      "required": false,
+      "description": "Decision maker name"
+    },
+    "note_index": {
+      "type": "integer",
+      "required": false,
+      "description": "Index of review note (required for update_review_note_status action)"
+    },
+    "new_status": {
+      "type": "string",
+      "enum": ["pending", "addressed", "resolved", "rejected"],
+      "required": false,
+      "description": "New status (required for update_review_note_status action)"
+    }
+  },
+  "outputs": {
+    "frontmatter": {
+      "type": "object",
+      "description": "Updated frontmatter",
+      "source": "step.add_changelog.frontmatter or step.add_review_note.frontmatter or step.add_decision_log.frontmatter or step.update_review_note_status.frontmatter"
+    },
+    "summary": {
+      "type": "object",
+      "description": "Review summary",
+      "source": "step.get_summary.summary"
+    }
+  }
+}
+

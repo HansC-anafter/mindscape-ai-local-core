@@ -1,0 +1,116 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_hashtag_manager",
+  "kind": "user_workflow",
+  "description": "Manage hashtag groups and combine hashtags for IG posts based on intent, audience, and region",
+  "steps": [
+    {
+      "id": "load_hashtag_groups",
+      "tool": "ig_hashtag_manager_tool",
+      "inputs": {
+        "action": "load_groups"
+      },
+      "outputs": {
+        "hashtag_groups": "result.hashtag_groups"
+      }
+    },
+    {
+      "id": "combine_hashtags",
+      "tool": "ig_hashtag_manager_tool",
+      "inputs": {
+        "action": "combine",
+        "intent": "{{input.intent}}",
+        "audience": "{{input.audience}}",
+        "region": "{{input.region}}",
+        "hashtag_count": "{{input.hashtag_count}}",
+        "hashtag_groups": "{{step.load_hashtag_groups.hashtag_groups}}"
+      },
+      "outputs": {
+        "recommended_hashtags": "result.recommended_hashtags",
+        "blocked_hashtags": "result.blocked_hashtags",
+        "hashtag_groups_used": "result.hashtag_groups_used",
+        "total_count": "result.total_count"
+      },
+      "depends_on": ["load_hashtag_groups"],
+      "condition": "{{input.action == 'recommend' or input.action == 'combine'}}"
+    },
+    {
+      "id": "check_blocked",
+      "tool": "ig_hashtag_manager_tool",
+      "inputs": {
+        "action": "check_blocked",
+        "hashtags": "{{input.hashtags}}"
+      },
+      "outputs": {
+        "blocked_hashtags": "result.blocked_hashtags",
+        "allowed_hashtags": "result.allowed_hashtags"
+      },
+      "condition": "{{input.action == 'check_blocked'}}"
+    }
+  ],
+  "inputs": {
+    "intent": {
+      "type": "string",
+      "enum": ["教育", "引流", "轉換", "品牌"],
+      "required": false,
+      "description": "Post intent (required for combine action)"
+    },
+    "audience": {
+      "type": "string",
+      "required": false,
+      "description": "Target audience"
+    },
+    "region": {
+      "type": "string",
+      "required": false,
+      "description": "Region"
+    },
+    "hashtag_count": {
+      "type": "integer",
+      "enum": [15, 25, 30],
+      "default": 25,
+      "description": "Required hashtag count"
+    },
+    "action": {
+      "type": "string",
+      "enum": ["recommend", "combine", "check_blocked"],
+      "default": "recommend",
+      "description": "Action to perform"
+    },
+    "hashtags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of hashtags to check (required for check_blocked action)"
+    }
+  },
+  "outputs": {
+    "hashtag_groups": {
+      "type": "object",
+      "description": "Hashtag groups (brand fixed, theme, campaign)",
+      "source": "step.load_hashtag_groups.hashtag_groups"
+    },
+    "recommended_hashtags": {
+      "type": "list[string]",
+      "description": "Recommended hashtag list",
+      "source": "step.combine_hashtags.recommended_hashtags"
+    },
+    "blocked_hashtags": {
+      "type": "list[string]",
+      "description": "Blocked hashtags",
+      "source": "step.combine_hashtags.blocked_hashtags or step.check_blocked.blocked_hashtags"
+    },
+    "hashtag_groups_used": {
+      "type": "list[string]",
+      "description": "Hashtag groups used in combination",
+      "source": "step.combine_hashtags.hashtag_groups_used"
+    },
+    "total_count": {
+      "type": "integer",
+      "description": "Total hashtag count",
+      "source": "step.combine_hashtags.total_count"
+    }
+  }
+}
+
+
