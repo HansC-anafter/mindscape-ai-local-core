@@ -190,8 +190,6 @@ class PlaybookRegistry:
             logger.warning("PyYAML not installed, skipping capability playbook loading")
             return
 
-        # Find capability packs directory
-        # Assuming workspace structure: workspace/mindscape-ai-cloud/capabilities/
         current_file = Path(__file__)
         workspace_root = current_file.parent.parent.parent.parent.parent
         capabilities_dir = workspace_root / "mindscape-ai-cloud" / "capabilities"
@@ -203,7 +201,6 @@ class PlaybookRegistry:
 
         logger.info(f"Loading capability playbooks from: {capabilities_dir}")
 
-        # Scan for capability packs
         for capability_dir in capabilities_dir.iterdir():
             if not capability_dir.is_dir():
                 continue
@@ -214,7 +211,6 @@ class PlaybookRegistry:
                 continue
 
             try:
-                # Load manifest
                 with open(manifest_path, 'r', encoding='utf-8') as f:
                     manifest = yaml.safe_load(f)
 
@@ -225,11 +221,9 @@ class PlaybookRegistry:
 
                 logger.info(f"Loading capability pack: {capability_code}")
 
-                # Initialize capability playbooks dict
                 if capability_code not in self.capability_playbooks:
                     self.capability_playbooks[capability_code] = {}
 
-                # Load playbooks from manifest
                 playbooks_config = manifest.get('playbooks', [])
                 for playbook_config in playbooks_config:
                     playbook_code = playbook_config.get('code')
@@ -239,9 +233,7 @@ class PlaybookRegistry:
                     locales = playbook_config.get('locales', ['zh-TW', 'en'])
                     path_template = playbook_config.get('path', 'playbooks/{locale}/{code}.md')
 
-                    # Load playbook for each locale
                     for locale in locales:
-                        # Resolve path template
                         playbook_path = capability_dir / path_template.format(
                             locale=locale,
                             code=playbook_code
@@ -255,10 +247,8 @@ class PlaybookRegistry:
                             playbook = PlaybookFileLoader.load_playbook_from_file(playbook_path)
                             if playbook:
                                 playbook.metadata.locale = locale
-                                # Store with capability_code prefix to avoid conflicts
                                 full_code = f"{capability_code}.{playbook_code}"
                                 self.capability_playbooks[capability_code][full_code] = playbook
-                                # Also store with just playbook_code for backward compatibility
                                 self.capability_playbooks[capability_code][playbook_code] = playbook
                                 logger.debug(f"Loaded capability playbook: {full_code} ({locale}) from {capability_code}")
                         except Exception as e:

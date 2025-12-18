@@ -25,6 +25,7 @@ interface Playbook {
   required_tools: string[];
   kind?: string;
   scope?: 'system' | 'tenant' | 'profile' | 'workspace';
+  capability_code?: string;
   user_meta: {
     favorite: boolean;
     use_count: number;
@@ -44,7 +45,6 @@ export default function PlaybooksPage() {
   const [supportedTestPlaybooks, setSupportedTestPlaybooks] = useState<Set<string>>(new Set());
   const [creatingWorkspace, setCreatingWorkspace] = useState<string | null>(null);
 
-  // Load supported test playbooks
   useEffect(() => {
     const loadSupportedTests = async () => {
       try {
@@ -61,7 +61,6 @@ export default function PlaybooksPage() {
     loadSupportedTests();
   }, []);
 
-  // Load playbooks when component mounts or when selectedTags changes
   useEffect(() => {
     let isMounted = true;
 
@@ -70,15 +69,12 @@ export default function PlaybooksPage() {
         setLoading(true);
         const apiUrl = API_URL.startsWith('http') ? API_URL : '';
         const tags = selectedTags.join(',');
-        // Use locale from useLocale hook to determine target_language
-        // This ensures we get the actual user-selected language
         const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
         const url = `${apiUrl}/api/v1/playbooks?tags=${tags}&target_language=${targetLanguage}&profile_id=default-user`;
 
         const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
-          // Ensure data is an array and has required fields
           const validPlaybooks = Array.isArray(data) ? data.filter(p =>
             p && p.playbook_code && p.name
           ) : [];
@@ -116,7 +112,6 @@ export default function PlaybooksPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
       });
-      // Reload playbooks by updating selectedTags (triggers useEffect)
       setSelectedTags(prev => [...prev]);
     } catch (err) {
       console.error('Failed to toggle favorite:', err);
@@ -134,7 +129,6 @@ export default function PlaybooksPage() {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const ownerUserId = 'default-user';
 
-      // Generate workspace name: playbook_code_YYYYMMDD_HHMMSS
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -144,7 +138,6 @@ export default function PlaybooksPage() {
       const seconds = String(now.getSeconds()).padStart(2, '0');
       const workspaceTitle = `${playbook.playbook_code}_${year}${month}${day}_${hours}${minutes}${seconds}`;
 
-      // Create workspace
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}`,
         {
@@ -162,15 +155,12 @@ export default function PlaybooksPage() {
       if (response.ok) {
         const newWorkspace = await response.json();
 
-        // Check if playbook has UI Surface
         const registry = getPlaybookRegistry();
         const playbookPackage = registry.get(playbook.playbook_code);
 
         if (playbookPackage?.uiLayout) {
-          // Navigate to Playbook Surface
           router.push(`/workspaces/${newWorkspace.id}/playbook/${playbook.playbook_code}`);
         } else {
-          // Navigate to regular workspace
           router.push(`/workspaces/${newWorkspace.id}`);
         }
       } else {
@@ -193,6 +183,34 @@ export default function PlaybooksPage() {
       (p.description && p.description.toLowerCase().includes(lowerSearch))
     );
   }, [playbooks, searchTerm]);
+
+  // Group playbooks by capability_code
+  const playbooksByCapability = useMemo(() => {
+    const groups: Record<string, Playbook[]> = {};
+
+    filteredPlaybooks.forEach(playbook => {
+      const capabilityCode = playbook.capability_code || 'system';
+      if (!groups[capabilityCode]) {
+        groups[capabilityCode] = [];
+      }
+      groups[capabilityCode].push(playbook);
+    });
+
+    if (!groups['system']) {
+      groups['system'] = [];
+    }
+
+    return groups;
+  }, [filteredPlaybooks]);
+
+  const [selectedCapability, setSelectedCapability] = useState<string>('system');
+
+  useEffect(() => {
+    const capabilityCodes = Object.keys(playbooksByCapability);
+    if (capabilityCodes.length > 0 && !capabilityCodes.includes(selectedCapability)) {
+      setSelectedCapability(capabilityCodes[0]);
+    }
+  }, [playbooksByCapability]);
 
   // Extract all unique tags from all playbooks
   const allTags = useMemo(() => {
@@ -291,21 +309,58 @@ export default function PlaybooksPage() {
 
           {/* Middle Column: Playbook Cards */}
           <div className="col-span-12 lg:col-span-7">
-            <div className="h-[calc(100vh-8rem)] overflow-y-auto p-4">
+            <div className="h-[calc(100vh-8rem)] flex flex-col">
               {loading ? (
-                <p className="text-gray-600 dark:text-gray-400">{t('loading')}</p>
+                <div className="p-4">
+                  <p className="text-gray-600 dark:text-gray-400">{t('loading')}</p>
+                </div>
               ) : filteredPlaybooks.length === 0 ? (
-                <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-12 text-center">
-                  <p className="text-gray-600 dark:text-gray-400">{t('noPlaybooksFound')}</p>
+                <div className="p-4">
+                  <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-12 text-center">
+                    <p className="text-gray-600 dark:text-gray-400">{t('noPlaybooksFound')}</p>
+                  </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {filteredPlaybooks.map(playbook => (
-                    <div
-                      key={playbook.playbook_code}
-                      className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer border border-gray-200 dark:border-gray-700"
-                      onClick={() => router.push(`/playbooks/${playbook.playbook_code}`)}
-                    >
+                <>
+                  {/* Horizontal Tabs */}
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+                    {Object.entries(playbooksByCapability).map(([capabilityCode, capabilityPlaybooks]) => {
+                      if (capabilityPlaybooks.length === 0) return null;
+
+                      const capabilityDisplayName = capabilityCode === 'system'
+                        ? t('systemPlaybooks') || 'System Playbooks'
+                        : capabilityCode.split('_').map(word =>
+                            word.charAt(0).toUpperCase() + word.slice(1)
+                          ).join(' ');
+
+                      const isSelected = selectedCapability === capabilityCode;
+
+                      return (
+                        <button
+                          key={capabilityCode}
+                          onClick={() => setSelectedCapability(capabilityCode)}
+                          className={`px-4 py-2 text-sm font-medium whitespace-nowrap rounded-t-lg transition-colors border-b-2 ${
+                            isSelected
+                              ? 'text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                              : 'text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+                          }`}
+                        >
+                          {capabilityDisplayName} ({capabilityPlaybooks.length})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Playbooks Grid for Selected Capability */}
+                  <div className="flex-1 overflow-y-auto p-4">
+                    {playbooksByCapability[selectedCapability] && playbooksByCapability[selectedCapability].length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {playbooksByCapability[selectedCapability].map(playbook => (
+                                <div
+                                  key={playbook.playbook_code}
+                                  className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer border border-gray-200 dark:border-gray-700"
+                                  onClick={() => router.push(`/playbooks/${playbook.playbook_code}`)}
+                                >
                       {/* Top row: Icon, Scope/Template badge, System Playbook, Test badge, Favorite */}
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -406,9 +461,16 @@ export default function PlaybooksPage() {
                           </button>
                         </div>
                       </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    ) : (
+                      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-12 text-center">
+                        <p className="text-gray-600 dark:text-gray-400">{t('noPlaybooksFound')}</p>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
