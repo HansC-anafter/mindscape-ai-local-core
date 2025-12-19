@@ -238,11 +238,29 @@ class ToolListService:
                 capabilities_dir = app_dir / "capabilities"
                 if capabilities_dir.exists():
                     load_capabilities(capabilities_dir)
-                # Also try loading from mindscape-ai-cloud (development environment)
-                cloud_dir = Path("/mindscape-ai-cloud/capabilities")
-                if cloud_dir.exists():
-                    load_capabilities(cloud_dir)
-                capability_tool_names = capability_registry.list_tools()
+
+            # Always try loading from remote capabilities directory (if available)
+            # Use a simple approach: track if we've already attempted to load remote capabilities
+            # This avoids hardcoding any capability names
+            remote_capabilities_dir = os.getenv("MINDSCAPE_REMOTE_CAPABILITIES_DIR")
+            if remote_capabilities_dir:
+                remote_capabilities_path = Path(remote_capabilities_dir)
+                if remote_capabilities_path.exists():
+                    # Check if we've already loaded from this directory by comparing tool count before/after
+                    # This is a simple heuristic that doesn't hardcode capability names
+                    tools_before = len(capability_tool_names)
+                    load_capabilities(remote_capabilities_path)
+                    capability_tool_names = capability_registry.list_tools()
+                    tools_after = len(capability_tool_names)
+
+                    if tools_after > tools_before:
+                        logger.info(f"ToolListService: Loaded remote capabilities from {remote_capabilities_dir} (added {tools_after - tools_before} tools)")
+                    else:
+                        logger.debug(f"ToolListService: Remote capabilities already loaded or no new tools found")
+                else:
+                    logger.warning(f"ToolListService: Remote capabilities directory does not exist: {remote_capabilities_path}")
+            else:
+                logger.debug("ToolListService: MINDSCAPE_REMOTE_CAPABILITIES_DIR environment variable not set")
 
             result = []
             for tool_name in capability_tool_names:

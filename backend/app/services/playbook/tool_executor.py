@@ -726,7 +726,7 @@ Please retry the tool call."""
             # Continue conversation with tool results
             # Always let LLM retry on errors (it will see the error message and can correct parameters)
             # Only exit if we've reached max iterations to avoid infinite loops
-            messages = conv_manager.get_messages_for_llm()
+            messages = await conv_manager.get_messages_for_llm()
             current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
             conv_manager.add_assistant_message(current_response)
             tool_iteration += 1
