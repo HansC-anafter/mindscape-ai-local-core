@@ -611,6 +611,9 @@ Please retry the tool call."""
             tool_calls = conv_manager.parse_tool_calls_from_response(current_response)
 
             if not tool_calls:
+                # Log response preview for debugging (first 500 chars)
+                logger.info(f"PlaybookToolExecutor: No tool calls found in iteration {tool_iteration + 1}, "
+                           f"response preview (first 500 chars):\n{current_response[:500] if current_response else 'None'}")
                 # Check if LLM intended to call tools but used wrong format
                 format_error = self._detect_tool_call_intent(current_response)
 

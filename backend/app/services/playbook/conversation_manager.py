@@ -239,7 +239,15 @@ class PlaybookConversationManager:
                 prompt_parts.extend(tool_format_instructions)
                 prompt_parts.append("[/AVAILABLE_TOOLS]")
 
-        return "\n".join(prompt_parts)
+        system_prompt = "\n".join(prompt_parts)
+        
+        # Log system prompt for debugging (first 2000 chars to avoid log spam)
+        logger.info(f"PlaybookConversationManager: Built system prompt (length={len(system_prompt)}, "
+                   f"has_slot_info={bool(slot_info_str)}, has_cached_tools={bool(self.cached_tools_str)})")
+        if len(system_prompt) > 0:
+            logger.debug(f"PlaybookConversationManager: System prompt preview (first 2000 chars):\n{system_prompt[:2000]}")
+        
+        return system_prompt
 
     def add_user_message(self, message: str):
         """Add user message to conversation history"""
