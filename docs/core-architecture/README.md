@@ -74,6 +74,9 @@ Architectural separation principles between local and cloud implementations.
 #### [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md)
 Playbook architecture and workflow execution mechanisms, including identity governance and access control.
 
+#### [Governance Decision & Risk Control Layer](./governance-decision-risk-control-layer.md)
+Multi-layered governance framework for safe and controlled playbook execution, with clear separation between Local-Core universal mechanisms and Cloud-specific extensions.
+
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
 
@@ -208,8 +211,9 @@ CREATE TABLE playbook_flows (
 2. [Execution Context](./execution-context.md) - Context flow
 3. [Local/Cloud Boundary](./local-cloud-boundary.md) - Separation principles
 4. [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) - Workflow execution, identity governance, and access control
-5. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
-6. [Project + Flow Summary](./project-flow/project-flow-summary.md)
+5. [Governance Decision & Risk Control Layer](./governance-decision-risk-control-layer.md) - Multi-layered governance framework
+6. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
+7. [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
 ### Getting Started
 1. [System Overview](./system-overview.md) - Complete workflow overview
