@@ -80,6 +80,8 @@ class TemplateEngine:
         workflow_context: Dict[str, Any]
     ) -> Any:
         """Resolve a single template string"""
+        if '{{step.' in template_str or '{{input.' in template_str:
+            logger.debug(f"TemplateEngine: Resolving template string (length={len(template_str)}): {template_str[:200]}...")
         def replace_var(match):
             var_expr = match.group(1).strip()
 
@@ -98,9 +100,14 @@ class TemplateEngine:
                 for part in var_path.split('.'):
                     if '[' in part:
                         # Handle array indexing: xxx[0]
-                        key, index = part.split('[')
-                        index = int(index.rstrip(']'))
-                        value = value.get(key, [])[index] if isinstance(value.get(key), list) else None
+                        key, index_str = part.split('[')
+                        index = int(index_str.rstrip(']'))
+                        if isinstance(value, dict):
+                            value = value.get(key)
+                        if isinstance(value, list) and 0 <= index < len(value):
+                            value = value[index]
+                        else:
+                            value = None
                     else:
                         value = value.get(part) if isinstance(value, dict) else None
                     if value is None:
@@ -114,23 +121,54 @@ class TemplateEngine:
                         return str(value)
                 return match.group(0)
 
-            # Handle {{step.xxx.yyy}}
+            # Handle {{step.xxx.yyy}} or {{step.xxx.yyy[0]}}
             elif var_type == 'step':
                 step_parts = var_path.split('.', 1)
                 if len(step_parts) < 2:
                     logger.warning(f"Invalid step reference: {var_expr}")
                     return match.group(0)
-                step_id, output_name = step_parts[0], step_parts[1]
+                step_id, output_path = step_parts[0], step_parts[1]
                 step_result = step_outputs.get(step_id, {})
-                value = step_result.get(output_name, match.group(0))
-                # Convert to string for template replacement
-                if value != match.group(0):
-                    if isinstance(value, (list, dict)):
-                        import json
-                        return json.dumps(value, ensure_ascii=False)
+                logger.debug(f"TemplateEngine: Resolving {{step.{var_expr}}}: step_id={step_id}, output_path={output_path}, step_result_keys={list(step_result.keys()) if isinstance(step_result, dict) else 'N/A'}")
+
+                # Handle nested paths and array indexing: output_name.xxx[0].yyy
+                value = step_result
+                path_parts = output_path.split('.')
+                for part in path_parts:
+                    if '[' in part:
+                        # Handle array indexing: xxx[0]
+                        key, index_str = part.split('[')
+                        index = int(index_str.rstrip(']'))
+                        if isinstance(value, dict):
+                            value = value.get(key)
+                        if isinstance(value, list) and 0 <= index < len(value):
+                            value = value[index]
+                        else:
+                            value = None
+                            break
                     else:
-                        return str(value)
-                return value
+                        if isinstance(value, dict):
+                            value = value.get(part)
+                        else:
+                            value = None
+                            break
+                    if value is None:
+                        break
+
+                if value is None or value == match.group(0):
+                    logger.warning(f"TemplateEngine: Failed to resolve {{step.{var_expr}}}: step_id={step_id}, output_path={output_path} not found in step_result")
+                    return match.group(0)
+
+                value_type = type(value).__name__
+                value_preview = str(value)[:200] if not isinstance(value, (dict, list)) else f"{value_type}(len={len(value) if hasattr(value, '__len__') else 'N/A'})"
+                logger.debug(f"TemplateEngine: Resolved {{step.{var_expr}}} to {value_type}: {value_preview}")
+
+                # Convert to string for template replacement
+                if isinstance(value, (list, dict)):
+                    import json
+                    return json.dumps(value, ensure_ascii=False)
+                else:
+                    return str(value)
 
             elif var_type == 'item':
                 loop_context = step_outputs.get("_loop", {})

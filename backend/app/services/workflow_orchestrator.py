@@ -27,6 +27,8 @@ from backend.app.services.workflow_template_engine import TemplateEngine
 from backend.app.shared.tool_executor import ToolExecutor
 from backend.app.services.tool_slot_resolver import get_tool_slot_resolver, SlotNotFoundError
 from backend.app.services.tool_policy_engine import get_tool_policy_engine, PolicyViolationError
+from backend.app.services.workflow_step_loop import WorkflowStepLoop
+from backend.app.services.playbook_loaders import PlaybookJsonLoader
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +39,12 @@ class WorkflowOrchestrator:
     def __init__(self, store=None):
         self.tool_executor = ToolExecutor()
         self.template_engine = TemplateEngine()
+        self.step_loop = WorkflowStepLoop(self.template_engine, self.tool_executor, store)
         self.store = store
 
     def load_playbook_json(self, playbook_code: str) -> Optional[PlaybookJson]:
         """
-        Load playbook.json file
+        Load playbook.json file using PlaybookJsonLoader
 
         Args:
             playbook_code: Playbook code
@@ -49,35 +52,15 @@ class WorkflowOrchestrator:
         Returns:
             PlaybookJson model or None if not found
         """
-        base_dir = Path(__file__).parent.parent.parent
-
-        # Try multiple possible locations
-        possible_paths = [
-            base_dir / "playbooks" / "specs" / f"{playbook_code}.json",  # Current location
-            base_dir / "playbooks" / f"{playbook_code}.json",  # Legacy location
-            base_dir / "i18n" / "playbooks" / "zh-TW" / f"{playbook_code}.json",  # Same dir as .md
-            base_dir / "i18n" / "playbooks" / "en" / f"{playbook_code}.json",  # Same dir as .md
-        ]
-
-        for playbook_json_path in possible_paths:
-            if playbook_json_path.exists():
-                try:
-                    with open(playbook_json_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    return PlaybookJson(**data)
-                except Exception as e:
-                    logger.error(f"Failed to load playbook.json from {playbook_json_path}: {e}")
-                    continue
-
-        logger.warning(f"playbook.json not found for {playbook_code} in any of the expected locations")
-        return None
+        return PlaybookJsonLoader.load_playbook_json(playbook_code)
 
     async def execute_workflow(
         self,
         handoff_plan: HandoffPlan,
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        profile_id: Optional[str] = None
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute workflow from HandoffPlan with parallel execution support
@@ -123,6 +106,7 @@ class WorkflowOrchestrator:
                     execution_id=execution_id,
                     workspace_id=workspace_id,
                     profile_id=profile_id,
+                    project_id=project_id,
                     step_index=len(completed_steps)
                 )
                 for step in ready_steps
@@ -344,6 +328,7 @@ class WorkflowOrchestrator:
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         step_index: int = 0
     ) -> Dict[str, Any]:
         """
@@ -367,19 +352,29 @@ class WorkflowOrchestrator:
             workflow_context
         )
 
+        # Merge workflow_context into resolved_inputs to ensure inputs are available for template resolution
+        # This is critical for playbook.json steps that use {{input.xxx}} templates
+        # The workflow_context contains the original inputs passed to the playbook execution
+        if workflow_context:
+            # Merge workflow_context into resolved_inputs, but don't overwrite existing keys
+            for key, value in workflow_context.items():
+                if key not in resolved_inputs:
+                    resolved_inputs[key] = value
+            logger.info(f"WorkflowOrchestrator.execute_workflow_step: Merged workflow_context into resolved_inputs for {step.playbook_code}. Keys: {list(resolved_inputs.keys())}")
+
         if step.kind == PlaybookKind.SYSTEM_TOOL:
             if InteractionMode.SILENT in step.interaction_mode:
-                return await self._execute_silently(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
+                return await self._execute_silently(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id, project_id)
             else:
-                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
+                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id, project_id)
 
         elif step.kind == PlaybookKind.USER_WORKFLOW:
             if InteractionMode.NEEDS_REVIEW in step.interaction_mode:
                 logger.info(f"Step {step.playbook_code} requires review")
             if InteractionMode.CONVERSATIONAL in step.interaction_mode:
-                return await self._execute_with_progress(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
+                return await self._execute_with_progress(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id, project_id)
             else:
-                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id)
+                return await self._execute_with_minimal_ui(playbook_json, resolved_inputs, execution_id, workspace_id, profile_id, project_id)
 
         else:
             raise ValueError(f"Unknown playbook kind: {step.kind}")
@@ -390,10 +385,11 @@ class WorkflowOrchestrator:
         inputs: Dict[str, Any],
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        profile_id: Optional[str] = None
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute playbook silently (system tool)"""
-        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id)
+        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id, project_id)
 
     async def _execute_with_minimal_ui(
         self,
@@ -401,10 +397,11 @@ class WorkflowOrchestrator:
         inputs: Dict[str, Any],
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        profile_id: Optional[str] = None
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute playbook with minimal UI feedback"""
-        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id)
+        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id, project_id)
 
     async def _execute_with_progress(
         self,
@@ -412,10 +409,11 @@ class WorkflowOrchestrator:
         inputs: Dict[str, Any],
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        profile_id: Optional[str] = None
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute playbook with progress feedback"""
-        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id)
+        return await self._execute_playbook_steps(playbook_json, inputs, execution_id, workspace_id, profile_id, project_id)
 
     async def _execute_playbook_steps(
         self,
@@ -423,7 +421,8 @@ class WorkflowOrchestrator:
         playbook_inputs: Dict[str, Any],
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        profile_id: Optional[str] = None
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute all steps in playbook.json
@@ -431,10 +430,65 @@ class WorkflowOrchestrator:
         Args:
             playbook_json: PlaybookJson definition
             playbook_inputs: Resolved playbook inputs
+            execution_id: Execution ID
+            workspace_id: Workspace ID
+            profile_id: Profile ID
+            project_id: Project ID for sandbox context
 
         Returns:
             Dict with step outputs and final playbook outputs
         """
+        # Create sandbox for execution (with or without project)
+        sandbox_id = None
+        logger.info(f"WorkflowOrchestrator._execute_playbook_steps: Starting execution. project_id={project_id}, workspace_id={workspace_id}, playbook_inputs keys: {list(playbook_inputs.keys())}")
+        if workspace_id:
+            try:
+                from backend.app.services.sandbox.sandbox_manager import SandboxManager
+                sandbox_manager = SandboxManager(self.store)
+
+                if project_id:
+                    # Create sandbox for project
+                    try:
+                        from backend.app.services.project.project_manager import ProjectManager
+                        from backend.app.services.sandbox.playbook_integration import SandboxPlaybookAdapter
+                        project_manager = ProjectManager(self.store)
+                        logger.info(f"WorkflowOrchestrator: Getting project {project_id} for workspace {workspace_id}")
+                        project_obj = await project_manager.get_project(project_id, workspace_id=workspace_id)
+                        logger.info(f"WorkflowOrchestrator: project_obj={project_obj is not None}")
+                        if project_obj:
+                            logger.info(f"WorkflowOrchestrator: Playbook execution in Project mode: {project_id}")
+                            sandbox_adapter = SandboxPlaybookAdapter(self.store)
+                            try:
+                                logger.info(f"WorkflowOrchestrator: Creating sandbox for project {project_id}")
+                                sandbox_id = await sandbox_adapter.get_or_create_sandbox_for_project(
+                                    project_id=project_id,
+                                    workspace_id=workspace_id
+                                )
+                                logger.info(f"WorkflowOrchestrator: Using unified sandbox {sandbox_id} for project {project_id}")
+                            except Exception as e:
+                                logger.error(f"WorkflowOrchestrator: Failed to get unified sandbox: {e}", exc_info=True)
+                        else:
+                            logger.warning(f"WorkflowOrchestrator: Project {project_id} not found or doesn't belong to workspace {workspace_id}")
+                    except Exception as e:
+                        logger.error(f"WorkflowOrchestrator: Failed to create sandbox for project: {e}", exc_info=True)
+
+                # If no sandbox created yet (no project or project sandbox creation failed), create execution sandbox
+                if not sandbox_id:
+                    try:
+                        logger.info(f"WorkflowOrchestrator: Creating execution sandbox for workspace {workspace_id}")
+                        sandbox_id = await sandbox_manager.create_sandbox(
+                            sandbox_type="project_repo",
+                            workspace_id=workspace_id,
+                            context={"execution_id": execution_id, "playbook_code": getattr(playbook_json, 'playbook_code', None)}
+                        )
+                        logger.info(f"WorkflowOrchestrator: Created execution sandbox {sandbox_id}")
+                    except Exception as e:
+                        logger.error(f"WorkflowOrchestrator: Failed to create execution sandbox: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"WorkflowOrchestrator: Failed to create sandbox: {e}", exc_info=True)
+        else:
+            logger.warning(f"WorkflowOrchestrator: No workspace_id provided, skipping sandbox creation")
+
         step_outputs = {}
         completed_steps = set()
 
@@ -450,6 +504,8 @@ class WorkflowOrchestrator:
             for step in ready_steps:
                 try:
                     step_index = len(completed_steps)
+                    # Log playbook_inputs for debugging
+                    logger.debug(f"WorkflowOrchestrator._execute_playbook_steps: Executing step {step.id}, playbook_inputs keys: {list(playbook_inputs.keys())}")
                     step_result = await self._execute_single_step(
                         step,
                         playbook_inputs,
@@ -458,13 +514,23 @@ class WorkflowOrchestrator:
                         execution_id=execution_id,
                         workspace_id=workspace_id,
                         profile_id=profile_id,
+                        project_id=project_id,
                         step_index=step_index
                     )
                     step_outputs[step.id] = step_result
                     completed_steps.add(step.id)
-                    logger.debug(f"Step {step.id} completed successfully")
+                    step_result_keys = list(step_result.keys()) if isinstance(step_result, dict) else 'N/A'
+                    step_result_preview = {}
+                    if isinstance(step_result, dict):
+                        for k, v in step_result.items():
+                            if isinstance(v, (list, dict)):
+                                step_result_preview[k] = f"{type(v).__name__}(len={len(v)})"
+                            else:
+                                step_result_preview[k] = str(v)[:100] if len(str(v)) > 100 else str(v)
+                    logger.info(f"Step {step.id} completed successfully. Output keys: {step_result_keys}, Preview: {step_result_preview}")
                 except Exception as e:
-                    logger.error(f"Step {step.id} failed: {e}", exc_info=True)
+                    error_msg = str(e)[:500] if len(str(e)) > 500 else str(e)
+                    logger.error(f"Step {step.id} failed: {error_msg}")
                     if execution_id and workspace_id and self.store:
                         self._create_step_event(
                             execution_id=execution_id,
@@ -535,6 +601,14 @@ class WorkflowOrchestrator:
 
                 # Create artifacts
                 if playbook_metadata.get('output_artifacts'):
+                    # Build execution_context with sandbox_id if available
+                    execution_context = {"execution_id": execution_id}
+                    if sandbox_id:
+                        execution_context["sandbox_id"] = sandbox_id
+                        logger.info(f"🔍 WorkflowOrchestrator: Passing sandbox_id={sandbox_id} to artifact creator")
+                    else:
+                        logger.warning(f"🔍 WorkflowOrchestrator: No sandbox_id available for execution {execution_id}")
+
                     created_artifacts = await artifact_creator.create_artifacts_from_playbook_outputs(
                         playbook_code=playbook_code,
                         execution_id=execution_id,
@@ -542,7 +616,7 @@ class WorkflowOrchestrator:
                         playbook_metadata=playbook_metadata,
                         step_outputs=step_outputs,
                         inputs=playbook_inputs,
-                        execution_context={"execution_id": execution_id}
+                        execution_context=execution_context
                     )
 
                     if created_artifacts:
@@ -551,11 +625,39 @@ class WorkflowOrchestrator:
                 logger.error(f"Failed to create artifacts from playbook outputs: {e}", exc_info=True)
                 # Don't fail the execution if artifact creation fails
 
-        return {
+            # Preserve sandbox_id in execution_context if available
+            logger.error(f"🔍 Preserve sandbox_id check: sandbox_id={sandbox_id}, execution_id={execution_id}, workspace_id={workspace_id}")
+            if sandbox_id and execution_id and workspace_id:
+                try:
+                    from backend.app.services.stores.tasks_store import TasksStore
+                    tasks_store = TasksStore(db_path=self.store.db_path)
+                    logger.error(f"🔍 Getting task by execution_id: {execution_id}")
+                    task = tasks_store.get_task_by_execution_id(execution_id)
+                    logger.error(f"🔍 Task found: {task is not None}")
+                    if task:
+                        execution_context = task.execution_context or {}
+                        execution_context["sandbox_id"] = sandbox_id
+                        logger.error(f"🔍 Updating task {task.id} with sandbox_id={sandbox_id}")
+                        tasks_store.update_task(task.id, execution_context=execution_context)
+                        logger.error(f"🔍 WorkflowOrchestrator: Preserved sandbox_id={sandbox_id} in execution_context for execution {execution_id}")
+                    else:
+                        logger.error(f"🔍 Task not found for execution_id: {execution_id}")
+                except Exception as e:
+                    logger.error(f"🔍 WorkflowOrchestrator: Failed to preserve sandbox_id in execution_context: {e}", exc_info=True)
+            else:
+                logger.error(f"🔍 Skipping sandbox_id preservation: sandbox_id={sandbox_id}, execution_id={execution_id}, workspace_id={workspace_id}")
+
+        result = {
             'status': 'completed',
             'step_outputs': step_outputs,
             'outputs': final_outputs
         }
+
+        # Include sandbox_id in result metadata so it can be saved by the caller
+        if sandbox_id:
+            result['sandbox_id'] = sandbox_id
+
+        return result
 
     def _get_ready_steps(
         self,
@@ -571,6 +673,38 @@ class WorkflowOrchestrator:
                 ready.append(step)
         return ready
 
+    async def _execute_single_step_iteration(
+        self,
+        step: Any,
+        playbook_inputs: Dict[str, Any],
+        step_outputs: Dict[str, Dict[str, Any]],
+        playbook_input_defs: Dict[str, Any],
+        execution_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        step_index: int = 0
+    ) -> Dict[str, Any]:
+        """Execute a single step iteration (used by loop handler)"""
+        # Mark step as in loop iteration to prevent recursion
+        step._in_loop_iteration = True
+        try:
+            return await self._execute_single_step(
+                step,
+                playbook_inputs,
+                step_outputs,
+                playbook_input_defs,
+                execution_id=execution_id,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                project_id=project_id,
+                step_index=step_index
+            )
+        finally:
+            # Clean up the flag
+            if hasattr(step, '_in_loop_iteration'):
+                delattr(step, '_in_loop_iteration')
+
     async def _execute_single_step(
         self,
         step: Any,
@@ -580,6 +714,7 @@ class WorkflowOrchestrator:
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         step_index: int = 0
     ) -> Dict[str, Any]:
         """
@@ -609,9 +744,32 @@ class WorkflowOrchestrator:
             )
 
         try:
+            # Check if step has for_each (loop support)
+            # Only handle for_each at the top level, not in iterations
+            if hasattr(step, 'for_each') and step.for_each and not hasattr(step, '_in_loop_iteration'):
+                # Execute step for each item in the array using loop handler
+                return await self.step_loop.execute_step_with_loop(
+                    step,
+                    self._execute_single_step_iteration,
+                    playbook_inputs,
+                    step_outputs,
+                    playbook_input_defs,
+                    execution_id=execution_id,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    project_id=project_id,
+                    step_index=step_index
+                )
+
+            # Add workspace_id to playbook_inputs for template resolution
+            # This allows {{workspace_id}} template variable to be resolved
+            playbook_inputs_with_context = playbook_inputs.copy()
+            if workspace_id:
+                playbook_inputs_with_context['workspace_id'] = workspace_id
+
             resolved_inputs = self.template_engine.prepare_playbook_inputs(
                 step,
-                playbook_inputs,
+                playbook_inputs_with_context,
                 step_outputs
             )
 
@@ -624,7 +782,7 @@ class WorkflowOrchestrator:
                     tool_id = await slot_resolver.resolve(
                         slot=step.tool_slot,
                         workspace_id=workspace_id or "",
-                        project_id=None  # project_id can be extracted from context in future enhancement
+                        project_id=project_id  # Use project_id from execution context
                     )
                     logger.info(f"Resolved tool slot '{step.tool_slot}' to tool '{tool_id}'")
                 except SlotNotFoundError as e:
@@ -650,9 +808,10 @@ class WorkflowOrchestrator:
                     logger.error(f"Tool '{tool_id}' violates policy: {e}")
                     raise ValueError(f"Tool execution blocked by policy: {str(e)}")
 
-            # Execute tool - pass profile_id if available for LLM provider resolution
+            # Execute tool - pass profile_id only for tools that need it (e.g., LLM tools)
             tool_inputs = resolved_inputs.copy()
-            if profile_id:
+            # Only add profile_id for core_llm tools or tools that explicitly require it
+            if profile_id and (tool_id.startswith('core_llm.') or 'llm' in tool_id.lower()):
                 tool_inputs['profile_id'] = profile_id
 
             tool_result = await self.tool_executor.execute_tool(
@@ -663,16 +822,30 @@ class WorkflowOrchestrator:
             step_output = {}
             for output_name, tool_field in step.outputs.items():
                 if isinstance(tool_result, dict):
-                    # Handle dot-separated field paths (e.g., "extracted_data.topics")
-                    value = tool_result
-                    for field_part in tool_field.split('.'):
-                        if isinstance(value, dict):
-                            value = value.get(field_part)
-                        else:
-                            value = None
-                            break
+                    # Handle empty tool_field (use entire tool_result)
+                    if not tool_field or tool_field == "":
+                        value = tool_result
+                        logger.debug(f"Step {step.id} output mapping: output_name={output_name}, using entire tool_result (len={len(tool_result)})")
+                    else:
+                        # Handle dot-separated field paths (e.g., "extracted_data.topics")
+                        value = tool_result
+                        tool_result_keys = list(tool_result.keys()) if isinstance(tool_result, dict) else 'N/A'
+                        logger.debug(f"Step {step.id} output mapping: output_name={output_name}, tool_field={tool_field}, tool_result_keys={tool_result_keys}")
+                        for field_part in tool_field.split('.'):
+                            if isinstance(value, dict):
+                                value = value.get(field_part)
+                                logger.debug(f"Step {step.id} output mapping: field_part={field_part}, value_type={type(value).__name__ if value is not None else 'None'}")
+                            else:
+                                value = None
+                                break
+                            if value is None:
+                                break
+
                         if value is None:
-                            break
+                            logger.warning(f"Step {step.id} output mapping failed: output_name={output_name}, tool_field={tool_field} not found in tool_result")
+                        else:
+                            value_preview = f"{type(value).__name__}(len={len(value)})" if isinstance(value, (list, dict)) else str(value)[:100]
+                            logger.debug(f"Step {step.id} output mapping success: {output_name}={value_preview}")
                     step_output[output_name] = value
                 else:
                     step_output[output_name] = tool_result
@@ -792,6 +965,7 @@ class WorkflowOrchestrator:
         execution_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         step_index: int = 0
     ) -> Dict[str, Any]:
         """
@@ -825,6 +999,7 @@ class WorkflowOrchestrator:
                     execution_id=execution_id,
                     workspace_id=workspace_id,
                     profile_id=profile_id,
+                    project_id=project_id,
                     step_index=step_index
                 )
 
