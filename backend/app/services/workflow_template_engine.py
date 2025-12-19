@@ -85,12 +85,12 @@ class TemplateEngine:
 
             # Parse variable expression
             parts = var_expr.split('.')
-            if len(parts) < 2:
+            if len(parts) < 1:
                 logger.warning(f"Invalid template variable: {var_expr}")
                 return match.group(0)
 
             var_type = parts[0]
-            var_path = '.'.join(parts[1:])
+            var_path = '.'.join(parts[1:]) if len(parts) > 1 else ""
 
             # Handle {{input.xxx}} or {{input.xxx[0]}}
             if var_type == 'input':
@@ -131,6 +131,42 @@ class TemplateEngine:
                     else:
                         return str(value)
                 return value
+
+            elif var_type == 'item':
+                loop_context = step_outputs.get("_loop", {})
+                item = loop_context.get("item")
+                if item is None:
+                    return match.group(0)
+
+                if var_path == "":
+                    if isinstance(item, (dict, list)):
+                        import json
+                        return json.dumps(item, ensure_ascii=False)
+                    return str(item)
+                else:
+                    value = item
+                    for part in var_path.split('.'):
+                        if isinstance(value, dict):
+                            value = value.get(part)
+                        elif isinstance(value, list) and part.isdigit():
+                            value = value[int(part)] if int(part) < len(value) else None
+                        else:
+                            value = None
+                            break
+                        if value is None:
+                            break
+
+                    if value is not None:
+                        if isinstance(value, (dict, list)):
+                            import json
+                            return json.dumps(value, ensure_ascii=False)
+                        return str(value)
+                    return match.group(0)
+            elif var_type == 'index':
+                loop_context = step_outputs.get("_loop", {})
+                if var_path == "":
+                    return str(loop_context.get("index", match.group(0)))
+                return match.group(0)
 
             # Handle {{context.xxx}}
             elif var_type == 'context':
