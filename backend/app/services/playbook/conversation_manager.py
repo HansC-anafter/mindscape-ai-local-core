@@ -240,13 +240,20 @@ class PlaybookConversationManager:
                 prompt_parts.append("[/AVAILABLE_TOOLS]")
 
         system_prompt = "\n".join(prompt_parts)
-        
+
         # Log system prompt for debugging (first 2000 chars to avoid log spam)
         logger.info(f"PlaybookConversationManager: Built system prompt (length={len(system_prompt)}, "
                    f"has_slot_info={bool(slot_info_str)}, has_cached_tools={bool(self.cached_tools_str)})")
         if len(system_prompt) > 0:
-            logger.debug(f"PlaybookConversationManager: System prompt preview (first 2000 chars):\n{system_prompt[:2000]}")
-        
+            logger.info(f"PlaybookConversationManager: System prompt preview (first 2000 chars):\n{system_prompt[:2000]}")
+            # Also log AVAILABLE_TOOLS section if present
+            if "[AVAILABLE_TOOLS]" in system_prompt:
+                tools_start = system_prompt.find("[AVAILABLE_TOOLS]")
+                tools_end = system_prompt.find("[/AVAILABLE_TOOLS]", tools_start)
+                if tools_end > tools_start:
+                    tools_section = system_prompt[tools_start:tools_end+len("[/AVAILABLE_TOOLS]")]
+                    logger.info(f"PlaybookConversationManager: AVAILABLE_TOOLS section (length={len(tools_section)}):\n{tools_section[:1500]}")
+
         return system_prompt
 
     def add_user_message(self, message: str):
