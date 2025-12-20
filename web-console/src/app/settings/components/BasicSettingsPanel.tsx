@@ -15,6 +15,7 @@ import { LLMChatSettings } from './panels/LLMChatSettings';
 import { BackendStatusSection } from './panels/BackendStatusSection';
 import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSettings';
 import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
+import { UnsplashFingerprintsSettings } from './panels/UnsplashFingerprintsSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
@@ -190,6 +191,20 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         return (
           <div className="space-y-6">
             <CloudExtensionSettings />
+          </div>
+        );
+
+      case 'unsplash-fingerprints':
+        if (mode !== 'local') {
+          return (
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              {t('unsplashFingerprints') || 'Unsplash Fingerprints'} {t('availableInLocalMode') || 'is only available in local mode'}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-6">
+            <UnsplashFingerprintsSettings />
           </div>
         );
 

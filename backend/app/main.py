@@ -32,6 +32,7 @@ from .routes.core.data_sources import router as data_sources_router
 from .routes.core.workspace_resource_bindings import router as workspace_resource_bindings_router
 from .routes.core.cloud_providers import router as cloud_providers_router
 from .routes.core import deployment
+from .routes.core.unsplash_fingerprints import router as unsplash_fingerprints_router
 
 # Core primitives
 from .routes.core import (
@@ -119,6 +120,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(cloud_providers_router, tags=["cloud-providers"])
     app.include_router(cloud_sync.router, tags=["cloud-sync"])
     app.include_router(blueprint.router, tags=["blueprints"])
+    app.include_router(unsplash_fingerprints_router)
 
     # Generic resource routes (neutral interface)
     app.include_router(resources_router, tags=["resources"])
@@ -228,10 +230,23 @@ async def startup_event():
     logger.info("Loading capability packages...")
     try:
         from pathlib import Path
+        import os
+
+        # Load local capabilities first
         app_dir = Path(__file__).parent
-        capabilities_dir = app_dir / "capabilities"
-        load_capabilities(capabilities_dir)
-        logger.info("Capability packages loaded successfully")
+        local_capabilities_dir = app_dir / "capabilities"
+        load_capabilities(local_capabilities_dir)
+        logger.info("Local capability packages loaded successfully")
+
+        # Load cloud capabilities if MINDSCAPE_REMOTE_CAPABILITIES_DIR is set
+        remote_capabilities_dir = os.getenv("MINDSCAPE_REMOTE_CAPABILITIES_DIR")
+        if remote_capabilities_dir:
+            remote_path = Path(remote_capabilities_dir)
+            if remote_path.exists():
+                load_capabilities(remote_path)
+                logger.info(f"Cloud capability packages loaded from {remote_capabilities_dir}")
+            else:
+                logger.warning(f"MINDSCAPE_REMOTE_CAPABILITIES_DIR points to non-existent path: {remote_capabilities_dir}")
     except Exception as e:
         logger.warning(f"Failed to load capability packages: {e}", exc_info=True)
 
@@ -250,6 +265,9 @@ async def startup_event():
         logger.info(f"Registered {len(filesystem_tools)} filesystem tools")
     except Exception as e:
         logger.warning(f"Failed to register filesystem tools: {e}", exc_info=True)
+
+    # Unsplash tools are provided by cloud capability pack, not local-core
+    # They are loaded via capabilities/registry from cloud capabilities/unsplash/manifest.yaml
 
     # IG Post and IG + Obsidian tools are registered automatically via ToolListService
     # when needed (see tool_list_service.py _get_builtin_tools method)

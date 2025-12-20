@@ -95,6 +95,12 @@ const navigationItems: NavigationItem[] = [
         tab: 'basic',
         section: 'cloud-extension',
       },
+      {
+        id: 'unsplash-fingerprints',
+        label: 'unsplashFingerprints',
+        tab: 'basic',
+        section: 'unsplash-fingerprints',
+      },
     ],
   },
   {
@@ -290,6 +296,44 @@ const navigationItems: NavigationItem[] = [
         label: 'translationManagement',
         tab: 'localization',
         section: 'translation-management',
+      },
+    ],
+  },
+  {
+    id: 'governance',
+    label: 'governance',
+    icon: '🛡️',
+    tab: 'governance',
+    children: [
+      {
+        id: 'node-governance',
+        label: 'nodeGovernance',
+        tab: 'governance',
+        section: 'node',
+      },
+      {
+        id: 'preflight',
+        label: 'preflight',
+        tab: 'governance',
+        section: 'preflight',
+      },
+      {
+        id: 'governance-mode',
+        label: 'governanceMode',
+        tab: 'governance',
+        section: 'mode',
+      },
+      {
+        id: 'cost-governance',
+        label: 'costGovernance',
+        tab: 'governance',
+        section: 'cost',
+      },
+      {
+        id: 'policy-service',
+        label: 'policyService',
+        tab: 'governance',
+        section: 'policy',
       },
     ],
   },

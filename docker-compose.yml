@@ -35,12 +35,15 @@ services:
       # D2: Legacy Cleanup - Disable legacy fallback
       - PLAYBOOK_DISABLE_LEGACY=${PLAYBOOK_DISABLE_LEGACY:-1}
       # Cloud Extension (optional - leave empty to disable)
+      # Note: CLOUD_API_URL should be configured in docker-compose.override.yml
+      # to keep Local-Core configuration clean (architecture compliance)
       - CLOUD_API_URL=${CLOUD_API_URL:-}
       - CLOUD_LICENSE_KEY=${CLOUD_LICENSE_KEY:-}
       # Timezone
       - TZ=${TZ:-UTC}
     volumes:
       - ./backend:/app/backend:rw
+      - ./scripts:/app/scripts:rw
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
       # Mount user's custom directory for workspace storage (optional)
