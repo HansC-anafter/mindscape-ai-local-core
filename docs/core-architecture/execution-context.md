@@ -180,12 +180,81 @@ async def some_method(
     user = self.store.get_user(ctx.actor_id)
 ```
 
+## Four-Layer Model
+
+The Execution Context four-layer model provides a conceptual framework for understanding how different aspects of execution context are organized:
+
+1. **Task / Goal** (What to do) - Task boundaries, input/output specifications
+2. **Policy / Constraints** (What cannot be done) - Constraints and consistency rules
+3. **Lens / Perspective** (How to do it) - Attention allocation, trade-offs, narrative path
+4. **Assets / Memory** (What materials to use) - Data materials, workspace metadata, artifact references
+
+The `mind_lens` field in ExecutionContext contains resolved lens values (Layer 3), while `tags` can contain metadata for Policy (Layer 2) and Assets (Layer 4).
+
+**Core Principle**: Task remains unchanged, Lens can be swapped; Policy is fixed to maintain bottom line; Assets provide materials.
+
+See [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) for detailed conceptual mapping.
+
+## Integration with Mind Lens
+
+The `mind_lens` field integrates with the Mind Lens system:
+
+```python
+from app.services.lens.mind_lens_service import MindLensService
+
+service = MindLensService()
+
+# Resolve lens for execution context
+resolved = service.resolve_lens(
+    user_id="user_123",
+    workspace_id="workspace_001",
+    role_hint="writer"
+)
+
+# Use in execution context
+ctx = ExecutionContext(
+    actor_id="user_123",
+    workspace_id="workspace_001",
+    mind_lens=resolved.values if resolved else None
+)
+```
+
+The resolved lens values influence how tasks are interpreted and executed. See [Mind Lens Architecture](./mind-lens.md) for details.
+
+## Integration with Lens Composition
+
+For multi-lens scenarios, use Lens Composition:
+
+```python
+from app.services.lens.composition_service import CompositionService
+from app.services.lens.fusion_service import FusionService
+
+composition_service = CompositionService()
+fusion_service = FusionService()
+
+# Get and fuse composition
+composition = composition_service.get_composition("comp_001")
+fused = fusion_service.fuse_composition(composition, lens_instances)
+
+# Use fused context
+ctx = ExecutionContext(
+    actor_id="user_123",
+    workspace_id="workspace_001",
+    mind_lens=fused.fused_values
+)
+```
+
+See [Lens Composition Architecture](./lens-composition.md) for details.
+
 ## Related Documentation
 
+- [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) - Conceptual framework for execution context layers
+- [Mind Lens Architecture](./mind-lens.md) - Mind Lens core architecture
+- [Lens Composition Architecture](./lens-composition.md) - Multi-lens combination
 - [Port Architecture](./port-architecture.md) - How ExecutionContext fits into Port pattern
 - [Local/Cloud Boundary](./local-cloud-boundary.md) - Why ExecutionContext doesn't contain tenant/group
 
 ---
 
-**Last updated:** 2025-12-01
+**Last updated:** 2025-12-22
 

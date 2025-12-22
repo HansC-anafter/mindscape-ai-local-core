@@ -65,6 +65,18 @@ System architecture and design patterns using Port/Adapter pattern (Hexagonal Ar
 #### [Execution Context](./execution-context.md)
 Execution context abstraction and how it flows through the system.
 
+#### [Execution Context Four-Layer Model](./execution-context-four-layer-model.md)
+Conceptual framework for understanding execution context layers: Task/Policy/Lens/Assets. Maps existing fields to four-layer model without structural changes.
+
+#### [Mind Lens](./mind-lens.md)
+Mind Lens core architecture - perspective/viewpoint system for how to see, where to focus attention, and how to make trade-offs.
+
+#### [Lens Composition](./lens-composition.md)
+Lens Composition architecture - multi-lens combination recipes with fusion strategies for complex scenarios.
+
+#### [Surface & Command Bus](./surface-command-bus.md)
+Surface and Command Bus architecture for unified command dispatch and event collection across all channels, with BYOP/BYOL trace support.
+
 #### [Memory & Intent Architecture](./memory-intent-architecture.md)
 Event, intent, and memory layer design - the three-layer Mindscape architecture.
 

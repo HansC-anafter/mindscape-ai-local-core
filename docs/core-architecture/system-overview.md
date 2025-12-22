@@ -5,11 +5,13 @@ This document provides a complete system overview, showing how all architectural
 ## The Complete Flow: From User to Artifact
 
 ```text
-User / Workspace UI
+User / Workspace UI / LINE / IG / WP (Surfaces)
+    ↓
+Surface & Command Bus (unified command dispatch)
     ↓
 Conversation Orchestrator (+ IdentityPort → ExecutionContext)
     ↓
-Event Layer (MindEvent)
+Event Layer (MindEvent + SurfaceEvent)
     ↓
 Intent Governance Layer
     ↓
@@ -36,6 +38,14 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - User interacts with the workspace through the web console
 - Conversations, file uploads, and manual triggers enter the system
 - Timeline view shows execution traces and artifacts
+
+#### 1.5. Surface & Command Bus
+- **Surface**: Input/output channels (UI, LINE, IG, WordPress, etc.)
+- **Command Bus**: Unified command dispatch across all surfaces
+- **Event Stream**: Cross-channel event collection with BYOP/BYOL trace support
+- **Surface Types**: CONTROL (UI) vs DELIVERY (LINE, IG, WP)
+- **BYOP/BYOL Integration**: Automatic extraction and persistence of collaboration fields (pack_id, card_id, scope, playbook_version)
+- See [Surface & Command Bus Architecture](./surface-command-bus.md) for details
 
 #### 2. Conversation Orchestrator
 - **Entry Point**: `ConversationOrchestrator.route_message()`
@@ -65,20 +75,28 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - **Flow Association**: Each Project has a PlaybookFlow
 - **Project Memory**: Project-specific decision history and context
 
-#### 6. Playbook Runner
+#### 6. Mind Lens & Lens Composition
+- **Mind Lens**: Perspective/viewpoint system - how to see, where to focus attention, how to make trade-offs
+- **Lens Composition**: Multi-lens combination recipes for complex scenarios
+- **Fusion Strategies**: Priority, weighted, or priority-then-weighted fusion
+- **Execution Context Integration**: Lens values influence how tasks are interpreted
+- See [Mind Lens Architecture](./mind-lens.md) and [Lens Composition Architecture](./lens-composition.md) for details
+
+#### 7. Playbook Runner
 - **Playbook Execution**: Executes `playbook.md + playbook.json`
 - **AI Team Roles**: Multiple AI roles collaborate (planner, writer, analyst)
 - **Tool Calls**: Playbooks can call tools (filesystem, API, etc.)
 - **Execution Trace**: Every step is logged and visible
 - **Project Mode**: Playbooks can access project sandbox and context
+- **Lens Integration**: Playbook execution uses resolved lens values from Execution Context
 
-#### 7. Sandbox (Project File World)
+#### 8. Sandbox (Project File World)
 - **Path Structure**: `sandboxes/{workspace_id}/{project_type}/{project_id}/`
 - **Shared Space**: All playbooks in a project share the same sandbox
 - **Artifact Storage**: Generated files, drafts, and intermediate results
 - **Workspace Isolation**: Complete isolation between workspaces
 
-#### 8. Event + Memory Layer
+#### 9. Event + Memory Layer
 - **SQLite**: Core data (workspaces, projects, events, intents)
 - **pgvector**: Vector embeddings for semantic search
 - **Memory Services**:
@@ -87,7 +105,7 @@ The **AI-driven visible thinking workflow** can be expressed as:
   - Member Profile Memory (skills, preferences)
 - **Context Builder**: Assembles memory context for LLM prompts
 
-#### 9. Artifacts & Decisions
+#### 10. Artifacts & Decisions
 - **Artifact Registry**: Tracks all artifacts generated in a project
 - **Artifact Relationships**: Artifacts can depend on other artifacts
 - **Decision History**: Project memory stores key decisions and rationale
@@ -194,6 +212,10 @@ Project: "OpenSEO MVP"
 | README Concept | Architecture Component | Documentation |
 |---------------|------------------------|---------------|
 | **AI-driven visible thinking workflow** | Signal → Intent → Project/Flow → Playbooks → Sandbox → Memory | This document |
+| **Surface & Command Bus** | SurfaceDefinition + CommandBus + EventStream | [Surface & Command Bus Architecture](./surface-command-bus.md) |
+| **Mind Lens** | MindLensInstance + MindLensSchema + RuntimeMindLens | [Mind Lens Architecture](./mind-lens.md) |
+| **Lens Composition** | LensComposition + FusionService | [Lens Composition Architecture](./lens-composition.md) |
+| **Execution Context Four-Layer Model** | Task/Policy/Lens/Assets conceptual mapping | [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) |
 | **Project** | Project model + ProjectManager + ProjectDetector | [Project + Flow Architecture](./project-flow/project-flow-architecture.md) |
 | **Intents** | IntentCards + IntentClusters + Intent Steward | [Memory & Intent Architecture](./memory-intent-architecture.md) |
 | **Playbooks** | PlaybookRunner + playbook.md + playbook.json | [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) |
@@ -234,7 +256,14 @@ Project: "OpenSEO MVP"
 - Workspace isolation at all levels
 - Extensible through Port interfaces
 
-### 6. Capability-aware staged model routing
+### 6. Perspective-Driven Execution
+- Mind Lens provides perspective/viewpoint system
+- Same task can be executed with different lenses
+- Lens Composition enables multi-lens scenarios
+- Execution Context integrates lens values for task interpretation
+- See [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) for conceptual framework
+
+### 7. Capability-aware staged model routing
 - Model choice is expressed as high-level capability profiles (fast, standard, precise, tool_strict, safe_write) instead of hard-coded model names inside playbooks.
 - Core phases communicate via stable JSON intermediate representations, so you can evolve models and providers without breaking workflows or control flow logic.
 - **Cost governance**: Each capability profile enforces cost limits per 1k tokens (e.g., FAST: $0.002, STANDARD: $0.01, PRECISE: $0.03), and the system automatically selects cost-appropriate models based on task complexity, optimizing for both cost efficiency and success rate. Simple tasks use low-cost models (saving ~90% cost), while complex tasks use high-success-rate models for reliability.
