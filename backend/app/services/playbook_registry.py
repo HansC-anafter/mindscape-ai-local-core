@@ -51,7 +51,6 @@ class PlaybookRegistry:
             self.cloud_extension_manager = cloud_extension_manager
         elif cloud_client:
             # Legacy support: try to get extension manager from cloud_client
-            # This is a temporary bridge
             self.cloud_extension_manager = None
             logger.warning("Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager.")
         else:
@@ -178,28 +177,26 @@ class PlaybookRegistry:
 
     def _load_capability_playbooks(self):
         """
-        Load capability pack playbooks from mindscape-ai-cloud/capabilities/
+        Load capability pack playbooks from local capabilities directory only
 
         Each capability pack has a manifest.yaml that defines:
         - playbooks: list of playbook definitions with code, locales, and path
         - flows: list of flow definitions
+
+        Remote capabilities should be accessed via cloud_extension_manager.
         """
-        try:
-            import yaml
-        except ImportError:
-            logger.warning("PyYAML not installed, skipping capability playbook loading")
-            return
+        import yaml
 
-        current_file = Path(__file__)
-        workspace_root = current_file.parent.parent.parent.parent.parent
-        capabilities_dir = workspace_root / "mindscape-ai-cloud" / "capabilities"
+        # Load from local capabilities directory only
+        app_dir = Path(__file__).parent.parent.parent
+        local_capabilities_dir = app_dir / "capabilities"
+        if local_capabilities_dir.exists():
+            logger.debug(f"Loading local capability playbooks from {local_capabilities_dir}")
+            self._load_playbooks_from_directory(local_capabilities_dir)
 
-        if not capabilities_dir.exists():
-            logger.warning(f"Capabilities directory not found: {capabilities_dir}")
-            logger.info("Skipping capability playbook loading")
-            return
-
-        logger.info(f"Loading capability playbooks from: {capabilities_dir}")
+    def _load_playbooks_from_directory(self, capabilities_dir: Path):
+        """Load playbooks from a capabilities directory"""
+        import yaml
 
         for capability_dir in capabilities_dir.iterdir():
             if not capability_dir.is_dir():
@@ -247,6 +244,7 @@ class PlaybookRegistry:
                             playbook = PlaybookFileLoader.load_playbook_from_file(playbook_path)
                             if playbook:
                                 playbook.metadata.locale = locale
+                                playbook.metadata.capability_code = capability_code
                                 full_code = f"{capability_code}.{playbook_code}"
                                 self.capability_playbooks[capability_code][full_code] = playbook
                                 self.capability_playbooks[capability_code][playbook_code] = playbook
@@ -383,6 +381,7 @@ class PlaybookRegistry:
                         )
 
                         if playbook:
+                            playbook.metadata.capability_code = capability_code
                             # Cache with provider info if available
                             provider_id = playbook_data.get("provider_id", "unknown")
                             cache_key = f"{provider_id}:{capability_code}:{playbook_code}:{locale}"
