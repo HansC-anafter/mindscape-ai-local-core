@@ -287,7 +287,7 @@ class PlaybookMetadata(BaseModel):
     )
     allowed_tools: Optional[List[str]] = Field(
         None,
-        description="Allowed tools / connectors for this playbook (whitelist). NOTE: v1 不啟用，僅預留欄位"
+        description="Allowed tools / connectors for this playbook (whitelist). NOTE: v1 not enabled, reserved field only"
     )
 
     # Workspace sharing for user-owned playbooks
