@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path as PathLib
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
@@ -44,6 +44,11 @@ class ArtifactResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
+    execution_id: Optional[str] = None  # Add execution_id
+    playbook_code: Optional[str] = None
+    artifact_type: Optional[str] = None
+    content: Optional[Dict[str, Any]] = None
+    content_preview: Optional[str] = None
 
     class Config:
         json_encoders = {
@@ -72,8 +77,21 @@ class ListArtifactsResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def artifact_to_response(artifact: Artifact) -> ArtifactResponse:
-    """Convert Artifact model to API response format"""
+def artifact_to_response(
+    artifact: Artifact,
+    include_content: bool = False,
+    include_preview: bool = True
+) -> ArtifactResponse:
+    """Convert Artifact model to API response format
+
+    Args:
+        artifact: Artifact model instance
+        include_content: Whether to include full content in response
+        include_preview: Whether to include content preview (default: True)
+
+    Returns:
+        ArtifactResponse with optional content fields
+    """
 
     # Map ArtifactType to API type
     type_map = {
@@ -92,8 +110,12 @@ def artifact_to_response(artifact: Artifact) -> ArtifactResponse:
     api_type = type_map.get(artifact.artifact_type, "other")
 
     # Extract file_path or external_url from storage_ref or metadata
-    file_path = artifact.metadata.get("file_path") if artifact.metadata else None
-    external_url = artifact.metadata.get("external_url") if artifact.metadata else None
+    # Priority: actual_file_path (from file write) > file_path (legacy) > storage_ref
+    file_path = None
+    external_url = None
+    if artifact.metadata:
+        file_path = artifact.metadata.get("actual_file_path") or artifact.metadata.get("file_path")
+        external_url = artifact.metadata.get("external_url")
 
     # Fallback to storage_ref if not in metadata
     if not file_path and not external_url and artifact.storage_ref:
@@ -109,7 +131,17 @@ def artifact_to_response(artifact: Artifact) -> ArtifactResponse:
         # Also add navigate_to for backward compatibility
         if "navigate_to" not in response_metadata:
             response_metadata["navigate_to"] = artifact.execution_id
-    
+
+    artifact_type_value = artifact.artifact_type.value if artifact.artifact_type else None
+
+    content_preview = None
+    if include_preview and artifact.content:
+        content_preview = _generate_content_preview(artifact.content)
+
+    content = None
+    if include_content:
+        content = artifact.content
+
     return ArtifactResponse(
         id=artifact.id,
         workspace_id=artifact.workspace_id,
@@ -122,7 +154,55 @@ def artifact_to_response(artifact: Artifact) -> ArtifactResponse:
         metadata=response_metadata,
         created_at=artifact.created_at.isoformat() if artifact.created_at else datetime.utcnow().isoformat(),
         updated_at=artifact.updated_at.isoformat() if artifact.updated_at else datetime.utcnow().isoformat(),
+        execution_id=artifact.execution_id,
+        playbook_code=artifact.playbook_code,
+        artifact_type=artifact_type_value,
+        content=content,
+        content_preview=content_preview
     )
+
+
+def _generate_content_preview(content: Dict[str, Any], max_length: int = 200) -> str:
+    """
+    Generate content preview text (first 200 characters)
+
+    Args:
+        content: Artifact content dictionary
+        max_length: Maximum preview length
+
+    Returns:
+        Preview text string
+    """
+    if not content:
+        return ""
+
+    # Try to extract main text
+    text = ""
+
+    # Case 1: IG posts format
+    if "ig_posts" in content and isinstance(content["ig_posts"], list):
+        posts = content["ig_posts"]
+        if posts:
+            text = posts[0].get("text", "")
+
+    # Case 2: Direct text field
+    elif "text" in content:
+        text = content["text"]
+
+    # Case 3: Direct content field
+    elif "content" in content:
+        text = str(content["content"])
+
+    # Case 4: Other formats, serialize JSON
+    else:
+        import json
+        text = json.dumps(content, ensure_ascii=False)
+
+    # Truncate and add ellipsis
+    if len(text) > max_length:
+        text = text[:max_length] + "..."
+
+    return text
 
 
 def create_artifact_from_request(
@@ -180,14 +260,27 @@ def create_artifact_from_request(
 @router.get("/workspaces/{workspace_id}/artifacts")
 async def list_artifacts(
     workspace_id: str = Path(..., description="Workspace ID"),
+    # Existing parameters (backward compatible)
     type: Optional[str] = Query(None, description="Filter by type (illustration, document, other)"),
     intent_id: Optional[str] = Query(None, description="Filter by intent ID"),
-    kind: Optional[str] = Query(None, description="Filter by kind (e.g., 'brand_mi', 'brand_persona', 'brand_storyline')")
+    kind: Optional[str] = Query(None, description="Filter by kind (e.g., 'brand_mi', 'brand_persona', 'brand_storyline')"),
+    playbook_code: Optional[str] = Query(
+        None,
+        description="Filter by playbook (e.g., 'ig_post_generation')"
+    ),
+    include_content: bool = Query(
+        False,
+        description="Include full content in response (default: false for performance)"
+    ),
+    include_preview: bool = Query(
+        True,
+        description="Include content preview (default: true)"
+    ),
 ):
     """
     List all artifacts for a workspace
 
-    Supports filtering by type, intent_id, and kind (from metadata)
+    Supports filtering by type, intent_id, kind, and playbook_code.
     """
     try:
         # Get artifacts from store
@@ -196,6 +289,7 @@ async def list_artifacts(
         # Apply filters
         filtered_artifacts = artifacts
 
+        # Existing filters (backward compatible)
         if type:
             # Map API type to ArtifactType for filtering
             type_filter_map = {
@@ -221,8 +315,21 @@ async def list_artifacts(
                 if a.metadata and a.metadata.get("kind") == kind
             ]
 
+        if playbook_code:
+            filtered_artifacts = [
+                a for a in filtered_artifacts
+                if a.playbook_code == playbook_code
+            ]
+
         # Convert to response format
-        artifact_responses = [artifact_to_response(artifact) for artifact in filtered_artifacts]
+        artifact_responses = [
+            artifact_to_response(
+                artifact,
+                include_content=include_content,
+                include_preview=include_preview
+            )
+            for artifact in filtered_artifacts
+        ]
 
         return ListArtifactsResponse(artifacts=artifact_responses)
 
@@ -360,7 +467,24 @@ async def get_artifact_file(
         }
         media_type = media_type_map.get(file_ext, "application/octet-stream")
 
-        # Return file
+        # For text-based files (JSON, text, markdown), return content directly
+        # This allows frontend to display inline instead of forcing download
+        text_based_types = {".json", ".txt", ".md", ".html", ".css", ".js", ".tsx", ".ts"}
+        if file_ext in text_based_types:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                return Response(
+                    content=content,
+                    media_type=media_type,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{PathLib(file_path).name}"'
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to read file as text, falling back to FileResponse: {e}")
+
+        # For binary files (images, videos, documents), return as file download
         return FileResponse(
             path=file_path,
             media_type=media_type,

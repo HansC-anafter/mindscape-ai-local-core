@@ -200,6 +200,23 @@ Once the stack is running:
 
 ### 2025-12 system evolution note
 
+## 📦 Capability Packs
+
+Mindscape AI supports **capability packs** - self-contained bundles that extend functionality:
+
+- **Playbooks**: Workflow definitions
+- **Tools**: Executable functions
+- **Services**: Background services
+- **Bootstrap hooks**: Automatic initialization
+
+See [Capability Pack Development Guide](./docs/capability-pack-development-guide.md) for:
+- Pack structure and manifest format
+- Bootstrap hooks and initialization
+- Environment variable configuration
+- Development workflow
+
+---
+
 As of December 2025, the local core has been refactored to support **capability-aware, staged model routing** with stable intermediate representations:
 
 - Core phases (intent analysis, tool-candidate selection, planning, safe writes / tool-calls) now produce **typed JSON structures** instead of ad-hoc text.

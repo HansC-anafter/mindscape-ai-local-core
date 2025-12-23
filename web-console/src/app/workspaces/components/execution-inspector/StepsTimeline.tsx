@@ -31,7 +31,7 @@ export default function StepsTimeline({
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-3">
+    <div className="h-full overflow-y-auto bg-surface-secondary dark:bg-gray-800 border-r border-default dark:border-gray-700 p-3">
       <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2">
         {t('stepsTimeline')}
       </h3>
@@ -41,7 +41,7 @@ export default function StepsTimeline({
           const isSelected = stepInfo.step_index === currentStepIndex;
           const statusColor = step
             ? getStepStatusColor(step)
-            : 'text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+            : 'text-gray-400 dark:text-gray-500 bg-surface-accent dark:bg-gray-800 border-default dark:border-gray-700';
           const statusIcon = step
             ? getStepStatusIcon(step, executionStatus)
             : '○';
@@ -55,8 +55,8 @@ export default function StepsTimeline({
                 !step
                   ? 'opacity-50 cursor-not-allowed'
                   : isSelected
-                  ? 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 shadow-sm ring-1 ring-blue-200 dark:ring-blue-800'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  ? 'border-accent dark:border-blue-600 bg-accent-10 dark:bg-blue-900/20 shadow-sm ring-1 ring-accent/30 dark:ring-blue-800'
+                  : 'border-default dark:border-gray-700 hover:border-default dark:hover:border-gray-600 hover:bg-tertiary dark:hover:bg-gray-700'
               }`}
             >
               <div className="flex items-start gap-1.5">

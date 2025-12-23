@@ -505,6 +505,40 @@ def register_unsplash_tools():
     return _register()
 
 
+def register_content_vault_tools(vault_path: Optional[str] = None):
+    """
+    Register all Content Vault tools (builtin, requires vault path)
+
+    Args:
+        vault_path: Path to content vault (default: ~/content-vault)
+
+    Returns:
+        List of registered tools
+    """
+    import os
+    from pathlib import Path
+    from backend.app.services.tools.content_vault.vault_tools import (
+        ContentVaultLoadContextTool,
+        ContentVaultBuildPromptTool,
+        ContentVaultWritePostsTool
+    )
+
+    if vault_path is None:
+        vault_path = os.getenv("CONTENT_VAULT_PATH") or str(Path.home() / "content-vault")
+
+    tools = [
+        ContentVaultLoadContextTool(vault_path),
+        ContentVaultBuildPromptTool(),
+        ContentVaultWritePostsTool(vault_path)
+    ]
+
+    for tool in tools:
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
 
 
 

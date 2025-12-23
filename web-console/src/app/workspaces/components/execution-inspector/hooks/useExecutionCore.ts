@@ -91,11 +91,29 @@ export function useExecutionCore(
           );
           setCurrentStepIndex(validStepIndex);
 
-          const execProjectId = data.project_id || data.execution_context?.project_id;
-          if (execProjectId) {
-            setProjectId(execProjectId);
+          // Extract sandbox_id directly from execution response (preferred)
+          // Also extract project_id for fallback query
+          const execProjectId = data.project_id
+            || data.execution_context?.project_id
+            || data.task?.project_id;
+
+          if (data.sandbox_id) {
+            console.log('[useExecutionCore] Found sandbox_id in execution response:', data.sandbox_id);
+            setSandboxId(data.sandbox_id);
+            // Still set projectId for reference
+            if (execProjectId) {
+              setProjectId(execProjectId);
+            }
           } else {
-            setProjectId(null);
+            // Fallback: Extract project_id and query sandbox
+            console.log('[useExecutionCore] No sandbox_id in execution response, project_id:', execProjectId);
+            if (execProjectId) {
+              setProjectId(execProjectId);
+              // sandboxId will be set by useEffect when projectId changes
+            } else {
+              setProjectId(null);
+              setSandboxId(null);
+            }
           }
         } else {
           // Check again after async operation
@@ -247,10 +265,13 @@ export function useExecutionCore(
     }
     const loadSandbox = async () => {
       try {
+        console.log('[useExecutionCore] Loading sandbox for project:', projectId);
         const sandbox = await getSandboxByProject(workspaceId, projectId);
         if (sandbox?.sandbox_id) {
+          console.log('[useExecutionCore] Found sandbox_id:', sandbox.sandbox_id);
           setSandboxId(sandbox.sandbox_id);
         } else {
+          console.log('[useExecutionCore] No sandbox found for project:', projectId);
           setSandboxId(null);
         }
       } catch (err) {

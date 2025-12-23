@@ -18,6 +18,7 @@ import ArtifactsPane from './ArtifactsPane';
 import ExecutionChatWrapper from './ExecutionChatWrapper';
 import RestartConfirmDialog from './RestartConfirmDialog';
 import SandboxModalWrapper from './SandboxModalWrapper';
+import GovernanceTab from './GovernanceTab';
 import type { ExecutionInspectorProps } from './types/execution';
 
 export default function ExecutionInspector({
@@ -31,6 +32,7 @@ export default function ExecutionInspector({
   const workspaceData = useWorkspaceDataOptional();
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [rightPanelView, setRightPanelView] = useState<'artifacts' | 'chat' | 'governance'>('artifacts');
 
   // Use data hooks
   const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData);
@@ -185,7 +187,7 @@ export default function ExecutionInspector({
   const loading = executionCore.loading || executionSteps.loading || playbookMetadata.loading;
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
+    <div className="h-full flex flex-col bg-surface dark:bg-gray-950">
       {/* Execution Header with Sandbox Button */}
       {executionCore.execution && (
         <HeaderBar
@@ -240,7 +242,7 @@ export default function ExecutionInspector({
                 />
 
                 {/* Steps Timeline & Current Step Details - Main Work Area */}
-                <div className="grid grid-cols-[280px,minmax(0,1fr)] gap-0 overflow-hidden bg-gray-50 dark:bg-gray-950 h-full">
+                <div className="grid grid-cols-[280px,minmax(0,1fr)] gap-0 overflow-hidden bg-surface dark:bg-gray-950 h-full">
                   {workflowData.workflowData && workflowData.workflowData.workflow_result && workflowData.workflowData.handoff_plan ? (
                     <WorkflowView
                       workflowData={workflowData.workflowData}
@@ -278,28 +280,75 @@ export default function ExecutionInspector({
           )}
         </div>
 
-        {/* Right: Artifacts & Playbook Inspector / Conversation */}
-        <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
-          {/* Artifacts List */}
-          <ArtifactsPane
-            artifacts={artifacts}
-            latestArtifact={latestArtifact}
-            sandboxId={executionCore.sandboxId || undefined}
-            apiUrl={apiUrl}
-            workspaceId={workspaceId}
-            onView={handleArtifactView}
-            onViewSandbox={executionCore.sandboxId ? () => setShowSandboxModal(true) : undefined}
-          />
+        {/* Right: Artifacts & Playbook Inspector / Conversation / Governance */}
+        <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
+          {/* Tab Navigation */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setRightPanelView('artifacts')}
+              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                rightPanelView === 'artifacts'
+                  ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+              }`}
+            >
+              {t('artifacts') || 'Artifacts'}
+            </button>
+            <button
+              onClick={() => setRightPanelView('governance')}
+              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                rightPanelView === 'governance'
+                  ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+              }`}
+            >
+              {t('governance') || 'Governance'}
+            </button>
+            <button
+              onClick={() => setRightPanelView('chat')}
+              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                rightPanelView === 'chat'
+                  ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+              }`}
+            >
+              {t('chat') || 'Chat'}
+            </button>
+          </div>
 
-          {/* Playbook Inspector / Conversation */}
-          <ExecutionChatWrapper
-            executionId={executionId}
-            workspaceId={workspaceId}
-            apiUrl={apiUrl}
-            playbookMetadata={playbookMetadata.playbookMetadata}
-            executionStatus={executionCore.execution?.status}
-            runNumber={executionCore.execution?.execution_id ? parseInt(executionCore.execution.execution_id.slice(-4), 16) % 1000 : 1}
-          />
+          {/* Tab Content */}
+          <div className="flex-1 overflow-hidden">
+            {rightPanelView === 'artifacts' && (
+              <ArtifactsPane
+                artifacts={artifacts}
+                latestArtifact={latestArtifact}
+                sandboxId={executionCore.sandboxId || undefined}
+                apiUrl={apiUrl}
+                workspaceId={workspaceId}
+                onView={handleArtifactView}
+                onViewSandbox={executionCore.sandboxId ? () => setShowSandboxModal(true) : undefined}
+              />
+            )}
+            {rightPanelView === 'governance' && (
+              <GovernanceTab
+                executionId={executionId}
+                workspaceId={workspaceId}
+                apiUrl={apiUrl}
+              />
+            )}
+            {rightPanelView === 'chat' && (
+              <div className="h-full">
+                <ExecutionChatWrapper
+                  executionId={executionId}
+                  workspaceId={workspaceId}
+                  apiUrl={apiUrl}
+                  playbookMetadata={playbookMetadata.playbookMetadata}
+                  executionStatus={executionCore.execution?.status}
+                  runNumber={executionCore.execution?.execution_id ? parseInt(executionCore.execution.execution_id.slice(-4), 16) % 1000 : 1}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -174,12 +174,12 @@ export function getStepStatusColor(step: ExecutionStep): string {
   if (step.status === 'completed')
     return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700';
   if (step.status === 'running')
-    return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700';
+    return 'text-accent dark:text-blue-400 bg-accent-10 dark:bg-blue-900/30 border-accent/30 dark:border-blue-700';
   if (step.status === 'waiting_confirmation')
     return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700';
   if (step.status === 'failed')
     return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700';
-  return 'text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+  return 'text-gray-400 dark:text-gray-500 bg-surface-accent dark:bg-gray-800 border-default dark:border-gray-700';
 }
 
 /**

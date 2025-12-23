@@ -40,7 +40,7 @@ export default function HeaderBar({
   t,
 }: HeaderBarProps) {
   return (
-    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+    <div className="bg-surface-secondary dark:bg-gray-900 border-b border-default dark:border-gray-800">
       <div className="flex items-center justify-between px-6 py-2">
         <div className="flex-1">
           <ExecutionHeader

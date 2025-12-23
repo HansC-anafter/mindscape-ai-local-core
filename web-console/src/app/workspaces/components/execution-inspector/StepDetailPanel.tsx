@@ -42,7 +42,7 @@ export default function StepDetailPanel({
 
   if (!currentStepInfo) {
     return (
-      <div className="h-full overflow-y-auto bg-white dark:bg-gray-800 p-3 min-w-0">
+      <div className="h-full overflow-y-auto bg-surface-secondary dark:bg-gray-800 p-3 min-w-0">
         <div className="text-center py-8 text-gray-500 dark:text-gray-300">
           {t('selectStepToViewDetails') || '請選擇步驟以查看詳情'}
         </div>
@@ -51,7 +51,7 @@ export default function StepDetailPanel({
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-white dark:bg-gray-800 p-3 min-w-0">
+    <div className="h-full overflow-y-auto bg-surface-secondary dark:bg-gray-800 p-3 min-w-0">
       <div className="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2 mb-1.5">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -92,7 +92,7 @@ export default function StepDetailPanel({
             {stepEvents.map((event) => (
               <div
                 key={event.id}
-                className="flex gap-2 p-1.5 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
+                className="flex gap-2 p-1.5 bg-surface-accent dark:bg-gray-700 rounded border border-default dark:border-gray-600"
               >
                 <div className="flex-shrink-0 text-[10px] text-gray-500 dark:text-gray-300 w-14">
                   {event.timestamp.toLocaleTimeString(undefined, {
@@ -139,7 +139,7 @@ export default function StepDetailPanel({
             {currentStepToolCalls.map((toolCall) => (
               <div
                 key={toolCall.id}
-                className="p-3 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
+                className="p-3 bg-surface-accent dark:bg-gray-700 rounded border border-default dark:border-gray-600"
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -151,7 +151,7 @@ export default function StepDetailPanel({
                         ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                         : toolCall.status === 'failed'
                         ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        : 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                     }`}
                   >
                     {toolCall.status}
@@ -199,7 +199,7 @@ export default function StepDetailPanel({
           {t('artifacts' as any) || '產出'}
         </h4>
         {artifacts.length === 0 ? (
-          <div className="p-4 rounded border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-center text-xs text-gray-500 dark:text-gray-400">
+          <div className="p-4 rounded border border-dashed border-default dark:border-gray-700 bg-surface-accent dark:bg-gray-800 text-center text-xs text-secondary dark:text-gray-400">
             <div className="text-lg mb-1">🗂️</div>
             <div>{t('noArtifacts' as any) || '此步驟尚未產出檔案'}</div>
           </div>
@@ -209,13 +209,13 @@ export default function StepDetailPanel({
               <button
                 key={artifact.id}
                 onClick={() => onViewArtifact?.(artifact)}
-                className="w-full text-left p-3 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="w-full text-left p-3 rounded border border-default dark:border-gray-700 bg-surface-accent dark:bg-gray-800 hover:bg-tertiary dark:hover:bg-gray-700 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                     {artifact.name || artifact.id}
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300">
                     {artifact.type || 'file'}
                   </span>
                 </div>

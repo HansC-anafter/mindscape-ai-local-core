@@ -21,6 +21,9 @@ from .routes.core import (
     tools,
     sandbox,
     blueprint,
+    lens,
+    composition,
+    surface,
 )
 from .routes.core import cloud_sync
 from .routes.core.intents import router as intents_router
@@ -41,6 +44,7 @@ from .routes.core import (
     capability_packs,
     capability_suites,
 )
+# capability_installation imported lazily to avoid startup issues
 
 # Feature routes loaded via pack registry
 from .core.pack_registry import load_and_register_packs
@@ -100,6 +104,9 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(sandbox.router, tags=["sandboxes"])
     app.include_router(deployment.router, tags=["deployment"])
     app.include_router(data_sources_router, tags=["data-sources"])
+    app.include_router(lens.router, tags=["lenses"])
+    app.include_router(composition.router, tags=["compositions"])
+    app.include_router(surface.router, tags=["surface"])
 
     try:
         from backend.app.capabilities.api_loader import load_capability_apis
@@ -140,6 +147,12 @@ def register_core_primitives(app: FastAPI) -> None:
     app.include_router(vector_search.router, tags=["vector-search"])
     app.include_router(capability_packs.router, tags=["capability-packs"])
     app.include_router(capability_suites.router, tags=["capability-suites"])
+    # Lazy import capability_installation to avoid startup issues
+    try:
+        from .routes.core import capability_installation
+        app.include_router(capability_installation.router, tags=["capability-installation"])
+    except Exception as e:
+        logger.warning(f"Failed to load capability_installation router: {e}")
 
 register_core_routes(app)
 register_core_primitives(app)
@@ -232,21 +245,14 @@ async def startup_event():
         from pathlib import Path
         import os
 
-        # Load local capabilities first
+        # Load local capabilities only
+        # Note: Cloud capabilities should be accessed via API or installed to local-core
+        # through proper installer/configuration process. Direct file system access
+        # to cloud capabilities is prohibited to maintain architecture boundaries.
         app_dir = Path(__file__).parent
         local_capabilities_dir = app_dir / "capabilities"
         load_capabilities(local_capabilities_dir)
         logger.info("Local capability packages loaded successfully")
-
-        # Load cloud capabilities if MINDSCAPE_REMOTE_CAPABILITIES_DIR is set
-        remote_capabilities_dir = os.getenv("MINDSCAPE_REMOTE_CAPABILITIES_DIR")
-        if remote_capabilities_dir:
-            remote_path = Path(remote_capabilities_dir)
-            if remote_path.exists():
-                load_capabilities(remote_path)
-                logger.info(f"Cloud capability packages loaded from {remote_capabilities_dir}")
-            else:
-                logger.warning(f"MINDSCAPE_REMOTE_CAPABILITIES_DIR points to non-existent path: {remote_capabilities_dir}")
     except Exception as e:
         logger.warning(f"Failed to load capability packages: {e}", exc_info=True)
 
@@ -265,6 +271,16 @@ async def startup_event():
         logger.info(f"Registered {len(filesystem_tools)} filesystem tools")
     except Exception as e:
         logger.warning(f"Failed to register filesystem tools: {e}", exc_info=True)
+
+    # Register Content Vault tools
+    try:
+        from backend.app.services.tools.registry import register_content_vault_tools
+        import os
+        vault_path = os.getenv("CONTENT_VAULT_PATH")
+        content_vault_tools = register_content_vault_tools(vault_path)
+        logger.info(f"Registered {len(content_vault_tools)} Content Vault tools")
+    except Exception as e:
+        logger.warning(f"Failed to register Content Vault tools: {e}", exc_info=True)
 
     # Unsplash tools are provided by cloud capability pack, not local-core
     # They are loaded via capabilities/registry from cloud capabilities/unsplash/manifest.yaml
@@ -291,8 +307,34 @@ async def startup_event():
         logger.info(f"Habit proposal worker started (interval: {interval_hours} hours)")
     except ImportError:
         logger.debug("Habit learning capability not available, skipping habit proposal worker")
+
+    # Initialize Content Vault if needed (for IG-related capabilities)
+    try:
+        from pathlib import Path
+        from backend.scripts.init_content_vault import initialize_content_vault
+
+        vault_path = os.getenv("CONTENT_VAULT_PATH")
+        if not vault_path:
+            # Use default path (~/content-vault)
+            import os
+            vault_path = Path.home() / "content-vault"
+        else:
+            vault_path = Path(vault_path).expanduser().resolve()
+
+        # Check if vault exists, if not, initialize it
+        if not vault_path.exists() or not (vault_path / ".vault-config.yaml").exists():
+            logger.info("Content Vault not found, initializing...")
+            success = initialize_content_vault(vault_path, force=False)
+            if success:
+                logger.info(f"Content Vault initialized at {vault_path}")
+            else:
+                logger.warning("Content Vault initialization failed, but continuing startup")
+        else:
+            logger.debug(f"Content Vault already exists at {vault_path}")
+    except ImportError:
+        logger.debug("Content Vault init script not available, skipping initialization")
     except Exception as e:
-        logger.warning(f"Failed to start habit proposal worker: {e}")
+        logger.warning(f"Failed to initialize Content Vault: {e}", exc_info=True)
 
 
 @app.get("/")

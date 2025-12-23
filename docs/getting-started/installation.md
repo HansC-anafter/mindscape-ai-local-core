@@ -48,6 +48,17 @@ You need an API key from at least one LLM provider:
 
 - **OpenAI API key** (recommended) - Supports GPT-4, GPT-3.5-turbo, etc.
 - **Anthropic API key** (alternative) - Supports Claude 3 models
+
+### Optional Environment Variables
+
+Some capability packs require additional environment variables:
+
+- **`CONTENT_VAULT_PATH`**: Path to Content Vault directory (default: `~/content-vault`)
+  - Used by content management packs (e.g., IG post generation)
+  - Automatically initialized on first startup if not exists
+  - Can be manually initialized: `python backend/scripts/init_content_vault.py`
+
+See [Capability Pack Development Guide](../capability-pack-development-guide.md) for details.
 - **Google Vertex AI** (alternative) - Supports Gemini models
 
 > **Note**: See [LLM Provider Configuration Guide](../guides/llm-providers.md) for detailed setup instructions.
