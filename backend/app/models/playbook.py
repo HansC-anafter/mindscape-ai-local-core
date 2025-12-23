@@ -190,6 +190,12 @@ class PlaybookMetadata(BaseModel):
                     "Default behavior with language_strategy='model_native'."
     )
 
+    capability_code: Optional[str] = Field(
+        default=None,
+        description="Capability pack code this playbook belongs to (e.g., 'ig', 'web_generation'). "
+                    "Set when playbook is loaded from a capability pack manifest."
+    )
+
     # AI Role association (for external export)
     entry_agent_type: Optional[str] = Field(
         default=None,
@@ -536,6 +542,22 @@ class PlaybookStep(BaseModel):
     inputs: Dict[str, Any] = Field(..., description="Tool input parameters (supports template variables)")
     outputs: Dict[str, str] = Field(..., description="Output mapping (tool return field -> step output name)")
     depends_on: List[str] = Field(default_factory=list, description="Dependencies: list of step IDs that must complete first")
+
+    # Loop/iteration support
+    for_each: Optional[str] = Field(
+        None,
+        description="Path to array to iterate over (e.g., 'step.search_photos.photos'). "
+                    "If specified, the step will be executed once for each item in the array. "
+                    "The current item is available as '{{item}}' in inputs, and the index as '{{index}}'."
+    )
+
+    # Loop/iteration support
+    for_each: Optional[str] = Field(
+        None,
+        description="Path to array to iterate over (e.g., 'step.search_photos.photos'). "
+                    "If specified, the step will be executed once for each item in the array. "
+                    "The current item is available as '{{item}}' in inputs, and the index as '{{index}}'."
+    )
 
     @model_validator(mode='before')
     @classmethod

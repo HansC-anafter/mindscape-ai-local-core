@@ -476,6 +476,39 @@ def register_filesystem_tools():
     return tools
 
 
+def register_ig_post_tools():
+    """
+    Register all IG Post tools (builtin, no connection required)
+
+    Returns:
+        List of registered tools
+    """
+    from backend.app.services.tools.ig_post.ig_post_tools import create_ig_post_tools
+
+    tools = create_ig_post_tools()
+
+    for tool in tools:
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
+def register_unsplash_tools():
+    """
+    Register all Unsplash tools (builtin, proxy to Cloud API)
+
+    Returns:
+        List of registered tools
+    """
+    from backend.app.services.tools.unsplash import register_unsplash_tools as _register
+    return _register()
+
+
+
+
+
+
 def get_tool_metadata(tool_id: str) -> Optional[Dict]:
     """
     Get tool metadata

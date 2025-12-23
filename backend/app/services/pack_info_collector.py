@@ -151,6 +151,31 @@ class PackInfoCollector:
                 "从文件或消息中提取意图",
                 "识别主题和关键词",
                 "分析内容结构"
+            ],
+            "ig": [
+                # Note: IG capability has been migrated to cloud (capabilities/ig/)
+                # Complete workflow (for new post creation)
+                "Create complete IG post (use 'ig_complete_workflow' playbook - for 'create IG post' / '創建 IG 貼文' requests)",
+                # Individual playbooks (for specific tasks on existing posts)
+                "Generate IG post hashtags only (use 'ig_hashtag_manager' playbook - for 'just generate hashtags' / '只生成 hashtag' requests)",
+                "Validate IG post content only (use 'ig_content_checker' playbook - for 'validate content' / '驗證內容' requests)",
+                "Generate IG post templates only (use 'ig_template_engine' playbook - for 'generate template' / '生成模板' requests)",
+                "Validate IG post assets only (use 'ig_asset_manager' playbook - for 'validate assets' / '驗證素材' requests)",
+                "Generate IG post export pack only (use 'ig_export_pack_generator' playbook - for 'generate export pack' / '生成發文包' requests)",
+                # Other use cases
+                "Review and update IG posts",
+                "Batch process multiple IG posts"
+            ],
+            "web_generation": [
+                # Complete workflow (for new page creation)
+                "Generate complete web page (use 'multi_page_assembly' or 'page_assembly' playbook - for 'create web page' / '生成網頁' requests)",
+                # Individual playbooks (for specific tasks)
+                "Generate page outline only (use 'page_outline' playbook - for 'just create outline' / '只生成頁面結構' requests)",
+                "Generate page sections only (use 'page_sections' playbook - for 'generate sections only' / '只生成區塊' requests)",
+                "Assemble complete page (use 'page_assembly' playbook - for 'assemble page' / '組裝頁面' requests)",
+                "Generate site specification (use 'site_spec_generation' playbook)",
+                "Generate style system (use 'style_system_gen' playbook)",
+                "Generate component library (use 'component_library_gen' playbook)"
             ]
         }
         return use_cases_map.get(pack_id, [])

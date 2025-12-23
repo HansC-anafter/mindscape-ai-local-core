@@ -681,6 +681,47 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
   3. Return MULTIPLE tasks (one for each relevant pack), not just one
   4. DO NOT return a single task when multiple packs are relevant
 
+**CRITICAL: For orchestration workflows, prefer complete workflow playbooks:**
+
+**For IG post creation requests:**
+- If user says "create IG post" / "創建 IG 貼文" / "幫我創建一個 IG 貼文" / "generate IG post" / "new IG post"
+- **RECOMMENDED**: Use 'ig' capability (cloud) with playbook 'ig_complete_workflow' (action='create_post_workflow')
+- This executes the complete workflow: validation → content check → hashtag → asset validation → export pack generation
+- **DO NOT** use individual playbooks like 'ig_template_engine' or 'ig_hashtag_manager' for complete post creation requests
+
+**For specific, focused IG post tasks (on existing posts):**
+- If user says "just generate hashtags" / "只生成 hashtag" / "幫我加 hashtag" / "generate hashtags for this post"
+  → Use 'ig' capability (cloud) with playbook 'ig_hashtag_manager'
+- If user says "validate content" / "驗證內容" / "檢查內容" / "check content"
+  → Use 'ig' capability (cloud) with playbook 'ig_content_checker'
+- If user says "generate template" / "生成模板" / "create template"
+  → Use 'ig' capability (cloud) with playbook 'ig_template_engine'
+- If user says "validate assets" / "驗證素材" / "check assets"
+  → Use 'ig' capability (cloud) with playbook 'ig_asset_manager'
+- If user says "generate export pack" / "生成發文包" / "create export pack"
+  → Use 'ig' capability (cloud) with playbook 'ig_export_pack_generator'
+- **Key indicators for individual playbook usage**:
+  - User uses words like "just", "only", "只", "僅", "幫我加", "幫我檢查"
+  - User specifies a single, specific task
+  - User is working on an existing post (mentions "this post", "這篇貼文", or provides post_path)
+  - User explicitly requests only one operation
+
+**For web page generation requests:**
+- If user says "create web page" / "生成網頁" / "幫我創建一個網頁" / "generate web page" / "new web page"
+- **RECOMMENDED**: Use 'web_generation' pack with playbook 'multi_page_assembly' or 'page_assembly' (for complete workflow)
+- This executes the complete workflow: page_outline → page_sections → page_assembly
+- **DO NOT** use individual playbooks like 'page_outline' alone for complete web page creation requests
+
+**For specific, focused web page tasks:**
+- If user says "just create page outline" / "只生成頁面結構" / "generate outline only"
+  → Use 'web_generation' pack with playbook 'page_outline'
+- If user says "generate page sections" / "生成頁面區塊" / "create sections only"
+  → Use 'web_generation' pack with playbook 'page_sections'
+- **Key indicators for individual playbook usage**:
+  - User uses words like "just", "only", "只", "僅"
+  - User specifies a single, specific task
+  - User is working on an existing project/page
+
 The user message might be:
 1. A direct action request (e.g., "Help me design a course", "Export file for me")
 2. A description of multiple AI teams/capabilities (e.g., "I have 4 teams: course design, storyboard, project management...")
@@ -748,7 +789,8 @@ Important principles:
    Return tasks for ALL of them if they are relevant to the request, not just one.
 5. **Pack matching**: Match capabilities to packs based on what the pack DOES, not just keywords. Read each pack's description carefully.
 6. **Reason clarity**: Each task's reason should explain how the message content relates to the pack's purpose
-7. **ALWAYS return tasks array**: The response MUST be in the format {{"tasks": [...]}}, never return a single task object. The tasks array can contain 1 or more tasks, but must always be an array."""
+7. **ALWAYS return tasks array**: The response MUST be in the format {{"tasks": [...]}}, never return a single task object. The tasks array can contain 1 or more tasks, but must always be an array.
+8. **Orchestration preference**: For complete creation requests (IG post, web page), prefer complete workflow playbooks over individual playbooks. Only use individual playbooks for specific, focused tasks."""
 
             context_with_history = f"""{workspace_context}{cloud_rag_context}
 
@@ -1018,7 +1060,8 @@ Message analysis hints:
         project_id: Optional[str] = None,
         project_assignment_decision: Optional[Dict[str, Any]] = None,
         effective_playbooks: Optional[List[Dict[str, Any]]] = None,
-        available_playbooks: Optional[List[Dict[str, Any]]] = None  # Keep for backward compatibility
+        available_playbooks: Optional[List[Dict[str, Any]]] = None,  # Keep for backward compatibility
+        routing_decision: Optional[Any] = None  # IntentRoutingDecision
     ) -> ExecutionPlan:
         """
         Generate execution plan for message
@@ -1095,10 +1138,13 @@ Message analysis hints:
                             )
 
                         if playbooks_to_use is not None:
-                            if not hasattr(execution_plan, 'metadata') or execution_plan.metadata is None:
-                                execution_plan.metadata = {}
-                            execution_plan.metadata["effective_playbooks"] = playbooks_to_use
-                            execution_plan.metadata["effective_playbooks_count"] = len(playbooks_to_use)
+                            # Store effective playbooks in a way that to_event_payload can access
+                            # ExecutionPlan.to_event_payload() uses getattr(self, "metadata", None)
+                            # So we store it as a private attribute that can be accessed via getattr
+                            if not hasattr(execution_plan, '_metadata'):
+                                execution_plan._metadata = {}
+                            execution_plan._metadata["effective_playbooks"] = playbooks_to_use
+                            execution_plan._metadata["effective_playbooks_count"] = len(playbooks_to_use)
 
                         return execution_plan
                 else:
@@ -1220,9 +1266,79 @@ Message analysis hints:
             )
 
         if playbooks_to_use is not None:
-            if not hasattr(execution_plan, 'metadata') or execution_plan.metadata is None:
-                execution_plan.metadata = {}
-            execution_plan.metadata["effective_playbooks"] = playbooks_to_use
-            execution_plan.metadata["effective_playbooks_count"] = len(playbooks_to_use)
+            # Store effective playbooks in a way that to_event_payload can access
+            # ExecutionPlan.to_event_payload() uses getattr(self, "metadata", None)
+            # So we store it as a private attribute that can be accessed via getattr
+            if not hasattr(execution_plan, '_metadata'):
+                execution_plan._metadata = {}
+            execution_plan._metadata["effective_playbooks"] = playbooks_to_use
+            execution_plan._metadata["effective_playbooks_count"] = len(playbooks_to_use)
 
         return execution_plan
+
+    def _get_pack_id_from_playbook_code(self, playbook_code: str) -> Optional[str]:
+        """
+        Get pack_id from playbook_code
+
+        Strategy:
+        1. Check if playbook_code contains pack prefix (e.g., "ig.ig_complete_workflow")
+        2. If not, scan all capability packs' manifest.yaml to find which pack contains this playbook
+        3. Fallback: check playbook metadata for capability_tags
+
+        Args:
+            playbook_code: Playbook code (e.g., "ig_complete_workflow")
+
+        Returns:
+            Pack ID (capability_code) if found, None otherwise
+        """
+        from backend.app.capabilities.registry import get_registry
+
+        registry = get_registry()
+
+        # Strategy 1: If playbook_code contains pack prefix (e.g., "ig.ig_complete_workflow")
+        if "." in playbook_code:
+            pack_id, _ = playbook_code.split(".", 1)
+            if pack_id in registry.list_capabilities():
+                return pack_id
+
+        # Strategy 2: Scan all capability packs' manifest.yaml
+        for capability_code in registry.list_capabilities():
+            capability = registry.get_capability(capability_code)
+            if not capability:
+                continue
+
+            # Get playbooks list from manifest
+            playbooks = registry.get_capability_playbooks(capability_code)
+
+            # Check if playbook_code matches any playbook in this pack
+            # Note: get_capability_playbooks returns file names, we need to match against playbook_code
+            # Playbook codes are typically the file name without extension
+            for playbook_file in playbooks:
+                # Remove .json or .yaml extension if present
+                playbook_name = playbook_file.replace(".json", "").replace(".yaml", "")
+                if playbook_name == playbook_code:
+                    return capability_code
+
+        # Strategy 3: Try to find from playbook service (if playbook is loaded)
+        try:
+            from backend.app.services.playbook_service import PlaybookService
+            from backend.app.services.mindscape_store import MindscapeStore
+            store = MindscapeStore()
+            playbook_service = PlaybookService(store)
+
+            # Try to load playbook and check its metadata
+            # Note: This might be slow, so we use it as fallback
+            playbook_run = playbook_service.load_playbook_run_sync(playbook_code, workspace_id=None)
+            if playbook_run and playbook_run.playbook:
+                # Check if playbook metadata has capability_tags or owner_type
+                metadata = playbook_run.playbook.metadata
+                if hasattr(metadata, 'capability_tags') and metadata.capability_tags:
+                    # First capability_tag might indicate the pack
+                    for tag in metadata.capability_tags:
+                        if tag in registry.list_capabilities():
+                            return tag
+        except Exception as e:
+            logger.debug(f"Failed to get pack_id from playbook service for {playbook_code}: {e}")
+
+        logger.warning(f"Could not find pack_id for playbook_code: {playbook_code}")
+        return None
