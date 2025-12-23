@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Theme color variables for light mode */
+    /* Default light mode theme - Original design */
     --color-scrollbar-thumb: rgba(168, 85, 247, 0.4);
     --color-scrollbar-thumb-hover: rgba(168, 85, 247, 0.6);
     --color-scrollbar-track: transparent;
@@ -25,10 +25,12 @@
     --bg-row: transparent;
     --bg-row-hover: #f9fafb;
 
-    /* Color system variables */
+    /* Color system variables - Default light mode */
     --color-surface: #ffffff;
     --color-surface-secondary: #f9fafb;
     --color-surface-accent: #f3f4f6;
+    --color-tertiary: #e5e7eb;
+    --color-tertiary-dark: #d1d5db;
     --color-accent: #6366f1;
     --color-accent-10: rgba(99, 102, 241, 0.1);
     --color-border: #e5e7eb;
@@ -42,7 +44,160 @@
     --color-danger: #ef4444;
     --color-danger-10: rgba(239, 68, 68, 0.1);
   }
+}
 
+/* Warm theme preset - Must be outside @layer to ensure proper specificity */
+/* Based on design system: Background #F7EFE0, Primary #864809 */
+/* Use html.theme-warm for higher specificity than :root */
+html.theme-warm,
+.theme-warm {
+  --color-scrollbar-thumb: rgba(134, 72, 9, 0.3);
+  --color-scrollbar-thumb-hover: rgba(134, 72, 9, 0.5);
+  --color-scrollbar-track: transparent;
+
+  /* Visual rhythm elevation variables - three layers */
+  --elevation-message: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --bg-message-user: rgba(134, 72, 9, 0.1);
+  --bg-message-assistant: #ffffff;
+
+  --elevation-card: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --bg-suggestion: #fcf6e8;
+  --bg-intent: #eadbbe;
+
+  --elevation-row: none;
+  --bg-row: transparent;
+  --bg-row-hover: #fcf6e8;
+
+  /* Color system variables - Warm Day Mode Design System */
+  --color-surface: #f7efe0;
+  --color-surface-secondary: #fcf6e8;
+  --color-surface-accent: #ffffff;
+  --color-tertiary: #eadbbe;
+  --color-tertiary-dark: #b8a57f;
+  --color-accent: #864809;
+  --color-accent-10: rgba(134, 72, 9, 0.1);
+  --color-border: #b8a57f;
+  --color-text-primary: #1a1818;
+  --color-text-secondary: #7f7f7f;
+  --color-text-tertiary: #9ca3af;
+  --color-warning: #f59e0b;
+  --color-warning-10: rgba(245, 158, 11, 0.1);
+  --color-success: #10b981;
+  --color-success-10: rgba(16, 185, 129, 0.1);
+  --color-danger: #ef4444;
+  --color-danger-10: rgba(239, 68, 68, 0.1);
+}
+
+@layer base {
+  /* Override Tailwind default colors in warm theme */
+  .theme-warm .bg-gray-50,
+  .theme-warm .bg-gray-100 {
+    background-color: var(--color-surface) !important;
+  }
+
+  .theme-warm .bg-white {
+    background-color: var(--color-surface-accent) !important;
+  }
+
+  /* Cards should use surface-secondary for warm background */
+  .theme-warm .bg-surface-accent {
+    /* Keep as is for dialogs/modals, but cards should use bg-surface-secondary */
+  }
+
+  /* Ensure bg-surface-secondary uses warm theme color */
+  html.theme-warm .bg-surface-secondary,
+  .theme-warm .bg-surface-secondary {
+    background-color: var(--color-surface-secondary) !important;
+  }
+
+  /* Ensure tertiary color is available */
+  html.theme-warm .bg-tertiary,
+  .theme-warm .bg-tertiary {
+    background-color: var(--color-tertiary) !important;
+  }
+
+  .theme-warm .bg-gray-900,
+  .theme-warm .bg-gray-800,
+  .theme-warm .bg-gray-700 {
+    /* Keep dark mode colors as is */
+  }
+
+  .theme-warm .text-gray-900,
+  .theme-warm .text-gray-800 {
+    color: var(--color-text-primary) !important;
+  }
+
+  .theme-warm .text-gray-600,
+  .theme-warm .text-gray-500 {
+    color: var(--color-text-secondary) !important;
+  }
+
+  .theme-warm .border-gray-200,
+  .theme-warm .border-gray-300 {
+    border-color: var(--color-border) !important;
+  }
+}
+
+/* Hover states must be outside @layer base for higher specificity */
+/* Tailwind generates hover classes as .hover\:bg-tertiary which compiles to .hover\:bg-tertiary:hover */
+/* Use @layer utilities to ensure proper priority over Tailwind's generated classes */
+@layer utilities {
+  /* Direct match for Tailwind's generated hover classes - escaped colon */
+  html.theme-warm .hover\:bg-tertiary:hover,
+  .theme-warm .hover\:bg-tertiary:hover {
+    background-color: var(--color-tertiary) !important;
+  }
+
+  html.theme-warm .hover\:bg-surface-secondary:hover,
+  .theme-warm .hover\:bg-surface-secondary:hover {
+    background-color: var(--color-tertiary) !important;
+  }
+
+  /* More specific selectors for better matching */
+  html.theme-warm button.hover\:bg-surface-secondary:hover,
+  html.theme-warm div.hover\:bg-surface-secondary:hover,
+  html.theme-warm a.hover\:bg-surface-secondary:hover,
+  .theme-warm button.hover\:bg-surface-secondary:hover,
+  .theme-warm div.hover\:bg-surface-secondary:hover,
+  .theme-warm a.hover\:bg-surface-secondary:hover {
+    background-color: var(--color-tertiary) !important;
+  }
+
+  html.theme-warm button.hover\:bg-tertiary:hover,
+  html.theme-warm div.hover\:bg-tertiary:hover,
+  html.theme-warm a.hover\:bg-tertiary:hover,
+  .theme-warm button.hover\:bg-tertiary:hover,
+  .theme-warm div.hover\:bg-tertiary:hover,
+  .theme-warm a.hover\:bg-tertiary:hover {
+    background-color: var(--color-tertiary) !important;
+  }
+}
+
+/* Fallback: Use attribute selector for elements with hover classes in their className */
+/* This is more reliable as it matches the actual class attribute value */
+html.theme-warm [class*="hover:bg-tertiary"]:hover,
+.theme-warm [class*="hover:bg-tertiary"]:hover {
+  background-color: var(--color-tertiary) !important;
+}
+
+html.theme-warm [class*="hover:bg-surface-secondary"]:hover,
+.theme-warm [class*="hover:bg-surface-secondary"]:hover {
+  background-color: var(--color-tertiary) !important;
+}
+
+/* Even more aggressive: target any element with these classes on hover */
+html.theme-warm *[class*="hover:bg-tertiary"]:hover,
+.theme-warm *[class*="hover:bg-tertiary"]:hover {
+  background-color: var(--color-tertiary) !important;
+}
+
+html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
+.theme-warm *[class*="hover:bg-surface-secondary"]:hover {
+  background-color: var(--color-tertiary) !important;
+}
+
+
+@layer base {
   .dark {
     /* Theme color variables for dark mode */
     --color-scrollbar-thumb: rgba(196, 181, 253, 0.5);

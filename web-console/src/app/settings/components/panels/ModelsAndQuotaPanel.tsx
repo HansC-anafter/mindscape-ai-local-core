@@ -40,6 +40,7 @@ export function ModelsAndQuotaPanel() {
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [configCard, setConfigCard] = useState<ModelConfigCardData | null>(null);
   const [togglingModels, setTogglingModels] = useState<Set<string>>(new Set());
+  const [hoveredModelId, setHoveredModelId] = useState<string | number | null>(null);
 
   useEffect(() => {
     loadAllModels();
@@ -217,10 +218,11 @@ export function ModelsAndQuotaPanel() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setSelectedProvider(null)}
+              data-filter-button="all"
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${
                 selectedProvider === null
-                  ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  ? 'bg-accent-10 dark:bg-purple-900/20 text-accent dark:text-purple-300 border-accent/30 dark:border-purple-700'
+                  : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
               }`}
             >
               {t('allProviders') || 'All'}
@@ -229,10 +231,11 @@ export function ModelsAndQuotaPanel() {
               <button
                 key={provider}
                 onClick={() => setSelectedProvider(provider)}
+                data-filter-button={provider}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${
                   selectedProvider === provider
-                    ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-300 dark:hover:bg-gray-600'
+                    ? 'bg-accent-10 dark:bg-purple-900/20 text-accent dark:text-purple-300 border-accent/30 dark:border-purple-700'
+                    : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
                 }`}
               >
                 {provider}
@@ -245,7 +248,7 @@ export function ModelsAndQuotaPanel() {
           placeholder={t('searchModels') || 'Search models'}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
         />
       </div>
 
@@ -253,17 +256,35 @@ export function ModelsAndQuotaPanel() {
         <div className="col-span-5 border-r border-gray-200 dark:border-gray-700 pr-4 flex flex-col">
 
           <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
-            {filteredModels.map((model) => (
+            {filteredModels.map((model, index) => {
+              const isSelected = selectedModel?.id === model.id;
+              const isHovered = hoveredModelId === model.id && !isSelected;
+              const cardClasses = `
+                  p-3 rounded-lg border cursor-pointer transition-colors
+                  ${isSelected
+                    ? 'bg-accent-10 dark:bg-purple-900/20 border-accent/30 dark:border-purple-700'
+                    : isHovered
+                    ? 'bg-tertiary dark:hover:bg-gray-700 border-default dark:border-gray-700'
+                    : 'bg-surface-secondary dark:bg-gray-800 border-default dark:border-gray-700'
+                  }
+                `;
+
+              return (
               <div
                 key={model.id}
-                className={`
-                  p-3 rounded-lg border cursor-pointer transition-colors
-                  ${selectedModel?.id === model.id
-                    ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700'
-                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
-                  }
-                `}
+                data-model-id={model.id}
+                className={cardClasses}
                 onClick={() => setSelectedModel(model)}
+                onMouseEnter={(e) => {
+                  e.stopPropagation();
+                  if (!isSelected) {
+                    setHoveredModelId(model.id);
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.stopPropagation();
+                  setHoveredModelId(null);
+                }}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -288,11 +309,12 @@ export function ModelsAndQuotaPanel() {
                       }}
                       className="sr-only peer"
                     />
-                    <div className={`w-11 h-6 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 dark:after:border-gray-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-400 dark:peer-checked:bg-purple-700/80 ${togglingModels.has(String(model.id)) ? 'opacity-50 cursor-wait' : ''}`}></div>
+                    <div className={`w-11 h-6 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-accent/30 dark:peer-focus:ring-purple-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 dark:after:border-gray-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent dark:peer-checked:bg-purple-700/80 ${togglingModels.has(String(model.id)) ? 'opacity-50 cursor-wait' : ''}`}></div>
                   </label>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

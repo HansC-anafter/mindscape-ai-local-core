@@ -25,7 +25,6 @@ interface SettingsNavigationProps {
   onNavigate: (tab: SettingsTab, section?: string, provider?: string, model?: string, service?: string) => void;
 }
 
-// Helper function to check if a navigation item is active
 function isItemActive(
   item: NavigationItem,
   activeTab: SettingsTab,
@@ -58,6 +57,12 @@ const navigationItems: NavigationItem[] = [
         label: 'languagePreference',
         tab: 'basic',
         section: 'language-preference',
+      },
+      {
+        id: 'theme-preset',
+        label: 'themePreset',
+        tab: 'basic',
+        section: 'theme-preset',
       },
       {
         id: 'models-and-quota',
@@ -353,6 +358,7 @@ export function SettingsNavigation({
   activeService,
   onNavigate,
 }: SettingsNavigationProps) {
+  const [hoveredItemId, setHoveredItemId] = React.useState<string | null>(null);
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(
     new Set(['basic'])
   );
@@ -383,16 +389,13 @@ export function SettingsNavigation({
                 <button
                   onClick={() => {
                     if (hasChildren) {
-                      // If not expanded, expand first
                       if (!isExpanded) {
                         toggleExpand(item.id);
                       }
-                      // For social_media, navigate to overview (parent level)
                       if (item.tab === 'social_media') {
                         onNavigate(item.tab);
                         return;
                       }
-                      // For other items, navigate to first child
                       const firstChild = item.children![0];
                       if (firstChild) {
                         onNavigate(firstChild.tab, firstChild.section, firstChild.provider, firstChild.model, firstChild.service);
@@ -403,9 +406,21 @@ export function SettingsNavigation({
                   }}
                   className={`flex-1 text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
                     isActive
-                      ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-l-4 border-purple-500 dark:border-purple-500'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      ? 'bg-accent-10 dark:bg-purple-900/30 text-accent dark:text-purple-300 border-l-4 border-accent dark:border-purple-500'
+                      : hoveredItemId === item.id
+                      ? 'bg-tertiary dark:hover:bg-gray-700 text-primary dark:text-gray-300'
+                      : 'text-primary dark:text-gray-300'
                   }`}
+                  onMouseEnter={(e) => {
+                    e.stopPropagation();
+                    if (!isActive) {
+                      setHoveredItemId(item.id);
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.stopPropagation();
+                    setHoveredItemId(null);
+                  }}
                 >
                   {item.icon && <span className="text-xs">{item.icon}</span>}
                   <span>{t(item.label as any)}</span>
@@ -416,7 +431,7 @@ export function SettingsNavigation({
                       e.stopPropagation();
                       toggleExpand(item.id);
                     }}
-                    className="px-1 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    className="px-1 py-1.5 rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                   >
                     <svg
                       className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -439,7 +454,6 @@ export function SettingsNavigation({
                   {item.children!.map((child) => {
                     const hasGrandchildren = child.children && child.children.length > 0;
                     const isChildExpanded = expandedItems.has(child.id);
-                    // For social_media, check if provider matches
                     const isChildActive = activeTab === child.tab &&
                       (child.tab === 'social_media'
                         ? activeProvider === child.provider
@@ -451,18 +465,15 @@ export function SettingsNavigation({
                           <button
                             onClick={() => {
                               if (hasGrandchildren) {
-                                // Expand if collapsed
                                 if (!expandedItems.has(child.id)) {
                                   toggleExpand(child.id);
                                 }
-                                // Always navigate to first grandchild when clicking child with grandchildren
                                 const firstGrandchild = child.children![0];
                                 if (firstGrandchild) {
                                   onNavigate(firstGrandchild.tab, firstGrandchild.section, firstGrandchild.provider, firstGrandchild.model, firstGrandchild.service);
                                   return;
                                 }
                               }
-                              // For social_media sub-items, navigate to overview with provider anchor
                               if (child.tab === 'social_media' && child.provider) {
                                 onNavigate(child.tab, undefined, child.provider);
                                 return;
@@ -471,9 +482,21 @@ export function SettingsNavigation({
                             }}
                             className={`flex-1 text-left px-2 py-1 rounded-md text-xs transition-colors ${
                               isChildActive
-                                ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-medium'
-                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                ? 'bg-accent-10 dark:bg-purple-900/40 text-accent dark:text-purple-300 font-medium'
+                                : hoveredItemId === child.id
+                                ? 'bg-tertiary dark:hover:bg-gray-700 text-secondary dark:text-gray-400'
+                                : 'text-secondary dark:text-gray-400'
                             }`}
+                            onMouseEnter={(e) => {
+                              e.stopPropagation();
+                              if (!isChildActive) {
+                                setHoveredItemId(child.id);
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              e.stopPropagation();
+                              setHoveredItemId(null);
+                            }}
                           >
                             <span>{t(child.label as any)}</span>
                           </button>
@@ -483,7 +506,7 @@ export function SettingsNavigation({
                                 e.stopPropagation();
                                 toggleExpand(child.id);
                               }}
-                              className="px-1 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              className="px-1 py-1 rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                             >
                               <svg
                                 className={`w-2.5 h-2.5 transition-transform ${isChildExpanded ? 'rotate-90' : ''}`}
@@ -514,9 +537,21 @@ export function SettingsNavigation({
                                   onClick={() => onNavigate(grandchild.tab, grandchild.section, grandchild.provider, grandchild.model)}
                                   className={`w-full text-left px-2 py-0.5 rounded text-xs transition-colors ${
                                     isGrandchildActive
-                                      ? 'bg-purple-200 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200 font-medium'
-                                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                      ? 'bg-accent-10 dark:bg-purple-900/50 text-accent dark:text-purple-200 font-medium'
+                                      : hoveredItemId === grandchild.id
+                                      ? 'bg-tertiary dark:hover:bg-gray-700 text-secondary dark:text-gray-400'
+                                      : 'text-secondary dark:text-gray-400'
                                   }`}
+                                  onMouseEnter={(e) => {
+                                    e.stopPropagation();
+                                    if (!isGrandchildActive) {
+                                      setHoveredItemId(grandchild.id);
+                                    }
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.stopPropagation();
+                                    setHoveredItemId(null);
+                                  }}
                                 >
                                   {t(grandchild.label as any) || grandchild.label}
                                 </button>
