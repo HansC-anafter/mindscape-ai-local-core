@@ -80,3 +80,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     migrate_chat_model_to_capability_profile()
 
+
+
+
+
