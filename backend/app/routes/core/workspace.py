@@ -1420,3 +1420,7 @@ async def analyze_file(
 # Sub-routers are loaded via pack registry
 # See backend/packs/workspace-pack.yaml and backend/features/workspace/
 
+# Import and mount workspace governance router
+from . import workspace_governance
+router.include_router(workspace_governance.router)
+

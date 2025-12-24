@@ -247,6 +247,7 @@ async def list_playbooks(
                 "icon": playbook.metadata.icon,
                 "required_tools": playbook.metadata.required_tools,
                 "kind": playbook.metadata.kind.value if playbook.metadata.kind else None,
+                "capability_code": playbook.metadata.capability_code,
                 "user_meta": user_meta or {
                     "favorite": False,
                     "use_count": 0

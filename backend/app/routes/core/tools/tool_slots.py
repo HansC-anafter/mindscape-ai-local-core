@@ -374,3 +374,7 @@ async def resolve_slot(
         logger.error(f"Failed to resolve slot '{slot}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to resolve slot: {str(e)}")
 
+
+
+
+

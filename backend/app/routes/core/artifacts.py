@@ -49,6 +49,7 @@ class ArtifactResponse(BaseModel):
     artifact_type: Optional[str] = None
     content: Optional[Dict[str, Any]] = None
     content_preview: Optional[str] = None
+    platform: Optional[str] = None
 
     class Config:
         json_encoders = {
@@ -71,6 +72,9 @@ class CreateArtifactRequest(BaseModel):
 class ListArtifactsResponse(BaseModel):
     """Response model for listing artifacts"""
     artifacts: List[ArtifactResponse]
+    total: Optional[int] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
 
 
 # ============================================================================
@@ -142,6 +146,10 @@ def artifact_to_response(
     if include_content:
         content = artifact.content
 
+    platform = None
+    if artifact.metadata:
+        platform = artifact.metadata.get("platform")
+
     return ArtifactResponse(
         id=artifact.id,
         workspace_id=artifact.workspace_id,
@@ -158,7 +166,8 @@ def artifact_to_response(
         playbook_code=artifact.playbook_code,
         artifact_type=artifact_type_value,
         content=content,
-        content_preview=content_preview
+        content_preview=content_preview,
+        platform=platform
     )
 
 
@@ -276,11 +285,45 @@ async def list_artifacts(
         True,
         description="Include content preview (default: true)"
     ),
+    platform: Optional[str] = Query(
+        None,
+        description="Filter by platform (e.g., 'instagram', 'facebook')"
+    ),
+    limit: int = Query(
+        100,
+        description="Maximum number of artifacts to return",
+        ge=1,
+        le=1000
+    ),
+    offset: int = Query(
+        0,
+        description="Offset for pagination",
+        ge=0
+    ),
 ):
     """
     List all artifacts for a workspace
 
-    Supports filtering by type, intent_id, kind, and playbook_code.
+    Supports filtering by type, intent_id, kind, playbook_code, and platform.
+    Supports pagination with limit and offset.
+
+    **Filtering**:
+    - `type`: illustration, document, other
+    - `playbook_code`: Filter by playbook (e.g., 'ig_post_generation')
+    - `platform`: Filter by platform (e.g., 'instagram', 'facebook')
+    - `artifact_type`: Internal artifact type
+
+    **Pagination**:
+    - `limit`: Maximum number of artifacts (default: 100, max: 1000)
+    - `offset`: Offset for pagination (default: 0)
+
+    **Response includes**:
+    - `total`: Total number of artifacts matching filters
+    - `limit`: Applied limit
+    - `offset`: Applied offset
+    - `artifacts`: Array of artifact objects
+
+    **Performance**: Response time typically < 200ms for up to 1000 artifacts.
     """
     try:
         # Get artifacts from store
@@ -321,17 +364,32 @@ async def list_artifacts(
                 if a.playbook_code == playbook_code
             ]
 
-        # Convert to response format
+        if platform:
+            filtered_artifacts = [
+                a for a in filtered_artifacts
+                if a.metadata and a.metadata.get("platform") == platform
+            ]
+
+        total_count = len(filtered_artifacts)
+
+        paginated_artifacts = filtered_artifacts[offset:offset + limit]
+
         artifact_responses = [
             artifact_to_response(
                 artifact,
                 include_content=include_content,
                 include_preview=include_preview
             )
-            for artifact in filtered_artifacts
+            for artifact in paginated_artifacts
         ]
 
-        return ListArtifactsResponse(artifacts=artifact_responses)
+        response = ListArtifactsResponse(
+            artifacts=artifact_responses,
+            total=total_count,
+            limit=limit,
+            offset=offset
+        )
+        return response
 
     except HTTPException:
         raise

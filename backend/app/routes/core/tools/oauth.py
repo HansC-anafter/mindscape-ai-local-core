@@ -10,6 +10,8 @@ Handles OAuth 2.0 flow for social media platforms:
 import os
 import secrets
 import logging
+import json
+import base64
 from datetime import datetime
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
@@ -112,6 +114,8 @@ async def get_authorize_url(
     redirect_uri: str = Query(..., description="OAuth redirect URI"),
     state: Optional[str] = Query(None, description="OAuth state parameter"),
     profile_id: str = Query(..., description="Profile ID"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID for context"),
+    return_url: Optional[str] = Query(None, description="Custom return URL after OAuth completion"),
     client_id: Optional[str] = Query(None, description="OAuth Client ID (from connection config)"),
     client_secret: Optional[str] = Query(None, description="OAuth Client Secret (from connection config)"),
 ):
@@ -148,9 +152,21 @@ async def get_authorize_url(
 
     logger.info(f"Generating OAuth authorization URL for {provider} (client_id: {client_id[:10]}...)")
 
-    # Generate state if not provided
-    if not state:
-        state = secrets.token_urlsafe(32)
+    # Build state data with context information
+    state_data = {
+        "profile_id": profile_id,
+        "workspace_id": workspace_id,
+        "return_url": return_url or "/settings",
+        "random": secrets.token_urlsafe(16)
+    }
+
+    # Encode state data as base64 JSON
+    state_encoded = base64.urlsafe_b64encode(
+        json.dumps(state_data).encode()
+    ).decode()
+
+    # Use provided state or generated encoded state
+    state = state or state_encoded
 
     # Build authorization URL
     params = {
@@ -190,7 +206,7 @@ async def oauth_callback(
     state: Optional[str] = Query(None, description="OAuth state parameter"),
     error: Optional[str] = Query(None, description="OAuth error"),
     error_description: Optional[str] = Query(None, description="OAuth error description"),
-    profile_id: str = Query(..., description="Profile ID"),
+    profile_id: Optional[str] = Query(None, description="Profile ID (fallback if not in state)"),
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
     """
@@ -208,15 +224,30 @@ async def oauth_callback(
     Returns:
         Redirect to frontend with connection status
     """
+    # Parse state to get return_url and workspace_id
+    return_url = "/settings"
+    workspace_id = None
+    parsed_profile_id = profile_id
+
+    if state:
+        try:
+            state_data = json.loads(base64.urlsafe_b64decode(state).decode())
+            return_url = state_data.get("return_url", "/settings")
+            workspace_id = state_data.get("workspace_id")
+            if not parsed_profile_id:
+                parsed_profile_id = state_data.get("profile_id")
+        except Exception as e:
+            logger.warning(f"Failed to parse OAuth state: {e}, using defaults")
+
     if error:
         logger.error(f"OAuth error for {provider}: {error} - {error_description}")
-        # Redirect to frontend error page
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
         error_params = urlencode({
             "error": error,
             "error_description": error_description or "",
         })
-        return RedirectResponse(url=f"{frontend_url}/settings?tab=social_media&provider={provider}&oauth_error=1&{error_params}")
+        redirect_url = f"{frontend_url}{return_url}?oauth_error=1&{error_params}"
+        return RedirectResponse(url=redirect_url)
 
     if provider not in OAUTH_CONFIGS:
         raise_api_error(400, f"Unsupported provider: {provider}")
@@ -227,8 +258,11 @@ async def oauth_callback(
     client_id = None
     client_secret = None
 
+    if not parsed_profile_id:
+        raise_api_error(400, "Profile ID is required (either in state or as query parameter)")
+
     # Try to get from existing connection
-    existing_connections = registry.get_connections_by_tool_type(profile_id, provider)
+    existing_connections = registry.get_connections_by_tool_type(parsed_profile_id, provider)
     if existing_connections:
         conn = existing_connections[0]
         if conn.config and isinstance(conn.config, dict):
@@ -267,14 +301,15 @@ async def oauth_callback(
             "error_description": str(e),
             "provider": provider,
         })
-        return RedirectResponse(url=f"{frontend_url}/settings?tab=social_media&provider={provider}&oauth_error=1&{error_params}")
+        redirect_url = f"{frontend_url}{return_url}?oauth_error=1&{error_params}"
+        return RedirectResponse(url=redirect_url)
 
     # Create or update connection
     import uuid
     connection_id = f"{provider}-{uuid.uuid4().hex[:8]}"
 
     # Check if connection already exists
-    existing_connections = registry.get_connections_by_tool_type(profile_id, provider)
+    existing_connections = registry.get_connections_by_tool_type(parsed_profile_id, provider)
     if existing_connections:
         connection = existing_connections[0]
         connection_id = connection.id
@@ -288,7 +323,7 @@ async def oauth_callback(
         # Create new connection
         connection = ToolConnectionModel(
             id=connection_id,
-            profile_id=profile_id,
+            profile_id=parsed_profile_id,
             tool_type=provider,
             connection_type="local",
             name=f"{provider.title()} Account",
@@ -313,7 +348,7 @@ async def oauth_callback(
             provider_name=provider,
             config=discovery_config,
             connection_id=connection_id,
-            profile_id=profile_id,
+            profile_id=parsed_profile_id,
         )
         logger.info(
             f"Auto-discovered {len(discovery_result.get('discovered_tools', []))} tools "
@@ -323,11 +358,12 @@ async def oauth_callback(
         logger.warning(f"Failed to auto-discover tools for {provider}: {str(e)}")
         # Don't fail the OAuth flow if discovery fails
 
-    # Redirect to frontend success page
+    # Redirect to frontend success page (use return_url from state)
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
-    return RedirectResponse(
-        url=f"{frontend_url}/settings?tab=social_media&provider={provider}&oauth_success=1&connection_id={connection_id}"
-    )
+    redirect_url = f"{frontend_url}{return_url}?oauth_success=1&connection_id={connection_id}"
+    if workspace_id:
+        redirect_url += f"&workspace_id={workspace_id}"
+    return RedirectResponse(url=redirect_url)
 
 
 async def exchange_code_for_token(

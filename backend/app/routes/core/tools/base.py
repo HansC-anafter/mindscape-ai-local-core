@@ -161,12 +161,61 @@ async def list_tools(
     enabled_only: bool = True,
     registry: ToolRegistryService = Depends(get_tool_registry),
 ):
-    """List registered tools with optional filters"""
+    """List registered tools with optional filters
+
+    Also includes capability tools from ToolListService.
+    """
     tools = registry.get_tools(
         site_id=site_id,
         category=category,
         enabled_only=enabled_only,
     )
+
+    # Also include capability tools from ToolListService
+    try:
+        from backend.app.services.tool_list_service import ToolListService
+        tool_list_service = ToolListService()
+        capability_tools = tool_list_service._get_capability_tools()
+        logger.info(f"list_tools: Found {len(capability_tools)} capability tools")
+
+        # Convert ToolInfo to RegisteredTool format
+        added_count = 0
+        for tool_info in capability_tools:
+            # Skip if already in tools list (by tool_id)
+            if any(t.tool_id == tool_info.tool_id for t in tools):
+                continue
+
+            # Apply filters
+            if enabled_only and not tool_info.enabled:
+                continue
+            if category and tool_info.category != category:
+                continue
+
+            # Convert ToolInfo to RegisteredTool
+            registered_tool = RegisteredTool(
+                tool_id=tool_info.tool_id,
+                site_id="capability",
+                provider="capability",
+                display_name=tool_info.name,
+                origin_capability_id=tool_info.tool_id,
+                category=tool_info.category,
+                description=tool_info.description,
+                endpoint="",
+                methods=[],
+                danger_level="low",
+                input_schema={},
+                enabled=tool_info.enabled,
+                read_only=False,
+                allowed_agent_roles=[],
+                side_effect_level="none",
+                scope="system",
+            )
+            tools.append(registered_tool)
+            added_count += 1
+        logger.info(f"list_tools: Added {added_count} capability tools to response")
+    except Exception as e:
+        logger.warning(f"Failed to load capability tools: {e}", exc_info=True)
+
     return tools
 
 

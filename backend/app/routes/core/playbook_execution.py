@@ -3,6 +3,7 @@ Playbook Execution API routes
 Handles real-time Playbook execution with LLM conversations and structured workflows
 """
 
+import logging
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from ...services.playbook_run_executor import PlaybookRunExecutor
 from ...services.playbook_runner import PlaybookRunner
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
 # Initialize unified executor (automatically selects PlaybookRunner or WorkflowOrchestrator)
@@ -61,6 +63,18 @@ async def start_playbook_execution(
         # Extract workspace_id and project_id from inputs if not provided as query params
         final_workspace_id = workspace_id or (inputs.get("workspace_id") if inputs else None)
         final_project_id = project_id or (inputs.get("project_id") if inputs else None)
+
+        # If no project_id provided, use workspace.primary_project_id as fallback
+        if not final_project_id and final_workspace_id:
+            try:
+                from ...services.mindscape_store import MindscapeStore
+                store = MindscapeStore()
+                workspace = store.get_workspace(final_workspace_id)
+                if workspace and hasattr(workspace, 'primary_project_id') and workspace.primary_project_id:
+                    final_project_id = workspace.primary_project_id
+                    logger.info(f"Using workspace.primary_project_id={final_project_id} for playbook {playbook_code}")
+            except Exception as e:
+                logger.warning(f"Failed to get workspace.primary_project_id: {e}")
 
         # Inject auto_execute into inputs for downstream processing
         if final_auto_execute and inputs:

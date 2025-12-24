@@ -108,12 +108,8 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
         if meta:
             packs.append(meta)
 
-    # Also scan cloud capabilities manifests (mindscape-ai-cloud/capabilities/*/manifest.yaml)
-    cloud_root_candidates = [
-        Path("/mindscape-ai-cloud/capabilities"),
-        packs_dir.parent.parent / "mindscape-ai-cloud" / "capabilities",
-        Path(__file__).parent.parent.parent.parent.parent / "mindscape-ai-cloud" / "capabilities",
-    ]
+    # Cloud capabilities scanning removed
+    cloud_root_candidates = []
     for cloud_root in cloud_root_candidates:
         if not cloud_root.exists():
             continue
