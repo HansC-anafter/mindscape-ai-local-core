@@ -1,0 +1,56 @@
+name: Check Cloud Function Leakage
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'web-console/**'
+      - 'backend/playbooks/**'
+
+jobs:
+  check-cloud-leakage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check for IG Posts API in Local-Core
+        run: |
+          if grep -r "ig_posts" backend/app/routes/core/ backend/app/main.py 2>/dev/null; then
+            echo "ERROR: IG Posts API found in Local-Core backend!"
+            echo "IG Posts is a Cloud capability and must be in mindscape-ai-cloud repo"
+            exit 1
+          fi
+
+      - name: Check for IG UI components in Local-Core
+        run: |
+          if find web-console/src -name "*IG*" -type f | grep -E "(IGGridView|IGPostCard|IGTimeline)" 2>/dev/null; then
+            echo "ERROR: IG UI components found in Local-Core!"
+            echo "IG UI components are Cloud features and must be in mindscape-ai-cloud repo"
+            exit 1
+          fi
+
+      - name: Check for IG Posts SDK in Local-Core
+        run: |
+          if grep -r "listIGPosts\|scheduleIGPost" web-console/src/services/localCore/ 2>/dev/null; then
+            echo "ERROR: IG Posts SDK methods found in Local-Core!"
+            echo "IG Posts SDK is Cloud-specific and must be in mindscape-ai-cloud repo"
+            exit 1
+          fi
+
+      - name: Check for IG playbooks in Local-Core
+        run: |
+          if find backend/playbooks/specs -name "*ig_post_generation*" -type f 2>/dev/null; then
+            echo "ERROR: IG post generation playbook found in Local-Core!"
+            echo "IG post generation is a Cloud capability and must be in mindscape-ai-cloud/capabilities/ig/playbooks/specs/"
+            echo "Local-Core should not contain Cloud-specific business playbooks"
+            exit 1
+          fi
+
+      - name: Check OutcomesPanel for IG logic
+        run: |
+          if grep -E "IGGridViewModal|hasIGPosts|View IG Posts" web-console/src/app/workspaces/\[workspaceId\]/components/OutcomesPanel.tsx 2>/dev/null; then
+            echo "ERROR: IG Posts logic found in OutcomesPanel!"
+            echo "IG Posts UI should be provided by Cloud, not embedded in Local-Core"
+            exit 1
+          fi
+
