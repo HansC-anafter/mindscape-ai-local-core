@@ -46,22 +46,46 @@ class PlaybookJsonLoader:
                 from ...services.cloud_extension_manager import CloudExtensionManager
 
                 manager = CloudExtensionManager.instance()
-                playbook_data = asyncio.run(
-                    manager.get_playbook_from_any_provider(
-                        capability_code=capability_code,
-                        playbook_code=playbook_code,
-                        locale="zh-TW"
+                
+                # Try to get existing event loop, or create new one if not in async context
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, we can't use asyncio.run()
+                        # This is a synchronous method, so we'll skip cloud provider loading
+                        # and let async callers handle it through PlaybookService
+                        logger.debug("Event loop is running, skipping synchronous cloud provider load")
+                    else:
+                        playbook_data = loop.run_until_complete(
+                            manager.get_playbook_from_any_provider(
+                                capability_code=capability_code,
+                                playbook_code=playbook_code,
+                                locale="zh-TW"
+                            )
+                        )
+                        if playbook_data:
+                            playbook_dict = playbook_data.get("playbook") if isinstance(playbook_data, dict) else playbook_data
+                            if playbook_dict:
+                                try:
+                                    return PlaybookJson(**playbook_dict)
+                                except Exception as e:
+                                    logger.debug(f"Failed to parse playbook JSON from cloud provider: {e}")
+                except RuntimeError:
+                    # No event loop, create new one
+                    playbook_data = asyncio.run(
+                        manager.get_playbook_from_any_provider(
+                            capability_code=capability_code,
+                            playbook_code=playbook_code,
+                            locale="zh-TW"
+                        )
                     )
-                )
-
-                if playbook_data:
-                    # Extract playbook dict from response
-                    playbook_dict = playbook_data.get("playbook") if isinstance(playbook_data, dict) else playbook_data
-                    if playbook_dict:
-                        try:
-                            return PlaybookJson(**playbook_dict)
-                        except Exception as e:
-                            logger.debug(f"Failed to parse playbook JSON from cloud provider: {e}")
+                    if playbook_data:
+                        playbook_dict = playbook_data.get("playbook") if isinstance(playbook_data, dict) else playbook_data
+                        if playbook_dict:
+                            try:
+                                return PlaybookJson(**playbook_dict)
+                            except Exception as e:
+                                logger.debug(f"Failed to parse playbook JSON from cloud provider: {e}")
             except Exception as e:
                 logger.debug(f"Failed to load from cloud provider: {e}")
 
