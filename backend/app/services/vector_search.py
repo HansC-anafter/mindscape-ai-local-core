@@ -531,3 +531,85 @@ class VectorSearchService:
 
         finally:
             conn.close()
+
+    async def save_to_external_docs(
+        self,
+        doc: Dict[str, Any]
+    ) -> bool:
+        """
+        Save document to external_docs table for RAG
+
+        Args:
+            doc: Document dictionary with:
+                - user_id: User identifier
+                - source_app: Source application (e.g., 'content-vault', 'wordpress')
+                - title: Document title
+                - content: Document content
+                - embedding: Embedding vector
+                - metadata: Optional metadata dictionary
+
+        Returns:
+            True if successful, False otherwise
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            user_id = doc.get('user_id', 'default_user')
+            source_app = doc.get('source_app', 'unknown')
+            title = doc.get('title', 'Untitled')
+            content = doc.get('content', '')
+            embedding = doc.get('embedding')
+            metadata = doc.get('metadata', {})
+
+            if not embedding:
+                logger.warning("No embedding provided for document")
+                return False
+
+            query = """
+                INSERT INTO external_docs (
+                    user_id,
+                    source_app,
+                    title,
+                    content,
+                    embedding,
+                    metadata,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s::vector, %s, NOW(), NOW()
+                )
+                ON CONFLICT (user_id, source_app, title)
+                DO UPDATE SET
+                    content = EXCLUDED.content,
+                    embedding = EXCLUDED.embedding,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = NOW()
+                RETURNING id
+            """
+
+            import json
+            cursor.execute(
+                query,
+                (
+                    user_id,
+                    source_app,
+                    title,
+                    content,
+                    str(embedding),
+                    json.dumps(metadata)
+                )
+            )
+
+            result = cursor.fetchone()
+            conn.commit()
+
+            logger.debug(f"Saved document to external_docs: {title} (id: {result[0] if result else 'unknown'})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save document to external_docs: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()

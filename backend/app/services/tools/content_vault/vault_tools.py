@@ -48,9 +48,9 @@ class ContentVaultLoadContextTool(MindscapeTool):
         import os
         if vault_path is None:
             vault_path = os.getenv("CONTENT_VAULT_PATH") or str(Path.home() / "content-vault")
-        self.vault_path = Path(vault_path).expanduser().resolve()
+        self.base_vault_path = Path(vault_path).expanduser().resolve()
 
-        if not self.vault_path.exists():
+        if not self.base_vault_path.exists():
             raise ValueError(f"Vault path does not exist: {vault_path}")
 
         metadata = ToolMetadata(
@@ -72,6 +72,10 @@ class ContentVaultLoadContextTool(MindscapeTool):
                         "description": "Number of recent posts to load",
                         "default": 20
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "Workspace ID (optional, for workspace-specific vault)"
+                    },
                 },
                 required=["series_id", "arc_id"]
             ),
@@ -82,32 +86,44 @@ class ContentVaultLoadContextTool(MindscapeTool):
         )
         super().__init__(metadata)
 
+    def _get_vault_path(self, workspace_id: Optional[str] = None) -> Path:
+        """Get vault path for workspace"""
+        if workspace_id:
+            vault_path = self.base_vault_path / workspace_id
+            if not vault_path.exists():
+                vault_path.mkdir(parents=True, exist_ok=True)
+            return vault_path
+        return self.base_vault_path
+
     async def execute(
         self,
         series_id: str,
         arc_id: str,
-        n_recent_posts: int = 20
+        n_recent_posts: int = 20,
+        workspace_id: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """Load narrative context"""
 
+        vault_path = self._get_vault_path(workspace_id)
         context = {}
 
         # 1. Load Series
-        series_path = self.vault_path / "series" / f"{series_id}.md"
+        series_path = vault_path / "series" / f"{series_id}.md"
         if not series_path.exists():
             raise FileNotFoundError(f"Series not found: {series_id}")
         series_doc = self._parse_markdown(series_path)
         context['series'] = series_doc
 
         # 2. Load Arc
-        arc_path = self.vault_path / "arcs" / f"{arc_id}.md"
+        arc_path = vault_path / "arcs" / f"{arc_id}.md"
         if not arc_path.exists():
             raise FileNotFoundError(f"Arc not found: {arc_id}")
         arc_doc = self._parse_markdown(arc_path)
         context['arc'] = arc_doc
 
         # 3. Load recent Posts
-        posts_dir = self.vault_path / "posts" / "instagram"
+        posts_dir = vault_path / "posts" / "instagram"
         recent_posts = self._load_recent_posts(
             posts_dir,
             series_id,
@@ -278,8 +294,8 @@ Please generate 3 versions of posts.
         return "\n".join(lines)
 
 
-class ContentVaultWritePostsTool(MindscapeTool):
-    """Write generated posts back to content vault"""
+class ContentVaultMergeContextTool(MindscapeTool):
+    """Merge file system context with vector search context"""
 
     def __init__(self, vault_path: Optional[str] = None):
         import os
@@ -287,7 +303,80 @@ class ContentVaultWritePostsTool(MindscapeTool):
             vault_path = os.getenv("CONTENT_VAULT_PATH") or str(Path.home() / "content-vault")
         self.vault_path = Path(vault_path).expanduser().resolve()
 
-        if not self.vault_path.exists():
+    async def execute(
+        self,
+        file_context: Optional[Dict[str, Any]] = None,
+        vector_context: Optional[List[Dict[str, Any]]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Merge file system context with vector search context
+
+        Args:
+            file_context: Context from file system (Series, Arc, Posts)
+            vector_context: Context from vector search (semantic matches)
+
+        Returns:
+            Merged context dictionary
+        """
+        merged = {
+            'file_context': file_context or {},
+            'vector_context': vector_context or [],
+            'merged_prompt': ''
+        }
+
+        parts = []
+
+        if file_context:
+            if file_context.get('series'):
+                parts.append(f"## Series Context:\n{file_context['series'].get('content', '')}")
+            if file_context.get('arc'):
+                parts.append(f"## Arc Context:\n{file_context['arc'].get('content', '')}")
+            if file_context.get('recent_posts'):
+                parts.append("## Recent Posts:")
+                for post in file_context['recent_posts'][:10]:
+                    parts.append(f"- {post.get('text', '')[:200]}...")
+
+        if vector_context:
+            parts.append("\n## Related Content (Semantic Search):")
+            for i, doc in enumerate(vector_context[:5], 1):
+                similarity = doc.get('similarity', 0)
+                content = doc.get('content', '')
+                parts.append(f"\n### Match {i} (similarity: {similarity:.2f}):\n{content[:300]}...")
+
+        merged['merged_prompt'] = '\n\n'.join(parts)
+        return merged
+
+    def get_metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="content_vault.merge_context",
+            description="Merge file system context with vector search context",
+            input_schema=ToolInputSchema(
+                type="object",
+                properties={
+                    "file_context": {
+                        "type": "object",
+                        "description": "Context from file system"
+                    },
+                    "vector_context": {
+                        "type": "array",
+                        "description": "Context from vector search"
+                    }
+                }
+            )
+        )
+
+
+class ContentVaultWritePostsTool(MindscapeTool):
+    """Write generated posts back to content vault"""
+
+    def __init__(self, vault_path: Optional[str] = None):
+        import os
+        if vault_path is None:
+            vault_path = os.getenv("CONTENT_VAULT_PATH") or str(Path.home() / "content-vault")
+        self.base_vault_path = Path(vault_path).expanduser().resolve()
+
+        if not self.base_vault_path.exists():
             raise ValueError(f"Vault path does not exist: {vault_path}")
 
         metadata = ToolMetadata(
@@ -323,6 +412,10 @@ class ContentVaultWritePostsTool(MindscapeTool):
                         "description": "Platform (instagram, facebook, etc.)",
                         "default": "instagram"
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "Workspace ID (optional, for workspace-specific vault)"
+                    },
                 },
                 required=["series_id", "arc_id", "posts"]
             ),
@@ -333,21 +426,33 @@ class ContentVaultWritePostsTool(MindscapeTool):
         )
         super().__init__(metadata)
 
+    def _get_vault_path(self, workspace_id: Optional[str] = None) -> Path:
+        """Get vault path for workspace"""
+        if workspace_id:
+            vault_path = self.base_vault_path / workspace_id
+            if not vault_path.exists():
+                vault_path.mkdir(parents=True, exist_ok=True)
+            return vault_path
+        return self.base_vault_path
+
     async def execute(
         self,
         series_id: str,
         arc_id: str,
         posts: List[Dict],
-        platform: str = "instagram"
+        platform: str = "instagram",
+        workspace_id: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, List[str]]:
         """Write posts back to vault"""
 
+        vault_path = self._get_vault_path(workspace_id)
         written_files = []
 
         for i, post in enumerate(posts, 1):
             # Generate filename
             date_str = datetime.now().strftime("%Y-%m-%d")
-            sequence = self._get_next_sequence(series_id, platform)
+            sequence = self._get_next_sequence(series_id, platform, vault_path)
             filename = f"{date_str}-{series_id}-{sequence:03d}-draft{i}.md"
 
             # Build frontmatter
@@ -371,7 +476,7 @@ class ContentVaultWritePostsTool(MindscapeTool):
             full_content = self._build_document(frontmatter, post)
 
             # Write file
-            output_path = self.vault_path / "posts" / platform / filename
+            output_path = vault_path / "posts" / platform / filename
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -381,9 +486,11 @@ class ContentVaultWritePostsTool(MindscapeTool):
 
         return {"files": written_files}
 
-    def _get_next_sequence(self, series_id: str, platform: str) -> int:
+    def _get_next_sequence(self, series_id: str, platform: str, vault_path: Optional[Path] = None) -> int:
         """Get next sequence number"""
-        posts_dir = self.vault_path / "posts" / platform
+        if vault_path is None:
+            vault_path = self.base_vault_path
+        posts_dir = vault_path / "posts" / platform
 
         if not posts_dir.exists():
             return 1
