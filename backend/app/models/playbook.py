@@ -542,6 +542,7 @@ class PlaybookStep(BaseModel):
     inputs: Dict[str, Any] = Field(..., description="Tool input parameters (supports template variables)")
     outputs: Dict[str, str] = Field(..., description="Output mapping (tool return field -> step output name)")
     depends_on: List[str] = Field(default_factory=list, description="Dependencies: list of step IDs that must complete first")
+    condition: Optional[str] = Field(None, description="Optional execution condition (e.g., '{{input.xxx or input.yyy}}')")
 
     # Loop/iteration support
     for_each: Optional[str] = Field(

@@ -297,3 +297,7 @@ class GraphVariantRegistry:
         logger.info(f"GraphVariantRegistry: Created balanced variant for graph '{base_graph.graph_id}'")
         return balanced
 
+
+
+
+

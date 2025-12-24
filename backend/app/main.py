@@ -137,6 +137,10 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(chapters_router, tags=["chapters"])
     app.include_router(artifacts_router, tags=["artifacts"])
 
+    # Content Vault indexing routes
+    from .routes.core.content_vault_index import router as content_vault_index_router
+    app.include_router(content_vault_index_router, tags=["content-vault"])
+
     # Decision cards routes
     from backend.app.routes.core import decision_cards as decision_cards_router
     app.include_router(decision_cards_router.router, tags=["decision-cards"])
@@ -274,11 +278,12 @@ async def startup_event():
 
     # Register Content Vault tools
     try:
-        from backend.app.services.tools.registry import register_content_vault_tools
+        from backend.app.services.tools.registry import register_content_vault_tools, register_vector_search_tool
         import os
         vault_path = os.getenv("CONTENT_VAULT_PATH")
         content_vault_tools = register_content_vault_tools(vault_path)
-        logger.info(f"Registered {len(content_vault_tools)} Content Vault tools")
+        register_vector_search_tool()
+        logger.info(f"Registered {len(content_vault_tools)} Content Vault tools and Vector Search tool")
     except Exception as e:
         logger.warning(f"Failed to register Content Vault tools: {e}", exc_info=True)
 
@@ -321,16 +326,18 @@ async def startup_event():
         else:
             vault_path = Path(vault_path).expanduser().resolve()
 
-        # Check if vault exists, if not, initialize it
+        # Always call initialize_content_vault to ensure structure is complete
+        # It will check and repair missing subdirectories even if vault exists
         if not vault_path.exists() or not (vault_path / ".vault-config.yaml").exists():
             logger.info("Content Vault not found, initializing...")
-            success = initialize_content_vault(vault_path, force=False)
-            if success:
-                logger.info(f"Content Vault initialized at {vault_path}")
-            else:
-                logger.warning("Content Vault initialization failed, but continuing startup")
         else:
-            logger.debug(f"Content Vault already exists at {vault_path}")
+            logger.debug("Content Vault exists, checking structure completeness...")
+
+        success = initialize_content_vault(vault_path, force=False)
+        if success:
+            logger.info(f"Content Vault initialized/verified at {vault_path}")
+        else:
+            logger.warning("Content Vault initialization/verification failed, but continuing startup")
     except ImportError:
         logger.debug("Content Vault init script not available, skipping initialization")
     except Exception as e:

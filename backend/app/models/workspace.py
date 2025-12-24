@@ -499,7 +499,7 @@ class ExecutionPlan(BaseModel):
             "artifact_count": sum(len(s.artifacts) for s in self.steps)
         }
 
-        metadata = getattr(self, "metadata", None) or {}
+        metadata = getattr(self, "_metadata", None) or getattr(self, "metadata", None) or {}
         effective_playbooks = metadata.get("effective_playbooks")
         if effective_playbooks is not None:
             payload["effective_playbooks"] = effective_playbooks
@@ -649,6 +649,10 @@ class ExecutionSession(BaseModel):
         default_factory=list,
         description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)"
     )
+    sandbox_id: Optional[str] = Field(
+        None,
+        description="Sandbox ID associated with this execution (if any)"
+    )
 
     @classmethod
     def from_task(cls, task: Task) -> "ExecutionSession":
@@ -675,7 +679,8 @@ class ExecutionSession(BaseModel):
             last_checkpoint=execution_context.get("last_checkpoint"),
             phase_summaries=execution_context.get("phase_summaries", []),
             supports_resume=execution_context.get("supports_resume", True),
-            storyline_tags=task.storyline_tags or []
+            storyline_tags=task.storyline_tags or [],
+            sandbox_id=execution_context.get("sandbox_id")
         )
 
 
@@ -763,6 +768,7 @@ class PlaybookExecution(BaseModel):
     last_checkpoint: Optional[str] = Field(None, description="Last checkpoint data (JSON)")
     progress_log_path: Optional[str] = Field(None, description="Progress log file path")
     feature_list_path: Optional[str] = Field(None, description="Feature list file path")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Execution metadata (BYOP/BYOL fields: pack_id, card_id, scope, playbook_version)")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
