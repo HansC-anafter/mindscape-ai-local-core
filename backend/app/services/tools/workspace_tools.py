@@ -364,3 +364,12 @@ def get_workspace_tool_by_name(tool_name: str) -> Optional[MindscapeTool]:
     }
     return tools.get(tool_name)
 
+
+# Auto-register tools when module is imported
+def _auto_register():
+    """Auto-register workspace tools when module is imported."""
+    from backend.app.services.tools.registry import register_workspace_tools
+    register_workspace_tools()
+
+_auto_register()
+

@@ -520,7 +520,8 @@ def register_content_vault_tools(vault_path: Optional[str] = None):
     from backend.app.services.tools.content_vault.vault_tools import (
         ContentVaultLoadContextTool,
         ContentVaultBuildPromptTool,
-        ContentVaultWritePostsTool
+        ContentVaultWritePostsTool,
+        ContentVaultMergeContextTool
     )
 
     if vault_path is None:
@@ -529,7 +530,8 @@ def register_content_vault_tools(vault_path: Optional[str] = None):
     tools = [
         ContentVaultLoadContextTool(vault_path),
         ContentVaultBuildPromptTool(),
-        ContentVaultWritePostsTool(vault_path)
+        ContentVaultWritePostsTool(vault_path),
+        ContentVaultMergeContextTool(vault_path)
     ]
 
     for tool in tools:

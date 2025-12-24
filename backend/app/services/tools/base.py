@@ -279,16 +279,13 @@ class MindscapeTool(ABC):
 
     def to_langchain_tool(self):
         """
-        轉換成 LangChain BaseTool
-
-        這個方法在 Phase 1 實作(需要 LangChain 依賴)
-        轉換為 LangChain StructuredTool
+        Convert to LangChain BaseTool
 
         Returns:
-            LangChain StructuredTool 實例
+            LangChain StructuredTool instance
 
         Raises:
-            ImportError: 如果 LangChain 未安裝
+            ImportError: If LangChain is not installed
 
         Example:
             >>> tool = WordPressListPostsTool(connection)
@@ -306,12 +303,10 @@ class MindscapeTool(ABC):
 
     def to_mcp_tool(self):
         """
-        轉換成 MCP Tool
-
-        這個方法在 Phase 2 實作(需要 MCP 依賴)
+        Convert to MCP Tool
 
         Raises:
-            NotImplementedError: 需要安裝 MCP 支援
+            NotImplementedError: MCP support not available
         """
         raise NotImplementedError(
             "MCP support not installed. "

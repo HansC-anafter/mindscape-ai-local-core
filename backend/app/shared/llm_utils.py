@@ -159,12 +159,20 @@ async def call_llm(
 
             model_name = model
             is_newer_model = model_name and ("gpt-5" in model_name or "o1" in model_name.lower() or "o3" in model_name.lower())
+            is_gemini_model = model_name and "gemini" in model_name.lower()
 
             if is_newer_model:
                 # Newer models support higher token limits
                 default_token_limit = max_tokens or 8000
                 if 'max_completion_tokens' in sig.parameters:
                     params['max_completion_tokens'] = default_token_limit
+            elif is_gemini_model:
+                # Gemini models support up to 8192 output tokens via max_completion_tokens
+                default_token_limit = max_tokens or 8192
+                if 'max_completion_tokens' in sig.parameters:
+                    params['max_completion_tokens'] = default_token_limit
+                elif 'max_tokens' in sig.parameters:
+                    params['max_tokens'] = default_token_limit
             else:
                 # Older models (gpt-3.5-turbo, gpt-4o-mini) have lower limits, cap at 4096
                 default_token_limit = min(max_tokens or 4096, 4096)
@@ -198,10 +206,10 @@ async def call_llm(
 
 def extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
     """
-    Extract JSON object from text
+    Extract JSON object from text, handling truncated JSON from MAX_TOKENS.
 
     Args:
-        text: Text containing JSON
+        text: Text containing JSON (may be truncated)
 
     Returns:
         Extracted JSON object, or None if failed
@@ -209,15 +217,67 @@ def extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
     import json
     import re
 
+    def _find_balanced_json(candidate_text: str) -> Optional[str]:
+        """Return first balanced JSON object substring (handles deeply nested braces)."""
+        start = candidate_text.find("{")
+        while start != -1:
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(candidate_text)):
+                ch = candidate_text[i]
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == '"':
+                        in_string = False
+                else:
+                    if ch == '"':
+                        in_string = True
+                    elif ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            return candidate_text[start:i + 1]
+            start = candidate_text.find("{", start + 1)
+        return None
+
     # Try to parse the entire text directly
     try:
         return json.loads(text)
     except:
         pass
 
+    # Remove markdown code blocks if present
+    text_clean = text.strip()
+    if text_clean.startswith("```json"):
+        text_clean = text_clean[7:]
+    if text_clean.startswith("```"):
+        text_clean = text_clean[3:]
+    if text_clean.endswith("```"):
+        text_clean = text_clean[:-3]
+    text_clean = text_clean.strip()
+
+    # Try to parse cleaned text
+    try:
+        return json.loads(text_clean)
+    except:
+        pass
+
+    # Try to locate a balanced JSON object even with nested structures
+    balanced_json = _find_balanced_json(text_clean)
+    if balanced_json:
+        try:
+            return json.loads(balanced_json)
+        except:
+            pass
+
     # Try to extract JSON object (prefer larger/more complete matches)
     json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-    matches = re.findall(json_pattern, text, re.DOTALL)
+    matches = re.findall(json_pattern, text_clean, re.DOTALL)
 
     # Sort by length (descending) to prefer larger/more complete JSON objects
     matches = sorted(matches, key=len, reverse=True)
@@ -237,5 +297,54 @@ def extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
             return json.loads(match)
         except:
             continue
+
+    # Last resort: try to extract partial JSON from truncated response
+    # This handles cases where JSON is cut off mid-structure (e.g., MAX_TOKENS)
+    if text_clean.startswith("{"):
+        try:
+            # Try to extract completed key-value pairs even if JSON is truncated
+            # Look for patterns like "key": "value" or "key": value
+            partial_json = {}
+
+            # Find all completed key-value pairs before truncation
+            # Pattern: "key": (value|"string")
+            import re
+            kv_pattern = r'"([^"]+)":\s*("(?:[^"\\]|\\.)*"|[^,}\]]+?)(?=,\s*"|,|\s*})'
+            matches = re.finditer(kv_pattern, text_clean, re.DOTALL)
+
+            for match in matches:
+                key = match.group(1)
+                value_str = match.group(2).strip()
+
+                # Try to parse the value
+                try:
+                    # If it's a quoted string, unquote it
+                    if value_str.startswith('"') and value_str.endswith('"'):
+                        value = json.loads(value_str)  # This handles escaped quotes
+                    # If it's a number, parse it
+                    elif value_str.replace('.', '').replace('-', '').isdigit():
+                        value = float(value_str) if '.' in value_str else int(value_str)
+                    # If it's boolean or null
+                    elif value_str in ['true', 'false', 'null']:
+                        value = json.loads(value_str)
+                    # If it's an array or object, try to parse it
+                    elif value_str.startswith('[') or value_str.startswith('{'):
+                        try:
+                            value = json.loads(value_str)
+                        except:
+                            continue  # Skip incomplete arrays/objects
+                    else:
+                        continue  # Skip unparseable values
+
+                    partial_json[key] = value
+                except:
+                    continue
+
+            # If we extracted at least lens_id, return partial JSON
+            if "lens_id" in partial_json and len(partial_json) > 0:
+                logger.warning(f"Extracted partial JSON from truncated response: {list(partial_json.keys())}")
+                return partial_json
+        except Exception as e:
+            logger.debug(f"Failed to extract partial JSON: {e}")
 
     return None
