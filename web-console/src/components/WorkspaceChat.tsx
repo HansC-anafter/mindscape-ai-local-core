@@ -422,7 +422,7 @@ function WorkspaceChatContent({
 
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative">
+    <div className="flex flex-col h-full bg-surface-secondary dark:bg-gray-900 relative">
       <LLMNotConfiguredOverlay visible={llmConfigured === false} />
 
 
@@ -435,14 +435,14 @@ function WorkspaceChatContent({
 
         {analyzingFile && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-6 py-4">
+            <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="flex space-x-1">
                   <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
                   <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                 </div>
-                <span className="text-sm text-gray-600 dark:text-gray-300">{t('thinking')}</span>
+                <span className="text-sm text-secondary dark:text-gray-300">{t('thinking')}</span>
               </div>
             </div>
           </div>
@@ -462,7 +462,7 @@ function WorkspaceChatContent({
             </p>
             <details className="mt-2">
               <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse') || '查看原始回應'}</summary>
-              <pre className="text-xs mt-2 overflow-auto text-gray-900 dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
+              <pre className="text-xs mt-2 overflow-auto text-primary dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
             </details>
           </div>
         )}
@@ -533,7 +533,7 @@ function WorkspaceChatContent({
 
       {/* Quick Start Suggestions - Above input box */}
       {quickStartSuggestions.length > 0 && (
-        <div className="px-3 pt-2 pb-1 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
+        <div className="px-3 pt-2 pb-1 border-t border-default dark:border-gray-700 bg-surface dark:bg-gray-800/60">
           <div className="flex flex-wrap gap-2">
             {quickStartSuggestions.map((suggestion, idx) => (
               <button
@@ -548,7 +548,7 @@ function WorkspaceChatContent({
                     }
                   }, 100);
                 }}
-                className="px-2.5 py-1 text-xs bg-white dark:bg-gray-800 border border-blue-300 dark:border-gray-600 text-blue-700 dark:text-gray-100 rounded-md hover:bg-blue-50 dark:hover:bg-gray-700 hover:border-blue-400 transition-colors"
+                className="px-2.5 py-1 text-xs bg-surface-accent dark:bg-gray-800 border border-accent dark:border-gray-600 text-accent dark:text-gray-100 rounded-md hover:bg-accent-10 dark:hover:bg-gray-700 hover:border-accent dark:hover:border-gray-500 transition-colors"
               >
                 {suggestion.startsWith('suggestion.') || suggestion.startsWith('suggestions.') ? t(suggestion as any) || suggestion : suggestion}
               </button>

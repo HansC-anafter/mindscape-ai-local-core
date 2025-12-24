@@ -17,6 +17,7 @@ import { GitHubConnectionWizard } from './wizards/GitHubConnectionWizard';
 import { VectorDBConnectionWizard } from './wizards/VectorDBConnectionWizard';
 import { LocalFilesystemManager } from './wizards/LocalFilesystemManager';
 import { ObsidianConfigWizard } from './wizards/ObsidianConfigWizard';
+import { UnsplashConnectionWizard } from './wizards/UnsplashConnectionWizard';
 import { MCPServerPanel } from './panels/MCPServerPanel';
 import { ThirdPartyWorkflowPanel } from './panels/ThirdPartyWorkflowPanel';
 import { useTools } from '../hooks/useTools';
@@ -110,6 +111,12 @@ const getExternalSaaSTools = (t: (key: string) => string): Array<{
     description: t('toolGitHubDescription'),
     icon: '💻',
   },
+  {
+    toolType: 'unsplash',
+    name: 'Unsplash',
+    description: '連接 Unsplash 以搜尋和取得高品質攝影作品，用於生成 Visual Lens',
+    icon: '📷',
+  },
 ];
 
 interface ToolsPanelProps {
@@ -136,6 +143,11 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
   const [testSuccess, setTestSuccess] = useState<string | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [unsplashStats, setUnsplashStats] = useState<{
+    configuredWorkspaces: number;
+    totalWorkspaces: number;
+    statusText?: string;
+  } | null>(null);
 
   useEffect(() => {
     loadTools();
@@ -154,7 +166,72 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
         }
       })
       .catch(err => console.debug('Failed to load health status in ToolsPanel:', err));
+
+    // Load Unsplash statistics
+    loadUnsplashStats();
   }, [loadTools, loadVectorDBConfig, loadToolsStatus]);
+
+  const loadUnsplashStats = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const ownerUserId = 'default-user'; // TODO: Get from auth context
+      const workspacesResponse = await fetch(
+        `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=100`
+      );
+      if (workspacesResponse.ok) {
+        const workspaces = await workspacesResponse.json();
+        const workspaceList = Array.isArray(workspaces) ? workspaces : [];
+
+        // Check Unsplash config for each workspace
+        const configChecks = await Promise.all(
+          workspaceList.map(async (ws: { id: string }) => {
+            try {
+              const configResponse = await fetch(
+                `${apiUrl}/api/v1/workspaces/${ws.id}/web-generation/unsplash/config`
+              );
+              if (configResponse.ok) {
+                const config = await configResponse.json();
+                return config.configured || false;
+              }
+              return false;
+            } catch {
+              return false;
+            }
+          })
+        );
+
+        const configuredCount = configChecks.filter(Boolean).length;
+        const currentWorkspaceId = typeof window !== 'undefined'
+          ? window.location.pathname.match(/\/workspaces\/([^\/]+)/)?.[1]
+          : null;
+
+        let statusText: string | undefined;
+        if (currentWorkspaceId) {
+          try {
+            const currentConfigResponse = await fetch(
+              `${apiUrl}/api/v1/workspaces/${currentWorkspaceId}/web-generation/unsplash/config`
+            );
+            if (currentConfigResponse.ok) {
+              const currentConfig = await currentConfigResponse.json();
+              if (currentConfig.configured) {
+                statusText = `當前 Workspace: ${currentConfig.status || 'active'}`;
+              }
+            }
+          } catch {
+            // Ignore errors
+          }
+        }
+
+        setUnsplashStats({
+          configuredWorkspaces: configuredCount,
+          totalWorkspaces: workspaceList.length,
+          statusText,
+        });
+      }
+    } catch (err) {
+      console.debug('Failed to load Unsplash stats:', err);
+    }
+  };
 
   const handleTestConnection = async (connectionId: string) => {
     setTestError(null);
@@ -193,6 +270,10 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
     loadTools();
     loadVectorDBConfig();
     loadToolsStatus();
+    // Reload Unsplash stats if Unsplash was configured
+    if (toolType === 'unsplash') {
+      loadUnsplashStats();
+    }
     // Dispatch event to notify other components
     dispatchToolConfigUpdated(toolType);
   };
@@ -299,6 +380,15 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
                       : undefined
                   }
                   testing={testingConnection === tool.toolType || testingConnection !== null}
+                  extraInfo={
+                    tool.toolType === 'unsplash' && unsplashStats
+                      ? {
+                          configuredWorkspaces: unsplashStats.configuredWorkspaces,
+                          totalWorkspaces: unsplashStats.totalWorkspaces,
+                          statusText: unsplashStats.statusText,
+                        }
+                      : undefined
+                  }
                 />
               );
             })}
@@ -377,6 +467,13 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
           config={null}
           onClose={() => setSelectedTool(null)}
           onSuccess={() => handleWizardSuccess('obsidian')}
+        />
+      )}
+
+      {selectedTool === 'unsplash' && (
+        <UnsplashConnectionWizard
+          onClose={() => setSelectedTool(null)}
+          onSuccess={() => handleWizardSuccess('unsplash')}
         />
       )}
 

@@ -57,13 +57,13 @@ export default function VersionSelector({
             <div className="flex items-center gap-2 ml-auto">
               <button
                 onClick={onCopyClick}
-                className="px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
+                className="px-3 py-1.5 text-xs text-primary dark:text-gray-300 hover:text-primary dark:hover:text-gray-100 border border-default dark:border-gray-600 rounded hover:bg-surface-secondary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
               >
                 {t('directCopy')}
               </button>
               <button
                 onClick={onLLMClick}
-                className="px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 bg-white dark:bg-gray-800"
+                className="px-3 py-1.5 text-xs text-accent dark:text-blue-400 hover:text-accent dark:hover:text-blue-300 border border-accent dark:border-blue-700 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 bg-surface-accent dark:bg-gray-800"
               >
                 {t('llmCustomization')}
               </button>
@@ -98,13 +98,13 @@ export default function VersionSelector({
             <div className="flex items-center gap-2 ml-auto">
               <button
                 onClick={() => {/* TODO: Show diff */}}
-                className="px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
+                className="px-3 py-1.5 text-xs text-primary dark:text-gray-300 hover:text-primary dark:hover:text-gray-100 border border-default dark:border-gray-600 rounded hover:bg-surface-secondary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
               >
                 {t('viewDiff')}
               </button>
               <button
                 onClick={onLLMClick}
-                className="px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 bg-white dark:bg-gray-800"
+                className="px-3 py-1.5 text-xs text-accent dark:text-blue-400 hover:text-accent dark:hover:text-blue-300 border border-accent dark:border-blue-700 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 bg-surface-accent dark:bg-gray-800"
               >
                 {t('readjust')}
               </button>

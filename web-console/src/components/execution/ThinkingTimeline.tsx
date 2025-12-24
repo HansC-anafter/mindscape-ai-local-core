@@ -47,11 +47,11 @@ function getStatusIndicator(status?: TimelineEntry['status']): React.ReactNode {
     case 'completed':
       return <span className="w-2 h-2 bg-green-500 rounded-full" />;
     case 'in_progress':
-      return <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />;
+      return <span className="w-2 h-2 bg-accent dark:bg-blue-500 rounded-full animate-pulse" />;
     case 'error':
       return <span className="w-2 h-2 bg-red-500 rounded-full" />;
     default:
-      return <span className="w-2 h-2 bg-gray-300 dark:bg-gray-600 rounded-full" />;
+      return <span className="w-2 h-2 bg-default dark:bg-gray-600 rounded-full" />;
   }
 }
 
@@ -72,16 +72,16 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
     <div className="border-b dark:border-gray-700">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
         onClick={onToggle}
       >
         <div className="flex items-center gap-2">
-          <span className="text-gray-500 text-xs">{isCollapsed ? '▶' : '▼'}</span>
-          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+          <span className="text-secondary text-xs">{isCollapsed ? '▶' : '▼'}</span>
+          <span className="text-xs font-semibold text-primary dark:text-gray-300">
             思維軌跡
           </span>
           {entries.length > 0 && (
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-tertiary">
               最近 {entries.length} 次
             </span>
           )}
@@ -103,8 +103,8 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
                   className={`
                     group p-2 rounded-md border-l-2
                     ${recentEntry.status === 'in_progress'
-                      ? 'border-l-blue-500 bg-blue-50/50 dark:bg-blue-900/20'
-                      : 'border-l-purple-300 dark:border-l-purple-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-l-accent bg-accent-10 dark:bg-blue-900/20'
+                      : 'border-l-purple-300 dark:border-l-purple-600 hover:bg-surface-secondary dark:hover:bg-gray-800'
                     }
                     ${onEntryClick ? 'cursor-pointer' : ''}
                     transition-colors
@@ -114,19 +114,19 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
                   {/* Time & Status */}
                   <div className="flex items-center gap-2 mb-1">
                     {getStatusIndicator(recentEntry.status)}
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                    <span className="text-[10px] text-tertiary dark:text-gray-500">
                       {formatTime(recentEntry.timestamp)}
                     </span>
                   </div>
 
                   {/* Summary */}
-                  <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-2">
+                  <p className="text-xs text-primary dark:text-gray-300 line-clamp-2">
                     {recentEntry.summary}
                   </p>
 
                   {/* Stats */}
                   {(recentEntry.stepCount || recentEntry.artifactCount) && (
-                    <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
+                    <div className="flex items-center gap-3 mt-1 text-[10px] text-tertiary">
                       {recentEntry.stepCount && (
                         <span>{recentEntry.stepCount} 步驟</span>
                       )}
@@ -147,8 +147,8 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
                       className={`
                         group p-2 rounded-md border-l-2
                         ${entry.status === 'in_progress'
-                          ? 'border-l-blue-500 bg-blue-50/50 dark:bg-blue-900/20'
-                          : 'border-l-purple-300 dark:border-l-purple-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                          ? 'border-l-accent bg-accent-10 dark:bg-blue-900/20'
+                          : 'border-l-purple-300 dark:border-l-purple-600 hover:bg-surface-secondary dark:hover:bg-gray-800'
                         }
                         ${onEntryClick ? 'cursor-pointer' : ''}
                         transition-colors
@@ -158,19 +158,19 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
                       {/* Time & Status */}
                       <div className="flex items-center gap-2 mb-1">
                         {getStatusIndicator(entry.status)}
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                        <span className="text-[10px] text-tertiary dark:text-gray-500">
                           {formatTime(entry.timestamp)}
                         </span>
                       </div>
 
                       {/* Summary */}
-                      <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-2">
+                      <p className="text-xs text-primary dark:text-gray-300 line-clamp-2">
                         {entry.summary}
                       </p>
 
                       {/* Stats */}
                       {(entry.stepCount || entry.artifactCount) && (
-                        <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
+                        <div className="flex items-center gap-3 mt-1 text-[10px] text-tertiary">
                           {entry.stepCount && (
                             <span>{entry.stepCount} 步驟</span>
                           )}
@@ -191,14 +191,14 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
                     e.stopPropagation();
                     setExpanded(!expanded);
                   }}
-                  className="w-full text-center text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 py-1 transition-colors"
+                  className="w-full text-center text-[10px] text-tertiary hover:text-primary dark:hover:text-gray-300 py-1 transition-colors"
                 >
                   {expanded ? '收起' : `查看更多 (${olderEntries.length}) →`}
                 </button>
               )}
             </div>
           ) : (
-            <p className="text-xs text-gray-400 dark:text-gray-500 italic py-2">
+            <p className="text-xs text-tertiary dark:text-gray-500 italic py-2">
               尚無執行記錄
             </p>
           )}

@@ -57,17 +57,17 @@ export default function ExecutionTimelinePage() {
   const getStatusColor = (status: string): string => {
     const colors: Record<string, string> = {
       done: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-      running: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+      running: 'bg-accent-10 text-accent dark:bg-blue-900 dark:text-blue-200',
       paused: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
       failed: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status] || 'bg-surface-secondary text-primary';
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-gray-500">Loading execution timeline...</div>
+        <div className="text-secondary">Loading execution timeline...</div>
       </div>
     );
   }
@@ -88,11 +88,11 @@ export default function ExecutionTimelinePage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b dark:border-gray-700 bg-white dark:bg-gray-900">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+      <div className="px-6 py-4 border-b dark:border-gray-700 bg-surface-secondary dark:bg-gray-900">
+        <h1 className="text-2xl font-bold text-primary dark:text-gray-100">
           Execution Timeline
         </h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+        <p className="text-sm text-secondary dark:text-gray-400 mt-1">
           Trace execution history and decision chains
         </p>
       </div>
@@ -102,35 +102,35 @@ export default function ExecutionTimelinePage() {
         {/* Timeline */}
         <div className="flex-1 overflow-y-auto p-6">
           {sortedExecutions.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-secondary">
               No executions yet
             </div>
           ) : (
             <div className="relative">
               {/* Timeline line */}
-              <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-gray-300 dark:bg-gray-700"></div>
+              <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-default dark:bg-gray-700"></div>
 
               {/* Execution items */}
               <div className="space-y-6">
                 {sortedExecutions.map((execution, index) => (
                   <div
                     key={execution.id}
-                    className="relative flex items-start gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-4 rounded-lg transition-colors"
+                    className="relative flex items-start gap-4 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 p-4 rounded-lg transition-colors"
                     onClick={() => setSelectedExecution(execution)}
                   >
                     {/* Timeline dot */}
-                    <div className="relative z-10 w-4 h-4 rounded-full bg-blue-600 dark:bg-blue-500 border-2 border-white dark:border-gray-900"></div>
+                    <div className="relative z-10 w-4 h-4 rounded-full bg-accent dark:bg-blue-500 border-2 border-surface-accent dark:border-gray-900"></div>
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                            <h3 className="font-semibold text-primary dark:text-gray-100">
                               {execution.playbook_code}
                             </h3>
                             {execution.playbook_version && (
-                              <span className="text-xs text-gray-500 dark:text-gray-500">
+                              <span className="text-xs text-secondary dark:text-gray-500">
                                 v{execution.playbook_version}
                               </span>
                             )}
@@ -140,7 +140,7 @@ export default function ExecutionTimelinePage() {
                           </div>
 
                           {execution.origin_intent_label && (
-                            <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            <div className="text-sm text-secondary dark:text-gray-400 mb-2">
                               From Intent: {execution.origin_intent_label}
                             </div>
                           )}
@@ -158,7 +158,7 @@ export default function ExecutionTimelinePage() {
                             </div>
                           )}
 
-                          <div className="text-xs text-gray-500 dark:text-gray-500">
+                          <div className="text-xs text-secondary dark:text-gray-500">
                             {new Date(execution.created_at).toLocaleString()}
                             {execution.completed_at && (
                               <span className="ml-2">
@@ -173,7 +173,7 @@ export default function ExecutionTimelinePage() {
                             e.stopPropagation();
                             router.push(`/workspaces/${workspaceId}/executions/${execution.id}`);
                           }}
-                          className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                          className="px-3 py-1 text-sm bg-accent dark:bg-blue-600 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-700 transition-colors"
                         >
                           View Details
                         </button>
@@ -188,15 +188,15 @@ export default function ExecutionTimelinePage() {
 
         {/* Detail Panel */}
         {selectedExecution && (
-          <div className="w-96 border-l dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto">
+          <div className="w-96 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 overflow-y-auto">
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
                   Execution Details
                 </h2>
                 <button
                   onClick={() => setSelectedExecution(null)}
-                  className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  className="text-secondary hover:text-primary dark:hover:text-gray-300"
                 >
                   ✕
                 </button>
@@ -204,13 +204,13 @@ export default function ExecutionTimelinePage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  <label className="text-xs font-medium text-secondary dark:text-gray-400">
                     Playbook
                   </label>
-                  <div className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+                  <div className="text-sm text-primary dark:text-gray-100 mt-1">
                     {selectedExecution.playbook_code}
                     {selectedExecution.playbook_version && (
-                      <span className="text-gray-500 ml-2">v{selectedExecution.playbook_version}</span>
+                      <span className="text-secondary ml-2">v{selectedExecution.playbook_version}</span>
                     )}
                   </div>
                 </div>
@@ -228,10 +228,10 @@ export default function ExecutionTimelinePage() {
 
                 {selectedExecution.origin_intent_label && (
                   <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    <label className="text-xs font-medium text-secondary dark:text-gray-400">
                       Origin Intent
                     </label>
-                    <div className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+                    <div className="text-sm text-primary dark:text-gray-100 mt-1">
                       {selectedExecution.origin_intent_label}
                     </div>
                   </div>
@@ -256,20 +256,20 @@ export default function ExecutionTimelinePage() {
                 )}
 
                 <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  <label className="text-xs font-medium text-secondary dark:text-gray-400">
                     Created
                   </label>
-                  <div className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+                  <div className="text-sm text-primary dark:text-gray-100 mt-1">
                     {new Date(selectedExecution.created_at).toLocaleString()}
                   </div>
                 </div>
 
                 {selectedExecution.completed_at && (
                   <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    <label className="text-xs font-medium text-secondary dark:text-gray-400">
                       Completed
                     </label>
-                    <div className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+                    <div className="text-sm text-primary dark:text-gray-100 mt-1">
                       {new Date(selectedExecution.completed_at).toLocaleString()}
                     </div>
                   </div>
@@ -277,7 +277,7 @@ export default function ExecutionTimelinePage() {
 
                 <button
                   onClick={() => router.push(`/workspaces/${workspaceId}/executions/${selectedExecution.id}`)}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="w-full px-4 py-2 bg-accent dark:bg-blue-600 text-white rounded-lg hover:bg-accent/90 dark:hover:bg-blue-700 transition-colors"
                 >
                   View Full Details
                 </button>

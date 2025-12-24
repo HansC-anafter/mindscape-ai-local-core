@@ -28,6 +28,7 @@ interface SandboxViewerProps {
   executionId?: string;
   onDeploy?: () => void;
   apiUrl?: string;
+  initialFile?: string | null;
 }
 
 type TabType = 'preview' | 'source' | 'history' | 'chat';
@@ -39,10 +40,11 @@ export default function SandboxViewer({
   executionId,
   onDeploy,
   apiUrl = '',
+  initialFile = null,
 }: SandboxViewerProps) {
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
   const [files, setFiles] = useState<SandboxFile[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(initialFile);
   const [fileContent, setFileContent] = useState<SandboxFileContent | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
@@ -61,6 +63,24 @@ export default function SandboxViewer({
       loadVersions();
     }
   }, [sandbox, currentVersion]);
+
+  // Set initial file when files are loaded and initialFile is provided
+  useEffect(() => {
+    if (initialFile && files.length > 0) {
+      // Check if the initial file exists in the files list
+      // Try exact match first, then try endsWith match
+      const exactMatch = files.find(f => f.path === initialFile);
+      if (exactMatch) {
+        setSelectedFile(initialFile);
+      } else {
+        // Try to find file that ends with the initial file path
+        const endsWithMatch = files.find(f => f.path.endsWith(initialFile) || initialFile.endsWith(f.path));
+        if (endsWithMatch) {
+          setSelectedFile(endsWithMatch.path);
+        }
+      }
+    }
+  }, [initialFile, files]);
 
   useEffect(() => {
     if (selectedFile && sandbox) {

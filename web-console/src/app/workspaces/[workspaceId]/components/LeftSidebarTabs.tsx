@@ -35,22 +35,22 @@ export default function LeftSidebarTabs({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Tab Header */}
-      <div className="flex border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shrink-0">
+      <div className="flex border-b dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 shrink-0">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => onTabChange(tab.key)}
-            className={`flex-1 px-4 py-2 text-xs font-medium transition-colors flex flex-col items-center ${
+            className={`group flex-1 px-4 py-2 text-xs font-medium transition-colors flex flex-col items-center ${
               activeTab === tab.key
-                ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ? 'bg-surface-accent dark:bg-gray-900 text-accent dark:text-blue-400 border-b-2 border-accent dark:border-blue-500'
+                : 'text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-tertiary dark:hover:bg-gray-700'
             }`}
           >
             <span className="tab-label">{tab.label}</span>
-            <span className={`tab-subtitle text-[10px] ${
+            <span className={`tab-subtitle text-[10px] transition-colors ${
               activeTab === tab.key
-                ? 'text-blue-500 dark:text-blue-400'
-                : 'text-gray-500 dark:text-gray-500'
+                ? 'text-accent dark:text-blue-400'
+                : 'text-tertiary dark:text-gray-500 group-hover:text-secondary dark:group-hover:text-gray-400'
             }`}>
               {tab.subtitle}
             </span>

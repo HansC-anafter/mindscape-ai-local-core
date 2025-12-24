@@ -90,7 +90,7 @@ export function InputArea({
   return (
     <form
       onSubmit={onSend}
-      className="relative border-t bg-white dark:bg-gray-900"
+      className="relative border-t bg-surface-secondary dark:bg-gray-900"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -136,7 +136,7 @@ export function InputArea({
         </div>
       )}
 
-      <div className="flex flex-col border-t border-gray-200/60 dark:border-gray-700/60 backdrop-blur-sm">
+      <div className="flex flex-col border-t border-default/60 dark:border-gray-700/60 backdrop-blur-sm">
         <div className="flex-1 relative px-4 pt-3">
           <textarea
             ref={textareaRef}
@@ -147,7 +147,7 @@ export function InputArea({
             onKeyDown={handleKeyPress}
             placeholder={llmConfigured === false ? t('configureApiKeyFirst') : t('typeMessageOrDropFiles')}
             disabled={llmConfigured === false}
-            className="w-full resize-none border border-gray-200/50 dark:border-gray-700/50 rounded-lg px-3 py-2 bg-white/80 dark:bg-gray-800/80 focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:focus:ring-blue-400/50 focus:border-blue-300 dark:focus:border-blue-600 disabled:bg-gray-100/50 dark:disabled:bg-gray-800/50 disabled:cursor-not-allowed overflow-y-auto text-xs text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all"
+            className="w-full resize-none border border-default/50 dark:border-gray-700/50 rounded-lg px-3 py-2 bg-surface-accent dark:bg-gray-800/80 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400/50 focus:border-accent dark:focus:border-blue-600 disabled:bg-surface-secondary/50 dark:disabled:bg-gray-800/50 disabled:cursor-not-allowed overflow-y-auto text-xs text-primary dark:text-gray-100 placeholder-tertiary dark:placeholder-gray-500 transition-all"
             style={{ minHeight: '2.5rem', maxHeight: '200px', lineHeight: '1.25rem' }}
             autoComplete="off"
             data-lpignore="true"

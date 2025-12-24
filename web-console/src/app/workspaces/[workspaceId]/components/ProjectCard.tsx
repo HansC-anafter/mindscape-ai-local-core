@@ -90,21 +90,21 @@ function EventItem({
 
   return (
     <div
-      className="event-item flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer transition-colors"
+      className="event-item flex items-center gap-2 p-2 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded cursor-pointer transition-colors"
       onClick={onClick}
     >
       <span className="event-icon text-xs flex-shrink-0">{icons[event.type] || '•'}</span>
       <div className="event-content flex-1 min-w-0">
-        <div className="playbook-name text-[10px] font-medium text-gray-900 dark:text-gray-100 truncate">
+        <div className="playbook-name text-[10px] font-medium text-primary dark:text-gray-100 truncate">
           {event.playbookName}
         </div>
         {event.stepName && (
-          <div className="step-info text-[9px] text-gray-500 dark:text-gray-400">
+          <div className="step-info text-[9px] text-secondary dark:text-gray-400">
             Step {event.stepIndex}: {event.stepName}
           </div>
         )}
       </div>
-      <span className="event-time text-[9px] text-gray-400 dark:text-gray-500 flex-shrink-0">
+      <span className="event-time text-[9px] text-tertiary dark:text-gray-500 flex-shrink-0">
         {formatRelativeTime(event.timestamp)}
       </span>
     </div>
@@ -116,7 +116,7 @@ export default function ProjectCard({
   workspaceId,
   isExpanded: controlledExpanded,
   isFocused = false,
-  defaultExpanded = false,  // Add defaultExpanded prop
+  defaultExpanded = true,  // Default to expanded for better visibility of task details
   onToggleExpand,
   onFocus,
   onOpenExecution,
@@ -126,10 +126,66 @@ export default function ProjectCard({
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const [cardData, setCardData] = useState<ProjectCardData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isHighlighted, setIsHighlighted] = useState(false);
   const loadingRef = useRef(false);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isExpanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded;
-  const handleToggleExpand = onToggleExpand || (() => setInternalExpanded(!internalExpanded));
+  const handleToggleExpand = onToggleExpand || (() => {
+    console.log('[ProjectCard] Toggle expand:', { before: internalExpanded, projectId: project.id });
+    setInternalExpanded(!internalExpanded);
+  });
+
+  // Debug: Log expansion state
+  useEffect(() => {
+    console.log('[ProjectCard] Expansion state changed:', {
+      projectId: project.id,
+      defaultExpanded,
+      internalExpanded,
+      controlledExpanded,
+      isExpanded
+    });
+  }, [defaultExpanded, internalExpanded, controlledExpanded, isExpanded, project.id]);
+
+  // Listen for highlight-project-card event
+  useEffect(() => {
+    const handleHighlight = (e: CustomEvent) => {
+      const { projectId } = e.detail || {};
+      if (projectId === project.id) {
+        // Clear existing timeout if any
+        if (highlightTimeoutRef.current) {
+          clearTimeout(highlightTimeoutRef.current);
+        }
+
+        // Set highlighted state
+        setIsHighlighted(true);
+
+        // Auto-expand card if collapsed
+        if (!isExpanded) {
+          handleToggleExpand();
+        }
+
+        // Scroll card into view if needed
+        const cardElement = document.querySelector(`[data-project-card-id="${project.id}"]`);
+        if (cardElement) {
+          cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Clear highlight after 2.5 seconds
+        highlightTimeoutRef.current = setTimeout(() => {
+          setIsHighlighted(false);
+        }, 2500);
+      }
+    };
+
+    window.addEventListener('highlight-project-card', handleHighlight as EventListener);
+    return () => {
+      window.removeEventListener('highlight-project-card', handleHighlight as EventListener);
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, [project.id, isExpanded, handleToggleExpand]);
 
   useEffect(() => {
     // Load data when component mounts or when project changes, not just when expanded
@@ -237,13 +293,18 @@ export default function ProjectCard({
 
   return (
     <div
-      className={`project-card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden transition-all cursor-pointer ${
-        isFocused ? 'ring-2 ring-blue-500 dark:ring-blue-400' : ''
+      data-project-card-id={project.id}
+      className={`project-card bg-surface-secondary dark:bg-gray-800 border rounded-lg overflow-hidden transition-all cursor-pointer ${
+        isHighlighted
+          ? 'ring-2 ring-accent dark:ring-blue-400 border-accent dark:border-blue-500 shadow-lg'
+          : 'border-default dark:border-gray-700'
+      } ${
+        isFocused ? 'ring-2 ring-accent dark:ring-blue-400' : ''
       }`}
       onClick={handleCardClick}
     >
       <div
-        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        className="cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
         onClick={(e) => {
           e.stopPropagation();
           handleToggleExpand();
@@ -251,14 +312,14 @@ export default function ProjectCard({
       >
         <div className="flex items-center justify-between p-3 pb-1.5">
           <div className="left flex items-center gap-2 flex-1 min-w-0">
-            <span className="chevron text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+            <span className="chevron text-xs text-tertiary dark:text-gray-500 flex-shrink-0">
               {isExpanded ? '▼' : '▶'}
             </span>
-            <span className="project-name text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+            <span className="project-name text-sm font-medium text-primary dark:text-gray-100 truncate">
               {project.title}
             </span>
             {cardData?.mindLensName && (
-              <span className="mind-lens-tag text-[10px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
+              <span className="mind-lens-tag text-[10px] px-1.5 py-0.5 bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300 rounded">
                 @{cardData.mindLensName}
               </span>
             )}
@@ -268,8 +329,8 @@ export default function ProjectCard({
               <span
                 className={`badge running text-[10px] px-1.5 py-0.5 rounded ${
                   cardData.stats.runningExecutions > 0
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+                    ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+                    : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
                 }`}
                 title={`${cardData.stats.runningExecutions} 個執行中`}
               >
@@ -281,7 +342,7 @@ export default function ProjectCard({
                 className={`badge artifact text-[10px] px-1.5 py-0.5 rounded ${
                   cardData.stats.artifactCount > 0
                     ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+                    : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
                 }`}
                 title={`${cardData.stats.artifactCount} 個成果`}
               >
@@ -292,8 +353,8 @@ export default function ProjectCard({
               <span
                 className={`badge completed text-[10px] px-1.5 py-0.5 rounded ${
                   cardData.stats.completedExecutions > 0
-                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+                    ? 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
+                    : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
                 }`}
                 title={`${cardData.stats.completedExecutions} 個已完成`}
               >
@@ -310,7 +371,7 @@ export default function ProjectCard({
             )}
           </div>
         </div>
-        <div className="block px-3 pb-2 pt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+        <div className="block px-3 pb-2 pt-0.5 text-[10px] text-secondary dark:text-gray-400">
           <div className="flex items-center gap-3">
             {(project.human_owner_user_id || project.initiator_user_id) && (
               <span>負責人: {project.human_owner_user_id || project.initiator_user_id}</span>
@@ -328,9 +389,9 @@ export default function ProjectCard({
         </div>
       </div>
 
-      <div className="progress-bar-container relative w-full h-1 bg-gray-200 dark:bg-gray-700 overflow-hidden">
+      <div className="progress-bar-container relative w-full h-1 bg-surface-secondary dark:bg-gray-700 overflow-hidden">
         <div
-          className="progress-fill h-full bg-blue-500 dark:bg-blue-400 rounded-full transition-all relative overflow-hidden"
+          className="progress-fill h-full bg-accent dark:bg-blue-400 rounded-full transition-all relative overflow-hidden"
           style={{ width: `${progressPercentage}%` }}
         >
           <div className="laser-effect absolute inset-0 bg-gradient-to-r from-transparent via-white/50 via-white/80 via-white/50 to-transparent animate-shimmer" style={{ width: '40%' }} />
@@ -348,8 +409,22 @@ export default function ProjectCard({
 
       {isExpanded && (
         <div className="card-content p-3">
+          {(() => {
+            // Debug: Log expansion and data state
+            console.log('[ProjectCard] Expanded content rendering:', {
+              projectId: project.id,
+              isExpanded,
+              loading,
+              hasCardData: !!cardData,
+              cardDataKeys: cardData ? Object.keys(cardData) : null,
+              defaultExpanded,
+              internalExpanded,
+              controlledExpanded
+            });
+            return null;
+          })()}
           {loading ? (
-            <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
+            <div className="text-xs text-secondary dark:text-gray-400 text-center py-4">
               載入中...
             </div>
           ) : cardData ? (
@@ -357,24 +432,24 @@ export default function ProjectCard({
               {/* Playbook List */}
               {cardData.playbooks && cardData.playbooks.length > 0 && (
                 <div className="mb-4">
-                  <div className="events-header text-[10px] font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                  <div className="events-header text-[10px] font-semibold text-primary dark:text-gray-300 mb-2">
                     Playbook 任務 ({cardData.playbooks.length})
                   </div>
                   <div className="space-y-1">
                     {cardData.playbooks.map((playbook, index) => (
                       <div
                         key={playbook.code}
-                        className="flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded"
+                        className="flex items-center gap-2 p-2 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded"
                       >
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                        <span className="text-xs text-secondary dark:text-gray-400">
                           {index + 1}.
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium text-gray-900 dark:text-gray-100">
+                          <div className="text-xs font-medium text-primary dark:text-gray-100">
                             {playbook.name}
                           </div>
                           {playbook.description && (
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                            <div className="text-[10px] text-secondary dark:text-gray-400">
                               {playbook.description}
                             </div>
                           )}
@@ -387,7 +462,7 @@ export default function ProjectCard({
 
               {/* Recent Events */}
               <div>
-                <div className="events-header text-[10px] font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                <div className="events-header text-[10px] font-semibold text-primary dark:text-gray-300 mb-2">
                   即時動態
                 </div>
                 <div className="events-list space-y-1 max-h-48 overflow-y-auto">
@@ -411,7 +486,7 @@ export default function ProjectCard({
                         />
                       ))
                     ) : (
-                      <div className="text-[10px] text-gray-400 dark:text-gray-500 text-center py-4">
+                      <div className="text-[10px] text-tertiary dark:text-gray-500 text-center py-4">
                         尚無動態
                       </div>
                     );
@@ -420,14 +495,14 @@ export default function ProjectCard({
               </div>
             </div>
           ) : (
-            <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
+            <div className="text-xs text-secondary dark:text-gray-400 text-center py-4">
               無法載入數據
             </div>
           )}
         </div>
       )}
 
-      <div className="px-3 pb-2 pt-1.5 border-t border-gray-200 dark:border-gray-700">
+      <div className="px-3 pb-2 pt-1.5 border-t border-default dark:border-gray-700">
         <button
           onClick={async (e) => {
             e.stopPropagation();
@@ -502,7 +577,7 @@ export default function ProjectCard({
               onFocus();
             }
           }}
-          className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
+          className="w-full text-xs text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
         >
           查看 →
         </button>

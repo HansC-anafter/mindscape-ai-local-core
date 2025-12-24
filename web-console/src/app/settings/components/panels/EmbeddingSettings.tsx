@@ -332,7 +332,7 @@ export function EmbeddingSettings() {
         <button
           onClick={testConnection}
           disabled={testing}
-          className="px-3 py-1.5 text-sm bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 text-sm bg-accent dark:bg-blue-700 text-white rounded-md hover:bg-accent/90 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {testing ? t('testing') : t('testConnection')}
         </button>
@@ -470,11 +470,11 @@ export function EmbeddingSettings() {
 
               {/* Status Message */}
               {previousModel.metadata.migration_recommendation && (
-                <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                  <div className="text-xs font-medium text-blue-900 dark:text-blue-200 mb-1">
+                <div className="mb-3 p-2 bg-accent-10 dark:bg-blue-900/20 rounded border border-accent/30 dark:border-blue-800">
+                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">
                     Status:
                   </div>
-                  <div className="text-xs text-blue-800 dark:text-blue-300">
+                  <div className="text-xs text-accent dark:text-blue-300">
                     {previousModel.metadata.migration_recommendation}
                   </div>
                 </div>
@@ -525,11 +525,11 @@ export function EmbeddingSettings() {
 
               {/* New Model Info */}
               {previousModel.metadata.new_model && (
-                <div className="mb-3 p-2 bg-white dark:bg-gray-800 rounded border border-blue-200 dark:border-blue-800">
-                  <div className="text-xs font-medium text-blue-900 dark:text-blue-200 mb-1">
+                <div className="mb-3 p-2 bg-surface-accent dark:bg-gray-800 rounded border border-accent/30 dark:border-blue-800">
+                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">
                     New Model:
                   </div>
-                  <div className="text-xs text-blue-800 dark:text-blue-300 space-y-1">
+                  <div className="text-xs text-accent dark:text-blue-300 space-y-1">
                     <div>
                       <strong>{previousModel.metadata.new_model.model_name}</strong> ({previousModel.metadata.new_model.provider})
                     </div>
@@ -587,11 +587,11 @@ export function EmbeddingSettings() {
 
               {/* Migration Recommendation */}
               {previousModel.metadata.migration_recommendation && (
-                <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                  <div className="text-xs font-medium text-blue-900 dark:text-blue-200 mb-1">
+                <div className="mb-3 p-2 bg-accent-10 dark:bg-blue-900/20 rounded border border-accent/30 dark:border-blue-800">
+                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">
                     Recommendation:
                   </div>
-                  <div className="text-xs text-blue-800 dark:text-blue-300">
+                  <div className="text-xs text-accent dark:text-blue-300">
                     {previousModel.metadata.migration_recommendation}
                   </div>
                 </div>
@@ -633,36 +633,36 @@ export function EmbeddingSettings() {
 
       {/* Migration Progress */}
       {migration && (
-        <div className="mb-4 p-4 border border-blue-300 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+        <div className="mb-4 p-4 border border-accent/30 dark:border-blue-700 rounded-lg bg-accent-10 dark:bg-blue-900/20">
           <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 text-blue-600 dark:text-blue-400 text-xl">
+            <div className="flex-shrink-0 text-accent dark:text-blue-400 text-xl">
               {migration.status === 'running' ? '...' : migration.status === 'completed' ? '✓' : migration.status === 'failed' ? '✗' : '○'}
             </div>
             <div className="flex-1">
-              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">
+              <h4 className="text-sm font-semibold text-accent dark:text-blue-200 mb-2">
                 Re-embedding in Progress
               </h4>
               {migration.status === 'running' && (
                 <>
                   <div className="mb-2">
-                    <div className="flex justify-between text-xs text-blue-800 dark:text-blue-300 mb-1">
+                    <div className="flex justify-between text-xs text-accent dark:text-blue-300 mb-1">
                       <span>Progress: {migration.completed_count} / {migration.total_count}</span>
                       <span>{migrationProgress}%</span>
                     </div>
-                    <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2">
+                    <div className="w-full bg-accent-10 dark:bg-blue-800 rounded-full h-2">
                       <div
-                        className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        className="bg-accent dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
                         style={{ width: `${migrationProgress}%` }}
                       />
                     </div>
                   </div>
-                  <p className="text-xs text-blue-700 dark:text-blue-400">
+                  <p className="text-xs text-accent dark:text-blue-400">
                     Re-embedding document vectors. Please do not close this page...
                   </p>
                 </>
               )}
               {migration.status === 'completed' && (
-                <p className="text-sm text-blue-800 dark:text-blue-300">
+                <p className="text-sm text-accent dark:text-blue-300">
                   Re-embedding completed! Processed {migration.total_count} embeddings.
                 </p>
               )}

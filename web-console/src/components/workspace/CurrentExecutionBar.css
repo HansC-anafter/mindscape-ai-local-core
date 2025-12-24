@@ -18,6 +18,23 @@
   min-width: 0;
 }
 
+.execution-info.clickable-area {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: 4px;
+}
+
+.execution-info.clickable-area:hover {
+  background: var(--color-surface-accent-hover, #e0e7ff);
+}
+
+/* Dark mode hover support */
+.dark .execution-info.clickable-area:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
 .playbook-name {
   font-weight: 500;
   color: var(--color-text-primary, #111827);

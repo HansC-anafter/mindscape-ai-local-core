@@ -98,8 +98,8 @@ export function BaselineDiffPanel({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        <div className="flex items-center gap-2 text-sm text-secondary">
+          <div className="w-4 h-4 border-2 border-default border-t-gray-600 rounded-full animate-spin" />
           Loading diff...
         </div>
       </div>
@@ -123,21 +123,21 @@ export function BaselineDiffPanel({
   const { diff_summary, baseline_version, current_spec_version } = diffData;
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+    <div className="bg-surface-accent dark:bg-gray-900 border border-default dark:border-gray-700 rounded-lg">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-default dark:border-gray-700">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
             Baseline Diff
           </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-xs text-secondary dark:text-gray-400 mt-1">
             v{baseline_version} → {current_spec_version || 'current'}
           </p>
         </div>
         {onClose && (
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            className="text-tertiary hover:text-secondary dark:hover:text-gray-300"
           >
             ✕
           </button>
@@ -149,7 +149,7 @@ export function BaselineDiffPanel({
         {/* Sections Diff */}
         {diff_summary.sections.length > 0 && (
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+            <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
               Sections
             </h3>
             <div className="space-y-1">
@@ -182,30 +182,30 @@ export function BaselineDiffPanel({
           Object.keys(diff_summary.theme_tokens.typography).length > 0 ||
           diff_summary.theme_tokens.spacing) && (
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+            <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
               Theme Tokens
             </h3>
 
             {/* Colors */}
             {Object.keys(diff_summary.theme_tokens.colors).length > 0 && (
               <div className="mb-4">
-                <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <h4 className="text-xs font-medium text-primary dark:text-gray-300 mb-2">
                   Colors
                 </h4>
                 <div className="space-y-2">
                   {Object.entries(diff_summary.theme_tokens.colors).map(([key, diff]) => (
                     <div
                       key={key}
-                      className="flex items-center gap-3 text-sm px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded"
+                      className="flex items-center gap-3 text-sm px-3 py-2 bg-surface-secondary dark:bg-gray-800 rounded"
                     >
-                      <span className="font-medium text-gray-700 dark:text-gray-300 min-w-[100px]">
+                      <span className="font-medium text-primary dark:text-gray-300 min-w-[100px]">
                         {key}:
                       </span>
                       <div className="flex items-center gap-2 flex-1">
-                        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">
+                        <span className="text-secondary dark:text-gray-400 font-mono text-xs">
                           {String(diff.baseline || '—')}
                         </span>
-                        <span className="text-gray-400">→</span>
+                        <span className="text-tertiary">→</span>
                         <span className="text-blue-600 dark:text-blue-400 font-mono text-xs">
                           {String(diff.current || '—')}
                         </span>
@@ -219,23 +219,23 @@ export function BaselineDiffPanel({
             {/* Typography */}
             {Object.keys(diff_summary.theme_tokens.typography).length > 0 && (
               <div className="mb-4">
-                <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <h4 className="text-xs font-medium text-primary dark:text-gray-300 mb-2">
                   Typography
                 </h4>
                 <div className="space-y-2">
                   {Object.entries(diff_summary.theme_tokens.typography).map(([key, diff]) => (
                     <div
                       key={key}
-                      className="flex items-center gap-3 text-sm px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded"
+                      className="flex items-center gap-3 text-sm px-3 py-2 bg-surface-secondary dark:bg-gray-800 rounded"
                     >
-                      <span className="font-medium text-gray-700 dark:text-gray-300 min-w-[100px]">
+                      <span className="font-medium text-primary dark:text-gray-300 min-w-[100px]">
                         {key}:
                       </span>
                       <div className="flex items-center gap-2 flex-1">
-                        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">
+                        <span className="text-secondary dark:text-gray-400 font-mono text-xs">
                           {String(diff.baseline || '—')}
                         </span>
-                        <span className="text-gray-400">→</span>
+                        <span className="text-tertiary">→</span>
                         <span className="text-blue-600 dark:text-blue-400 font-mono text-xs">
                           {String(diff.current || '—')}
                         </span>
@@ -249,7 +249,7 @@ export function BaselineDiffPanel({
             {/* Spacing */}
             {diff_summary.theme_tokens.spacing && (
               <div>
-                <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <h4 className="text-xs font-medium text-primary dark:text-gray-300 mb-2">
                   Spacing
                 </h4>
                 <div className="flex items-center gap-3 text-sm px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded">
@@ -272,7 +272,7 @@ export function BaselineDiffPanel({
         {/* Missing Fields */}
         {diff_summary.missing_fields.length > 0 && (
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+            <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
               Missing Fields
             </h3>
             <div className="space-y-1">

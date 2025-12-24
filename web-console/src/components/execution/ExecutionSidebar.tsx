@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n';
+import { getPlaybookMetadata } from '@/lib/i18n/locales/playbooks';
 
 interface ExecutionSummary {
   executionId: string;
@@ -337,18 +338,18 @@ export default function ExecutionSidebar({
 
   if (loading) {
     return (
-      <div className="w-60 flex-shrink-0 border-r dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+      <div className="w-60 flex-shrink-0 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 p-4">
         <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-4"></div>
-          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-4 bg-default dark:bg-gray-700 rounded w-3/4 mb-4"></div>
+          <div className="h-8 bg-default dark:bg-gray-700 rounded mb-2"></div>
+          <div className="h-8 bg-default dark:bg-gray-700 rounded"></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-white dark:bg-gray-900">
+    <div className="w-full h-full flex flex-col bg-surface-secondary dark:bg-gray-900">
       {/* Quick Filters */}
       <div className="p-3 border-b dark:border-gray-700">
         <div className="flex flex-wrap gap-1.5">
@@ -362,8 +363,8 @@ export default function ExecutionSidebar({
               key={filter.key}
               className={`px-2 py-1 text-xs rounded-md transition-colors ${
                 filterStatus === filter.key
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300 border border-accent dark:border-blue-700'
+                  : 'bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 border border-default dark:border-gray-600 hover:bg-surface-accent dark:hover:bg-gray-700'
               }`}
               onClick={() => setFilterStatus(filter.key)}
             >
@@ -377,7 +378,7 @@ export default function ExecutionSidebar({
       {/* Playbook Groups */}
       <div className="flex-1 overflow-y-auto">
         {filteredGroups.length === 0 ? (
-          <div className="p-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+          <div className="p-4 text-sm text-secondary dark:text-gray-400 text-center">
             {(t('noExecutions' as any) as string) || 'No executions found'}
           </div>
         ) : (
@@ -394,27 +395,27 @@ export default function ExecutionSidebar({
 
       {/* Global Stats */}
       {(globalStats.totalRunning > 0 || globalStats.totalPaused > 0 || globalStats.totalQueued > 0) && (
-        <div className="p-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        <div className="p-3 border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-800">
+          <div className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">
             📊 {(t('concurrentStatus' as any) as string) || 'Concurrent Status'}
           </div>
           <div className="space-y-1">
             {globalStats.totalRunning > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">🔄 {t('running') || 'Running'}</span>
-                <span className="font-medium text-gray-900 dark:text-gray-100">{globalStats.totalRunning}</span>
+                <span className="text-secondary dark:text-gray-400">🔄 {t('running') || 'Running'}</span>
+                <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalRunning}</span>
               </div>
             )}
             {globalStats.totalPaused > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">⏸️ {(t('waitingConfirmation' as any) as string) || 'Waiting'}</span>
-                <span className="font-medium text-gray-900 dark:text-gray-100">{globalStats.totalPaused}</span>
+                <span className="text-secondary dark:text-gray-400">⏸️ {(t('waitingConfirmation' as any) as string) || 'Waiting'}</span>
+                <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalPaused}</span>
               </div>
             )}
             {globalStats.totalQueued > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">⏳ {(t('queued' as any) as string) || 'Queued'}</span>
-                <span className="font-medium text-gray-900 dark:text-gray-100">{globalStats.totalQueued}</span>
+                <span className="text-secondary dark:text-gray-400">⏳ {(t('queued' as any) as string) || 'Queued'}</span>
+                <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalQueued}</span>
               </div>
             )}
           </div>
@@ -442,17 +443,17 @@ function PlaybookExecutionGroup({
   return (
     <div className="border-b dark:border-gray-700">
       <div
-        className="p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        className="p-3 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <span className="text-xs">{expanded ? '▼' : '▶'}</span>
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+            <span className="text-sm font-medium text-primary dark:text-gray-100 truncate">
               {group.playbookName}
             </span>
             {hasConcurrent && (
-              <span className="text-xs text-blue-600 dark:text-blue-400" title={`${concurrentRunning} concurrent`}>
+              <span className="text-xs text-accent dark:text-blue-400" title={`${concurrentRunning} concurrent`}>
                 🔄 ×{concurrentRunning}
               </span>
             )}
@@ -464,7 +465,7 @@ function PlaybookExecutionGroup({
               </span>
             )}
             {group.stats.queued > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+              <span className="text-xs px-1.5 py-0.5 rounded bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300">
                 ⏳ {group.stats.queued}
               </span>
             )}
@@ -473,7 +474,7 @@ function PlaybookExecutionGroup({
       </div>
 
       {expanded && (
-        <div className="bg-gray-50 dark:bg-gray-800/50">
+        <div className="bg-surface-secondary dark:bg-gray-800/50">
           {group.executions
             .sort((a, b) => {
               // For executions of the same playbook, sort by start time (earliest first)
@@ -528,19 +529,52 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
     <div
       className={`p-2 cursor-pointer border-l-2 transition-colors ${
         isSelected
-          ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 dark:border-blue-400'
-          : 'border-transparent hover:bg-gray-100 dark:hover:bg-gray-700'
+          ? 'bg-accent-10 dark:bg-blue-900/20 border-accent dark:border-blue-400'
+          : 'border-transparent hover:bg-surface-accent dark:hover:bg-gray-700'
       }`}
       onClick={onClick}
     >
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
-          [#{execution.runNumber}]
+        <span className="text-xs font-medium text-primary dark:text-gray-100">
+          {(() => {
+            // Debug: Log execution data
+            console.log('[ExecutionSidebar] Execution data for display:', {
+              executionId: execution.executionId,
+              runNumber: execution.runNumber,
+              playbookCode: execution.playbookCode,
+              playbookName: execution.playbookName,
+              'execution keys': Object.keys(execution),
+              'full execution': execution
+            });
+
+            // Try to get playbook name from multiple sources
+            // Priority: playbookName > i18n metadata > playbookCode > runNumber
+            if (execution.playbookName && execution.playbookName !== 'unknown') {
+              console.log('[ExecutionSidebar] Using execution.playbookName:', execution.playbookName);
+              return execution.playbookName;
+            }
+
+            // Try i18n metadata
+            if (execution.playbookCode) {
+              const playbookName = getPlaybookMetadata(execution.playbookCode, 'name', 'zh-TW');
+              console.log('[ExecutionSidebar] playbookCode:', execution.playbookCode, 'playbookName from metadata:', playbookName);
+              if (playbookName) {
+                return playbookName;
+              }
+              // Fallback to playbookCode if metadata not found
+              console.log('[ExecutionSidebar] Using playbookCode:', execution.playbookCode);
+              return execution.playbookCode;
+            }
+
+            // Last resort: show runNumber
+            console.log('[ExecutionSidebar] Fallback to runNumber:', execution.runNumber);
+            return `[#${execution.runNumber}]`;
+          })()}
         </span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(execution.startedAt)}</span>
+        <span className="text-xs text-secondary dark:text-gray-400">{formatTime(execution.startedAt)}</span>
         <span className="text-xs">{statusIcons[execution.status]}</span>
       </div>
-      <div className="text-xs text-gray-600 dark:text-gray-400">
+      <div className="text-xs text-secondary dark:text-gray-400">
         {execution.status === 'completed' ? (
           <span>└─ {execution.totalSteps}/{execution.totalSteps} steps completed</span>
         ) : execution.status === 'failed' ? (
@@ -559,9 +593,9 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
         </div>
       )}
       {['running', 'paused'].includes(execution.status) && (
-        <div className="mt-1 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="mt-1 h-1 bg-default dark:bg-gray-700 rounded-full overflow-hidden">
           <div
-            className="h-full bg-blue-500 dark:bg-blue-400 transition-all"
+            className="h-full bg-accent dark:bg-blue-400 transition-all"
             style={{
               width: `${(execution.currentStep.index / execution.totalSteps) * 100}%`
             }}

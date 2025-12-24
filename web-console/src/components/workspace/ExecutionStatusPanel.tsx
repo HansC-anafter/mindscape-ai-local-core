@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { subscribeEventStream, eventToProgress, UnifiedEvent, ExecutionStatus } from './eventProjector';
 import { AlertCircle, CheckCircle, Clock, Play, Loader } from 'lucide-react';
+import { CostWarningBanner } from './governance/CostWarningBanner';
+import { GovernanceStatusIndicator } from './governance/GovernanceStatusIndicator';
 
 interface ExecutionStatusPanelProps {
   workspaceId: string;
@@ -21,6 +23,18 @@ export function ExecutionStatusPanel({
     message: 'Status unknown',
   });
   const [artifacts, setArtifacts] = useState<any[]>([]);
+  const [costData, setCostData] = useState<{
+    currentUsage: number;
+    quota: number;
+    estimatedCost?: number;
+  } | null>(null);
+  const [governanceStatus, setGovernanceStatus] = useState<
+    Array<{
+      layer: 'cost' | 'node' | 'policy' | 'preflight';
+      status: 'passed' | 'failed' | 'warning' | 'pending';
+      message?: string;
+    }>
+  >([]);
 
   useEffect(() => {
     const unsubscribe = subscribeEventStream(
@@ -67,9 +81,76 @@ export function ExecutionStatusPanel({
   }, [workspaceId, apiUrl]);
 
   useEffect(() => {
+    const loadCostData = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/cost/monitoring?period=day`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setCostData({
+            currentUsage: data.current_usage || 0,
+            quota: data.quota || 10,
+            estimatedCost: data.estimated_cost,
+          });
+        }
+      } catch (err) {
+        // Cost monitoring is Cloud-only, ignore errors in Local-Core
+        console.debug('Cost monitoring not available:', err);
+      }
+    };
+
+    loadCostData();
+    const interval = setInterval(loadCostData, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, [workspaceId, apiUrl]);
+
+  useEffect(() => {
     const { status: newStatus, artifacts: newArtifacts } = eventToProgress(events);
     setStatus(newStatus);
     setArtifacts(newArtifacts);
+
+    // Extract governance status from events
+    const governanceEvents = events.filter(
+      (e) => e.type === 'decision_required' && e.payload?.governance_decision
+    );
+    const statusMap = new Map<
+      'cost' | 'node' | 'policy' | 'preflight',
+      'passed' | 'failed' | 'warning' | 'pending'
+    >();
+
+    governanceEvents.forEach((event) => {
+      const govDecision = event.payload?.governance_decision;
+      if (govDecision) {
+        const currentStatus = statusMap.get(govDecision.layer);
+        if (!currentStatus || currentStatus === 'pending') {
+          statusMap.set(
+            govDecision.layer,
+            govDecision.approved ? 'passed' : 'failed'
+          );
+        }
+      }
+    });
+
+    const statusArray = Array.from(statusMap.entries()).map(([layer, status]) => ({
+      layer,
+      status,
+    }));
+
+    // Add pending status for layers not found in events
+    const allLayers: Array<'cost' | 'node' | 'policy' | 'preflight'> = [
+      'cost',
+      'node',
+      'policy',
+      'preflight',
+    ];
+    allLayers.forEach((layer) => {
+      if (!statusMap.has(layer)) {
+        statusArray.push({ layer, status: 'pending' as const });
+      }
+    });
+
+    setGovernanceStatus(statusArray);
   }, [events]);
 
   const statusConfig = useMemo(() => {
@@ -116,6 +197,18 @@ export function ExecutionStatusPanel({
 
   return (
     <div className="execution-status-panel space-y-4">
+      {costData && (
+        <CostWarningBanner
+          currentUsage={costData.currentUsage}
+          quota={costData.quota}
+          estimatedCost={costData.estimatedCost}
+          period="day"
+          onViewDetails={() => {
+            // Navigate to cost monitoring dashboard
+            window.location.href = `/settings?tab=governance&section=cost`;
+          }}
+        />
+      )}
       <div className={`p-4 rounded-lg border ${statusConfig.bgColor} ${statusConfig.borderColor}`}>
         <div className="flex items-center gap-3 mb-2">
           <StatusIcon className={`w-5 h-5 ${statusConfig.color} ${status.status === 'RUNNING' ? 'animate-spin' : ''}`} />
@@ -149,6 +242,18 @@ export function ExecutionStatusPanel({
           </div>
         )}
       </div>
+
+      {governanceStatus.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <GovernanceStatusIndicator
+            layers={governanceStatus}
+            compact={true}
+            onViewDetails={() => {
+              window.location.href = `/workspaces/${workspaceId}/governance`;
+            }}
+          />
+        </div>
+      )}
 
       {artifacts.length > 0 && (
         <div className="space-y-2">

@@ -104,7 +104,7 @@ export default function ThinkingContext({
   return (
     <div className="thinking-context mb-3">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 flex items-center gap-1">
+        <h4 className="text-xs font-semibold text-secondary dark:text-gray-400 flex items-center gap-1">
           <span>🧠</span>
           <span>思考脈絡</span>
           {(isTypingPipeline || isTypingSummary) && (
@@ -121,7 +121,7 @@ export default function ThinkingContext({
         }}
       >
         {isLoading ? (
-          <div className="text-xs text-gray-500 dark:text-gray-400 italic">
+          <div className="text-xs text-secondary dark:text-gray-400 italic">
             <span className="inline-flex items-center gap-1">
               <span className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
               <span className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -132,16 +132,16 @@ export default function ThinkingContext({
         ) : (
           <>
             {displayedPipelineMessage && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              <div className="text-xs text-secondary dark:text-gray-400 mb-2">
                 {displayedPipelineMessage}
                 {isTypingPipeline && (
-                  <span className="inline-block w-0.5 h-3 bg-gray-400 dark:bg-gray-500 ml-0.5 animate-pulse" />
+                  <span className="inline-block w-0.5 h-3 bg-default dark:bg-gray-500 ml-0.5 animate-pulse" />
                 )}
               </div>
             )}
 
             {(displayedSummary || summary) && (
-              <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+              <div className="text-sm font-semibold text-primary dark:text-gray-200">
                 {displayedSummary || summary}
                 {isTypingSummary && (
                   <span className="inline-block w-0.5 h-4 bg-purple-500 ml-0.5 animate-pulse" />

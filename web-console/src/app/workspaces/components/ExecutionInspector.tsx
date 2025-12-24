@@ -212,7 +212,7 @@ export default function ExecutionInspector({
   const showRightSidebar = showExecutionChat; // Only show right sidebar for execution chat, artifacts are shown in StepDetailPanel below
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-950">
+    <div className="h-full flex flex-col bg-surface dark:bg-gray-950">
       {/* Execution Header with Sandbox Button */}
       {executionCore.execution && (
         <HeaderBar
@@ -267,7 +267,7 @@ export default function ExecutionInspector({
                 />
 
                 {/* Steps Timeline & Current Step Details - Main Work Area */}
-                <div className="grid grid-cols-[280px,minmax(0,1fr)] gap-0 overflow-hidden bg-gray-50 dark:bg-gray-950 h-full">
+                <div className="grid grid-cols-[280px,minmax(0,1fr)] gap-0 overflow-hidden bg-surface dark:bg-gray-950 h-full">
                   {workflowData.workflowData && workflowData.workflowData.workflow_result && workflowData.workflowData.handoff_plan ? (
                     <WorkflowView
                       workflowData={workflowData.workflowData}
@@ -309,7 +309,7 @@ export default function ExecutionInspector({
 
         {/* Right: Playbook Inspector / Conversation (only if execution chat is supported) */}
         {showRightSidebar && (
-          <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          <div className="w-80 flex-shrink-0 border-l dark:border-gray-700 bg-surface-accent dark:bg-gray-900 flex flex-col">
             {/* Playbook Inspector / Conversation */}
             <ExecutionChatWrapper
               executionId={executionId}

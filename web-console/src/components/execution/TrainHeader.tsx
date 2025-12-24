@@ -78,7 +78,7 @@ export default function TrainHeader({
         {isExecutionPage && (workspaceId || onBackToWorkspace) && (
           <button
             onClick={handleBackToWorkspace}
-            className="flex items-center gap-1.5 px-2 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors flex-shrink-0 mr-2"
+            className="flex items-center gap-1.5 px-2 py-1 text-sm text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-100 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded transition-colors flex-shrink-0 mr-2"
             title="回到 Workspace Chat"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,11 +94,11 @@ export default function TrainHeader({
             onClick={onWorkspaceNameEdit}
             className="group flex items-center gap-1.5"
           >
-            <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+            <h1 className="text-base font-semibold text-primary dark:text-gray-100 whitespace-nowrap">
               {workspaceName}
             </h1>
             {onWorkspaceNameEdit && (
-              <span className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 text-xs transition-opacity">
+              <span className="opacity-0 group-hover:opacity-100 text-tertiary dark:text-gray-500 text-xs transition-opacity">
                 ✏️
               </span>
             )}
@@ -125,11 +125,11 @@ export default function TrainHeader({
             >
               <div className="flex items-center gap-1">
                 <span className="text-sm">{getStatusIcon(step.status)}</span>
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <span className="text-xs font-medium text-primary dark:text-gray-300 whitespace-nowrap">
                   {step.name}
                 </span>
                 {step.detail && (
-                  <span className="text-[10px] text-gray-500">{step.detail}</span>
+                  <span className="text-[10px] text-secondary">{step.detail}</span>
                 )}
               </div>
               <span className="text-sm">{step.icon}</span>

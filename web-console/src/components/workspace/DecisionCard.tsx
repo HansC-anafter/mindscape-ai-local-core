@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { GovernanceDecisionCard } from './governance/GovernanceDecisionCard';
 
 /**
  * DecisionCard - Unified decision card component
@@ -11,7 +12,8 @@ import { useT } from '@/lib/i18n';
  */
 export interface DecisionCardData {
   id: string;
-  type: 'decision' | 'input' | 'review' | 'assignment';
+  type: 'decision' | 'input' | 'review' | 'assignment' | 'governance';
+  governance_type?: 'cost_exceeded' | 'node_rejected' | 'policy_violation' | 'preflight_failed';
   title: string;
   description: string;
   blocks: {
@@ -35,6 +37,34 @@ export interface DecisionCardData {
     diff?: any;
     risk?: string;
     affectedSteps?: string[];
+    governance_data?: {
+      cost_governance?: {
+        estimated_cost: number;
+        quota_limit: number;
+        current_usage: number;
+        downgrade_suggestion?: {
+          profile: string;
+          estimated_cost: number;
+        };
+      };
+      node_governance?: {
+        rejection_reason: 'blacklist' | 'risk_label' | 'throttle';
+        affected_playbooks?: string[];
+        alternatives?: string[];
+      };
+      policy_violation?: {
+        violation_type: 'role' | 'data_domain' | 'pii';
+        policy_id?: string;
+        violation_items: string[];
+        request_permission_url?: string;
+      };
+      preflight_failure?: {
+        missing_inputs: string[];
+        missing_credentials: string[];
+        environment_issues: string[];
+        recommended_alternatives?: string[];
+      };
+    };
   };
   assignee?: string;
   watchers?: string[];
@@ -99,6 +129,21 @@ export function DecisionCard({
       onExpand(card.id);
     }
   };
+
+  // Render governance decision card if type is governance
+  if (card.type === 'governance') {
+    return (
+      <GovernanceDecisionCard
+        card={card}
+        currentUserId={currentUserId}
+        onAction={(cardId, actionType) => {
+          if (card.action.onClick) {
+            card.action.onClick();
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <div

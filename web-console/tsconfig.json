@@ -22,8 +22,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@/capabilities/*": ["/mindscape-ai-cloud/capabilities/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

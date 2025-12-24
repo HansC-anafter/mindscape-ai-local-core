@@ -11,7 +11,7 @@ interface CardProps {
 export function Card({ children, className = '', hover = false }: CardProps) {
   return (
     <div
-      className={`bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700 ${
+      className={`bg-surface-secondary dark:bg-gray-800 rounded-lg p-6 border border-default dark:border-gray-700 ${
         hover ? 'hover:shadow-md transition-shadow' : ''
       } ${className}`}
     >

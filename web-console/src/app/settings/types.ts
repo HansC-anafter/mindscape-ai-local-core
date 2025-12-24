@@ -117,4 +117,4 @@ export interface PlaybookReadinessStatus {
   optional_tools: string[];
 }
 
-export type SettingsTab = 'basic' | 'mindscape' | 'social_media' | 'tools' | 'packs' | 'localization' | 'service_status';
+export type SettingsTab = 'basic' | 'mindscape' | 'social_media' | 'tools' | 'packs' | 'localization' | 'service_status' | 'governance';

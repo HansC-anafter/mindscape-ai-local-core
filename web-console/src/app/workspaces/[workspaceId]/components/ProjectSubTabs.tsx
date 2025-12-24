@@ -36,7 +36,7 @@ export default function ProjectSubTabs({
           onClick={() => setActiveSubTab('list')}
           className={`p-1.5 rounded transition-colors ${
             activeSubTab === 'list'
-              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+              ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
           title={t('projectList') || 'Project List'}
@@ -61,7 +61,7 @@ export default function ProjectSubTabs({
             onClick={() => setActiveSubTab('categories')}
             className={`p-1.5 rounded transition-colors ${
               activeSubTab === 'categories'
-                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                 : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
             title={t('projectCategories') || 'Project Categories'}
@@ -98,7 +98,7 @@ export default function ProjectSubTabs({
                     onClick={() => onProjectSelect(project)}
                     className={`w-full text-left px-2 py-1.5 text-xs rounded transition-colors ${
                       selectedProjectId === project.id
-                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                         : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}
                   >
@@ -127,7 +127,7 @@ export default function ProjectSubTabs({
                 onClick={() => onTypeChange(null)}
                 className={`px-2 py-1 text-xs rounded transition-colors ${
                   selectedType === null
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
@@ -141,7 +141,7 @@ export default function ProjectSubTabs({
                     onClick={() => onTypeChange(type)}
                     className={`px-2 py-1 text-xs rounded transition-colors ${
                       selectedType === type
-                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                         : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                     }`}
                   >

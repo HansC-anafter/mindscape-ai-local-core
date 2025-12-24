@@ -52,7 +52,7 @@ export default function ExecutionHeader({
   const workspaceId = params.workspaceId as string;
   const getStatusBadge = (status: string) => {
     if (!status) {
-      return { label: t('executionStatusUnknown'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+      return { label: t('executionStatusUnknown'), color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
     }
     switch (status.toLowerCase()) {
       case 'running':
@@ -64,11 +64,11 @@ export default function ExecutionHeader({
         return { label: t('executionStatusFailed'), color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700' };
       case 'cancelled':
       case 'cancelled_by_user':
-        return { label: t('executionStatusCancelled') || '已取消', color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+        return { label: t('executionStatusCancelled') || '已取消', color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
       case 'paused':
         return { label: t('executionStatusPaused'), color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700' };
       default:
-        return { label: status, color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+        return { label: status, color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
     }
   };
 
@@ -77,11 +77,11 @@ export default function ExecutionHeader({
       case 'auto':
         return { label: t('triggerSourceAuto'), color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700' };
       case 'suggestion':
-        return { label: t('triggerSourceSuggested'), color: 'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 border-gray-400 dark:border-gray-600' };
+        return { label: t('triggerSourceSuggested'), color: 'bg-surface-secondary dark:bg-gray-800/30 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
       case 'manual':
-        return { label: t('triggerSourceManual'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+        return { label: t('triggerSourceManual'), color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
       default:
-        return { label: t('triggerSourceUnknown'), color: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600' };
+        return { label: t('triggerSourceUnknown'), color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
     }
   };
 
@@ -102,37 +102,37 @@ export default function ExecutionHeader({
   const displayRunNumber = executionRunNumber || parseInt(execution.execution_id.slice(-8), 16) % 10 + 1;
 
   return (
-    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-3">
+    <div className="bg-surface-accent dark:bg-gray-900 border-b border-default dark:border-gray-800 px-6 py-3">
       {/* Breadcrumb - Always show for navigation context */}
-      <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-2">
-        <span className="text-gray-500 dark:text-gray-500">Workspace</span>
-        <span className="text-gray-400 dark:text-gray-500">/</span>
-        <span className="text-gray-700 dark:text-gray-300">{workspaceName || '...'}</span>
+      <div className="flex items-center gap-2 text-xs text-secondary dark:text-gray-400 mb-2">
+        <span className="text-secondary dark:text-gray-500">Workspace</span>
+        <span className="text-tertiary dark:text-gray-500">/</span>
+        <span className="text-primary dark:text-gray-300">{workspaceName || '...'}</span>
 
         {projectName && (
           <>
-            <span className="text-gray-400 dark:text-gray-500">/</span>
-            <span className="text-gray-500 dark:text-gray-500">Project：</span>
-            <span className="text-gray-700 dark:text-gray-300">{projectName}</span>
+            <span className="text-tertiary dark:text-gray-500">/</span>
+            <span className="text-secondary dark:text-gray-500">Project：</span>
+            <span className="text-primary dark:text-gray-300">{projectName}</span>
           </>
         )}
 
-        <span className="text-gray-400 dark:text-gray-500">/</span>
-        <span className="text-gray-500 dark:text-gray-500">Playbook：</span>
-        <span className="text-gray-700 dark:text-gray-300">{playbookTitle || execution.playbook_code || '...'}</span>
+        <span className="text-tertiary dark:text-gray-500">/</span>
+        <span className="text-secondary dark:text-gray-500">Playbook：</span>
+        <span className="text-primary dark:text-gray-300">{playbookTitle || execution.playbook_code || '...'}</span>
 
-        <span className="text-gray-400 dark:text-gray-500">/</span>
-        <span className="text-gray-500 dark:text-gray-500">Execution</span>
-        <span className="text-gray-700 dark:text-gray-300 font-medium">#{displayRunNumber}</span>
+        <span className="text-tertiary dark:text-gray-500">/</span>
+        <span className="text-secondary dark:text-gray-500">Execution</span>
+        <span className="text-primary dark:text-gray-300 font-medium">#{displayRunNumber}</span>
       </div>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+            <h1 className="text-base font-semibold text-primary dark:text-gray-100 truncate">
               {playbookTitle || execution.playbook_code || t('unknownPlaybook')}
             </h1>
-            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+            <span className="text-xs text-secondary dark:text-gray-400 whitespace-nowrap">
               {t('runNumber', { number: String(runNumber) })}
             </span>
           </div>
@@ -141,19 +141,19 @@ export default function ExecutionHeader({
             {statusBadge.label}
           </span>
 
-          <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+          <div className="flex items-center gap-1.5 text-xs text-secondary dark:text-gray-400 whitespace-nowrap">
             <span>{t('stepProgress', { current: String((execution.current_step_index ?? 0) + 1), total: String(execution.total_steps || 1) })}</span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-1.5 text-[10px] text-secondary dark:text-gray-400">
             <span className={`px-1.5 py-0.5 rounded text-[10px] border ${triggerBadge.color}`}>
               {triggerBadge.label}
             </span>
-            <span className="text-gray-400 dark:text-gray-500">·</span>
+            <span className="text-tertiary dark:text-gray-500">·</span>
             <span>{t('byUser', { user: execution.initiator_user_id || t('unknownUser') })}</span>
             {execution.started_at && (
               <>
-                <span className="text-gray-400 dark:text-gray-500">·</span>
+                <span className="text-tertiary dark:text-gray-500">·</span>
                 <span>{t('startedAt', { time: formatTime(execution.started_at) })}</span>
               </>
             )}
@@ -163,7 +163,7 @@ export default function ExecutionHeader({
         <div className="flex items-center gap-4 ml-4">
           {/* Summary stats */}
           {stats && (
-            <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-3 text-xs text-secondary dark:text-gray-400">
               {stats.concurrent > 0 && (
                 <span className="flex items-center gap-1">
                   <span>🔄</span>
@@ -216,7 +216,7 @@ export default function ExecutionHeader({
       </div>
 
       {execution.status === 'failed' && execution.failure_reason && (
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="mt-3 pt-3 border-t border-default dark:border-gray-700">
           <p className="text-sm text-red-600 dark:text-red-400">
             <span className="font-medium">{t('errorLabel')}</span> {execution.failure_reason}
           </p>

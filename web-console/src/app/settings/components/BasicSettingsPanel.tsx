@@ -14,6 +14,7 @@ import { EmbeddingSettings } from './panels/EmbeddingSettings';
 import { LLMChatSettings } from './panels/LLMChatSettings';
 import { BackendStatusSection } from './panels/BackendStatusSection';
 import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSettings';
+import { ThemePresetSettings } from './panels/ThemePresetSettings';
 import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
 import { UnsplashFingerprintsSettings } from './panels/UnsplashFingerprintsSettings';
 
@@ -75,14 +76,14 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         return (
           <div className="space-y-6">
             {loading ? (
-              <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>
+              <div className="text-center py-4 text-sm text-secondary dark:text-gray-400">{t('loading')}</div>
             ) : (
               <>
                 <BackendModeSettings mode={mode} onModeChange={setMode} />
                 {mode === 'remote_crs' && (
                   <div className="border-t dark:border-gray-700 pt-6 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
                         {t('serviceUrl')} <span className="text-red-500">*</span>
                       </label>
                       <input
@@ -90,13 +91,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
                         value={remoteUrl}
                         onChange={(e) => setRemoteUrl(e.target.value)}
                         placeholder="https://your-agent-service.example.com"
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
                         required
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
                         {t('apiToken')} <span className="text-red-500">*</span>
                       </label>
                       <input
@@ -108,7 +109,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
                             ? t('tokenPlaceholderConfigured')
                             : t('tokenPlaceholder')
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
                         required
                       />
                     </div>
@@ -122,12 +123,12 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
       case 'api-quota':
         if (loading) {
           return (
-            <div className="text-center py-4 text-sm text-gray-500">{t('loading')}</div>
+            <div className="text-center py-4 text-sm text-secondary">{t('loading')}</div>
           );
         }
         if (mode !== 'local') {
           return (
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm text-secondary dark:text-gray-400">
               {t('apiAndQuota') || 'API 與配額'} {t('availableInLocalMode') || 'is only available in local mode'}
             </div>
           );
@@ -147,7 +148,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
       case 'embedding':
         if (mode !== 'local') {
           return (
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm text-secondary dark:text-gray-400">
               {t('embeddingModel')} {t('availableInLocalMode') || 'is only available in local mode'}
             </div>
           );
@@ -161,7 +162,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
       case 'llm-chat':
         if (mode !== 'local') {
           return (
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm text-secondary dark:text-gray-400">
               {t('llmChatModel') || 'LLM 推理與對話'} {t('availableInLocalMode') || 'is only available in local mode'}
             </div>
           );
@@ -187,6 +188,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
           </div>
         );
 
+      case 'theme-preset':
+        return (
+          <div className="space-y-6">
+            <ThemePresetSettings />
+          </div>
+        );
+
       case 'cloud-extension':
         return (
           <div className="space-y-6">
@@ -197,7 +205,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
       case 'unsplash-fingerprints':
         if (mode !== 'local') {
           return (
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm text-secondary dark:text-gray-400">
               {t('unsplashFingerprints') || 'Unsplash Fingerprints'} {t('availableInLocalMode') || 'is only available in local mode'}
             </div>
           );

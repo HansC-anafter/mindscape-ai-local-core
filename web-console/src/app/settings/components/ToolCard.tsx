@@ -16,6 +16,11 @@ interface ToolCardProps {
   onConfigure: () => void;
   onTest?: () => void;
   testing?: boolean;
+  extraInfo?: {
+    configuredWorkspaces?: number;
+    totalWorkspaces?: number;
+    statusText?: string;
+  };
 }
 
 interface PlaybookInfo {
@@ -32,6 +37,7 @@ export function ToolCard({
   onConfigure,
   onTest,
   testing = false,
+  extraInfo,
 }: ToolCardProps) {
   const [playbookCount, setPlaybookCount] = useState<number | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
@@ -91,6 +97,20 @@ export function ToolCard({
                 ) : playbookCount !== null && playbookCount > 0 ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{formatPlaybookCount(playbookCount)}</p>
                 ) : null}
+                {toolType === 'unsplash' && extraInfo && (
+                  <div className="mt-2 space-y-1">
+                    {extraInfo.configuredWorkspaces !== undefined && extraInfo.totalWorkspaces !== undefined && (
+                      <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                        ✓ 已配置 {extraInfo.configuredWorkspaces}/{extraInfo.totalWorkspaces} 個 Workspace
+                      </p>
+                    )}
+                    {extraInfo.statusText && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        狀態：{extraInfo.statusText}
+                      </p>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>

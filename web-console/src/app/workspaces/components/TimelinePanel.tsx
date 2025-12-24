@@ -249,7 +249,7 @@ export default function TimelinePanel({
           </div>
           <button
             onclick="window.location.href='/workspaces/${workspace_id}/executions/${execution_id}'"
-            class="ml-2 px-2 py-1 text-xs bg-white/20 hover:bg-white/30 rounded transition-colors"
+            class="ml-2 px-2 py-1 text-xs bg-surface-accent/20 hover:bg-surface-accent/30 rounded transition-colors"
           >
             查看
           </button>
@@ -546,13 +546,13 @@ export default function TimelinePanel({
   const getTypeColor = (type: string): string => {
     const typeColors: Record<string, string> = {
       'INTENT_SEEDS': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700',
-      'PLAN': 'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 border-gray-400 dark:border-gray-600',
+      'PLAN': 'bg-surface-secondary dark:bg-gray-800/30 text-primary dark:text-gray-300 border-default dark:border-gray-600',
       'SUMMARY': 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700',
       'DRAFT': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700',
       'ERROR': 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700',
-      'SUGGESTION': 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600',
+      'SUGGESTION': 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600',
     };
-    return typeColors[type] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600';
+    return typeColors[type] || 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600';
   };
 
   // Only show loading on initial load, not on refresh
@@ -560,7 +560,7 @@ export default function TimelinePanel({
     return (
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-y-auto px-2 pt-2">
-          <div className="text-xs text-gray-500 dark:text-gray-300">Loading...</div>
+          <div className="text-xs text-secondary dark:text-gray-300">Loading...</div>
         </div>
       </div>
     );
@@ -705,7 +705,7 @@ export default function TimelinePanel({
 
                 {/* Current Execution */}
                 <div>
-                    <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2">
+                    <h3 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2 px-2">
                       {t('currentExecution')}
                     </h3>
                   <RunningTimelineItem
@@ -769,7 +769,7 @@ export default function TimelinePanel({
                 {/* Same Playbook Other Executions */}
                 {samePlaybookExecutions.length > 0 && (
                   <div>
-                    <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2">
+                    <h3 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2 px-2">
                       {t('otherExecutionsOfSamePlaybook')}
                     </h3>
                     <div className="space-y-2">
@@ -876,7 +876,7 @@ export default function TimelinePanel({
                           return next;
                         });
                       }}
-                      className="w-full px-2 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-between"
+                      className="w-full px-2 py-2 text-xs font-semibold text-primary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-between"
                     >
                       <span>{t('otherPlaybooksExecutions')}</span>
                       <svg
@@ -1052,7 +1052,7 @@ export default function TimelinePanel({
               <div className="space-y-4">
                 {/* Outcomes Section - Show OutcomesPanel first */}
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10">
+                  <div className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-secondary dark:bg-gray-900 z-10">
                     <span>{t('tabOutcomes') || '成果'}</span>
                   </div>
                   <div className="px-1">
@@ -1067,7 +1067,7 @@ export default function TimelinePanel({
                 {/* Archived Executions Section - Show below Outcomes */}
                 <div className="space-y-1">
                   <div
-                    className="text-xs font-semibold text-gray-500 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+                    className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-secondary dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-accent dark:hover:bg-gray-800 flex items-center gap-1"
                     onClick={() => toggleSection('archived')}
                   >
                     <span className="select-none">{isSectionCollapsed('archived') ? '▶' : '▼'}</span>
@@ -1083,7 +1083,7 @@ export default function TimelinePanel({
                         />
                       ))
                     ) : (
-                      <div className="text-xs text-gray-400 dark:text-gray-300 px-1 py-2 opacity-60">
+                      <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2 opacity-60">
                         {t('noArchivedExecutions')}
                       </div>
                     )
@@ -1098,7 +1098,7 @@ export default function TimelinePanel({
               {/* Running Section - Always show, even if empty, with collapse/expand */}
               <div className="space-y-2">
                 <div
-                  className="text-xs font-semibold text-gray-700 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+                  className="text-xs font-semibold text-primary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 flex items-center gap-1"
                   onClick={() => toggleSection('running')}
                 >
                   <span className="select-none">{isSectionCollapsed('running') ? '▶' : '▼'}</span>
@@ -1205,7 +1205,7 @@ export default function TimelinePanel({
                       );
                     })
                   ) : (
-                    <div className="text-xs text-gray-400 dark:text-gray-300 px-1 py-2">
+                    <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2">
                       {t('noRunningExecutions')}
                     </div>
                   )}
@@ -1216,7 +1216,7 @@ export default function TimelinePanel({
               {/* Pending Confirmation Section - Always show, even if empty, with collapse/expand */}
               <div className="space-y-2">
                 <div
-                  className="text-xs font-semibold text-amber-700 dark:text-amber-400 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+                  className="text-xs font-semibold text-amber-700 dark:text-amber-400 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 flex items-center gap-1"
                   onClick={() => toggleSection('pending')}
                 >
                   <span className="select-none">{isSectionCollapsed('pending') ? '▶' : '▼'}</span>
@@ -1244,7 +1244,7 @@ export default function TimelinePanel({
                       );
                     })
                   ) : (
-                    <div className="text-xs text-gray-400 dark:text-gray-300 px-1 py-2">
+                    <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2">
                       {t('noPendingConfirmations')}
                     </div>
                   )
@@ -1253,7 +1253,7 @@ export default function TimelinePanel({
 
               {/* Outcomes Section - Show OutcomesPanel content in place of Archived */}
               <div className="space-y-1">
-                <div className="text-xs font-semibold text-gray-500 dark:text-gray-300 px-1 py-1 sticky top-0 bg-white dark:bg-gray-900 z-10">
+                <div className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10">
                   <span>{t('tabOutcomes') || '成果'}</span>
                 </div>
                 <div className="px-1">
@@ -1283,15 +1283,15 @@ export default function TimelinePanel({
           return (
             <div className="border-t dark:border-gray-700 flex-shrink-0">
               <div
-                className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
                 onClick={() => setIsTimelineItemsCollapsed(!isTimelineItemsCollapsed)}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500 text-xs">{isTimelineItemsCollapsed ? '▶' : '▼'}</span>
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  <span className="text-secondary text-xs">{isTimelineItemsCollapsed ? '▶' : '▼'}</span>
+                  <span className="text-xs font-semibold text-primary dark:text-gray-300">
                     {t('timelineItems') || 'Timeline Items'}
                   </span>
-                  <span className="text-[10px] text-gray-400">
+                  <span className="text-[10px] text-tertiary">
                     ({nonExecutionItems.length})
                   </span>
                 </div>
@@ -1319,23 +1319,23 @@ export default function TimelinePanel({
                           return (
                             <div
                               key={item.id}
-                              className="w-full text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-2 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm transition-all"
+                              className="w-full text-left bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded p-2 hover:border-default dark:hover:border-gray-600 hover:shadow-sm transition-all"
                             >
                               <div className="flex items-center justify-between mb-1">
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+                                  <div className="text-xs font-medium text-primary dark:text-gray-100 truncate">
                                     {itemTitle}
                                   </div>
                                   {itemSummary && (
-                                    <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5 line-clamp-2">
+                                    <div className="text-[10px] text-secondary dark:text-gray-300 mt-0.5 line-clamp-2">
                                       {itemSummary}
                                     </div>
                                   )}
-                                  <div className="text-[10px] text-gray-400 dark:text-gray-300 mt-0.5">
+                                  <div className="text-[10px] text-tertiary dark:text-gray-300 mt-0.5">
                                     {itemType}
                                   </div>
                                 </div>
-                                <span className="text-[10px] text-gray-400 dark:text-gray-300 ml-2">
+                                <span className="text-[10px] text-tertiary dark:text-gray-300 ml-2">
                                   {item.created_at
                                     ? new Date(item.created_at).toLocaleTimeString(undefined, {
                                         hour: '2-digit',

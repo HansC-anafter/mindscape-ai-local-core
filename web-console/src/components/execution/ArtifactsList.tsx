@@ -48,6 +48,17 @@ export default function ArtifactsList({
 }: ArtifactsListProps) {
   const t = useT();
 
+  // Debug logging
+  console.log('[ArtifactsList] Rendered with props:', {
+    artifactsCount: artifacts.length,
+    hasOnView: !!onView,
+    hasOnDownload: !!onDownload,
+    hasOnViewSandbox: !!onViewSandbox,
+    sandboxId,
+    onViewType: typeof onView,
+    onViewFunction: onView?.toString().substring(0, 100),
+  });
+
   if (artifacts.length === 0) {
     // Don't render anything when there are no artifacts to save space
     return null;
@@ -85,7 +96,7 @@ export default function ArtifactsList({
         {onViewSandbox && sandboxId && (
           <button
             onClick={() => onViewSandbox(sandboxId)}
-            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+            className="text-[10px] text-accent dark:text-blue-400 hover:underline"
           >
             {t('viewInSandbox') || 'View in Sandbox'} →
           </button>
@@ -105,13 +116,27 @@ export default function ArtifactsList({
               </span>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {onView && (
+              {(() => {
+                console.log('[ArtifactsList] Rendering buttons for artifact:', {
+                  artifactId: artifact.id,
+                  artifactName: artifact.name,
+                  hasOnView: !!onView,
+                  onViewValue: onView,
+                });
+                return null;
+              })()}
+              {onView ? (
                 <button
-                  onClick={() => onView(artifact)}
+                  onClick={() => {
+                    console.log('[ArtifactsList] View button clicked for artifact:', artifact);
+                    onView(artifact);
+                  }}
                   className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline px-1"
                 >
-                  {t('view')}
+                  {t('view') || 'View'}
                 </button>
+              ) : (
+                <span className="text-[10px] text-red-500">NO ONVIEW</span>
               )}
               {onDownload && (
                 <button
@@ -127,10 +152,10 @@ export default function ArtifactsList({
       </div>
 
       {sandboxId && onViewSandbox && (
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+        <div className="mt-3 pt-3 border-t border-default dark:border-gray-800">
           <button
             onClick={() => onViewSandbox(sandboxId)}
-            className="w-full px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center gap-2"
+            className="w-full px-3 py-2 text-sm bg-accent dark:bg-blue-600 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-700 flex items-center justify-center gap-2"
           >
             <span>{t('viewSandbox')}</span>
           </button>

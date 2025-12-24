@@ -170,12 +170,12 @@ export function UnsplashFingerprintsSettings() {
       </div>
 
       {/* Info Card */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+      <div className="bg-accent-10 dark:bg-blue-900/20 rounded-lg p-4 border border-accent/30 dark:border-blue-800">
         <div className="flex items-start gap-3">
-          <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5 text-accent dark:text-blue-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
           </svg>
-          <div className="text-sm text-blue-800 dark:text-blue-300">
+          <div className="text-sm text-accent dark:text-blue-300">
             <p className="font-medium mb-1">{t('unsplashFingerprintsInfoTitle') || 'What will be downloaded?'}</p>
             <ul className="list-disc list-inside space-y-1 ml-2">
               <li>{t('unsplashFingerprintsInfo1') || '~25,000 photos metadata (colors, keywords, EXIF data) - Lite version'}</li>
@@ -224,7 +224,7 @@ export function UnsplashFingerprintsSettings() {
         <button
           onClick={handleDownloadAndBuild}
           disabled={downloading || loading}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 text-sm font-medium text-white bg-accent dark:bg-blue-700 rounded-md hover:bg-accent/90 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {downloading
             ? (t('unsplashFingerprintsDownloading') || 'Downloading...')

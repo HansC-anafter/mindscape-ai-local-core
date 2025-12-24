@@ -12,7 +12,7 @@ export default function BrandFoundationCards({ workspaceId }: BrandFoundationCar
       <p className="text-sm text-gray-500 dark:text-gray-400">
         BrandFoundationCards component has been migrated to cloud capability.
         <br />
-        Location: <code className="text-xs">mindscape-ai-cloud/capabilities/brand_identity/ui/BrandFoundationCards.tsx</code>
+        Location: Cloud capabilities removed
         <br />
         <br />
         Dynamic loading mechanism needs to be implemented to load this component.

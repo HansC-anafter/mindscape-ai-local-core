@@ -61,7 +61,7 @@ export function InputBottomBar({
             className={`text-xs px-2 py-1 border rounded transition-colors ${
               copiedAll
                 ? 'bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300'
-                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                : 'bg-surface-secondary dark:bg-gray-800 border-default dark:border-gray-600 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700'
             }`}
             title={t('copyAllMessages') + ' (Cmd/Ctrl+Shift+C)'}
           >
@@ -91,7 +91,7 @@ export function InputBottomBar({
               await onModelChange(model.model_name, model.provider);
             }
           }}
-          className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
+          className="text-xs px-2 py-1 border border-default dark:border-gray-600 rounded bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-accent dark:focus:ring-blue-400"
           title={t('workspaceSelectChatModel')}
         >
           {availableChatModels.length > 0 ? (

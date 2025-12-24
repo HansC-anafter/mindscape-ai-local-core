@@ -103,7 +103,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-surface dark:bg-gray-950">
       <div className="flex flex-col h-[calc(100vh-48px)]">
         {/* Train Header - Progress Bar with Workspace Name */}
         {workspace && (
@@ -121,7 +121,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar - Tab Panel and Workspace Scope Panel */}
-          <div className="w-80 border-r dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          <div className="w-80 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
             {/* Tab Panel Section - Top */}
             <div className="flex-1 overflow-hidden min-h-0">
               <LeftSidebarTabs
@@ -165,29 +165,29 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
 
             {/* Workspace Settings - Collapsible at bottom */}
             {workspace && (
-              <div className="border-t dark:border-gray-700 bg-orange-50/30 dark:bg-orange-900/10 mt-auto">
+              <div className="border-t dark:border-gray-700 bg-surface-secondary dark:bg-orange-900/10 mt-auto">
                 {/* Settings Entry - Collapsible in left sidebar */}
                 <div className="border-t dark:border-gray-700">
                   <div
-                    className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
                     onClick={() => setShowSystemTools(!showSystemTools)}
                   >
                     <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
                       <div>
-                        <div className="text-xs font-medium text-gray-700 dark:text-gray-300">工作區設定</div>
-                        <div className="text-[10px] text-gray-400">模式 · 產物 · 偏好 · 資料來源</div>
+                        <div className="text-xs font-medium text-primary dark:text-gray-300">工作區設定</div>
+                        <div className="text-[10px] text-tertiary">模式 · 產物 · 偏好 · 資料來源</div>
                       </div>
                     </div>
-                    <span className="text-gray-400 text-xs">{showSystemTools ? '▲' : '▼'}</span>
+                    <span className="text-tertiary text-xs">{showSystemTools ? '▲' : '▼'}</span>
                   </div>
 
                   {/* Collapsible Settings Panel */}
                   <div
-                    className={`border-t dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
+                    className={`border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
                       showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
                     }`}
                   >
@@ -221,7 +221,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                                 }}
                               />
                             ) : (
-                              <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
+                              <div className="text-sm text-secondary dark:text-gray-400">Loading system status...</div>
                             )}
                           </div>
 
@@ -229,7 +229,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                           <div className="p-3 border-t dark:border-gray-700">
                             <button
                               onClick={() => setShowFullSettings(true)}
-                              className="w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              className="w-full px-3 py-2 text-sm text-primary dark:text-gray-300 bg-surface-secondary dark:bg-gray-800 border border-default dark:border-gray-700 rounded-md hover:bg-surface-accent dark:hover:bg-gray-700 transition-colors"
                             >
                               開啟完整設定
                             </button>
@@ -257,7 +257,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
           </div>
 
           {/* Right Sidebar - Execution Chat */}
-          <div className="w-80 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          <div className="w-80 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
             <div className="flex-1 overflow-hidden">
               <ExecutionChatPanel
                 key={executionId}
@@ -307,7 +307,7 @@ export default function ExecutionPage() {
 
   return (
     <WorkspaceDataProvider workspaceId={workspaceId}>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col h-screen">
+      <div className="min-h-screen bg-surface dark:bg-gray-950 flex flex-col h-screen">
         <ExecutionPageContent workspaceId={workspaceId} executionId={executionId} />
       </div>
     </WorkspaceDataProvider>

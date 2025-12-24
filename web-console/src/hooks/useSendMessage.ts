@@ -44,14 +44,18 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
     const finalProjectId = project_id || projectId;
 
     // Debug logging
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[useSendMessage] Sending message with project_id:', {
-        project_id_from_options: project_id,
-        project_id_from_hook: projectId,
-        final_project_id: finalProjectId,
-        message_preview: message.substring(0, 50)
-      });
-    }
+    console.log('[useSendMessage] Sending message:', {
+      project_id_from_options: project_id,
+      project_id_from_hook: projectId,
+      final_project_id: finalProjectId,
+      message_preview: message.substring(0, 100),
+      message_full: message,
+      action,
+      action_params,
+      mode,
+      stream,
+      files_count: files.length
+    });
 
     setIsLoading(true);
     setError(null);

@@ -215,22 +215,22 @@ export default function WorkspacesPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500 dark:text-gray-400">Loading workspaces...</div>
+          <div className="text-secondary dark:text-gray-400">Loading workspaces...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-surface dark:bg-gray-950">
       <Header />
 
       <div className="max-w-6xl mx-auto p-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Workspaces</h1>
+          <h1 className="text-3xl font-bold text-primary dark:text-gray-100">Workspaces</h1>
           <button
             onClick={() => router.push('/workspaces/new/home')}
             className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
@@ -257,7 +257,7 @@ export default function WorkspacesPage() {
 
         {workspaces.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500 dark:text-gray-400 mb-4">No workspaces yet.</p>
+            <p className="text-secondary dark:text-gray-400 mb-4">No workspaces yet.</p>
             <button
               onClick={() => router.push('/workspaces/new/home')}
               className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600"
@@ -279,7 +279,7 @@ export default function WorkspacesPage() {
               return (
                 <div
                   key={workspace.id}
-                  className="group relative p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600 hover:shadow-md transition-all"
+                  className="group relative p-6 bg-surface-secondary dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600 hover:shadow-md transition-all"
                 >
                   <Link
                     href={
@@ -290,7 +290,7 @@ export default function WorkspacesPage() {
                     className="block"
                   >
                     <div className="flex items-start justify-between mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex-1">
+                      <h3 className="text-lg font-semibold text-primary dark:text-gray-100 flex-1">
                         {workspace.title}
                       </h3>
                       <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
@@ -298,14 +298,14 @@ export default function WorkspacesPage() {
                       </span>
                     </div>
                     {workspace.description && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">
+                      <p className="text-sm text-secondary dark:text-gray-400 mb-3 line-clamp-2">
                         {workspace.description}
                       </p>
                     )}
-                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center justify-between text-xs text-secondary dark:text-gray-400">
                       <span>Updated: {new Date(workspace.updated_at).toLocaleDateString()}</span>
                       {workspace.starter_kit_type && (
-                        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
+                        <span className="px-2 py-0.5 bg-surface-secondary dark:bg-gray-700 rounded text-xs">
                           {workspace.starter_kit_type}
                         </span>
                       )}

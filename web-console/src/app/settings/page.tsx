@@ -14,6 +14,7 @@ import { ToolsPanel } from './components/ToolsPanel';
 import { PacksPanel } from './components/PacksPanel';
 import { LocalizationPanel } from './components/LocalizationPanel';
 import { ServiceStatusPanel } from './components/ServiceStatusPanel';
+import { GovernancePanel } from './components/GovernancePanel';
 import { useTools } from './hooks/useTools';
 import type { SettingsTab } from './types';
 
@@ -35,7 +36,7 @@ export default function SettingsPage() {
     const modelParam = searchParams?.get('model');
     const serviceParam = searchParams?.get('service');
 
-    const validTabs: SettingsTab[] = ['tools', 'packs', 'basic', 'mindscape', 'social_media', 'localization', 'service_status'];
+    const validTabs: SettingsTab[] = ['tools', 'packs', 'basic', 'mindscape', 'social_media', 'localization', 'service_status', 'governance'];
     if (tabParam && validTabs.includes(tabParam as SettingsTab)) {
       setActiveTab(tabParam as SettingsTab);
     }
@@ -99,20 +100,22 @@ export default function SettingsPage() {
         return <LocalizationPanel activeSection={activeSection} />;
       case 'service_status':
         return <ServiceStatusPanel />;
+      case 'governance':
+        return <GovernancePanel activeSection={activeSection} />;
       default:
         return <BasicSettingsPanel activeSection={activeSection} />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-surface dark:bg-gray-900">
       <Header />
 
       {/* Page Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-12 z-40">
+      <div className="bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 sticky top-12 z-40">
         <div className="w-full px-4 sm:px-6 lg:px-12 py-3 flex items-center gap-4">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex-shrink-0 min-w-0">
-            {t('systemManagement')} <span className="text-sm font-normal text-gray-600 dark:text-gray-400 ml-2">{t('systemManagementDescription')}</span>
+          <h1 className="text-xl font-bold text-primary dark:text-gray-100 flex-shrink-0 min-w-0">
+            {t('systemManagement')} <span className="text-sm font-normal text-secondary dark:text-gray-400 ml-2">{t('systemManagementDescription')}</span>
           </h1>
           <div id="settings-notifications" className="flex items-center gap-2 min-w-0 flex-shrink max-w-xs ml-auto"></div>
         </div>
@@ -120,13 +123,14 @@ export default function SettingsPage() {
       </div>
 
       {/* Mobile Navigation (only on small screens) */}
-      <div className="lg:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+      <div className="lg:hidden bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 px-4 py-2">
         <div className="flex gap-2 overflow-x-auto">
           {[
             { id: 'basic' as SettingsTab, label: t('basicSettings') },
             { id: 'mindscape' as SettingsTab, label: t('mindscapeConfiguration') },
             { id: 'social_media' as SettingsTab, label: t('socialMediaIntegration') },
             { id: 'localization' as SettingsTab, label: t('localization') },
+            { id: 'governance' as SettingsTab, label: t('governance') },
             { id: 'service_status' as SettingsTab, label: t('serviceStatus') },
           ].map((tab) => (
             <button
@@ -134,8 +138,8 @@ export default function SettingsPage() {
               onClick={() => handleNavigate(tab.id)}
               className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md ${
                 activeTab === tab.id
-                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  ? 'bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300'
+                  : 'text-secondary dark:text-gray-400 hover:bg-surface-secondary dark:hover:bg-gray-700'
               }`}
             >
               {tab.label}
@@ -149,7 +153,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-12">
           {/* Left Column: Navigation (Desktop only) - col-span-2 (16.67%) */}
           <div className="hidden lg:block col-span-2">
-            <div className="bg-white dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col sticky top-[calc(3rem+3rem)] z-30 border-r border-gray-200 dark:border-gray-700">
+            <div className="bg-surface-secondary dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col sticky top-[calc(3rem+3rem)] z-30 border-r border-default dark:border-gray-700">
               <SettingsNavigation
                 activeTab={activeTab}
                 activeSection={activeSection}
@@ -170,8 +174,8 @@ export default function SettingsPage() {
 
           {/* Right Column: Assistant (Desktop only) - col-span-3 (25%) */}
           <div className="hidden lg:block col-span-3">
-            <div className="bg-white dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-[calc(3rem+3rem)] z-30 border-l border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+            <div className="bg-surface-secondary dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-[calc(3rem+3rem)] z-30 border-l border-default dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
                 {t('configAssistant')}
               </h3>
               <div className="flex-1 min-h-0 overflow-hidden">

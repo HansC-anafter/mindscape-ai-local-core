@@ -422,12 +422,12 @@ export function DecisionPanel({
   return (
     <div className="decision-panel flex-1 flex flex-col overflow-hidden">
       {/* Panel Header */}
-      <div className={`section-header decision-section-header ${blockerCount > 0 ? 'has-high-priority' : ''} px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700`}>
+      <div className={`section-header decision-section-header ${blockerCount > 0 ? 'has-high-priority' : ''} px-3 py-2 bg-surface dark:bg-gray-800 border-b dark:border-gray-700`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold">Pending Decisions</span>
             {filteredDecisionCards.length > 0 && (
-              <span className="badge pending text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">
+              <span className="badge pending text-xs px-1.5 py-0.5 rounded bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300">
                 {filteredDecisionCards.length}
               </span>
             )}
@@ -484,8 +484,8 @@ export function DecisionPanel({
                 onClick={() => setFilter(option.id as any)}
                 className={`relative flex items-center justify-center gap-1.5 px-2 py-1.5 rounded transition-all ${
                   isActive
-                    ? 'bg-blue-600 dark:bg-blue-700 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                    ? 'bg-accent dark:bg-blue-700 text-white'
+                    : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-600'
                 }`}
                 title={!isActive ? `${option.label}${option.count > 0 ? ` (${option.count})` : ''}` : undefined}
               >
@@ -498,7 +498,7 @@ export function DecisionPanel({
                 {option.count > 0 && (
                   <span className={`absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 text-[10px] leading-none flex items-center justify-center rounded-full ${
                     isActive
-                      ? 'bg-white text-blue-600 dark:text-blue-700'
+                      ? 'bg-surface-accent text-accent dark:text-blue-700'
                       : 'bg-red-500 text-white'
                   }`}>
                     {option.count > 99 ? '99+' : option.count}
@@ -528,21 +528,21 @@ export function DecisionPanel({
           </div>
         ) : (
           !loading && (
-            <div className="text-xs text-gray-400 dark:text-gray-500 italic py-4 text-center">
+            <div className="text-xs text-tertiary dark:text-gray-500 italic py-4 text-center">
               No pending decisions
             </div>
           )
         )}
 
         {(pendingCards.length > 0 || pendingTaskCount > 0) && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="mt-4 pt-4 border-t border-default dark:border-gray-700">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              <div className="text-xs font-medium text-secondary dark:text-gray-400">
                 Legacy Tasks - Will be migrated to unified decisions
               </div>
               <button
                 onClick={() => setShowLegacyTasks(!showLegacyTasks)}
-                className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
+                className="text-[10px] text-tertiary dark:text-gray-500 hover:text-secondary dark:hover:text-gray-400"
               >
                 {showLegacyTasks ? 'Hide' : 'Show'}
               </button>
@@ -553,7 +553,7 @@ export function DecisionPanel({
                 {/* Legacy Pending Tasks */}
                 {pendingTaskCount > 0 && (
                   <div className="mb-4">
-                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                    <div className="text-xs font-medium text-secondary dark:text-gray-400 mb-2">
                       Tasks requiring human confirmation / input
                     </div>
                     <PendingTasksPanel
@@ -570,7 +570,7 @@ export function DecisionPanel({
                 {/* Legacy Intent Cards */}
                 {pendingCards.length > 0 && (
                   <div>
-                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                    <div className="text-xs font-medium text-secondary dark:text-gray-400 mb-2">
                       Intent Card
                     </div>
                     <div className="space-y-2">
@@ -593,9 +593,9 @@ export function DecisionPanel({
 
         {/* History Section */}
         {historyCards.length > 0 && (
-          <div className="history-intents border-t border-gray-200 dark:border-gray-700 pt-3">
+          <div className="history-intents border-t border-default dark:border-gray-700 pt-3">
             <button
-              className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+              className="flex items-center gap-2 text-xs text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-300 transition-colors"
               onClick={() => setShowHistory(!showHistory)}
             >
               <span className="chevron">{showHistory ? '▼' : '▶'}</span>
@@ -715,10 +715,10 @@ function IntentCardItem({
         ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
         : card.priority === 'medium'
         ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-        : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+        : 'bg-surface dark:bg-gray-800 border-default dark:border-gray-700'
     } ${collapsed ? 'opacity-60' : ''}`}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
+        <span className="text-xs font-medium text-primary dark:text-gray-100">
           {card.title}
         </span>
         <span className={`text-[10px] px-1.5 py-0.5 rounded ${
@@ -726,13 +726,13 @@ function IntentCardItem({
             ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
             : card.priority === 'medium'
             ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300'
-            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+            : 'bg-surface-secondary dark:bg-gray-700 text-secondary dark:text-gray-300'
         }`}>
           {card.priority === 'high' ? 'High' : card.priority === 'medium' ? 'Medium' : 'Low'}
         </span>
       </div>
       {!collapsed && card.description && (
-        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+        <div className="text-xs text-secondary dark:text-gray-400 mt-1">
           {card.description}
         </div>
       )}
@@ -744,12 +744,12 @@ function IntentCardItem({
             className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-all ${
               isProcessing
                 ? 'bg-gray-400 dark:bg-gray-600 text-white cursor-not-allowed opacity-75'
-                : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600'
+                : 'bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 hover:bg-surface-secondary dark:hover:bg-gray-700 border border-default dark:border-gray-600'
             }`}
           >
             {isProcessing ? (
               <>
-                <div className="w-3 h-3 border-2 border-gray-600 dark:border-gray-300 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <div className="w-3 h-3 border-2 border-secondary dark:border-gray-300 border-t-transparent rounded-full animate-spin mx-auto"></div>
               </>
             ) : (
               'Confirm'

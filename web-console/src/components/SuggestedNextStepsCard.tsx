@@ -88,6 +88,14 @@ export default function SuggestedNextStepsCard({
   };
 
   const handleAction = async (action: string, step: NextStep, stepIndex: number) => {
+    console.log('[SuggestedNextStepsCard] handleAction called:', {
+      action,
+      stepIndex,
+      stepTitle: step.title,
+      stepAction: step.action,
+      params: step.params || step.action_params
+    });
+
     if (action === 'start_chat') {
       const chatInput = document.querySelector('textarea[name="workspace-chat-input"]') as HTMLTextAreaElement;
       if (chatInput) {
@@ -97,9 +105,44 @@ export default function SuggestedNextStepsCard({
     }
 
     if (action === 'upload_file') {
+      // For upload_file action, trigger file input and let file upload handler process it
+      // We'll mark it as executing to show feedback, but the actual execution happens after file selection
+      setExecutingSteps(prev => {
+        const newSet = new Set(prev);
+        newSet.add(stepIndex);
+        return newSet;
+      });
+
       const fileInput = document.querySelector('#file-upload-input') as HTMLInputElement;
       if (fileInput) {
+        // Add event listener to handle file selection (only once)
+        const handleFileChange = () => {
+          // File selection will trigger upload, which will trigger workspace-chat-updated event
+          // Mark as executed after a delay to allow upload to process
+          setTimeout(() => {
+            setExecutedSteps(prev => {
+              const newSet = new Set(prev);
+              newSet.add(stepIndex);
+              return newSet;
+            });
+            setExecutingSteps(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(stepIndex);
+              return newSet;
+            });
+          }, 1000);
+          fileInput.removeEventListener('change', handleFileChange);
+        };
+        fileInput.addEventListener('change', handleFileChange);
         fileInput.click();
+      } else {
+        // If file input not found, remove executing state
+        setExecutingSteps(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(stepIndex);
+          return newSet;
+        });
+        console.error('[SuggestedNextStepsCard] File upload input not found');
       }
       return;
     }
@@ -113,6 +156,19 @@ export default function SuggestedNextStepsCard({
 
     // Send action to backend with params
     try {
+      const requestBody = {
+        action: action,
+        action_params: (step as any).params || (step as any).action_params || {},
+        files: [],
+        mode: 'auto'
+      };
+
+      console.log('[SuggestedNextStepsCard] Sending action request:', {
+        url: `${apiUrl}/api/v1/workspaces/${workspaceId}/chat`,
+        method: 'POST',
+        body: requestBody
+      });
+
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/chat`,
         {
@@ -120,17 +176,19 @@ export default function SuggestedNextStepsCard({
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            action: action,
-            action_params: (step as any).params || (step as any).action_params || {},
-            files: [],
-            mode: 'auto'
-          })
+          body: JSON.stringify(requestBody)
         }
       );
 
+      console.log('[SuggestedNextStepsCard] Action response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (response.ok) {
         const data = await response.json();
+        console.log('[SuggestedNextStepsCard] Action success:', data);
 
         // Mark step as executed (hide it)
         setExecutedSteps(prev => {

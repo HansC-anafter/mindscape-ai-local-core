@@ -39,6 +39,7 @@ export function useTools(): UseToolsReturn {
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [toolsStatus, setToolsStatus] = useState<Record<string, ToolStatusInfo>>({});
   const [vectorDBConnected, setVectorDBConnected] = useState<boolean | null>(null);
+  const [unsplashConfigured, setUnsplashConfigured] = useState<boolean | null>(null);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -110,10 +111,34 @@ export function useTools(): UseToolsReturn {
     }
   }, []);
 
+  const loadUnsplashConfig = useCallback(async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const workspaceId = typeof window !== 'undefined' ? window.location.pathname.match(/\/workspaces\/([^\/]+)/)?.[1] : null;
+      if (!workspaceId) {
+        setUnsplashConfigured(null);
+        return;
+      }
+      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/web-generation/unsplash/config`);
+      if (response.ok) {
+        const config = await response.json();
+        setUnsplashConfigured(config.configured || false);
+      } else if (response.status === 404) {
+        setUnsplashConfigured(false);
+      } else {
+        setUnsplashConfigured(null);
+      }
+    } catch (err) {
+      console.debug('Failed to load Unsplash config:', err);
+      setUnsplashConfigured(null);
+    }
+  }, []);
+
   // Load vector DB health status on mount
   useEffect(() => {
     loadVectorDBHealthStatus();
-  }, [loadVectorDBHealthStatus]);
+    loadUnsplashConfig();
+  }, [loadVectorDBHealthStatus, loadUnsplashConfig]);
 
   // Listen to tool status change events for real-time updates
   useEffect(() => {
@@ -129,6 +154,7 @@ export function useTools(): UseToolsReturn {
       loadVectorDBConfig();
       loadToolsStatus();
       loadVectorDBHealthStatus();
+      loadUnsplashConfig();
     });
 
     return () => {
@@ -230,6 +256,16 @@ export function useTools(): UseToolsReturn {
         return { status: 'inactive', label: t('statusDisabled'), icon: '🔌' };
       }
 
+      // For Unsplash, check workspace settings
+      if (toolType === 'unsplash') {
+        if (unsplashConfigured === true) {
+          return { status: 'connected', label: t('statusConnected'), icon: '✅' };
+        } else if (unsplashConfigured === false) {
+          return { status: 'not_configured', label: t('statusNotConfigured'), icon: '⚠️' };
+        }
+        return getDefaultToolStatus();
+      }
+
       // For other tools, check tools status API first
       const statusInfo = toolsStatus[toolType];
       if (statusInfo) {
@@ -255,7 +291,7 @@ export function useTools(): UseToolsReturn {
       }
       return { status: 'inactive', label: t('statusDisabled'), icon: '🔌' };
     },
-    [connections, vectorDBConfig, toolsStatus, vectorDBConnected]
+    [connections, vectorDBConfig, toolsStatus, vectorDBConnected, unsplashConfigured]
   );
 
   const getToolStatusForPack = useCallback(

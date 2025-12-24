@@ -140,7 +140,7 @@ export default function ExecutionModeSelector({
       {/* Dropdown menu */}
       {isOpen && (
         <div
-          className="absolute top-full left-0 mt-1 z-50 min-w-[200px] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2"
+          className="absolute top-full left-0 mt-1 z-50 min-w-[200px] bg-surface-secondary dark:bg-gray-800 rounded-lg shadow-lg border border-default dark:border-gray-700 py-2"
           style={{ animation: 'fadeIn 0.15s ease' }}
         >
           {/* Mode section */}
@@ -157,7 +157,7 @@ export default function ExecutionModeSelector({
               title={modeConfig[m].description}
               className={`
                 w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
-                hover:bg-purple-50 dark:hover:bg-purple-900/20
+                hover:bg-accent-10 dark:hover:bg-purple-900/20
                 ${mode === m ? 'text-purple-600 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'}
               `}
             >

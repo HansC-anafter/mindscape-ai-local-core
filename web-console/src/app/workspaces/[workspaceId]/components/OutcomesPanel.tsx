@@ -5,6 +5,8 @@ import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
 import { t } from '@/lib/i18n';
+import SandboxModalWrapper from '../../components/execution-inspector/SandboxModalWrapper';
+// IG Posts Grid View is now in Cloud - removed from Local-Core
 
 interface Artifact {
   id: string;
@@ -57,12 +59,18 @@ export default function OutcomesPanel({
   const previousArtifactsRef = useRef<Artifact[]>([]);
   const { conflictDialog, handleConflict, closeConflictDialog } = useConflictHandler();
   const { showToast, ToastComponent } = useToast();
+  const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [sandboxId, setSandboxId] = useState<string | null>(null);
+  const [sandboxInitialFile, setSandboxInitialFile] = useState<string | null>(null);
+  const [executionId, setExecutionId] = useState<string | null>(null);
+  // IG Posts Grid View is now in Cloud - removed from Local-Core
 
   const loadArtifacts = async () => {
     try {
       setLoading(true);
       setError(null);
-      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100`;
+      // Use new API parameters for better filtering and content inclusion
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?include_content=true&include_preview=true&limit=100`;
       console.log('[OutcomesPanel] Loading artifacts from:', url);
       const response = await fetch(url);
       if (!response.ok) {
@@ -314,7 +322,10 @@ export default function OutcomesPanel({
     );
   }
 
-  console.log('[OutcomesPanel] Rendering', artifacts.length, 'artifacts');
+  // 移除调试日志以减少 console 噪音
+  // console.log('[OutcomesPanel] Rendering', artifacts.length, 'artifacts');
+
+  // IG Posts detection and Grid View moved to Cloud - removed from Local-Core
 
   return (
     <>
@@ -332,6 +343,8 @@ export default function OutcomesPanel({
         />
       )}
 
+      {/* IG Posts Grid View moved to Cloud - removed from Local-Core */}
+
       <div className="h-full overflow-y-auto p-2 space-y-2">
         {artifacts.map((artifact) => {
           const isHighlighted = highlightedArtifactIds.has(artifact.id);
@@ -348,29 +361,83 @@ export default function OutcomesPanel({
             minute: '2-digit'
           });
 
-          // Debug: Log to verify code execution
-          console.log('[OutcomesPanel] Rendering artifact:', {
-            id: artifact.id,
-            fileName,
-            playbook_code: artifact.playbook_code,
-            formattedDate,
-            filePath,
-            execution_id: executionId
-          });
+          // 移除调试日志以减少 console 噪音
+          // console.log('[OutcomesPanel] Rendering artifact:', {
+          //   id: artifact.id,
+          //   fileName,
+          //   playbook_code: artifact.playbook_code,
+          //   formattedDate,
+          //   filePath,
+          //   execution_id: executionId
+          // });
 
           const handleFileClick = (e: React.MouseEvent) => {
             e.stopPropagation();
-            // Priority: 1. Open sandbox if execution_id exists, 2. Open artifact detail, 3. Download file
-            if (executionId) {
-              // Open sandbox/execution detail page
-              window.open(`/workspaces/${workspaceId}/executions/${executionId}`, '_blank');
+
+            console.log('[OutcomesPanel] handleFileClick called for artifact:', {
+              artifactId: artifact.id,
+              artifactTitle: artifact.title,
+              filePath,
+              executionId,
+              artifactData: artifact,
+            });
+
+            // Extract sandbox ID and relative file path from artifact metadata
+            const actualFilePath = (artifact as any).file_path || (artifact.metadata && (artifact.metadata as any).actual_file_path);
+            const execId = executionId || (artifact.metadata && (artifact.metadata as any).execution_id);
+
+            console.log('[OutcomesPanel] Extracted paths:', {
+              actualFilePath,
+              execId,
+              metadata: artifact.metadata,
+            });
+
+            // Try to extract sandbox ID from file path
+            // Format: /app/data/sandboxes/{workspace_id}/project_repo/{sandbox_id}/current/...
+            let extractedSandboxId: string | null = null;
+            let relativeFilePath: string | null = null;
+
+            if (actualFilePath) {
+              // Extract sandbox ID from path: project_repo/{sandbox_id}/current
+              const sandboxMatch = actualFilePath.match(/project_repo\/([^\/]+)\/current\/(.+)$/);
+              if (sandboxMatch) {
+                extractedSandboxId = sandboxMatch[1];
+                relativeFilePath = sandboxMatch[2];
+                console.log('[OutcomesPanel] Matched sandbox from project_repo:', { extractedSandboxId, relativeFilePath });
+              } else {
+                // Fallback: try to extract from other path formats
+                const fallbackMatch = actualFilePath.match(/sandboxes\/[^\/]+\/[^\/]+\/([^\/]+)\/current\/(.+)$/);
+                if (fallbackMatch) {
+                  extractedSandboxId = fallbackMatch[1];
+                  relativeFilePath = fallbackMatch[2];
+                  console.log('[OutcomesPanel] Matched sandbox from fallback:', { extractedSandboxId, relativeFilePath });
+                } else {
+                  console.log('[OutcomesPanel] No sandbox match found for path:', actualFilePath);
+                }
+              }
+            } else {
+              console.log('[OutcomesPanel] No actualFilePath found');
+            }
+
+            // Priority: 1. Open SandboxModal if we have sandbox ID and file path, 2. Open artifact detail, 3. Download file
+            if (extractedSandboxId && relativeFilePath && execId) {
+              console.log('[OutcomesPanel] Opening SandboxModal with:', { extractedSandboxId, relativeFilePath, execId });
+              // Open SandboxModal with the artifact file
+              setSandboxId(extractedSandboxId);
+              setSandboxInitialFile(relativeFilePath);
+              setExecutionId(execId);
+              setShowSandboxModal(true);
             } else if (onArtifactClick) {
+              console.log('[OutcomesPanel] Calling onArtifactClick');
               // Open artifact detail dialog
               onArtifactClick(artifact);
-            } else if (filePath) {
+            } else if (filePath || actualFilePath) {
+              console.log('[OutcomesPanel] Opening file URL directly:', `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/file`);
               // Last resort: download file
               const fileUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/file`;
               window.open(fileUrl, '_blank');
+            } else {
+              console.log('[OutcomesPanel] No action taken - no conditions met');
             }
           };
 
@@ -401,10 +468,10 @@ export default function OutcomesPanel({
           <div
             key={artifact.id}
             className={`
-              bg-white dark:bg-gray-800 border rounded-lg p-2.5 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all
+              bg-surface-secondary dark:bg-gray-800 border rounded-lg p-2.5 hover:border-accent dark:hover:border-blue-600 hover:shadow-md transition-all
               ${isHighlighted
-                ? 'border-blue-400 dark:border-blue-500 shadow-lg bg-blue-50 dark:bg-blue-900/20 animate-pulse'
-                : 'border-gray-200 dark:border-gray-700'
+                ? 'border-accent dark:border-blue-500 shadow-lg bg-accent-10 dark:bg-blue-900/20 animate-pulse'
+                : 'border-default dark:border-gray-700'
               }
             `}
             style={isHighlighted ? {
@@ -418,7 +485,7 @@ export default function OutcomesPanel({
           >
             <span className="text-base flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+              <div className="font-medium text-sm text-primary dark:text-gray-100 truncate group-hover:text-accent dark:group-hover:text-blue-400 transition-colors">
                 {fileName}
               </div>
             </div>
@@ -428,7 +495,7 @@ export default function OutcomesPanel({
                   e.stopPropagation();
                   handleOpenExternal(artifact, e);
                 }}
-                className="px-2 py-0.5 text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors flex-shrink-0"
+                className="px-2 py-0.5 text-[10px] bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-400 rounded hover:opacity-80 dark:hover:bg-blue-900/40 transition-colors flex-shrink-0"
                 title="下載檔案"
               >
                 <span>⬇</span>
@@ -446,7 +513,7 @@ export default function OutcomesPanel({
             {(filePath || executionId) && (
               <button
                 onClick={handleSandboxClick}
-                className="text-[10px] text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 hover:underline flex-shrink-0 ml-2 px-1 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                className="text-[10px] text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 hover:underline flex-shrink-0 ml-2 px-1 py-0.5 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors"
                 title="在 Sandbox 中查看"
               >
                 <span className="mr-0.5">📁</span> Sandbox
@@ -476,6 +543,25 @@ export default function OutcomesPanel({
           }
         }
       `}</style>
+
+      {/* SandboxModal for viewing artifact files */}
+      {showSandboxModal && sandboxId && executionId && (
+        <SandboxModalWrapper
+          isOpen={showSandboxModal}
+          onClose={() => {
+            setShowSandboxModal(false);
+            setSandboxId(null);
+            setSandboxInitialFile(null);
+            setExecutionId(null);
+          }}
+          workspaceId={workspaceId}
+          sandboxId={sandboxId}
+          executionId={executionId}
+          initialFile={sandboxInitialFile || undefined}
+        />
+      )}
+
+      {/* IG Grid View Modal moved to Cloud - removed from Local-Core */}
     </>
   );
 }

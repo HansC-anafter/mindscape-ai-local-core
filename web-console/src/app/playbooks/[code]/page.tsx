@@ -436,7 +436,7 @@ export default function PlaybookDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <Header />
         <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
@@ -449,7 +449,7 @@ export default function PlaybookDetailPage() {
 
   if (error || !playbook) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <Header />
         <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -466,7 +466,7 @@ export default function PlaybookDetailPage() {
   const playbookTags = playbook.metadata.tags || [];
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950" style={{ scrollBehavior: 'auto' }}>
+    <div className="min-h-screen bg-surface dark:bg-gray-950" style={{ scrollBehavior: 'auto' }}>
       <Header />
 
       {/* Version Selector and Execute Button in Header */}
@@ -505,7 +505,7 @@ export default function PlaybookDetailPage() {
               <button
                 onClick={handleExecutePlaybook}
                 disabled={isExecuting}
-                className="px-6 py-2.5 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
+                className="px-6 py-2.5 bg-accent dark:bg-blue-700 text-white rounded-lg hover:bg-accent/90 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
               >
                 {isExecuting ? t('executing') : selectedVersion === 'personal' && playbook.version_info?.default_variant
                   ? t('executingVariant', { name: playbook.version_info.default_variant.variant_name })
@@ -521,7 +521,7 @@ export default function PlaybookDetailPage() {
         <div className="grid grid-cols-12 gap-0">
           {/* Left Column: Playbook List */}
           <div className="col-span-12 lg:col-span-2">
-            <div className="bg-white dark:bg-gray-900 shadow h-[calc(100vh-7rem)] overflow-y-auto p-4 sticky top-[7rem]">
+            <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-7rem)] overflow-y-auto p-4 sticky top-[7rem]">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('playbookList')}</h3>
               <div className="space-y-2">
                 {playbookList.map((pb) => (
@@ -531,15 +531,15 @@ export default function PlaybookDetailPage() {
                     scroll={false}
                     className={`block p-3 rounded-lg transition-colors ${
                       pb.playbook_code === playbookCode
-                        ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                        ? 'bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800'
+                        : 'hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent'
                     }`}
                   >
                     <div className="flex items-start gap-2">
                       {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}
                       <div className="flex-1 min-w-0">
                         <div className={`text-sm font-medium truncate ${
-                          pb.playbook_code === playbookCode ? 'text-blue-900 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'
+                          pb.playbook_code === playbookCode ? 'text-accent dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'
                         }`}>
                           {pb.name}
                         </div>
@@ -558,7 +558,7 @@ export default function PlaybookDetailPage() {
           <div className="col-span-12 lg:col-span-7">
             <div className="h-[calc(100vh-7rem)] overflow-y-auto">
               {/* Playbook Header */}
-              <div className="bg-white dark:bg-gray-800 shadow p-6">
+              <div className="bg-surface-secondary dark:bg-gray-800 shadow p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
@@ -576,7 +576,7 @@ export default function PlaybookDetailPage() {
                       {playbookTags.map((tag) => (
                         <span
                           key={tag}
-                          className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 rounded"
+                          className="text-xs px-2 py-1 bg-surface-accent dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 rounded"
                         >
                           {tag}
                         </span>
@@ -600,7 +600,7 @@ export default function PlaybookDetailPage() {
 
           {/* Right Column: LLM Component for Finding Playbooks */}
           <div className="col-span-12 lg:col-span-3">
-            <div className="bg-white dark:bg-gray-900 shadow h-[calc(100vh-7rem)] flex flex-col p-4 sticky top-[7rem]">
+            <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-7rem)] flex flex-col p-4 sticky top-[7rem]">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('findPlaybook')}</h3>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <PlaybookDiscoveryChat
@@ -636,7 +636,7 @@ export default function PlaybookDetailPage() {
         {/* Optimization Modal */}
         {showOptimizeModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('playbookOptimizationSuggestions')}</h2>
                 <button
@@ -662,7 +662,7 @@ export default function PlaybookDetailPage() {
                   {optimizationSuggestions.map((suggestion, index) => (
                     <div
                       key={index}
-                      className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-300 dark:hover:border-blue-600 transition-colors bg-white dark:bg-gray-800"
+                      className="p-4 border border-default dark:border-gray-700 rounded-lg hover:border-accent/30 dark:hover:border-blue-600 transition-colors bg-surface-accent dark:bg-gray-800"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -701,7 +701,7 @@ export default function PlaybookDetailPage() {
                               alert(t('playbookCreateVariantFailedError', { error: err.message }));
                             }
                           }}
-                          className="ml-4 px-3 py-1 text-sm bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600"
+                          className="ml-4 px-3 py-1 text-sm bg-accent dark:bg-blue-700 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-600"
                         >
                           {t('apply')}
                         </button>
@@ -721,7 +721,7 @@ export default function PlaybookDetailPage() {
         {/* Notes Modal */}
         {showNotesModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('myNotes')}</h2>
                 <button
@@ -734,14 +734,14 @@ export default function PlaybookDetailPage() {
               <textarea
                 value={userNotes}
                 onChange={(e) => setUserNotes(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md mb-4 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                className="w-full px-4 py-2 border border-default dark:border-gray-600 rounded-md mb-4 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 rows={8}
                 placeholder={t('writeYourNotesHere')}
               />
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => setShowNotesModal(false)}
-                  className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-default dark:border-gray-600 rounded-md hover:bg-tertiary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
                 >
                   {t('cancel')}
                 </button>
@@ -750,7 +750,7 @@ export default function PlaybookDetailPage() {
                     await saveUserNotes();
                     setShowNotesModal(false);
                   }}
-                  className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
+                  className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded-md hover:bg-accent/90 dark:hover:bg-blue-600"
                 >
                   {t('saveNotes')}
                 </button>
@@ -761,7 +761,7 @@ export default function PlaybookDetailPage() {
 
         {/* Chat Interface (shown when execution is active) */}
         {executionId && (
-          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mb-6">
+          <div className="bg-surface-secondary dark:bg-gray-800 shadow rounded-lg p-6 mb-6">
             <PlaybookChat
               executionId={executionId}
               playbookCode={playbookCode}

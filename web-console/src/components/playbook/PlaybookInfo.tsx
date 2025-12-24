@@ -174,7 +174,7 @@ export default function PlaybookInfo({
   const localizedTags = playbook.metadata.tags || [];
 
   return (
-    <div className="lg:col-span-2 bg-white shadow rounded-lg p-6">
+    <div className="lg:col-span-2 bg-surface-secondary shadow rounded-lg p-6">
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
@@ -228,7 +228,7 @@ export default function PlaybookInfo({
       {/* File Upload Modal */}
       {showFileUpload && needsFileUpload && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-surface-accent dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">{t('uploadTestPdfFiles')}</h3>
             <p className="text-sm text-gray-600 mb-4">
               {t('pleaseUploadPdfFiles')}

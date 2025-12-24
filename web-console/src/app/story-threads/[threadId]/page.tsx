@@ -61,12 +61,12 @@ export default function StoryThreadPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-surface">
         <Header />
         <div className="container mx-auto px-4 py-8">
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">載入中...</p>
+            <p className="mt-4 text-secondary">載入中...</p>
           </div>
         </div>
       </div>
@@ -75,7 +75,7 @@ export default function StoryThreadPage() {
 
   if (error || !thread) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-surface">
         <Header />
         <div className="container mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -104,23 +104,23 @@ export default function StoryThreadPage() {
           >
             ← 返回工作區
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900 mt-2">{thread.name}</h1>
+          <h1 className="text-3xl font-bold text-primary mt-2">{thread.name}</h1>
           {thread.description && (
-            <p className="text-gray-600 mt-2">{thread.description}</p>
+            <p className="text-secondary mt-2">{thread.description}</p>
           )}
-          <div className="mt-4 flex gap-4 text-sm text-gray-500">
+          <div className="mt-4 flex gap-4 text-sm text-secondary">
             <span>Mind Lens: {thread.mind_lens_id}</span>
             <span>版本: {thread.version}</span>
             <span>創建: {new Date(thread.created_at).toLocaleDateString('zh-TW')}</span>
           </div>
         </div>
 
-        <div className="tabs mb-6 border-b border-gray-200">
+        <div className="tabs mb-6 border-b border-default">
           <button
             className={`px-4 py-2 font-medium ${
               activeTab === 'chapters'
                 ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-secondary hover:text-primary'
             }`}
             onClick={() => setActiveTab('chapters')}
           >
@@ -130,7 +130,7 @@ export default function StoryThreadPage() {
             className={`px-4 py-2 font-medium ${
               activeTab === 'timeline'
                 ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-secondary hover:text-primary'
             }`}
             onClick={() => setActiveTab('timeline')}
           >
@@ -140,7 +140,7 @@ export default function StoryThreadPage() {
             className={`px-4 py-2 font-medium ${
               activeTab === 'context'
                 ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-secondary hover:text-primary'
             }`}
             onClick={() => setActiveTab('context')}
           >
@@ -156,7 +156,7 @@ export default function StoryThreadPage() {
               </div>
               <div className="space-y-4">
                 {chapters.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
+                  <div className="text-center py-12 text-secondary">
                     尚無章節
                   </div>
                 ) : (
@@ -186,8 +186,8 @@ export default function StoryThreadPage() {
           {activeTab === 'context' && (
             <div className="context-section">
               <h2 className="text-xl font-semibold mb-4">共享上下文</h2>
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <pre className="text-sm text-gray-700 overflow-auto">
+              <div className="bg-surface-accent rounded-lg border border-default p-6">
+                <pre className="text-sm text-primary overflow-auto">
                   {JSON.stringify(thread.shared_context, null, 2)}
                 </pre>
               </div>

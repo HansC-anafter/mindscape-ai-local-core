@@ -32,6 +32,7 @@ export default function ExecutionInspector({
   const workspaceData = useWorkspaceDataOptional();
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [sandboxInitialFile, setSandboxInitialFile] = useState<string | null>(null);
   const [rightPanelView, setRightPanelView] = useState<'artifacts' | 'chat' | 'governance'>('artifacts');
 
   // Use data hooks
@@ -114,14 +115,38 @@ export default function ExecutionInspector({
           });
           console.log('[ExecutionInspector] Filtered artifacts for execution:', executionArtifacts.length);
           // Convert to Artifact format
-          const convertedArtifacts = executionArtifacts.map((art: any) => ({
-            id: art.id,
-            name: art.title || art.name || 'Untitled',
-            type: art.type || 'other',
-            url: art.file_path ? `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${art.id}/file` : art.external_url,
-            createdAt: art.created_at,
-            stepId: art.metadata?.step_id,
-          }));
+          const convertedArtifacts = executionArtifacts.map((art: any) => {
+            // Extract file path from metadata
+            const filePath = art.metadata?.actual_file_path || art.metadata?.file_path || art.storage_ref;
+            // Convert absolute path to relative path (remove sandbox base path)
+            let relativePath: string | undefined = undefined;
+            if (filePath) {
+              // Extract relative path from absolute path
+              // Example: /app/data/sandboxes/{workspace_id}/project_repo/{sandbox_id}/current/artifacts/.../file.json
+              // Should become: artifacts/.../file.json
+              const match = filePath.match(/current\/(.+)$/);
+              if (match) {
+                relativePath = match[1];
+              } else {
+                // Fallback: try to extract from path
+                const parts = filePath.split('/');
+                const currentIndex = parts.indexOf('current');
+                if (currentIndex >= 0 && currentIndex < parts.length - 1) {
+                  relativePath = parts.slice(currentIndex + 1).join('/');
+                }
+              }
+            }
+
+            return {
+              id: art.id,
+              name: art.title || art.name || 'Untitled',
+              type: art.type || 'other',
+              url: art.file_path ? `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${art.id}/file` : art.external_url,
+              createdAt: art.created_at,
+              stepId: art.metadata?.step_id,
+              filePath: relativePath,
+            };
+          });
           if (!cancelled) {
             console.log('[ExecutionInspector] Setting artifacts:', convertedArtifacts.length);
             setArtifacts(convertedArtifacts);
@@ -175,13 +200,36 @@ export default function ExecutionInspector({
     }
   };
 
-  // Handle artifact view
+  // Handle artifact view - open SandboxModal instead of direct file URL
   const handleArtifactView = (artifact: typeof artifacts[0]) => {
-    if (artifact.url) {
-      window.open(artifact.url, '_blank');
-    } else if (artifact.id) {
-      window.open(`${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/download`, '_blank');
+    console.log('[ExecutionInspector] handleArtifactView called with:', {
+      artifact,
+      artifactId: artifact?.id,
+      artifactName: artifact?.name,
+      artifactFilePath: artifact?.filePath,
+      artifactUrl: artifact?.url,
+      sandboxId: executionCore.sandboxId,
+    });
+
+    // Check if we have a sandbox ID
+    if (!executionCore.sandboxId) {
+      console.log('[ExecutionInspector] No sandboxId, falling back to direct URL');
+      // Fallback: if no sandbox, open file directly (for external URLs or non-sandbox artifacts)
+      if (artifact.url) {
+        console.log('[ExecutionInspector] Opening artifact.url:', artifact.url);
+        window.open(artifact.url, '_blank');
+      } else if (artifact.id) {
+        const downloadUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/download`;
+        console.log('[ExecutionInspector] Opening download URL:', downloadUrl);
+        window.open(downloadUrl, '_blank');
+      }
+      return;
     }
+
+    console.log('[ExecutionInspector] Opening SandboxModal with filePath:', artifact.filePath);
+    // Open SandboxModal with the artifact file
+    setSandboxInitialFile(artifact.filePath || null);
+    setShowSandboxModal(true);
   };
 
   const loading = executionCore.loading || executionSteps.loading || playbookMetadata.loading;
@@ -363,11 +411,15 @@ export default function ExecutionInspector({
       {/* Sandbox Modal */}
       <SandboxModalWrapper
         isOpen={showSandboxModal}
-        onClose={() => setShowSandboxModal(false)}
+        onClose={() => {
+          setShowSandboxModal(false);
+          setSandboxInitialFile(null);
+        }}
         workspaceId={workspaceId}
         sandboxId={executionCore.sandboxId || ''}
         projectId={executionCore.projectId || undefined}
         executionId={executionId}
+        initialFile={sandboxInitialFile}
       />
     </div>
   );

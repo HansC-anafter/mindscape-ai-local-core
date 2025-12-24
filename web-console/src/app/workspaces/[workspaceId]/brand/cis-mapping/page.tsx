@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import CISMappingView from '/mindscape-ai-cloud/capabilities/brand_identity/ui/CISMappingView';
+// Cloud capabilities import removed
 
 export default function CISMappingPage() {
-  return <CISMappingView />;
+  return <div>CIS Mapping - Cloud capabilities removed</div>;
 }

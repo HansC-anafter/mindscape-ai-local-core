@@ -10,6 +10,7 @@ export interface SandboxModalWrapperProps {
   sandboxId: string;
   projectId?: string;
   executionId: string;
+  initialFile?: string | null;
 }
 
 export default function SandboxModalWrapper({
@@ -19,6 +20,7 @@ export default function SandboxModalWrapper({
   sandboxId,
   projectId,
   executionId,
+  initialFile,
 }: SandboxModalWrapperProps) {
   if (!isOpen || !sandboxId) {
     return null;
@@ -32,6 +34,7 @@ export default function SandboxModalWrapper({
       sandboxId={sandboxId}
       projectId={projectId}
       executionId={executionId}
+      initialFile={initialFile}
     />
   );
 }

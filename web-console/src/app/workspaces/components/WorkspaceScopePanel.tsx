@@ -40,26 +40,26 @@ export default function WorkspaceScopePanel({
   return (
     <div className="p-2">
       {/* Data Sources Card - Compact Layout */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 shadow-sm">
+      <div className="bg-surface-secondary dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg p-2 shadow-sm">
         <div className="flex items-center justify-between mb-1.5">
-          <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-xs font-semibold text-primary dark:text-gray-100">
             資料來源
           </h3>
           <button
             onClick={handleManageDataSources}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+            className="text-xs text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 font-medium"
           >
             管理
           </button>
         </div>
 
-        <div className="space-y-1 text-[10px] text-gray-700 dark:text-gray-300">
+        <div className="space-y-1 text-[10px] text-primary dark:text-gray-300">
           {dataSources?.local_folder && (
             <div className="flex items-center">
               <span className="mr-1.5">📁</span>
               <span>
                 <span className="font-medium">本地資料夾:</span>{' '}
-                <span className="text-gray-600 dark:text-gray-400">{dataSources.local_folder}</span>
+                <span className="text-secondary dark:text-gray-400">{dataSources.local_folder}</span>
               </span>
             </div>
           )}

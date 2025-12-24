@@ -220,26 +220,26 @@ export default function PlaybooksPage() {
   }, [playbooks]);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-surface dark:bg-gray-950">
       <Header />
 
       {/* Page Header - Single Row */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+      <div className="bg-surface-secondary dark:bg-gray-900 border-b border-default dark:border-gray-800">
         <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
           <div className="flex items-center justify-between gap-6">
             {/* Left: Title and Workflow */}
             <div className="flex items-center gap-6 flex-shrink-0">
-              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+              <h1 className="text-xl font-bold text-primary dark:text-gray-100 whitespace-nowrap">
                 {t('playbooksTitle')}
               </h1>
               {/* Workflow visualization */}
-              <div className="hidden md:flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 bg-gradient-to-r from-blue-50 to-gray-50 dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-2 border border-blue-100 dark:border-blue-800">
+              <div className="hidden md:flex items-center gap-2 text-xs text-secondary dark:text-gray-400 bg-gradient-to-r from-accent-10 to-surface-secondary dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-2 border border-accent/30 dark:border-blue-800">
                 <span className="text-base">🧠</span>
                 <span>{t('playbookStepMindscape')}</span>
-                <span className="text-gray-400 dark:text-gray-500">→</span>
+                <span className="text-tertiary dark:text-gray-500">→</span>
                 <span className="text-base">🔧</span>
                 <span>{t('playbookStepTools')}</span>
-                <span className="text-gray-400 dark:text-gray-500">→</span>
+                <span className="text-tertiary dark:text-gray-500">→</span>
                 <span className="text-base">🤖</span>
                 <span>{t('playbookStepMembers')}</span>
               </div>
@@ -252,7 +252,7 @@ export default function PlaybooksPage() {
                 placeholder={t('searchPlaybooks')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                className="flex-1 px-3 py-1.5 text-sm border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
               />
               <button
                 onClick={() => {
@@ -278,13 +278,13 @@ export default function PlaybooksPage() {
         <div className="grid grid-cols-12 gap-0">
           {/* Left Column: Filter Tags */}
           <div className="col-span-12 lg:col-span-2">
-            <div className="bg-white dark:bg-gray-900 shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('filterTags')}</h3>
+            <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
+              <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">{t('filterTags')}</h3>
 
               {/* Tags Filter */}
               {allTags.length > 0 && (
                 <div className="mb-4">
-                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('tags')}</h4>
+                  <h4 className="text-sm font-medium text-primary dark:text-gray-300 mb-2">{t('tags')}</h4>
                   {allTags.map(tag => (
                     <label key={tag} className="flex items-center mb-2">
                       <input
@@ -299,7 +299,7 @@ export default function PlaybooksPage() {
                         }}
                         className="mr-2"
                       />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{tag}</span>
+                      <span className="text-sm text-primary dark:text-gray-300">{tag}</span>
                     </label>
                   ))}
                 </div>
@@ -312,18 +312,18 @@ export default function PlaybooksPage() {
             <div className="h-[calc(100vh-8rem)] flex flex-col">
               {loading ? (
                 <div className="p-4">
-                  <p className="text-gray-600 dark:text-gray-400">{t('loading')}</p>
+                  <p className="text-secondary dark:text-gray-400">{t('loading')}</p>
                 </div>
               ) : filteredPlaybooks.length === 0 ? (
                 <div className="p-4">
-                  <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-12 text-center">
-                    <p className="text-gray-600 dark:text-gray-400">{t('noPlaybooksFound')}</p>
+                  <div className="bg-surface-accent dark:bg-gray-800 shadow rounded-lg p-12 text-center">
+                    <p className="text-secondary dark:text-gray-400">{t('noPlaybooksFound')}</p>
                   </div>
                 </div>
               ) : (
                 <>
                   {/* Horizontal Tabs */}
-                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-default dark:border-gray-700 overflow-x-auto">
                     {Object.entries(playbooksByCapability).map(([capabilityCode, capabilityPlaybooks]) => {
                       if (capabilityPlaybooks.length === 0) return null;
 
@@ -341,8 +341,8 @@ export default function PlaybooksPage() {
                           onClick={() => setSelectedCapability(capabilityCode)}
                           className={`px-4 py-2 text-sm font-medium whitespace-nowrap rounded-t-lg transition-colors border-b-2 ${
                             isSelected
-                              ? 'text-blue-600 dark:text-blue-400 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                              : 'text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+                              ? 'text-accent dark:text-blue-400 border-accent dark:border-blue-400 bg-accent-10 dark:bg-blue-900/20'
+                              : 'text-secondary dark:text-gray-400 border-transparent hover:text-primary dark:hover:text-gray-200 hover:border-default dark:hover:border-gray-600'
                           }`}
                         >
                           {capabilityDisplayName} ({capabilityPlaybooks.length})
@@ -358,7 +358,7 @@ export default function PlaybooksPage() {
                         {playbooksByCapability[selectedCapability].map(playbook => (
                                 <div
                                   key={playbook.playbook_code}
-                                  className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer border border-gray-200 dark:border-gray-700"
+                                  className="bg-surface-secondary dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow flex flex-col cursor-pointer border border-default dark:border-gray-700"
                                   onClick={() => router.push(`/playbooks/${playbook.playbook_code}`)}
                                 >
                       {/* Top row: Icon, Scope/Template badge, System Playbook, Test badge, Favorite */}
@@ -368,7 +368,7 @@ export default function PlaybooksPage() {
                           {playbook.scope && (
                             <span className={`text-xs px-2 py-1 rounded ${
                               playbook.scope === 'system'
-                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                                 : playbook.scope === 'tenant'
                                 ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                                 : playbook.scope === 'profile'
@@ -419,7 +419,7 @@ export default function PlaybooksPage() {
                       {/* Tags row */}
                       <div className="flex flex-wrap gap-2 mb-3 min-h-[1.5rem]">
                         {playbook.has_personal_variant && (
-                          <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
+                          <span className="text-xs px-2 py-1 bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300 rounded">
                             {t('hasPersonalVariant')}
                           </span>
                         )}
@@ -435,7 +435,7 @@ export default function PlaybooksPage() {
 
                       {/* Onboarding task */}
                       {playbook.onboarding_task && (
-                        <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-2">
+                        <div className="text-xs text-accent dark:text-blue-400 font-medium mb-2">
                           {t('coldStartTask')} {playbook.onboarding_task.replace('task', '')}
                         </div>
                       )}
@@ -455,7 +455,7 @@ export default function PlaybooksPage() {
                           <button
                             onClick={(e) => handleExecuteNow(e, playbook)}
                             disabled={creatingWorkspace === playbook.playbook_code}
-                            className="px-3 py-1 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
+                            className="px-3 py-1 text-xs bg-accent dark:bg-blue-700 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
                           >
                             {creatingWorkspace === playbook.playbook_code ? t('creating') : t('executeNow')}
                           </button>
@@ -465,8 +465,8 @@ export default function PlaybooksPage() {
                       ))}
                     </div>
                     ) : (
-                      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-12 text-center">
-                        <p className="text-gray-600 dark:text-gray-400">{t('noPlaybooksFound')}</p>
+                      <div className="bg-surface-secondary dark:bg-gray-800 shadow rounded-lg p-12 text-center">
+                        <p className="text-secondary dark:text-gray-400">{t('noPlaybooksFound')}</p>
                       </div>
                     )}
                   </div>
@@ -477,8 +477,8 @@ export default function PlaybooksPage() {
 
           {/* Right Column: Playbook Discovery Chat */}
           <div className="col-span-12 lg:col-span-3">
-            <div className="bg-white dark:bg-gray-900 shadow h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-0">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('findPlaybook')}</h3>
+            <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-0">
+              <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">{t('findPlaybook')}</h3>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <PlaybookDiscoveryChat
                   onPlaybookSelect={(playbookCode) => {

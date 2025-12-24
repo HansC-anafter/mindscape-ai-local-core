@@ -30,10 +30,44 @@ export interface UnifiedEvent {
     clarification_questions?: string[];
     conflicts?: Array<{ type: string; description: string; layers: string[] }>;
     blocking_steps?: string[];
-    card_type?: 'decision' | 'input' | 'review' | 'assignment';
+    card_type?: 'decision' | 'input' | 'review' | 'assignment' | 'governance';
     priority?: 'blocker' | 'high' | 'normal';
     selected_playbook_code?: string;
     rationale?: string;
+
+    // GOVERNANCE_DECISION
+    governance_decision?: {
+      type: 'cost_exceeded' | 'node_rejected' | 'policy_violation' | 'preflight_failed';
+      layer: 'cost' | 'node' | 'policy' | 'preflight';
+      approved: boolean;
+      reason?: string;
+      cost_governance?: {
+        estimated_cost: number;
+        quota_limit: number;
+        current_usage: number;
+        downgrade_suggestion?: {
+          profile: string;
+          estimated_cost: number;
+        };
+      };
+      node_governance?: {
+        rejection_reason: 'blacklist' | 'risk_label' | 'throttle';
+        affected_playbooks?: string[];
+        alternatives?: string[];
+      };
+      policy_violation?: {
+        violation_type: 'role' | 'data_domain' | 'pii';
+        policy_id?: string;
+        violation_items: string[];
+        request_permission_url?: string;
+      };
+      preflight_failure?: {
+        missing_inputs: string[];
+        missing_credentials: string[];
+        environment_issues: string[];
+        recommended_alternatives?: string[];
+      };
+    };
 
     // RUN_STATE_CHANGED
     execution_id?: string;
@@ -112,6 +146,11 @@ export function eventToBlockerCard(event: UnifiedEvent): DecisionCardData | null
   }
 
   const payload = event.payload;
+
+  // Check for governance decision
+  if (payload.governance_decision) {
+    return governanceDecisionToCard(event);
+  }
   const blockedSteps = payload.blocking_steps || [];
 
   const reasons: string[] = [];
@@ -262,6 +301,128 @@ function eventToBranchCard(event: UnifiedEvent): DecisionCardData | null {
     },
     status: 'OPEN',
     priority: 'high',
+  };
+}
+
+/**
+ * Project governance decision event to governance decision card
+ */
+function governanceDecisionToCard(event: UnifiedEvent): DecisionCardData | null {
+  const payload = event.payload;
+  const govDecision = payload.governance_decision;
+
+  if (!govDecision) {
+    return null;
+  }
+
+  const decisionId = payload.decision_id || event.id;
+  let title = 'Governance Decision Required';
+  let description = govDecision.reason || 'A governance check has blocked this execution';
+  let status: DecisionCardData['status'] = govDecision.approved ? 'OPEN' : 'REJECTED';
+  let priority: DecisionCardData['priority'] = 'blocker';
+
+  // Build title and description based on governance type
+  switch (govDecision.type) {
+    case 'cost_exceeded':
+      title = 'Cost Limit Exceeded';
+      if (govDecision.cost_governance) {
+        const { estimated_cost, quota_limit, current_usage, downgrade_suggestion } = govDecision.cost_governance;
+        description = `Estimated cost ($${estimated_cost.toFixed(2)}) exceeds your daily quota ($${quota_limit.toFixed(2)}). Current usage: $${current_usage.toFixed(2)}.`;
+        if (downgrade_suggestion) {
+          description += `\n\nSuggestion: Use ${downgrade_suggestion.profile} profile (estimated cost: $${downgrade_suggestion.estimated_cost.toFixed(2)})`;
+        }
+      }
+      break;
+    case 'node_rejected':
+      title = 'Playbook Not Allowed';
+      if (govDecision.node_governance) {
+        const { rejection_reason, affected_playbooks, alternatives } = govDecision.node_governance;
+        description = `Playbook rejected: ${rejection_reason}`;
+        if (affected_playbooks && affected_playbooks.length > 0) {
+          description += `\n\nAffected playbooks: ${affected_playbooks.join(', ')}`;
+        }
+        if (alternatives && alternatives.length > 0) {
+          description += `\n\nAlternatives: ${alternatives.join(', ')}`;
+        }
+      }
+      break;
+    case 'policy_violation':
+      title = 'Policy Violation';
+      if (govDecision.policy_violation) {
+        const { violation_type, violation_items } = govDecision.policy_violation;
+        description = `Policy violation detected: ${violation_type}`;
+        if (violation_items && violation_items.length > 0) {
+          description += `\n\nViolations: ${violation_items.join(', ')}`;
+        }
+      }
+      break;
+    case 'preflight_failed':
+      title = 'Preflight Check Failed';
+      if (govDecision.preflight_failure) {
+        const { missing_inputs, missing_credentials, environment_issues } = govDecision.preflight_failure;
+        const issues: string[] = [];
+        if (missing_inputs && missing_inputs.length > 0) {
+          issues.push(`Missing inputs: ${missing_inputs.join(', ')}`);
+        }
+        if (missing_credentials && missing_credentials.length > 0) {
+          issues.push(`Missing credentials: ${missing_credentials.join(', ')}`);
+        }
+        if (environment_issues && environment_issues.length > 0) {
+          issues.push(`Environment issues: ${environment_issues.join(', ')}`);
+        }
+        description = issues.join('\n');
+        status = 'NEED_INFO';
+      }
+      break;
+  }
+
+  const handleAction = async () => {
+    window.dispatchEvent(new CustomEvent('decision-card-action', {
+      detail: {
+        decisionId,
+        actionType: govDecision.approved ? 'confirm' : 'reject',
+        event,
+        payload,
+      },
+    }));
+  };
+
+  return {
+    id: decisionId,
+    type: 'governance',
+    governance_type: govDecision.type,
+    title,
+    description,
+    blocks: {
+      steps: [],
+      count: 0,
+      stepNames: [],
+    },
+    action: {
+      type: govDecision.approved ? 'confirm' : 'reject',
+      label: govDecision.approved ? 'Approve' : 'Review Decision',
+      onClick: handleAction,
+    },
+    result: {
+      autoRun: false,
+      message: govDecision.approved
+        ? 'Execution can proceed after approval'
+        : 'Execution blocked by governance policy',
+    },
+    expandable: {
+      evidence: {
+        decision_id: decisionId,
+        governance_decision: govDecision,
+      },
+      governance_data: {
+        cost_governance: govDecision.cost_governance,
+        node_governance: govDecision.node_governance,
+        policy_violation: govDecision.policy_violation,
+        preflight_failure: govDecision.preflight_failure,
+      },
+    },
+    status,
+    priority,
   };
 }
 

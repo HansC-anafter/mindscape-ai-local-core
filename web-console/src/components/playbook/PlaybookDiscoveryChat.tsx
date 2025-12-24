@@ -150,7 +150,7 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
                           }, 0);
                         }
                       }}
-                    className="w-full text-left p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    className="w-full text-left p-2 bg-surface-secondary dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:border-accent dark:hover:border-blue-600 hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors"
                   >
                     <div className="flex items-start gap-2">
                       {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}

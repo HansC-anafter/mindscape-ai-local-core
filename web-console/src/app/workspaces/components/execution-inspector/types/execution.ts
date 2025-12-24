@@ -127,6 +127,7 @@ export interface Artifact {
   createdAt?: string;
   url?: string;
   stepId?: string;
+  filePath?: string;
 }
 
 export interface WorkflowData {

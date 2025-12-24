@@ -15,6 +15,8 @@ interface ExecutionTreeProps {
   isCollapsed?: boolean;
   onToggle?: () => void;
   onStepClick?: (stepId: string) => void;
+  executionId?: string;  // Optional: execution ID for navigation
+  onHeaderClick?: () => void;  // Optional: click handler for header
 }
 
 function getStatusIcon(status: TreeStep['status']): string {
@@ -30,10 +32,10 @@ function getStatusIcon(status: TreeStep['status']): string {
 function getStatusColor(status: TreeStep['status']): string {
   switch (status) {
     case 'completed': return 'text-green-600 dark:text-green-400';
-    case 'in_progress': return 'text-blue-600 dark:text-blue-400';
+    case 'in_progress': return 'text-accent dark:text-blue-400';
     case 'error': return 'text-red-600 dark:text-red-400';
     case 'pending':
-    default: return 'text-gray-400 dark:text-gray-500';
+    default: return 'text-tertiary dark:text-gray-500';
   }
 }
 
@@ -49,7 +51,7 @@ const TreeNode: React.FC<{
       <div
         className={`
           flex items-center gap-2 py-1 px-2 rounded-md
-          hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors
+          hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors
           ${onStepClick ? 'cursor-pointer' : ''}
           ${step.status === 'in_progress' ? 'bg-purple-50/50 dark:bg-purple-900/20' : ''}
         `}
@@ -68,7 +70,7 @@ const TreeNode: React.FC<{
 
         {/* Detail badge */}
         {step.detail && (
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-auto">
+          <span className="text-[10px] text-tertiary dark:text-gray-500 ml-auto">
             {step.detail}
           </span>
         )}
@@ -76,7 +78,7 @@ const TreeNode: React.FC<{
 
       {/* Children */}
       {step.children && step.children.length > 0 && (
-        <div className="border-l border-gray-200 dark:border-gray-700 ml-4">
+        <div className="border-l border-default dark:border-gray-700 ml-4">
           {step.children.map((child) => (
             <TreeNode
               key={child.id}
@@ -96,25 +98,61 @@ const ExecutionTree: React.FC<ExecutionTreeProps> = ({
   isCollapsed = false,
   onToggle,
   onStepClick,
+  executionId,
+  onHeaderClick,
 }) => {
   const hasSteps = steps.length > 0;
   const inProgressCount = steps.filter(s => s.status === 'in_progress').length;
   const completedCount = steps.filter(s => s.status === 'completed').length;
 
+  const handleHeaderClick = (e: React.MouseEvent) => {
+    // If header click handler provided, use it (e.g., for navigation)
+    if (onHeaderClick) {
+      e.stopPropagation();
+      onHeaderClick();
+    }
+  };
+
+  const handleToggleClick = (e: React.MouseEvent) => {
+    // Always handle toggle separately via chevron
+    e.stopPropagation();
+    if (onToggle) {
+      onToggle();
+    }
+  };
+
   return (
     <div className="border-b dark:border-gray-700">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        onClick={onToggle}
+        className={`flex items-center justify-between px-3 py-2 transition-colors ${
+          onHeaderClick
+            ? 'hover:bg-accent-10 dark:hover:bg-blue-900/20'
+            : 'cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800'
+        }`}
       >
         <div className="flex items-center gap-2">
-          <span className="text-gray-500 text-xs">{isCollapsed ? '▶' : '▼'}</span>
-          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+          <span
+            className="text-secondary text-xs cursor-pointer hover:text-primary dark:hover:text-gray-300"
+            onClick={handleToggleClick}
+            title={isCollapsed ? '展開' : '收合'}
+          >
+            {isCollapsed ? '▶' : '▼'}
+          </span>
+          <span
+            className={`text-xs font-semibold ${onHeaderClick ? 'text-accent dark:text-blue-300' : 'text-primary dark:text-gray-300'}`}
+            onClick={onHeaderClick ? handleHeaderClick : undefined}
+            style={onHeaderClick ? { cursor: 'pointer' } : {}}
+            title={onHeaderClick ? '點擊查看執行詳情' : ''}
+          >
             執行中
           </span>
           {hasSteps && (
-            <span className="text-[10px] text-gray-400">
+            <span
+              className={`text-[10px] font-medium ${onHeaderClick ? 'text-accent dark:text-blue-400' : 'text-secondary dark:text-gray-400'}`}
+              onClick={onHeaderClick ? handleHeaderClick : undefined}
+              style={onHeaderClick ? { cursor: 'pointer' } : {}}
+            >
               {completedCount}/{steps.length}
             </span>
           )}
@@ -122,8 +160,8 @@ const ExecutionTree: React.FC<ExecutionTreeProps> = ({
 
         {/* Status indicator */}
         {inProgressCount > 0 && (
-          <span className="flex items-center gap-1 text-[10px] text-blue-500">
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+          <span className="flex items-center gap-1 text-[10px] text-accent dark:text-blue-400">
+            <span className="w-1.5 h-1.5 bg-accent dark:bg-blue-500 rounded-full animate-pulse" />
             進行中
           </span>
         )}
@@ -148,7 +186,7 @@ const ExecutionTree: React.FC<ExecutionTreeProps> = ({
               ))}
             </div>
           ) : (
-            <div className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500 italic">
+            <div className="px-3 py-2 text-xs text-tertiary dark:text-gray-500 italic">
               目前沒有執行中的 Playbook
             </div>
           )}

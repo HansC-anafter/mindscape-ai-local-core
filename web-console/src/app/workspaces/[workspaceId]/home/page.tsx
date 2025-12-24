@@ -208,23 +208,23 @@ export default function WorkspaceHomePage() {
   // Show wizard for new workspace
   if (isNewWorkspace) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="max-w-7xl mx-auto px-6 py-8">
           {wizardStep === 'method' && (
             <div className="max-w-6xl mx-auto">
               <div className="flex items-center gap-4 mb-6">
                 <button
                   onClick={() => router.push('/workspaces')}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   {t('back')}
                 </button>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{t('createWorkspace')}</h1>
+                <h1 className="text-3xl font-bold text-primary dark:text-gray-100">{t('createWorkspace')}</h1>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('selectCreationMethod')}</h2>
+                <div className="bg-surface-accent dark:bg-gray-900 rounded-lg border border-default dark:border-gray-800 p-6 shadow-sm">
+                  <h2 className="text-xl font-semibold text-primary dark:text-gray-100 mb-4">{t('selectCreationMethod')}</h2>
                   <div className="space-y-4">
                     <button
                       onClick={() => {
@@ -233,11 +233,11 @@ export default function WorkspaceHomePage() {
                       className={`w-full p-4 text-left border-2 rounded-lg transition-colors ${
                         wizardData.method === 'quick'
                           ? 'border-blue-500 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
+                          : 'border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
                       }`}
                     >
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('quickCreate')}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{t('quickCreateDescription')}</p>
+                      <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('quickCreate')}</h3>
+                      <p className="text-sm text-secondary dark:text-gray-400">{t('quickCreateDescription')}</p>
                     </button>
                     <button
                       onClick={() => {
@@ -246,18 +246,18 @@ export default function WorkspaceHomePage() {
                       className={`w-full p-4 text-left border-2 rounded-lg transition-colors ${
                         wizardData.method === 'llm-guided'
                           ? 'border-blue-500 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
+                          : 'border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
                       }`}
                     >
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('llmGuidedCreate')}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{t('llmGuidedCreateDescription')}</p>
+                      <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('llmGuidedCreate')}</h3>
+                      <p className="text-sm text-secondary dark:text-gray-400">{t('llmGuidedCreateDescription')}</p>
                     </button>
                   </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
+                <div className="bg-surface-accent dark:bg-gray-900 rounded-lg border border-default dark:border-gray-800 p-6 shadow-sm">
                   {!wizardData.method ? (
-                    <div className="flex items-center justify-center h-full min-h-[200px] text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center justify-center h-full min-h-[200px] text-secondary dark:text-gray-400">
                       <p>{t('pleaseSelectCreationMethod')}</p>
                     </div>
                   ) : (
@@ -265,12 +265,12 @@ export default function WorkspaceHomePage() {
                       {/* Basic Information */}
                       <div>
                         <div className="flex items-center justify-between mb-4">
-                          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                          <h2 className="text-xl font-semibold text-primary dark:text-gray-100">
                             {wizardData.method === 'quick' ? t('quickCreate') : t('llmGuidedCreate')}
                           </h2>
                           <button
                             onClick={() => setWizardData({ ...wizardData, method: undefined })}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-primary dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                           >
                             <ArrowLeft className="w-4 h-4" />
                             {t('previous')}
@@ -278,7 +278,7 @@ export default function WorkspaceHomePage() {
                         </div>
                         <div className="space-y-4">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-1">
                               {t('workspaceNameRequired')}
                             </label>
                             <input
@@ -286,11 +286,11 @@ export default function WorkspaceHomePage() {
                               value={wizardData.title || ''}
                               onChange={(e) => setWizardData({ ...wizardData, title: e.target.value })}
                               placeholder={t('workspaceNamePlaceholder')}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                              className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-100"
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-1">
                               {wizardData.method === 'quick' ? t('workspaceDescriptionOptional') : t('workspaceDescriptionRequired')}
                               {wizardData.method === 'llm-guided' && <span className="text-red-500">*</span>}
                             </label>
@@ -301,16 +301,16 @@ export default function WorkspaceHomePage() {
                                 ? t('workspaceDescriptionPlaceholder')
                                 : t('workspaceDescriptionLLMPlaceholder')}
                               rows={wizardData.method === 'quick' ? 3 : 5}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                              className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-100"
                             />
                           </div>
                         </div>
                       </div>
 
                       {/* Seed Input (Optional) */}
-                      <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('addReferenceSeed')}</h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      <div className="border-t border-default dark:border-gray-700 pt-6">
+                        <h3 className="text-lg font-semibold text-primary dark:text-gray-100 mb-2">{t('addReferenceSeed')}</h3>
+                        <p className="text-sm text-secondary dark:text-gray-400 mb-4">
                           {t('addReferenceSeedDescription')}
                         </p>
                         <div>
@@ -328,7 +328,7 @@ export default function WorkspaceHomePage() {
                       </div>
 
                       {/* Complete Button */}
-                      <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                      <div className="border-t border-default dark:border-gray-700 pt-6">
                         <button
                           onClick={async () => {
                             const requiredFields = wizardData.method === 'quick'
@@ -399,7 +399,7 @@ export default function WorkspaceHomePage() {
       <div className="flex items-center justify-center h-full min-h-screen bg-gray-50 dark:bg-gray-950">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-400" />
-          <p className="text-gray-500 dark:text-gray-400">{t('loadingWorkspace') || 'Loading workspace...'}</p>
+          <p className="text-secondary dark:text-gray-400">{t('loadingWorkspace') || 'Loading workspace...'}</p>
         </div>
       </div>
     );
@@ -408,14 +408,14 @@ export default function WorkspaceHomePage() {
   if (workspaceError || error) {
     return (
       <div className="flex items-center justify-center h-full min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
-        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-800 p-6">
+        <div className="max-w-md w-full bg-surface-accent dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-800 p-6">
           <div className="flex items-center gap-3 mb-4">
             <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
             <h3 className="text-lg font-semibold text-red-900 dark:text-red-100">
               {t('errorLoadingWorkspace') || 'Error Loading Workspace'}
             </h3>
           </div>
-          <p className="text-gray-700 dark:text-gray-300 mb-4">
+          <p className="text-primary dark:text-gray-300 mb-4">
             {workspaceError || error}
           </p>
           <button
@@ -432,7 +432,7 @@ export default function WorkspaceHomePage() {
   if (!workspace) {
     return (
       <div className="flex items-center justify-center h-full min-h-screen bg-gray-50 dark:bg-gray-950">
-        <p className="text-gray-500 dark:text-gray-400">{t('workspaceNotFound') || 'Workspace not found'}</p>
+        <p className="text-secondary dark:text-gray-400">{t('workspaceNotFound') || 'Workspace not found'}</p>
       </div>
     );
   }
@@ -459,12 +459,12 @@ export default function WorkspaceHomePage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+      <div className="bg-surface-accent dark:bg-gray-900 border-b border-default dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-primary dark:text-gray-100 flex items-center gap-2">
                   {workspace.title}
                   {isReady && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
@@ -486,14 +486,14 @@ export default function WorkspaceHomePage() {
                   )}
                 </h1>
                 {workspace.description && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{workspace.description}</p>
+                  <p className="text-sm text-secondary dark:text-gray-400 mt-1">{workspace.description}</p>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleEditBlueprint}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
               >
                 <Settings className="w-4 h-4" />
                 {t('editBlueprint') || 'Edit Blueprint'}
@@ -512,10 +512,10 @@ export default function WorkspaceHomePage() {
             <div className="mb-6 p-4 bg-blue-100 dark:bg-blue-900/30 rounded-full">
               <Sparkles className="w-12 h-12 text-blue-600 dark:text-blue-400" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+            <h2 className="text-2xl font-bold text-primary dark:text-gray-100 mb-2">
               {t('workspaceNotConfigured')}
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md">
+            <p className="text-secondary dark:text-gray-400 mb-6 max-w-md">
               {t('workspaceNotConfiguredDescription')}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
@@ -528,7 +528,7 @@ export default function WorkspaceHomePage() {
               </button>
               <button
                 onClick={handleStartWork}
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium"
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-600 transition-colors font-medium"
               >
                 {t('startWorkDirectly')}
               </button>
@@ -541,11 +541,11 @@ export default function WorkspaceHomePage() {
               <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
                   <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
                     {t('workspaceBrief') || 'Workspace Brief'}
                   </h2>
                 </div>
-                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">
+                <p className="text-primary dark:text-gray-300 whitespace-pre-line leading-relaxed">
                   {launchpadData.brief}
                 </p>
               </div>
@@ -561,16 +561,16 @@ export default function WorkspaceHomePage() {
                       <Play className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                      <h3 className="text-lg font-semibold text-primary dark:text-gray-100">
                         {t('firstPlaybook') || 'First Playbook'}
                       </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                      <p className="text-sm text-secondary dark:text-gray-400">
                         {t('recommendedPlaybook') || 'Recommended playbook to start with'}
                       </p>
                     </div>
                   </div>
                   <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <p className="text-sm font-medium text-primary dark:text-gray-300 mb-1">
                       {launchpadData.first_playbook}
                     </p>
                   </div>
@@ -615,7 +615,7 @@ export default function WorkspaceHomePage() {
               <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
                   <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
                     {t('nextIntents') || 'Next Intents'}
                   </h2>
                   <span className="ml-auto text-sm text-gray-500 dark:text-gray-400">
@@ -626,11 +626,11 @@ export default function WorkspaceHomePage() {
                   {launchpadData.initial_intents.map((intent, index) => (
                     <div
                       key={index}
-                      className="group p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition-all cursor-pointer"
+                      className="group p-4 bg-surface-secondary dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition-all cursor-pointer"
                       onClick={() => router.push(`/workspaces/${workspaceId}/intents`)}
                     >
                       <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-medium text-gray-900 dark:text-gray-100 flex-1">
+                        <h3 className="font-medium text-primary dark:text-gray-100 flex-1">
                           {intent.title}
                         </h3>
                         <PriorityBadge priority={intent.priority} />
@@ -651,7 +651,7 @@ export default function WorkspaceHomePage() {
               <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
                   <Wrench className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
                     {t('toolConnections') || 'Tool Connections'}
                   </h2>
                 </div>
@@ -659,21 +659,21 @@ export default function WorkspaceHomePage() {
                   {launchpadData.tool_connections.map((tool, index) => (
                     <div
                       key={index}
-                      className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+                      className="flex items-center justify-between p-4 bg-surface-secondary dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-                          <Wrench className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                        <div className="p-2 bg-surface-secondary dark:bg-gray-700 rounded-lg">
+                          <Wrench className="w-4 h-4 text-secondary dark:text-gray-400" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900 dark:text-gray-100">
+                            <span className="font-medium text-primary dark:text-gray-100">
                               {tool.tool_type}
                             </span>
                             <DangerLevelBadge level={tool.danger_level} />
                           </div>
                           {tool.allowed_roles && tool.allowed_roles.length > 0 && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <p className="text-xs text-secondary dark:text-gray-400 mt-1">
                               Allowed roles: {tool.allowed_roles.join(', ')}
                             </p>
                           )}
@@ -705,29 +705,29 @@ export default function WorkspaceHomePage() {
       {showSetupDrawer && (
         <div className="fixed inset-0 z-50 bg-black/50 dark:bg-black/70 flex justify-end" onClick={() => setShowSetupDrawer(false)}>
           <div
-            className="w-full md:w-2/3 lg:w-1/2 bg-white dark:bg-gray-900 shadow-lg p-6 overflow-y-auto"
+            className="w-full md:w-2/3 lg:w-1/2 bg-surface-accent dark:bg-gray-900 shadow-lg p-6 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              <h2 className="text-2xl font-bold text-primary dark:text-gray-100">
                 {t('assembleWorkspace')}
               </h2>
               <button
                 onClick={() => setShowSetupDrawer(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                className="p-2 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded-lg transition-colors"
               >
-                <ArrowRight className="w-5 h-5 text-gray-500 dark:text-gray-400 rotate-45" />
+                <ArrowRight className="w-5 h-5 text-secondary dark:text-gray-400 rotate-45" />
               </button>
             </div>
             <div className="space-y-4 mb-6">
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('minimumFileReference')}</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('minimumFileReference')}</h3>
+                <p className="text-sm text-secondary dark:text-gray-400 mb-4">
                   {t('minimumFileReferenceDescription')}
                 </p>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
                       {t('pasteText')}
                     </label>
                     <textarea
@@ -735,7 +735,7 @@ export default function WorkspaceHomePage() {
                       onChange={(e) => setSetupSeedText(e.target.value)}
                       placeholder={t('pasteTextPlaceholder')}
                       rows={8}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-none"
+                      className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 resize-none"
                     />
                   </div>
                   <div className="flex gap-2">
@@ -774,23 +774,23 @@ export default function WorkspaceHomePage() {
                         setSetupSeedText('');
                         setShowSetupDrawer(false);
                       }}
-                      className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+                      className="px-4 py-2 bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-600 transition-colors text-sm font-medium"
                     >
                       {t('close')}
                     </button>
                   </div>
                   <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t('otherMethods')}</p>
+                    <p className="text-xs text-secondary dark:text-gray-400 mb-2">{t('otherMethods')}</p>
                     <div className="flex gap-2">
                       <button
                         disabled
-                        className="flex-1 px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg text-xs font-medium cursor-not-allowed"
+                        className="flex-1 px-3 py-2 bg-surface-secondary dark:bg-gray-700 text-secondary dark:text-gray-400 rounded-lg text-xs font-medium cursor-not-allowed"
                       >
                         {t('uploadFile')}
                       </button>
                       <button
                         disabled
-                        className="flex-1 px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg text-xs font-medium cursor-not-allowed"
+                        className="flex-1 px-3 py-2 bg-surface-secondary dark:bg-gray-700 text-secondary dark:text-gray-400 rounded-lg text-xs font-medium cursor-not-allowed"
                       >
                         {t('pasteUrl')}
                       </button>

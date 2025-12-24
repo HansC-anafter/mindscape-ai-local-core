@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useT } from '@/lib/i18n';
 import HelpIcon from '@/components/HelpIcon';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
+import { getPlaybookMetadata } from '@/lib/i18n/locales/playbooks';
+import { playbookMetadataZhTW } from '@/lib/i18n/locales/playbooks/metadata/zh-TW';
 
 // Component for displaying and editing AI-inferred intent label
 function PlaybookIntentSubtitle({
@@ -267,7 +269,7 @@ export default function PendingTasksPanel({
       return !isBackground;
     });
 
-    // Filter out auto-executed intent_extraction tasks
+    // Filter out auto-executed intent_extraction tasks and system playbooks
     // These are already executed automatically and should not appear in pending decisions
     const tasksNeedingDecision = foregroundTasks.filter((task: any) => {
       // Exclude auto_intent_extraction tasks (already auto-executed)
@@ -280,6 +282,13 @@ export default function PendingTasksPanel({
           task.status?.toUpperCase() === 'SUCCEEDED' &&
           (task.params?.auto_executed || task.result?.auto_executed)) {
         console.log('[PendingTasksPanel] Filtered out auto-executed intent_extraction task:', task.id);
+        return false;
+      }
+      // Exclude system playbooks (e.g., execution_status_query) - these are internal system tools
+      const playbookCode = task.pack_id || task.playbook_id || '';
+      const systemPlaybookCodes = ['execution_status_query'];
+      if (systemPlaybookCodes.includes(playbookCode)) {
+        console.log('[PendingTasksPanel] Filtered out system playbook:', playbookCode, task.id);
         return false;
       }
       return true;
@@ -717,7 +726,7 @@ export default function PendingTasksPanel({
                 );
               }
 
-              // Add task cards (skip background tasks)
+              // Add task cards (skip background tasks and system playbooks)
               packTasks.forEach((task) => {
                 // Skip background tasks - they should be managed separately
                 const playbookCode = task.pack_id || task.playbook_id || '';
@@ -728,6 +737,13 @@ export default function PendingTasksPanel({
                 if (isBackground) {
                   console.log('[PendingTasksPanel] Skipping background task:', task.id);
                   return; // Skip rendering background tasks
+                }
+
+                // Skip system playbooks - these are internal system tools and should not be shown to users
+                const systemPlaybookCodes = ['execution_status_query'];
+                if (systemPlaybookCodes.includes(playbookCode)) {
+                  console.log('[PendingTasksPanel] Skipping system playbook:', playbookCode, task.id);
+                  return; // Skip system playbooks - they are internal tools
                 }
 
                 // RUNNING tasks should not appear in pending panel - they should be in execution console
@@ -763,10 +779,54 @@ export default function PendingTasksPanel({
                       {/* Compact header: title + time + status badge in one line */}
                       <div className="flex items-center justify-between gap-1.5 mb-1">
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                          <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
-                            {task.task_type === 'suggestion'
-                              ? task.pack_id || 'Task'
-                              : (task.task_type || task.pack_id || 'Task')}
+                          <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate" title={task.title || task.summary || task.pack_id || task.playbook_id || task.task_type}>
+                            {(() => {
+                              // Debug: Log task structure to console
+                              if (process.env.NODE_ENV === 'development') {
+                                console.log('[PendingTasksPanel] Task data for display:', {
+                                  id: task.id,
+                                  task_type: task.task_type,
+                                  pack_id: task.pack_id,
+                                  playbook_id: task.playbook_id,
+                                  title: task.title,
+                                  summary: task.summary,
+                                  'task keys': Object.keys(task),
+                                  'full task': task
+                                });
+                              }
+
+                              // Priority: title > summary > playbook name from i18n > pack_id/playbook_id > task_type
+                              if (task.title) {
+                                console.log('[PendingTasksPanel] Using task.title:', task.title);
+                                return task.title;
+                              }
+                              if (task.summary) {
+                                console.log('[PendingTasksPanel] Using task.summary:', task.summary);
+                                return task.summary;
+                              }
+                              // Try to get playbook name from i18n metadata
+                              const playbookCode = task.pack_id || task.playbook_id;
+                              console.log('[PendingTasksPanel] playbookCode:', playbookCode);
+                              if (playbookCode) {
+                                const playbookName = getPlaybookMetadata(playbookCode, 'name', 'zh-TW');
+                                console.log('[PendingTasksPanel] playbookName from metadata:', playbookName);
+                                if (playbookName) {
+                                  return playbookName;
+                                }
+                              }
+                              if (task.task_type === 'suggestion') {
+                                console.log('[PendingTasksPanel] Using suggestion playbookCode:', playbookCode);
+                                return playbookCode || 'Task';
+                              }
+                              // For playbook execution tasks, prefer pack_id/playbook_id over task_type
+                              if (playbookCode) {
+                                console.log('[PendingTasksPanel] Using playbookCode:', playbookCode);
+                                return playbookCode;
+                              }
+                              // Fallback to task_type only if nothing else is available
+                              console.log('[PendingTasksPanel] Fallback to task_type:', task.task_type);
+                              return task.task_type || 'Task';
+                            })()}
                           </div>
                           {/* Background playbook indicator (check is_background flag or pack_id) */}
                           {(() => {
@@ -998,6 +1058,56 @@ export default function PendingTasksPanel({
 
                                   // Reload tasks after action
                                   await loadTasks();
+
+                                  // Check if task still needs data supplementation after execution
+                                  // Wait a bit for task status to update, then check
+                                  setTimeout(async () => {
+                                    try {
+                                      const checkResponse = await fetch(
+                                        `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`
+                                      );
+                                      if (checkResponse.ok) {
+                                        const checkData = await checkResponse.json();
+                                        const allTasks = checkData.tasks || [];
+                                        const executedTask = allTasks.find((t: any) => t.id === task.id);
+
+                                        // If task is still PENDING after execution, it likely needs additional data
+                                        if (executedTask && (executedTask.status?.toUpperCase() === 'PENDING' || executedTask.status === 'pending')) {
+                                          // Task still pending, likely needs data supplementation
+                                          // Extract task title/description for context
+                                          const taskTitle = task.title || task.summary || task.pack_id || '任務';
+                                          const taskDescription = task.description || task.summary || '';
+
+                                          // Determine data type needed based on task type or description
+                                          let dataType: 'file' | 'text' | 'both' = 'both';
+                                          const desc = (taskDescription + ' ' + taskTitle).toLowerCase();
+                                          if (desc.includes('上傳') || desc.includes('檔案') || desc.includes('文件') || desc.includes('upload') || desc.includes('file')) {
+                                            dataType = 'file';
+                                          } else if (desc.includes('輸入') || desc.includes('文字') || desc.includes('輸入') || desc.includes('text') || desc.includes('input')) {
+                                            dataType = 'text';
+                                          }
+
+                                          // Trigger continue-conversation event to guide user
+                                          window.dispatchEvent(new CustomEvent('continue-conversation', {
+                                            detail: {
+                                              type: 'continue-conversation',
+                                              taskId: task.id,
+                                              context: {
+                                                topic: taskTitle,
+                                                requiresData: {
+                                                  type: dataType,
+                                                  description: taskDescription || `任務「${taskTitle}」需要補充資料以繼續執行`,
+                                                  prompt: `關於任務「${taskTitle}」，我需要補充以下資料：`
+                                                }
+                                              }
+                                            }
+                                          }));
+                                        }
+                                      }
+                                    } catch (err) {
+                                      console.error('[PendingTasksPanel] Failed to check task status for data supplementation:', err);
+                                    }
+                                  }, 1000);
 
                                   // Trigger workspace chat update event
                                   window.dispatchEvent(new CustomEvent('workspace-chat-updated'));

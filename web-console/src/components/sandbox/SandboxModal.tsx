@@ -11,6 +11,7 @@ interface SandboxModalProps {
   sandboxId: string;
   projectId?: string;
   executionId?: string;
+  initialFile?: string | null;
 }
 
 export default function SandboxModal({
@@ -20,6 +21,7 @@ export default function SandboxModal({
   sandboxId,
   projectId,
   executionId,
+  initialFile,
 }: SandboxModalProps) {
   if (!isOpen) return null;
 
@@ -36,6 +38,7 @@ export default function SandboxModal({
           sandboxId={sandboxId}
           projectId={projectId}
           executionId={executionId}
+          initialFile={initialFile}
         />
       </div>
     </BaseModal>

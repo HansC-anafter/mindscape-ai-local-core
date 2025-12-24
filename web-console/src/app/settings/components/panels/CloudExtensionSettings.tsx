@@ -254,7 +254,7 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
                         </span>
                         <span className={`px-2 py-1 text-xs rounded ${
                           provider.configured
-                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                            ? 'bg-accent-10 text-accent dark:bg-blue-900/20 dark:text-blue-400'
                             : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
                         }`}>
                           {provider.configured ? t('configured') : t('notConfigured')}

@@ -150,8 +150,8 @@ export default function LLMDrawer({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex">
       {/* Drawer */}
-      <div className="bg-white w-full max-w-6xl ml-auto h-full flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="bg-surface-secondary w-full max-w-6xl ml-auto h-full flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-default">
           <h2 className="text-xl font-semibold text-gray-900">與助手討論你的使用情境</h2>
           <button
             onClick={onClose}
@@ -231,8 +231,8 @@ export default function LLMDrawer({
                       key={index}
                       className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                         selectedSuggestions.has(index)
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
+                          ? 'border-accent bg-accent-10 dark:border-blue-500 dark:bg-blue-900/20'
+                          : 'border-default bg-surface-secondary hover:border-default'
                       }`}
                       onClick={() => toggleSuggestion(index)}
                     >

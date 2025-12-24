@@ -67,33 +67,69 @@ export default function IntentChips({
   };
 
   const handleConfirmIntent = async (intentTag: IntentTag) => {
-    if (confirmingId) return; // Prevent multiple clicks
+    if (confirmingId) {
+      console.log('[IntentChips] Already confirming, ignoring click');
+      return; // Prevent multiple clicks
+    }
+
+    console.log('[IntentChips] Confirming intent:', {
+      intentTagId: intentTag.id,
+      title: intentTag.title,
+      workspaceId,
+      apiUrl
+    });
 
     setConfirmingId(intentTag.id);
 
     try {
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/intent-tags/${intentTag.id}/confirm`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
       );
 
+      console.log('[IntentChips] Confirm response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (response.ok) {
+        const data = await response.json().catch(() => ({}));
+        console.log('[IntentChips] Confirm success:', data);
+
         // Remove confirmed tag from list
         setIntentTags(prev => prev.filter(tag => tag.id !== intentTag.id));
 
         // Trigger workspace chat update to refresh
         window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
 
+        // Trigger continue-conversation event to guide user to chat window
+        window.dispatchEvent(new CustomEvent('continue-conversation', {
+          detail: {
+            type: 'continue-conversation',
+            intentId: intentTag.id,
+            context: {
+              topic: intentTag.title,
+              suggestedMessage: `關於「${intentTag.title}」，我想要進一步討論...`
+            }
+          }
+        }));
+
         if (onConfirm) {
           onConfirm(intentTag.id);
         }
       } else {
-        const error = await response.json();
-        console.error('Failed to confirm intent:', error);
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        console.error('[IntentChips] Failed to confirm intent:', error);
         alert(`Failed to confirm intent: ${error.detail || 'Unknown error'}`);
       }
     } catch (err: any) {
-      console.error('Failed to confirm intent:', err);
+      console.error('[IntentChips] Error confirming intent:', err);
       alert(`Failed to confirm intent: ${err.message || 'Unknown error'}`);
     } finally {
       setConfirmingId(null);
@@ -113,12 +149,17 @@ export default function IntentChips({
         {intentTags.map((tag) => (
           <button
             key={tag.id}
-            onClick={() => handleConfirmIntent(tag)}
-            disabled={confirmingId === tag.id}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('[IntentChips] Button clicked:', { tagId: tag.id, title: tag.title });
+              handleConfirmIntent(tag);
+            }}
+            disabled={confirmingId === tag.id || confirmingId !== null}
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all ${
               confirmingId === tag.id
-                ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 cursor-not-allowed'
-                : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer'
+                ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 cursor-not-allowed animate-pulse'
+                : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer active:bg-blue-50 dark:active:bg-blue-900/30'
             }`}
           >
             <span>{tag.title}</span>

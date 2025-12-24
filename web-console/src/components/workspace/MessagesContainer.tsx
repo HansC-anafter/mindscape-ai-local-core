@@ -72,9 +72,9 @@ export function MessagesContainer({
     >
       {loadingMore && (
         <div className="flex justify-center py-2">
-          <div className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-2">
+          <div className="text-xs text-secondary dark:text-gray-300 flex items-center gap-2">
             <div
-              className="w-4 h-4 border-2 border-gray-400 dark:border-gray-200 border-t-transparent rounded-full"
+              className="w-4 h-4 border-2 border-tertiary dark:border-gray-200 border-t-transparent rounded-full"
               style={{ animation: 'spin 1s linear infinite' }}
             />
             <span>Loading older messages...</span>
@@ -93,7 +93,7 @@ export function MessagesContainer({
       />
 
       {messages.length === 0 && !messagesLoading && !messagesError ? (
-        <div className="text-center text-gray-500 dark:text-gray-300 mt-8">
+        <div className="text-center text-secondary dark:text-gray-300 mt-8">
           <p>{t('noMessagesYet')}</p>
         </div>
       ) : messages.length > 0 ? (
@@ -130,7 +130,7 @@ export function MessagesContainer({
 
       {executionTree && executionTree.length > 0 && (
         <div className="mt-4 mb-2">
-          <div className="bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm">
+          <div className="bg-gradient-to-r from-accent-10 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-accent/30 dark:border-blue-800 shadow-sm">
             <div className="px-4 py-3">
               <ExecutionTree
                 steps={executionTree}
@@ -152,7 +152,7 @@ export function MessagesContainer({
       {showScrollToBottom && (
         <button
           onClick={() => scrollToBottom(true)}
-          className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-blue-500 hover:bg-blue-600 text-white rounded-full p-1.5 shadow-lg transition-all duration-200 hover:scale-110"
+          className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-accent dark:bg-blue-500 hover:bg-accent/90 dark:hover:bg-blue-600 text-white rounded-full p-1.5 shadow-lg transition-all duration-200 hover:scale-110"
           aria-label="Scroll to bottom"
           title="Scroll to bottom"
         >

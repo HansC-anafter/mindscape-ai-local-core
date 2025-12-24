@@ -355,9 +355,9 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500 dark:text-gray-400">{t('loadingWorkspace')}</div>
+          <div className="text-secondary dark:text-gray-400">{t('loadingWorkspace')}</div>
         </div>
       </div>
     );
@@ -365,7 +365,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   if (error || (!workspace && !loading)) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
           <div className="text-center">
             <div className="text-red-500 dark:text-red-400 mb-4">{error || t('workspaceNotFound')}</div>
@@ -374,7 +374,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onClick={() => {
                   contextData.refreshWorkspace();
                 }}
-                className="px-4 py-2 bg-blue-500 dark:bg-blue-700 text-white rounded hover:bg-blue-600 dark:hover:bg-blue-600"
+                className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded hover:opacity-90 dark:hover:bg-blue-600"
               >
                 {t('retryButton')}
               </button>
@@ -386,7 +386,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-surface dark:bg-gray-950">
 
       <div className="flex flex-col h-[calc(100vh-48px)]">
         {/* Train Header - Progress Bar with Workspace Name */}
@@ -406,7 +406,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar - Tab Panel and Workspace Scope Panel */}
-          <div className="w-80 border-r dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          <div className="w-80 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
             {/* Tab Panel Section - Top */}
             <div className="flex-1 overflow-hidden min-h-0">
               <LeftSidebarTabs
@@ -430,7 +430,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                     {/* Project Card */}
                     <div className="flex-shrink-0 border-b dark:border-gray-700 p-3">
                       {isLoadingProject ? (
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                        <div className="text-xs text-secondary dark:text-gray-400">
                           載入中...
                         </div>
                       ) : currentProject ? (
@@ -450,10 +450,10 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                         <div className="px-3 py-2">
                           <div className="project-placeholder text-center py-8">
                             <div className="text-2xl mb-2">📁</div>
-                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            <div className="text-sm font-medium text-primary dark:text-gray-300 mb-1">
                               尚無進行中的專案
                             </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                            <div className="text-xs text-secondary dark:text-gray-400">
                               開始對話後，系統會自動建立專案
                             </div>
                             {/* Debug info */}
@@ -504,29 +504,29 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
             {/* Workspace Settings - Collapsible at bottom */}
             {workspace && (
-              <div className="border-t dark:border-gray-700 bg-orange-50/30 dark:bg-orange-900/10 mt-auto">
+              <div className="border-t dark:border-gray-700 bg-surface-secondary dark:bg-orange-900/10 mt-auto">
                 {/* Settings Entry - Collapsible in left sidebar */}
                 <div className="border-t dark:border-gray-700">
                   <div
-                    className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
                     onClick={() => setShowSystemTools(!showSystemTools)}
                   >
                     <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
                       <div>
-                        <div className="text-xs font-medium text-gray-700 dark:text-gray-300">工作區設定</div>
-                        <div className="text-[10px] text-gray-400">模式 · 產物 · 偏好 · 資料來源</div>
+                        <div className="text-xs font-medium text-primary dark:text-gray-300">工作區設定</div>
+                        <div className="text-[10px] text-tertiary">模式 · 產物 · 偏好 · 資料來源</div>
                       </div>
                     </div>
-                    <span className="text-gray-400 text-xs">{showSystemTools ? '▲' : '▼'}</span>
+                    <span className="text-tertiary text-xs">{showSystemTools ? '▲' : '▼'}</span>
                   </div>
 
                   {/* Collapsible Settings Panel */}
                   <div
-                    className={`border-t dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
+                    className={`border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
                       showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
                     }`}
                   >
@@ -554,7 +554,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                                 onRefresh={() => contextData.refreshAll()}
                               />
                             ) : (
-                              <div className="text-sm text-gray-500 dark:text-gray-400">Loading system status...</div>
+                              <div className="text-sm text-secondary dark:text-gray-400">Loading system status...</div>
                             )}
                           </div>
                         </>
@@ -599,17 +599,17 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
           </div>
 
           {/* Right Sidebar - Execution Chat (when focused) or Workspace Tools (default) */}
-          <div className="w-80 border-l dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          <div className="w-80 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
             {/* Header - Title with AI Team Mode Selector */}
-            <div className="flex items-center justify-between border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5">
+            <div className="flex items-center justify-between border-b dark:border-gray-700 bg-surface dark:bg-gray-800 px-3 py-1.5">
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <h3 className="text-xs font-bold bg-gradient-to-r from-blue-500 to-gray-600 text-white px-2 py-0.5 rounded-lg shadow-md border border-blue-300 dark:border-blue-700 flex-shrink-0">
+                <h3 className="text-xs font-bold bg-gradient-to-r from-accent dark:from-blue-600 to-gray-600 text-white px-2 py-0.5 rounded-lg shadow-md border border-accent dark:border-blue-700 flex-shrink-0">
                   {t('mindscapeAIWorkbench')}
                 </h3>
                 <div className="h-3 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"></div>
                 {focusExecutionId ? (
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                    <h3 className="text-xs font-semibold text-primary dark:text-gray-100">
                       {focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation')}
                     </h3>
                   </div>
@@ -655,7 +655,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   minBottomHeight={20}
                   top={
                     <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
-                      <div className="flex-1 overflow-y-auto min-h-0 bg-blue-50/30 dark:bg-blue-900/10">
+                      <div className="flex-1 overflow-y-auto min-h-0 bg-accent-10 dark:bg-blue-900/10">
                         <div className="p-3">
                           {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') && (
                             <>
@@ -830,9 +830,9 @@ export default function WorkspacePage() {
 
   if (!workspaceId) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500 dark:text-gray-400">{t('workspaceNotFound')}</div>
+          <div className="text-secondary dark:text-gray-400">{t('workspaceNotFound')}</div>
         </div>
       </div>
     );

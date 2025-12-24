@@ -23,6 +23,15 @@ export default function ArtifactsPane({
   onView,
   onViewSandbox,
 }: ArtifactsPaneProps) {
+  console.log('[ArtifactsPane] Rendered with props:', {
+    artifactsCount: artifacts.length,
+    hasOnView: !!onView,
+    onViewType: typeof onView,
+    onViewFunction: onView?.toString().substring(0, 100),
+    sandboxId,
+    hasOnViewSandbox: !!onViewSandbox,
+  });
+
   // Don't render if there are no artifacts to save space
   if (artifacts.length === 0 && !sandboxId) {
     return null;

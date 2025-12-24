@@ -123,7 +123,7 @@ function EmptyPathInputWithWorkspaceName({
           setInputValue(value);
           onPathChange(value);
         }}
-        className="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
+        className="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
         placeholder={initialStorageBasePath || (isWindows ? "C:\\Users\\...\\Documents\\..." : "/Users/.../Documents/...")}
       />
       {workspaceTitle ? (
@@ -731,7 +731,7 @@ export function LocalFilesystemManagerContent({
                 value={pathInputValue}
                 onChange={(e) => setPathInputValue(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handlePathInputConfirm()}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent"
                 placeholder={initialStorageBasePath || (isWindows ? "C:\\Users\\...\\Documents\\..." : "/Users/.../Documents/...")}
                 autoFocus
               />
@@ -755,7 +755,7 @@ export function LocalFilesystemManagerContent({
               </button>
               <button
                 onClick={handlePathInputConfirm}
-                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
+                className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded-md hover:bg-accent/90 dark:hover:bg-blue-600"
               >
                 Confirm
               </button>
@@ -785,7 +785,7 @@ export function LocalFilesystemManagerContent({
               <button
                 type="button"
                 onClick={handleDirectoryPicker}
-                className="px-8 py-4 bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white rounded-lg text-lg font-medium flex items-center space-x-3 shadow-lg transition-colors mx-auto"
+                className="px-8 py-4 bg-accent dark:bg-blue-700 hover:bg-accent/90 dark:hover:bg-blue-600 text-white rounded-lg text-lg font-medium flex items-center space-x-3 shadow-lg transition-colors mx-auto"
                 title={typeof window !== 'undefined' && 'showDirectoryPicker' in window
                   ? 'Open system directory picker (Chrome/Edge)'
                   : 'Not available in this browser. Use quick select or manual input.'}
@@ -833,8 +833,8 @@ export function LocalFilesystemManagerContent({
               className="mb-2"
             />
             {requiresRestart && (
-              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-900 dark:text-blue-300 mb-2">
+              <div className="mt-3 p-3 bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-accent dark:text-blue-300 mb-2">
                   {t('restartRequired')}
                 </p>
                 <button
@@ -862,11 +862,11 @@ export function LocalFilesystemManagerContent({
                     }
                   }}
                   disabled={restarting}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium transition-colors"
+                  className="px-4 py-2 bg-accent hover:bg-accent/90 disabled:bg-gray-400 text-white rounded-md text-sm font-medium transition-colors"
                 >
                   {restarting ? t('restarting') : t('restartService')}
                 </button>
-                <p className="text-xs text-blue-700 dark:text-blue-400 mt-2">
+                <p className="text-xs text-accent dark:text-blue-400 mt-2">
                   {t('orManuallyRun')}
                 </p>
               </div>
@@ -891,11 +891,11 @@ export function LocalFilesystemManagerContent({
 
             <div className="mb-4">
               {workspaceMode && (
-                <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <p className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">
+                <div className="mb-3 p-3 bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800 rounded-lg">
+                  <p className="text-sm font-medium text-accent dark:text-blue-300 mb-2">
                     {t('selectProjectRootDirectory')}
                   </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-400">
+                  <p className="text-xs text-accent dark:text-blue-400">
                     {t('selectProjectRootDirectoryDescription')}
                   </p>
                 </div>
@@ -903,7 +903,7 @@ export function LocalFilesystemManagerContent({
               <button
                 type="button"
                 onClick={handleDirectoryPicker}
-                className={`px-6 py-3 ${workspaceMode ? 'bg-blue-600 hover:bg-blue-700 text-lg font-medium' : 'px-4 py-2 bg-blue-600 hover:bg-blue-700 text-sm'} text-white rounded-md flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md`}
+                className={`px-6 py-3 ${workspaceMode ? 'bg-accent hover:bg-accent/90 text-lg font-medium' : 'px-4 py-2 bg-accent hover:bg-accent/90 text-sm'} text-white rounded-md flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md`}
                 title={typeof window !== 'undefined' && 'showDirectoryPicker' in window
                   ? t('browseDirectoryChromeEdge')
                   : t('browseDirectoryNotAvailable')}
@@ -985,7 +985,7 @@ export function LocalFilesystemManagerContent({
                     value={newDirectory}
                     onChange={(e) => setNewDirectory(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleAddDirectory()}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent"
                     placeholder={isWindows
                       ? "e.g., C:\\Users\\...\\Documents or .\\data"
                       : "e.g., ~/Documents or ./data/documents"}
@@ -1069,7 +1069,7 @@ export function LocalFilesystemManagerContent({
                                 setDirectories(newDirs);
                                 setError(null);
                               }}
-                              className="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
+                              className="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
                               placeholder={initialStorageBasePath || (isWindows ? "C:\\Users\\...\\Documents\\..." : "/Users/.../Documents/...")}
                             />
                             {workspaceTitle ? (
@@ -1177,7 +1177,7 @@ export function LocalFilesystemManagerContent({
                 type="text"
                 value={artifactsDir}
                 onChange={(e) => setArtifactsDir(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent"
                 placeholder="artifacts"
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1259,7 +1259,7 @@ export function LocalFilesystemManagerContent({
                                   };
                                   setPlaybookStorageConfig(newConfig);
                                 }}
-                                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400"
                                 placeholder={directories[0]?.path || 'Enter base path'}
                               />
                             </div>
@@ -1278,7 +1278,7 @@ export function LocalFilesystemManagerContent({
                                   };
                                   setPlaybookStorageConfig(newConfig);
                                 }}
-                                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400"
                                 placeholder={artifactsDir || 'artifacts'}
                               />
                             </div>
