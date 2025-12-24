@@ -1,0 +1,103 @@
+name: Test Playbook Registry
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/playbook_registry.py'
+      - 'backend/app/services/playbook_loaders/**'
+      - 'backend/tests/test_playbook_registry_smoke.py'
+      - 'backend/app/capabilities/**'
+  push:
+    branches:
+      - master
+    paths:
+      - 'backend/app/services/playbook_registry.py'
+      - 'backend/app/services/playbook_loaders/**'
+      - 'backend/tests/test_playbook_registry_smoke.py'
+      - 'backend/app/capabilities/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Start Docker Compose services
+        run: |
+          docker compose up -d backend
+          # Wait for backend to be ready
+          timeout 60 bash -c 'until docker compose exec -T backend curl -f http://localhost:8000/health 2>/dev/null; do sleep 2; done' || true
+
+      - name: Run smoke tests
+        run: |
+          docker compose exec -T backend python -m pytest backend/tests/test_playbook_registry_smoke.py -v --tb=short
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose down
+
+  check-loader-changes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Check for unauthorized loader/registry changes
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { execSync } = require('child_process');
+
+            // Get changed files in PR
+            const changedFiles = execSync('git diff --name-only origin/master...HEAD', { encoding: 'utf-8' })
+              .split('\n')
+              .map(f => f.trim())
+              .filter(f => f);
+
+            // Check for unauthorized changes to loader/registry
+            const restrictedFiles = [
+              'backend/app/services/playbook_registry.py',
+              'backend/app/services/playbook_loaders/',
+              'backend/app/services/api_loader.py',
+              'backend/app/services/capability_runtime_loader.py'
+            ];
+
+            const restrictedChanged = changedFiles.filter(file =>
+              restrictedFiles.some(restricted => file.startsWith(restricted))
+            );
+
+            if (restrictedChanged.length > 0) {
+              console.log('⚠️  WARNING: Changes to loader/registry detected:');
+              restrictedChanged.forEach(f => console.log(`   - ${f}`));
+              console.log('');
+
+              // Check PR labels
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+              });
+
+              const labels = pr.labels.map(label => label.name);
+              const requiredLabels = ['approved', 'decision-recorded', 'architecture-approved'];
+              const hasRequiredLabel = requiredLabels.some(label => labels.includes(label));
+
+              if (!hasRequiredLabel) {
+                core.setFailed('❌ ERROR: Changes to loader/registry require decision approval');
+                core.setFailed(`   Required labels: ${requiredLabels.join(', ')}`);
+                core.setFailed(`   Current labels: ${labels.join(', ') || '(none)'}`);
+                core.setFailed(`   Restricted files: playbook_registry.py, playbook_loaders/, api_loader.py, capability_runtime_loader.py`);
+                core.setFailed(`   See: docs-internal/implementation/architecture-refactoring-2025-12-22/PLAYBOOK_MIGRATION_PLAN.md`);
+              } else {
+                console.log(`✅ PR has required decision label: ${labels.filter(l => requiredLabels.includes(l)).join(', ')}`);
+              }
+            }
+
+
