@@ -12,6 +12,7 @@ from . import (
     embedding_migrations,
     env_vars,
     system_control,
+    governance,
 )
 
 router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
 # Register all sub-routers
 # IMPORTANT: Specific routes (like /llm-models) must be registered BEFORE
 # catch-all routes (like /{key}) to avoid route conflicts
+router.include_router(governance.router, prefix="/governance", tags=["governance"])
 router.include_router(llm_models.router)
 router.include_router(google_oauth.router)
 router.include_router(obsidian.router)

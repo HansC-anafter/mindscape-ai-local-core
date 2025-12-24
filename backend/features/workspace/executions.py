@@ -206,7 +206,7 @@ async def stream_execution_updates(
                                 )
                                 if report:
                                     # Send query result as workspace chat message
-                                    from backend.app.models.mindscape import EventActor, EventType, MindEvent
+                                    from backend.app.models.mindscape import EventActor, MindEvent
                                     import uuid
 
                                     # Create MESSAGE event for workspace chat
@@ -258,9 +258,11 @@ async def stream_execution_updates(
 
                     # Get latest events (PLAYBOOK_STEP and EXECUTION_CHAT)
                     events = store.get_events_by_workspace(workspace_id=workspace_id, limit=200)
+                    # Use EventType from module level import (line 17)
+                    playbook_step_type = EventType.PLAYBOOK_STEP
                     playbook_step_events = [
                         e for e in events
-                        if e.event_type == EventType.PLAYBOOK_STEP
+                        if e.event_type == playbook_step_type
                         and isinstance(e.payload, dict)
                         and e.payload.get("execution_id") == execution_id
                     ]
