@@ -1,0 +1,332 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IGVisualLensSchema",
+  "description": "Instagram Post Visual Lens Schema - extends BaseVisualLensSchema with IG-specific format rules",
+  "type": "object",
+  "required": ["lens_id", "name", "image_vocabulary", "composition_rules", "light_color_tokens", "mood_narrative", "ig_format_rules", "social_media_guardrails"],
+  "properties": {
+    "lens_id": {
+      "type": "string",
+      "description": "Unique lens identifier",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "description": "Lens name",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "Lens description"
+    },
+    "source_photographer": {
+      "type": "string",
+      "description": "Source photographer name"
+    },
+    "source_images": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Legacy: source image URLs (for backward compatibility)"
+    },
+    "source_image_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string"
+          },
+          "urls": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "photographer": {
+            "type": "string"
+          },
+          "photographer_username": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          }
+        },
+        "required": ["photo_id", "urls"]
+      },
+      "description": "Source image references with full metadata"
+    },
+    "image_vocabulary": {
+      "type": "object",
+      "description": "Image vocabulary: themes, distances, angles, depth, dynamics",
+      "properties": {
+        "themes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "distances": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "angles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "depth_of_field": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "dynamics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": []
+    },
+    "composition_rules": {
+      "type": "object",
+      "description": "Composition rules: whitespace, subject position, horizon, geometry",
+      "properties": {
+        "whitespace_ratio": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.0
+        },
+        "subject_position": {
+          "type": "string"
+        },
+        "horizon_position": {
+          "type": "string"
+        },
+        "geometry_preference": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": []
+    },
+    "light_color_tokens": {
+      "type": "object",
+      "description": "Light and color tokens: temperature, contrast, saturation, palette, forbidden colors",
+      "properties": {
+        "color_temperature": {
+          "type": "string"
+        },
+        "contrast_level": {
+          "type": "string"
+        },
+        "saturation": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.5
+        },
+        "color_palette": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          },
+          "default": []
+        },
+        "forbidden_colors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          },
+          "default": []
+        }
+      },
+      "required": []
+    },
+    "mood_narrative": {
+      "type": "object",
+      "description": "Mood and narrative: emotions, narrative distance, rhythm",
+      "properties": {
+        "emotion_keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "narrative_distance": {
+          "type": "string"
+        },
+        "rhythm": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "ig_format_rules": {
+      "type": "object",
+      "description": "IG format rules: post dimensions, story format, carousel format",
+      "properties": {
+        "post_format": {
+          "type": "string",
+          "enum": ["square", "portrait", "landscape"],
+          "default": "square",
+          "description": "Preferred post format"
+        },
+        "story_format": {
+          "type": "object",
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "enum": ["9:16"],
+              "default": "9:16"
+            },
+            "safe_zone": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number"
+                },
+                "bottom": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "carousel_format": {
+          "type": "object",
+          "properties": {
+            "max_slides": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 10,
+              "default": 5
+            },
+            "slide_format": {
+              "type": "string",
+              "enum": ["square", "portrait", "landscape"],
+              "default": "square"
+            }
+          }
+        },
+        "text_overlay": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "position": {
+              "type": "string",
+              "enum": ["top", "center", "bottom"],
+              "default": "bottom"
+            },
+            "max_length": {
+              "type": "integer",
+              "default": 100
+            }
+          }
+        }
+      },
+      "required": ["post_format"]
+    },
+    "social_media_guardrails": {
+      "type": "object",
+      "description": "Social media guardrails: forbidden and required elements",
+      "properties": {
+        "forbidden_elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "hashtag_policy": {
+          "type": "object",
+          "properties": {
+            "min_count": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 3
+            },
+            "max_count": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 10
+            },
+            "required_tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          }
+        }
+      },
+      "required": []
+    },
+    "version": {
+      "type": "string",
+      "default": "0.1.0",
+      "description": "Schema version"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Creation timestamp"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp"
+    }
+  }
+}
+
+
+
+
+
