@@ -3,6 +3,8 @@ display_name: "Review"
 version: "1.0.0"
 description: "Review reminder and suggestion services"
 side_effect_level: "soft_write"
+deprecated: true
+deprecation_note: "This capability will be moved to cloud. Use cloud capability instead."
 
 tools:
   - name: maybe_suggest_review

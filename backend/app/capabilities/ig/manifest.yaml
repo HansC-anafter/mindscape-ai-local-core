@@ -1,0 +1,312 @@
+code: ig
+display_name: "Instagram"
+version: "1.0.0"
+type: feature
+description: "Instagram post generation, management, and workflow capabilities"
+
+storage:
+  default_backend: "local"
+  backends:
+    local:
+      root_path: "${WORKSPACE_STORAGE_ROOT:-${HOME}/.mindscape/workspaces}"
+      structure:
+        posts: "posts"
+        series: "series"
+        templates: "templates"
+        config: "config"
+    obsidian:
+      enabled: true
+      vault_path_template: "${OBSIDIAN_VAULT_PATH}/IG"
+
+playbooks:
+  - code: ig_post_generation
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_post_generation.md
+    spec_path: playbooks/specs/ig_post_generation.json
+    tool_dependencies:
+      - core_llm.structured_extract
+      - ig_post_style_analyzer
+      - unsplash_search_photos
+    service_dependencies: []
+
+  - code: ig_hashtag_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_hashtag_manager.md
+    spec_path: playbooks/specs/ig_hashtag_manager.json
+    tool_dependencies:
+      - ig_hashtag_manager_tool
+    service_dependencies: []
+
+  - code: ig_template_engine
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_template_engine.md
+    spec_path: playbooks/specs/ig_template_engine.json
+    tool_dependencies:
+      - ig_template_engine_tool
+    service_dependencies: []
+
+  - code: ig_asset_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_asset_manager.md
+    spec_path: playbooks/specs/ig_asset_manager.json
+    tool_dependencies:
+      - ig_asset_manager_tool
+    service_dependencies: []
+
+  - code: ig_series_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_series_manager.md
+    spec_path: playbooks/specs/ig_series_manager.json
+    tool_dependencies:
+      - ig_series_manager_tool
+    service_dependencies: []
+
+  - code: ig_review_system
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_review_system.md
+    spec_path: playbooks/specs/ig_review_system.json
+    tool_dependencies:
+      - ig_review_system_tool
+    service_dependencies: []
+
+  - code: ig_interaction_templates
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_interaction_templates.md
+    spec_path: playbooks/specs/ig_interaction_templates.json
+    tool_dependencies:
+      - ig_interaction_templates_tool
+    service_dependencies: []
+
+  - code: ig_metrics_backfill
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_metrics_backfill.md
+    spec_path: playbooks/specs/ig_metrics_backfill.json
+    tool_dependencies:
+      - ig_metrics_backfill_tool
+    service_dependencies: []
+
+  - code: ig_content_reuse
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_content_reuse.md
+    spec_path: playbooks/specs/ig_content_reuse.json
+    tool_dependencies:
+      - ig_content_reuse_tool
+    service_dependencies: []
+
+  - code: ig_vault_structure_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_vault_structure_manager.md
+    spec_path: playbooks/specs/ig_vault_structure_manager.json
+    tool_dependencies:
+      - ig_vault_structure_tool
+    service_dependencies: []
+
+  - code: ig_batch_processor
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_batch_processor.md
+    spec_path: playbooks/specs/ig_batch_processor.json
+    tool_dependencies:
+      - ig_batch_processor_tool
+    service_dependencies: []
+
+  - code: ig_complete_workflow
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_complete_workflow.md
+    spec_path: playbooks/specs/ig_complete_workflow.json
+    tool_dependencies:
+      - ig_complete_workflow_tool
+    service_dependencies: []
+
+  - code: ig_content_checker
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_content_checker.md
+    spec_path: playbooks/specs/ig_content_checker.json
+    tool_dependencies:
+      - ig_content_checker_tool
+    service_dependencies: []
+
+  - code: ig_export_pack_generator
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_export_pack_generator.md
+    spec_path: playbooks/specs/ig_export_pack_generator.json
+    tool_dependencies:
+      - ig_export_pack_generator_tool
+    service_dependencies: []
+
+  - code: ig_frontmatter_validator
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_frontmatter_validator.md
+    spec_path: playbooks/specs/ig_frontmatter_validator.json
+    tool_dependencies:
+      - ig_frontmatter_validator_tool
+    service_dependencies: []
+
+dependencies:
+  - project_sandbox_manager
+  - unsplash
+
+tools:
+  - code: ig_post_style_analyzer
+    name: ig_post_style_analyzer
+    path: tools/ig_post_style_analyzer.py
+    backend: "capabilities.ig.tools.ig_post_style_analyzer:ig_post_style_analyzer"
+    description: "Analyze Instagram post style from reference image and generate design recommendations. Input: reference_image_path (optional), reference_image_url (optional), include_mood (boolean)."
+    used_by_playbooks:
+      - ig_post_generation
+
+  - code: ig_hashtag_manager_tool
+    name: ig_hashtag_manager_tool
+    path: tools/ig_hashtag_manager_tool.py
+    backend: "capabilities.ig.tools.ig_hashtag_manager_tool:IGHashtagManagerTool"
+    description: "Manage hashtag groups and combine hashtags for IG posts. Supports brand fixed groups, theme groups, campaign groups, and blocked hashtag checking."
+    used_by_playbooks:
+      - ig_hashtag_manager
+
+  - code: ig_template_engine_tool
+    name: ig_template_engine_tool
+    path: tools/ig_template_engine_tool.py
+    backend: "capabilities.ig.tools.ig_template_engine_tool:IGTemplateEngineTool"
+    description: "Apply templates to generate IG posts with multiple variants. Supports carousel, reel, and story templates with different style tones and purposes."
+    used_by_playbooks:
+      - ig_template_engine
+
+  - code: ig_asset_manager_tool
+    name: ig_asset_manager_tool
+    path: tools/ig_asset_manager_tool.py
+    backend: "capabilities.ig.tools.ig_asset_manager_tool:IGAssetManagerTool"
+    description: "Manage IG Post assets with naming validation, size checking, and format validation. Supports post, carousel, reel, and story asset types."
+    used_by_playbooks:
+      - ig_asset_manager
+
+  - code: ig_series_manager_tool
+    name: ig_series_manager_tool
+    path: tools/ig_series_manager_tool.py
+    backend: "capabilities.ig.tools.ig_series_manager_tool:IGSeriesManagerTool"
+    description: "Manage IG Post series including creation, updates, querying, and cross-referencing. Supports series progress tracking and post navigation."
+    used_by_playbooks:
+      - ig_series_manager
+
+  - code: ig_review_system_tool
+    name: ig_review_system_tool
+    path: tools/ig_review_system_tool.py
+    backend: "capabilities.ig.tools.ig_review_system_tool:IGReviewSystemTool"
+    description: "Manage review workflow including changelog tracking, review notes, and decision logs for content revision cycles."
+    used_by_playbooks:
+      - ig_review_system
+
+  - code: ig_interaction_templates_tool
+    name: ig_interaction_templates_tool
+    path: tools/ig_interaction_templates_tool.py
+    backend: "capabilities.ig.tools.ig_interaction_templates_tool:IGInteractionTemplatesTool"
+    description: "Manage interaction templates including common comment replies, DM scripts, tone switching, and template categorization for customer engagement."
+    used_by_playbooks:
+      - ig_interaction_templates
+
+  - code: ig_metrics_backfill_tool
+    name: ig_metrics_backfill_tool
+    path: tools/ig_metrics_backfill_tool.py
+    backend: "capabilities.ig.tools.ig_metrics_backfill_tool:IGMetricsBackfillTool"
+    description: "Manage post-publication metrics including manual backfill, data analysis, performance element tracking, and series aggregation."
+    used_by_playbooks:
+      - ig_metrics_backfill
+
+  - code: ig_content_reuse_tool
+    name: ig_content_reuse_tool
+    path: tools/ig_content_reuse_tool.py
+    backend: "capabilities.ig.tools.ig_content_reuse_tool:IGContentReuseTool"
+    description: "Manage content transformation and reuse across different IG formats: long article to carousel, carousel to reel, reel to stories."
+    used_by_playbooks:
+      - ig_content_reuse
+
+  - code: ig_vault_structure_tool
+    name: ig_vault_structure_tool
+    path: tools/ig_vault_structure_tool.py
+    backend: "capabilities.ig.tools.ig_vault_structure_tool:IGWorkspaceStructureTool"
+    description: "Manage workspace structure for IG Post workflow. Supports initialization, validation, and content scanning."
+    used_by_playbooks:
+      - ig_vault_structure_manager
+
+  - code: ig_batch_processor_tool
+    name: ig_batch_processor_tool
+    path: tools/ig_batch_processor_tool.py
+    backend: "capabilities.ig.tools.ig_batch_processor_tool:IGBatchProcessorTool"
+    description: "Manage batch processing of multiple posts including validation, generation, and export operations."
+    used_by_playbooks:
+      - ig_batch_processor
+
+  - code: ig_complete_workflow_tool
+    name: ig_complete_workflow_tool
+    path: tools/ig_complete_workflow_tool.py
+    backend: "capabilities.ig.tools.ig_complete_workflow_tool:IGCompleteWorkflowTool"
+    description: "Orchestrate multiple playbooks in sequence to execute end-to-end workflows for IG post creation and management."
+    used_by_playbooks:
+      - ig_complete_workflow
+
+  - code: ig_content_checker_tool
+    name: ig_content_checker_tool
+    path: tools/ig_content_checker_tool.py
+    backend: "capabilities.ig.tools.ig_content_checker_tool:IGContentCheckerTool"
+    description: "Check IG Post content for compliance issues including medical/investment claims, copyright, personal data, and brand tone."
+    used_by_playbooks:
+      - ig_content_checker
+
+  - code: ig_export_pack_generator_tool
+    name: ig_export_pack_generator_tool
+    path: tools/ig_export_pack_generator_tool.py
+    backend: "capabilities.ig.tools.ig_export_pack_generator_tool:IGExportPackGeneratorTool"
+    description: "Generate complete export pack for IG Post including post.md, hashtags.txt, CTA variants, and checklist."
+    used_by_playbooks:
+      - ig_export_pack_generator
+
+  - code: ig_frontmatter_validator_tool
+    name: ig_frontmatter_validator_tool
+    path: tools/ig_frontmatter_validator_tool.py
+    backend: "capabilities.ig.tools.ig_frontmatter_validator_tool:IGFrontmatterValidatorTool"
+    description: "Validate frontmatter against Unified Frontmatter Schema v2.0.0 and calculate Readiness Score."
+    used_by_playbooks:
+      - ig_frontmatter_validator
+

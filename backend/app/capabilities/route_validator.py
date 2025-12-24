@@ -94,20 +94,20 @@ def parse_manifest_endpoint(endpoint_str: str) -> Tuple[str, str]:
 
 
 def load_manifest_endpoints(
-    cloud_capabilities_dir: Path,
+    remote_capabilities_dir: Path,
     capability_code: str
 ) -> List[Tuple[str, str]]:
     """
     Load declared endpoints from manifest
 
     Args:
-        cloud_capabilities_dir: Path to cloud capabilities directory
+        remote_capabilities_dir: Path to remote capabilities directory
         capability_code: Capability code
 
     Returns:
         List of (method, path) tuples
     """
-    manifest_path = cloud_capabilities_dir / capability_code / "manifest.yaml"
+    manifest_path = remote_capabilities_dir / capability_code / "manifest.yaml"
     if not manifest_path.exists():
         logger.warning(f"Manifest not found: {manifest_path}")
         return []
@@ -145,7 +145,7 @@ def load_manifest_endpoints(
 
 def validate_routes_against_manifest(
     app: FastAPI,
-    cloud_capabilities_dir: Optional[Path] = None,
+    remote_capabilities_dir: Optional[Path] = None,
     capability_codes: Optional[List[str]] = None
 ) -> Tuple[bool, List[str]]:
     """
@@ -153,29 +153,24 @@ def validate_routes_against_manifest(
 
     Args:
         app: FastAPI application instance
-        cloud_capabilities_dir: Path to cloud capabilities directory (optional)
+        remote_capabilities_dir: Path to remote capabilities directory (optional)
         capability_codes: List of capability codes to validate (optional, validates all if None)
 
     Returns:
         (is_valid, error_messages) tuple
     """
-    if cloud_capabilities_dir is None:
+    if remote_capabilities_dir is None:
         import os
-        env_dir = os.getenv("MINDSCAPE_CLOUD_CAPABILITIES_DIR")
+        env_dir = os.getenv("MINDSCAPE_REMOTE_CAPABILITIES_DIR")
         if env_dir:
-            cloud_capabilities_dir = Path(env_dir)
+            remote_capabilities_dir = Path(env_dir)
         else:
-            capabilities_dir = Path(__file__).parent
-            app_dir = capabilities_dir.parent
-            backend_dir = app_dir.parent
-            local_core_dir = backend_dir.parent
-            workspace_root = local_core_dir.parent
-            cloud_capabilities_dir = workspace_root / "mindscape-ai-cloud" / "capabilities"
+            remote_capabilities_dir = None
 
-    if not cloud_capabilities_dir or not cloud_capabilities_dir.exists():
+    if not remote_capabilities_dir or not remote_capabilities_dir.exists():
         error_msg = (
-            f"Cloud capabilities directory not found: {cloud_capabilities_dir}. "
-            f"Cannot validate routes. Please set MINDSCAPE_CLOUD_CAPABILITIES_DIR environment variable."
+            f"Remote capabilities directory not found: {remote_capabilities_dir}. "
+            f"Cannot validate routes. Please set MINDSCAPE_REMOTE_CAPABILITIES_DIR environment variable."
         )
         logger.error(error_msg)
         import os
@@ -189,13 +184,13 @@ def validate_routes_against_manifest(
 
     if capability_codes is None:
         capability_codes = [
-            d.name for d in cloud_capabilities_dir.iterdir()
+            d.name for d in remote_capabilities_dir.iterdir()
             if d.is_dir() and not d.name.startswith('_') and (d / "manifest.yaml").exists()
         ]
 
     errors = []
     for capability_code in capability_codes:
-        declared_endpoints = load_manifest_endpoints(cloud_capabilities_dir, capability_code)
+        declared_endpoints = load_manifest_endpoints(remote_capabilities_dir, capability_code)
         if not declared_endpoints:
             logger.debug(f"No endpoints declared in manifest for {capability_code}")
             continue
@@ -223,16 +218,27 @@ def validate_on_startup(app: FastAPI) -> None:
         app: FastAPI application instance
 
     Raises:
-        RuntimeError: If routes declared in manifest are not registered
+        RuntimeError: If routes declared in manifest are not registered (only if SKIP_ROUTE_VALIDATION is not set)
         FileNotFoundError: If cloud capabilities directory not found
     """
+    import os
+
+    # Check if route validation should be skipped
+    skip_validation = os.getenv("SKIP_ROUTE_VALIDATION") == "1"
+
     is_valid, errors = validate_routes_against_manifest(app)
     if not is_valid:
         error_summary = "\n".join(f"  - {e}" for e in errors)
-        raise RuntimeError(
+        error_message = (
             f"Route validation failed. The following routes declared in manifests "
             f"are not registered in the app:\n{error_summary}\n\n"
             f"This indicates a mismatch between manifest declarations and actual route registration. "
             f"Please check that capability API loaders are working correctly."
         )
+
+        if skip_validation:
+            logger.warning(f"{error_message}\n(Skipping validation due to SKIP_ROUTE_VALIDATION=1)")
+            return
+        else:
+            raise RuntimeError(error_message)
     logger.info("Route validation passed: all manifest-declared routes are registered")

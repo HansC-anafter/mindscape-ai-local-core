@@ -71,3 +71,135 @@ tools:
           type: object
         confidence:
           type: number
+
+  - name: filter_features
+    description: "Filter feature data to remove redundant fields like embeddings for LLM processing"
+    backend: "app.capabilities.core_llm.services.data_utils:filter_features"
+    input_schema:
+      type: object
+      properties:
+        features_data:
+          description: "Feature data (single dict or list of dicts) to filter"
+          oneOf:
+            - type: object
+            - type: array
+              items:
+                type: object
+        remove_embeddings:
+          type: boolean
+          default: true
+          description: "Whether to remove visual_style_embedding vector (removes large vector data, keeps metadata)"
+        keep_embedding_metadata:
+          type: boolean
+          default: true
+          description: "Whether to keep embedding_dim and has_embedding metadata after removing vector"
+    output_schema:
+      type: object
+      description: "Filtered feature data with same structure as input"
+      oneOf:
+        - type: object
+        - type: array
+          items:
+            type: object
+
+  - name: simplify_photos
+    description: "Trim Unsplash photo objects to essential fields and limit count to reduce tokens"
+    backend: "app.capabilities.core_llm.services.data_utils:simplify_photos"
+    input_schema:
+      type: object
+      properties:
+        photos_data:
+          type: array
+          items:
+            type: object
+        keep_fields:
+          type: array
+          items:
+            type: string
+          description: "Optional whitelist of fields to keep (default: id, urls, user, description, alt_description, color, width, height, tags)"
+        max_items:
+          type: integer
+          default: 10
+          description: "Max photos to keep"
+    output_schema:
+      type: array
+      items:
+        type: object
+
+  - name: summarize_features
+    description: "Aggregate a list of feature dicts into a compact statistical summary"
+    backend: "app.capabilities.core_llm.services.data_utils:summarize_features"
+    input_schema:
+      type: object
+      properties:
+        features_data:
+          type: array
+          items:
+            type: object
+    output_schema:
+      type: object
+
+  - name: sample_features
+    description: "Return a small sample of feature dicts to provide concrete examples without sending full payload"
+    backend: "app.capabilities.core_llm.services.data_utils:sample_features"
+    input_schema:
+      type: object
+      properties:
+        features_data:
+          type: array
+          items:
+            type: object
+        max_items:
+          type: integer
+          default: 3
+    output_schema:
+      type: array
+      items:
+        type: object
+
+  - name: build_search_query
+    description: "Build a safe search query from extracted keywords with fallbacks to user input"
+    backend: "app.capabilities.core_llm.services.data_utils:build_search_query"
+    input_schema:
+      type: object
+      properties:
+        search_keywords:
+          type: object
+        theme_keywords:
+          type: array
+          items:
+            type: string
+        style_preferences:
+          type: array
+          items:
+            type: string
+    output_schema:
+      type: object
+      properties:
+        query:
+          type: string
+
+  - name: build_search_query
+    description: "Build Unsplash search query with fallback to input keywords"
+    backend: "app.capabilities.core_llm.services.data_utils:build_search_query"
+    input_schema:
+      type: object
+      properties:
+        search_keywords:
+          type: object
+          description: "Expanded keywords from LLM (optional)"
+        theme_keywords:
+          type: array
+          items:
+            type: string
+          description: "Fallback theme keywords from input"
+        style_preferences:
+          type: array
+          items:
+            type: string
+          description: "Fallback style preferences from input"
+    output_schema:
+      type: object
+      properties:
+        query:
+          type: string

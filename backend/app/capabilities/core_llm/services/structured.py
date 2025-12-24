@@ -93,7 +93,8 @@ Please output the extraction result in JSON format."""
             messages=messages,
             llm_provider=llm_provider,
             model=model_to_use,
-            temperature=0.3  # Use lower temperature for structured extraction
+            temperature=0.3,  # Use lower temperature for structured extraction
+            max_tokens=8192  # Allow full schema output; capped again in provider
         )
 
         # Extract JSON from response

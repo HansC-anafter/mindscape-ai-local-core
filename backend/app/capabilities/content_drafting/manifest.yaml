@@ -3,6 +3,8 @@ display_name: "Content Drafting"
 version: "1.0.0"
 description: "Generate summaries and drafts from content"
 side_effect_level: "external_write"
+deprecated: true
+deprecation_note: "This capability will be moved to cloud. Use cloud capability instead."
 
 tools:
   - name: generate_summary

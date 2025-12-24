@@ -3,6 +3,8 @@ display_name: "Semantic Seeds"
 version: "1.0.0"
 description: "Extract semantic seeds from content and generate mindscape update suggestions"
 side_effect_level: "readonly"
+deprecated: true
+deprecation_note: "This capability will be moved to cloud. Use cloud capability instead."
 
 tools:
   - name: extract_seeds_from_content

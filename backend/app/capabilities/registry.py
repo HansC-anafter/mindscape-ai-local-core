@@ -183,6 +183,8 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     Returns:
         Tool execution result
     """
+    import sys
+
     tool_name = f"{capability}.{tool}"
     tool_info = _registry.get_tool(tool_name)
 
@@ -192,6 +194,21 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     backend_path = tool_info.get('backend')
     if not backend_path:
         raise ValueError(f"Tool {tool_name} has no backend defined")
+
+    # Ensure capability directory is in sys.path for imports
+    capability_info = _registry.get_capability(capability)
+    if capability_info:
+        capability_dir = capability_info.get('directory')
+        if capability_dir:
+            # Add parent of capabilities directory to sys.path (for imports like 'capabilities.xxx')
+            capabilities_parent = capability_dir.parent
+            if str(capabilities_parent) not in sys.path:
+                sys.path.insert(0, str(capabilities_parent))
+
+            # Also add cloud root (parent of capabilities) for imports like 'services.xxx'
+            cloud_root = capabilities_parent.parent
+            if str(cloud_root) not in sys.path:
+                sys.path.insert(0, str(cloud_root))
 
     # Parse backend path
     # Format 1: 'module.path:function' - module-level function
@@ -203,8 +220,41 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
         module_path = 'backend.' + module_path
 
     try:
-        # Dynamically import module
-        module = importlib.import_module(module_path)
+        # Try importing as module first
+        try:
+            module = importlib.import_module(module_path)
+        except (ImportError, ModuleNotFoundError) as import_error:
+            # If import fails (e.g., missing __init__.py), try loading file directly
+            capability_info = _registry.get_capability(capability)
+            if capability_info:
+                capability_dir = capability_info.get('directory')
+                if capability_dir:
+                    # Try to find the file based on backend path
+                    # backend path format: capabilities.xxx.tools.xxx_tools:function
+                    # Extract file path: capabilities/xxx/tools/xxx_tools.py
+                    parts = module_path.split('.')
+                    if len(parts) >= 2 and parts[0] == 'capabilities':
+                        # capabilities.xxx.tools.xxx_tools -> capabilities/xxx/tools/xxx_tools.py
+                        file_path = capability_dir
+                        for part in parts[1:]:  # Skip 'capabilities'
+                            file_path = file_path / part
+                        file_path = file_path.with_suffix('.py')
+
+                        if file_path.exists():
+                            import importlib.util as importlib_util
+                            spec = importlib_util.spec_from_file_location(module_path, file_path)
+                            if spec and spec.loader:
+                                module = importlib_util.module_from_spec(spec)
+                                spec.loader.exec_module(module)
+                                logger.debug(f"Loaded module {module_path} from file: {file_path}")
+                            else:
+                                raise import_error
+                        else:
+                            raise import_error
+                    else:
+                        raise import_error
+            else:
+                raise import_error
 
         # Check if it's a class method (format: Class.method)
         if '.' in target:
@@ -229,14 +279,17 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
             return func(**kwargs)
 
     except Exception as e:
-        logger.error(f"Failed to call tool {tool_name} (backend: {backend_path}): {e}", exc_info=True)
-        raise
+        error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg) from e
 
 
 async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     """
     Asynchronously call capability pack tool
     """
+    import sys
+
     tool_name = f"{capability}.{tool}"
     tool_info = _registry.get_tool(tool_name)
 
@@ -246,6 +299,21 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     backend_path = tool_info.get('backend')
     if not backend_path:
         raise ValueError(f"Tool {tool_name} has no backend defined")
+
+    # Ensure capability directory is in sys.path for imports
+    capability_info = _registry.get_capability(capability)
+    if capability_info:
+        capability_dir = capability_info.get('directory')
+        if capability_dir:
+            # Add parent of capabilities directory to sys.path (for imports like 'capabilities.xxx')
+            capabilities_parent = capability_dir.parent
+            if str(capabilities_parent) not in sys.path:
+                sys.path.insert(0, str(capabilities_parent))
+
+            # Also add cloud root (parent of capabilities) for imports like 'services.xxx'
+            cloud_root = capabilities_parent.parent
+            if str(cloud_root) not in sys.path:
+                sys.path.insert(0, str(cloud_root))
 
     # Parse backend path
     # Format 1: 'module.path:function' - Module-level function
@@ -257,7 +325,41 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
         module_path = 'backend.' + module_path
 
     try:
-        module = importlib.import_module(module_path)
+        # Try importing as module first
+        try:
+            module = importlib.import_module(module_path)
+        except (ImportError, ModuleNotFoundError) as import_error:
+            # If import fails (e.g., missing __init__.py), try loading file directly
+            capability_info = _registry.get_capability(capability)
+            if capability_info:
+                capability_dir = capability_info.get('directory')
+                if capability_dir:
+                    # Try to find the file based on backend path
+                    # backend path format: capabilities.xxx.tools.xxx_tools:function
+                    # Extract file path: capabilities/xxx/tools/xxx_tools.py
+                    parts = module_path.split('.')
+                    if len(parts) >= 2 and parts[0] == 'capabilities':
+                        # capabilities.xxx.tools.xxx_tools -> capabilities/xxx/tools/xxx_tools.py
+                        file_path = capability_dir
+                        for part in parts[1:]:  # Skip 'capabilities'
+                            file_path = file_path / part
+                        file_path = file_path.with_suffix('.py')
+
+                        if file_path.exists():
+                            import importlib.util as importlib_util
+                            spec = importlib_util.spec_from_file_location(module_path, file_path)
+                            if spec and spec.loader:
+                                module = importlib_util.module_from_spec(spec)
+                                spec.loader.exec_module(module)
+                                logger.debug(f"Loaded module {module_path} from file: {file_path}")
+                            else:
+                                raise import_error
+                        else:
+                            raise import_error
+                    else:
+                        raise import_error
+            else:
+                raise import_error
 
         # Check if it's a class method (format: Class.method)
         if '.' in target:
@@ -278,8 +380,10 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
             return func(**kwargs)
 
     except Exception as e:
-        logger.error(f"Failed to call tool {tool_name} (backend: {backend_path}): {e}", exc_info=True)
-        raise
+        # Avoid recursion in error logging - use simple error message
+        error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg) from e
 
 
 def get_registry() -> CapabilityRegistry:

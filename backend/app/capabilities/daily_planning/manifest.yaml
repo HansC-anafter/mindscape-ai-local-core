@@ -3,6 +3,8 @@ display_name: "Daily Planning"
 version: "1.0.0"
 description: "Extract tasks from messages and files, create task plans"
 side_effect_level: "soft_write"
+deprecated: true
+deprecation_note: "This capability will be moved to cloud. Use cloud capability instead."
 
 tools:
   - name: extract_tasks_from_content

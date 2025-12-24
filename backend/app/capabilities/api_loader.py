@@ -29,7 +29,7 @@ class CapabilityAPILoader:
 
     def __init__(
         self,
-        cloud_capabilities_dir: Optional[Path] = None,
+        remote_capabilities_dir: Optional[Path] = None,
         allowlist: Optional[List[str]] = None,
         enable_all: bool = False
     ):
@@ -37,54 +37,44 @@ class CapabilityAPILoader:
         Initialize the API loader
 
         Args:
-            cloud_capabilities_dir: Path to cloud capabilities directory
+            remote_capabilities_dir: Path to remote capabilities directory
                 If None, will try to resolve from environment or default path
             allowlist: Optional list of capability codes to load
                 If None and enable_all=False, only enabled_by_default=True are loaded
             enable_all: If True, load all capabilities regardless of allowlist/enabled_by_default
         """
-        self.cloud_capabilities_dir = cloud_capabilities_dir
+        self.remote_capabilities_dir = remote_capabilities_dir
         self.allowlist = set(allowlist) if allowlist else None
         self.enable_all = enable_all or os.getenv("ENABLE_ALL_CAPABILITIES") == "1"
         self.loaded_routers: List[Tuple[APIRouter, str, Dict]] = []
         self.registered_routes: Set[Tuple[str, str]] = set()
 
-    def find_cloud_capabilities_dir(self) -> Optional[Path]:
+    def find_remote_capabilities_dir(self) -> Optional[Path]:
         """
-        Find cloud capabilities directory with fallback strategies
+        Find remote capabilities directory with fallback strategies
 
-        Deploy mode: Must be set via MINDSCAPE_CLOUD_CAPABILITIES_DIR env var
-        Dev mode: Falls back to relative path ../mindscape-ai-cloud/capabilities
+        Deploy mode: Must be set via MINDSCAPE_REMOTE_CAPABILITIES_DIR env var
         """
         deployment_mode = os.getenv("DEPLOYMENT_MODE", "dev")
         is_production = deployment_mode.lower() in ("production", "prod", "deploy")
 
-        env_dir = os.getenv("MINDSCAPE_CLOUD_CAPABILITIES_DIR")
+        env_dir = os.getenv("MINDSCAPE_REMOTE_CAPABILITIES_DIR")
         if env_dir:
             path = Path(env_dir)
             if path.exists():
                 return path
             else:
-                logger.warning(f"Env MINDSCAPE_CLOUD_CAPABILITIES_DIR points to non-existent path: {env_dir}")
+                logger.warning(f"Env MINDSCAPE_REMOTE_CAPABILITIES_DIR points to non-existent path: {env_dir}")
 
         if is_production:
             raise ValueError(
                 "DEPLOYMENT_MODE is set to production/deploy, but "
-                "MINDSCAPE_CLOUD_CAPABILITIES_DIR is not set. "
-                "Please set MINDSCAPE_CLOUD_CAPABILITIES_DIR environment variable."
+                "MINDSCAPE_REMOTE_CAPABILITIES_DIR is not set. "
+                "Please set MINDSCAPE_REMOTE_CAPABILITIES_DIR environment variable."
             )
 
-        if self.cloud_capabilities_dir and self.cloud_capabilities_dir.exists():
-            return self.cloud_capabilities_dir
-
-        capabilities_dir = Path(__file__).parent
-        app_dir = capabilities_dir.parent
-        backend_dir = app_dir.parent
-        local_core_dir = backend_dir.parent
-        workspace_root = local_core_dir.parent
-        default_path = workspace_root / "mindscape-ai-cloud" / "capabilities"
-        if default_path.exists():
-            return default_path
+        if self.remote_capabilities_dir and self.remote_capabilities_dir.exists():
+            return self.remote_capabilities_dir
 
         return None
 
@@ -168,15 +158,6 @@ class CapabilityAPILoader:
         cloud_root = capabilities_parent.parent
         if str(cloud_root) not in sys.path:
             sys.path.insert(0, str(cloud_root))
-
-        capabilities_loader_dir = Path(__file__).parent
-        app_dir = capabilities_loader_dir.parent
-        backend_dir = app_dir.parent
-        local_core_dir = backend_dir.parent
-        workspace_root = local_core_dir.parent
-        backend_parent = workspace_root / "mindscape-ai-local-core"
-        if str(backend_parent) not in sys.path:
-            sys.path.insert(0, str(backend_parent))
 
         try:
             relative_path = api_file_path.relative_to(capabilities_parent)
@@ -334,16 +315,16 @@ class CapabilityAPILoader:
         Returns:
             List of APIRouter instances
         """
-        capabilities_dir = self.find_cloud_capabilities_dir()
+        capabilities_dir = self.find_remote_capabilities_dir()
         if not capabilities_dir:
             logger.warning(
-                "Cloud capabilities directory not found. "
+                "Remote capabilities directory not found. "
                 "Skipping capability API loading."
             )
             return []
 
         if not capabilities_dir.exists():
-            logger.warning(f"Cloud capabilities directory does not exist: {capabilities_dir}")
+            logger.warning(f"Remote capabilities directory does not exist: {capabilities_dir}")
             return []
 
         loaded_routers = []
@@ -405,7 +386,7 @@ class CapabilityAPILoader:
 
 
 def load_capability_apis(
-    cloud_capabilities_dir: Optional[Path] = None,
+    remote_capabilities_dir: Optional[Path] = None,
     allowlist: Optional[List[str]] = None,
     enable_all: bool = False
 ) -> List[APIRouter]:
@@ -413,12 +394,12 @@ def load_capability_apis(
     Load and return all capability API routers
 
     Args:
-        cloud_capabilities_dir: Path to cloud capabilities directory
+        remote_capabilities_dir: Path to remote capabilities directory
         allowlist: Optional list of capability codes to load
         enable_all: If True, load all capabilities
 
     Returns:
         List of APIRouter instances
     """
-    loader = CapabilityAPILoader(cloud_capabilities_dir, allowlist, enable_all)
+    loader = CapabilityAPILoader(remote_capabilities_dir, allowlist, enable_all)
     return loader.load_all_capability_apis()
