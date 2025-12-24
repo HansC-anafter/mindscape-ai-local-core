@@ -1,0 +1,109 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_asset_manager",
+  "kind": "user_workflow",
+  "description": "Manage IG Post assets with naming validation, size checking, and format validation",
+  "steps": [
+    {
+      "id": "scan_assets",
+      "tool": "ig_asset_manager_tool",
+      "inputs": {
+        "action": "scan",
+        "post_folder": "{{input.post_folder}}",
+        "workspace_id": "{{workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}"
+      },
+      "outputs": {
+        "asset_list": "result.asset_list",
+        "post_slug": "result.post_slug",
+        "assets_folder": "result.assets_folder"
+      }
+    },
+    {
+      "id": "validate_assets",
+      "tool": "ig_asset_manager_tool",
+      "inputs": {
+        "action": "validate",
+        "post_folder": "{{input.post_folder}}",
+        "workspace_id": "{{workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "post_type": "{{input.post_type}}",
+        "asset_list": "{{step.scan_assets.asset_list}}"
+      },
+      "outputs": {
+        "validation_results": "result.validation_results",
+        "missing_assets": "result.missing_assets",
+        "size_warnings": "result.size_warnings",
+        "spec_used": "result.spec_used"
+      },
+      "depends_on": ["scan_assets"]
+    },
+    {
+      "id": "generate_asset_list",
+      "tool": "ig_asset_manager_tool",
+      "inputs": {
+        "action": "generate_list",
+        "post_folder": "{{input.post_folder}}",
+        "workspace_id": "{{workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "post_type": "{{input.post_type}}"
+      },
+      "outputs": {
+        "required_assets": "result.required_assets",
+        "current_assets": "result.current_assets",
+        "missing_assets": "result.missing_assets"
+      },
+      "depends_on": ["scan_assets"]
+    }
+  ],
+  "inputs": {
+    "post_folder": {
+      "type": "string",
+      "required": true,
+      "description": "Post folder path (relative to posts directory, e.g., '2025-12-23_post-slug' or 'post-slug')"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": false,
+      "description": "Workspace identifier (required if workspace_path not provided)"
+    },
+    "workspace_path": {
+      "type": "string",
+      "required": false,
+      "description": "Custom workspace path (optional, for backward compatibility with Obsidian vault)"
+    },
+    "post_type": {
+      "type": "string",
+      "enum": ["post", "carousel", "reel", "story"],
+      "required": true,
+      "description": "Post type"
+    }
+  },
+  "outputs": {
+    "asset_list": {
+      "type": "list[object]",
+      "description": "Asset list with metadata",
+      "source": "step.scan_assets.asset_list"
+    },
+    "validation_results": {
+      "type": "object",
+      "description": "Asset validation results",
+      "source": "step.validate_assets.validation_results"
+    },
+    "missing_assets": {
+      "type": "list[string]",
+      "description": "Missing required assets",
+      "source": "step.generate_asset_list.missing_assets"
+    },
+    "size_warnings": {
+      "type": "list[string]",
+      "description": "Size mismatch warnings",
+      "source": "step.validate_assets.size_warnings"
+    }
+  }
+}
+
+
+
+
+

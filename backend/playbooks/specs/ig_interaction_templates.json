@@ -1,0 +1,221 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_interaction_templates",
+  "kind": "user_workflow",
+  "description": "Manage interaction templates including common comment replies, DM scripts, and tone switching",
+  "steps": [
+    {
+      "id": "create",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "create",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "template_id": "{{input.template_id}}",
+        "template_type": "{{input.template_type}}",
+        "content": "{{input.content}}",
+        "tone": "{{input.tone}}",
+        "category": "{{input.category}}",
+        "tags": "{{input.tags}}",
+        "variables": "{{input.variables}}"
+      },
+      "outputs": {
+        "template": "result.template"
+      },
+      "condition": "{{input.action == 'create'}}"
+    },
+    {
+      "id": "get",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "get",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "template_id": "{{input.template_id}}"
+      },
+      "outputs": {
+        "template": "result.template"
+      },
+      "condition": "{{input.action == 'get'}}"
+    },
+    {
+      "id": "list",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "list",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "template_type": "{{input.template_type}}",
+        "tone": "{{input.tone}}",
+        "category": "{{input.category}}",
+        "tags": "{{input.tags}}"
+      },
+      "outputs": {
+        "templates": "result.templates"
+      },
+      "condition": "{{input.action == 'list'}}"
+    },
+    {
+      "id": "render",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "render",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "template_id": "{{input.template_id}}",
+        "render_variables": "{{input.render_variables}}"
+      },
+      "outputs": {
+        "rendered_content": "result.rendered_content"
+      },
+      "condition": "{{input.action == 'render'}}"
+    },
+    {
+      "id": "suggest",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "suggest",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "context": "{{input.context}}",
+        "template_type": "{{input.template_type}}",
+        "tone": "{{input.tone}}"
+      },
+      "outputs": {
+        "suggested_template": "result.suggested_template"
+      },
+      "condition": "{{input.action == 'suggest'}}"
+    },
+    {
+      "id": "switch_tone",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "switch_tone",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "template_id": "{{input.template_id}}",
+        "new_tone": "{{input.new_tone}}"
+      },
+      "outputs": {
+        "template": "result.template"
+      },
+      "condition": "{{input.action == 'switch_tone'}}"
+    },
+    {
+      "id": "update",
+      "tool": "ig_interaction_templates_tool",
+      "inputs": {
+        "action": "update",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "template_id": "{{input.template_id}}",
+        "updates": "{{input.updates}}"
+      },
+      "outputs": {
+        "template": "result.template"
+      },
+      "condition": "{{input.action == 'update'}}"
+    }
+  ],
+  "inputs": {
+    "action": {
+      "type": "string",
+      "enum": ["create", "get", "list", "render", "suggest", "switch_tone", "update"],
+      "required": true,
+      "description": "Action to perform"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": false,
+      "description": "Workspace identifier"
+    },
+    "workspace_path": {
+      "type": "string",
+      "required": false,
+      "description": "Custom workspace path (for backward compatibility/migration, not allowed in enterprise mode)"
+    },
+    "template_id": {
+      "type": "string",
+      "required": false,
+      "description": "Template identifier"
+    },
+    "template_type": {
+      "type": "string",
+      "enum": ["comment_reply", "dm_script", "story_reply"],
+      "required": false,
+      "description": "Type of template"
+    },
+    "content": {
+      "type": "string",
+      "required": false,
+      "description": "Template content (supports {{variable}} placeholders)"
+    },
+    "tone": {
+      "type": "string",
+      "enum": ["friendly", "professional", "casual", "formal"],
+      "required": false,
+      "description": "Tone of the template"
+    },
+    "category": {
+      "type": "string",
+      "required": false,
+      "description": "Category (e.g., 'greeting', 'product_inquiry', 'complaint')"
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of tags for categorization"
+    },
+    "variables": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of variable names used in template"
+    },
+    "render_variables": {
+      "type": "object",
+      "required": false,
+      "description": "Dictionary of variable values for rendering"
+    },
+    "context": {
+      "type": "string",
+      "required": false,
+      "description": "Context description for template suggestion"
+    },
+    "new_tone": {
+      "type": "string",
+      "enum": ["friendly", "professional", "casual", "formal"],
+      "required": false,
+      "description": "New tone for switch_tone action"
+    },
+    "updates": {
+      "type": "object",
+      "required": false,
+      "description": "Dictionary of fields to update"
+    }
+  },
+  "outputs": {
+    "template": {
+      "type": "object",
+      "description": "Template information",
+      "source": "step.create.template or step.get.template or step.switch_tone.template or step.update.template"
+    },
+    "templates": {
+      "type": "list[object]",
+      "description": "List of templates",
+      "source": "step.list.templates"
+    },
+    "rendered_content": {
+      "type": "string",
+      "description": "Rendered template content",
+      "source": "step.render.rendered_content"
+    },
+    "suggested_template": {
+      "type": "object",
+      "description": "Suggested template based on context",
+      "source": "step.suggest.suggested_template"
+    }
+  }
+}
+

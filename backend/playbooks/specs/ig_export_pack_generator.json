@@ -1,0 +1,129 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_export_pack_generator",
+  "kind": "user_workflow",
+  "description": "Generate complete export pack for IG Post including post.md, hashtags.txt, CTA variants, and checklist",
+  "steps": [
+    {
+      "id": "get_hashtags",
+      "tool": "ig_hashtag_manager_tool",
+      "inputs": {
+        "action": "combine",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "intent": "{{input.intent}}",
+        "hashtag_count": 25
+      },
+      "outputs": {
+        "hashtags": "result.recommended_hashtags"
+      },
+      "condition": "{{not input.hashtags}}"
+    },
+    {
+      "id": "scan_assets",
+      "tool": "ig_asset_manager_tool",
+      "inputs": {
+        "action": "scan",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "post_folder": "{{input.post_folder}}"
+      },
+      "outputs": {
+        "assets_list": "result.asset_list"
+      },
+      "condition": "{{input.include_assets}}"
+    },
+    {
+      "id": "generate_export_pack",
+      "tool": "ig_export_pack_generator_tool",
+      "inputs": {
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "post_path": "{{input.post_path}}",
+        "post_content": "{{input.post_content}}",
+        "frontmatter": "{{input.frontmatter}}",
+        "hashtags": "{{step.get_hashtags.hashtags or input.hashtags}}",
+        "cta_variants": "{{input.cta_variants}}",
+        "assets_list": "{{step.scan_assets.assets_list}}"
+      },
+      "outputs": {
+        "export_pack_path": "result.export_pack_path",
+        "files_generated": "result.files_generated",
+        "export_pack": "result.export_pack"
+      },
+      "depends_on": ["get_hashtags"]
+    }
+  ],
+  "inputs": {
+    "workspace_id": {
+      "type": "string",
+      "required": false,
+      "description": "Workspace identifier (required if post_path provided)"
+    },
+    "workspace_path": {
+      "type": "string",
+      "required": false,
+      "description": "Custom workspace path (for backward compatibility/migration, not allowed in enterprise mode)"
+    },
+    "post_path": {
+      "type": "string",
+      "required": false,
+      "description": "Post file path (relative to workspace or Obsidian-style, optional if post_content provided)"
+    },
+    "post_content": {
+      "type": "string",
+      "required": false,
+      "description": "Post content text (optional if post_path provided)"
+    },
+    "frontmatter": {
+      "type": "object",
+      "required": false,
+      "description": "Post frontmatter (optional if post_path provided)"
+    },
+    "intent": {
+      "type": "string",
+      "required": false,
+      "description": "Post intent (for hashtag generation)"
+    },
+    "hashtags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of hashtags (if not provided, will be generated)"
+    },
+    "cta_variants": {
+      "type": "array",
+      "items": {"type": "string"},
+      "required": false,
+      "description": "List of CTA variants"
+    },
+    "include_assets": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to include assets in checklist"
+    },
+    "post_folder": {
+      "type": "string",
+      "required": false,
+      "description": "Post folder path (for asset scanning)"
+    }
+  },
+  "outputs": {
+    "export_pack_path": {
+      "type": "string",
+      "description": "Path to export pack folder",
+      "source": "step.generate_export_pack.export_pack_path"
+    },
+    "files_generated": {
+      "type": "list[string]",
+      "description": "List of generated files",
+      "source": "step.generate_export_pack.files_generated"
+    },
+    "export_pack": {
+      "type": "object",
+      "description": "Export pack content",
+      "source": "step.generate_export_pack.export_pack"
+    }
+  }
+}
+

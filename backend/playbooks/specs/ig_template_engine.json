@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_template_engine",
+  "kind": "user_workflow",
+  "description": "Apply templates to generate multiple IG post variants with different tones and CTAs",
+  "steps": [
+    {
+      "id": "load_template",
+      "tool": "ig_template_engine_tool",
+      "inputs": {
+        "action": "load",
+        "template_type": "{{input.template_type}}",
+        "style_tone": "{{input.style_tone}}",
+        "purpose": "{{input.purpose}}"
+      },
+      "outputs": {
+        "template": "result.template"
+      }
+    },
+    {
+      "id": "generate_posts",
+      "tool": "ig_template_engine_tool",
+      "inputs": {
+        "action": "generate",
+        "template": "{{step.load_template.template}}",
+        "source_content": "{{input.source_content}}",
+        "generate_variants": "{{input.generate_variants}}"
+      },
+      "outputs": {
+        "generated_posts": "result.generated_posts",
+        "template_applied": "result.template_applied"
+      },
+      "depends_on": ["load_template"]
+    }
+  ],
+  "inputs": {
+    "template_type": {
+      "type": "string",
+      "enum": ["carousel", "reel", "story"],
+      "required": true,
+      "description": "Template type"
+    },
+    "style_tone": {
+      "type": "string",
+      "enum": ["high_brand", "friendly", "coach", "sponsored"],
+      "default": "friendly",
+      "description": "Style tone"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": ["save", "comment", "dm", "share"],
+      "default": "save",
+      "description": "Post purpose"
+    },
+    "source_content": {
+      "type": "string",
+      "required": true,
+      "description": "Source content to transform"
+    },
+    "generate_variants": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to generate multiple variants with different CTAs"
+    }
+  },
+  "outputs": {
+    "generated_posts": {
+      "type": "list[object]",
+      "description": "Generated IG post variants",
+      "source": "step.generate_posts.generated_posts"
+    },
+    "template_applied": {
+      "type": "object",
+      "description": "Template information applied",
+      "source": "step.generate_posts.template_applied"
+    }
+  }
+}
+
+
+
+
+
