@@ -387,6 +387,8 @@ class PlaybookRunner:
             model_name = self.llm_provider_manager.get_model_name()
             context = inputs or {}
             sandbox_id_from_context = context.get("sandbox_id")
+            # Increase max_iterations for auto_execute mode to allow more tool calls
+            max_iterations = 15 if auto_execute else 5
             try:
                 assistant_response, used_tools = await self.tool_executor.execute_tool_loop(
                     conv_manager=conv_manager,
@@ -396,7 +398,8 @@ class PlaybookRunner:
                     provider=provider,
                     model_name=model_name,
                     workspace_id=workspace_id,
-                    sandbox_id=sandbox_id_from_context
+                    sandbox_id=sandbox_id_from_context,
+                    max_iterations=max_iterations
                 )
                 logger.info(f"PlaybookRunner: Tool execution loop completed for {execution_id}, used_tools={len(used_tools) if used_tools else 0}")
             except Exception as e:
@@ -481,6 +484,7 @@ class PlaybookRunner:
                 logger.warning(f"Failed to save initial execution state: {e}", exc_info=True)
 
             # Preserve sandbox_id in execution_context if available
+            sandbox_id = context.get("sandbox_id") if context else None
             if sandbox_id and workspace_id:
                 try:
                     from backend.app.services.stores.tasks_store import TasksStore
@@ -494,13 +498,21 @@ class PlaybookRunner:
                 except Exception as e:
                     logger.warning(f"Failed to preserve sandbox_id in execution_context: {e}", exc_info=True)
 
+            # Extract plan from playbook_json.steps if available
+            # Use PlaybookJson model's unified serialization (Pydantic model_dump)
+            plan = None
+            if playbook_json and playbook_json.steps:
+                # Use Pydantic's model_dump() for unified serialization format
+                plan = [step.model_dump() for step in playbook_json.steps]
+
             result = {
                 "execution_id": execution_id,
                 "playbook_code": playbook_code,
                 "playbook_name": playbook.metadata.name,
                 "message": assistant_response,
                 "is_complete": is_complete,
-                "conversation_history": conv_manager.conversation_history
+                "conversation_history": conv_manager.conversation_history,
+                "plan": plan
             }
 
             # Extract and update Story Thread context if thread_id exists
@@ -597,6 +609,8 @@ class PlaybookRunner:
             workspace_id = conv_manager.workspace_id
             # Get sandbox_id from conv_manager's execution context if available
             sandbox_id_from_context = getattr(conv_manager, 'sandbox_id', None)
+            # Increase max_iterations for auto_execute mode to allow more tool calls
+            max_iterations = 15 if conv_manager.auto_execute else 5
             assistant_response, used_tools = await self.tool_executor.execute_tool_loop(
                 conv_manager=conv_manager,
                 assistant_response=assistant_response,
@@ -605,7 +619,8 @@ class PlaybookRunner:
                 provider=provider,
                 model_name=model_name,
                 workspace_id=workspace_id,
-                sandbox_id=sandbox_id_from_context
+                sandbox_id=sandbox_id_from_context,
+                max_iterations=max_iterations
             )
 
             # Extract structured output and check if complete

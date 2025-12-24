@@ -373,7 +373,8 @@ class PlaybookService:
         inputs: Dict[str, Any],
         execution_mode: ExecutionMode = ExecutionMode.ASYNC,
         locale: str = "zh-TW",
-        context: Optional[PlaybookInvocationContext] = None
+        context: Optional[PlaybookInvocationContext] = None,
+        project_id: Optional[str] = None
     ) -> ExecutionResult:
         """
         Execute playbook
@@ -386,6 +387,7 @@ class PlaybookService:
             execution_mode: Execution mode (sync, async, stream)
             locale: Language locale (default: zh-TW)
             context: Optional invocation context (if None, uses legacy behavior)
+            project_id: Optional project ID for sandbox context
 
         Returns:
             ExecutionResult object
@@ -424,14 +426,26 @@ class PlaybookService:
         executor_locale = locale or executor_inputs.get('locale') or 'zh-TW'
 
         try:
-            project_id_from_inputs = executor_inputs.get('project_id') if executor_inputs else None
+            # Priority: explicit project_id parameter > inputs.project_id > workspace.primary_project_id
+            project_id_to_use = project_id
+            if not project_id_to_use:
+                project_id_to_use = executor_inputs.get('project_id') if executor_inputs else None
+            if not project_id_to_use:
+                # Fallback to workspace.primary_project_id
+                try:
+                    workspace = self.store.get_workspace(workspace_id) if self.store else None
+                    if workspace and hasattr(workspace, 'primary_project_id') and workspace.primary_project_id:
+                        project_id_to_use = workspace.primary_project_id
+                        logger.info(f"PlaybookService: Using workspace.primary_project_id={project_id_to_use} for playbook {playbook_code}")
+                except Exception as e:
+                    logger.warning(f"PlaybookService: Failed to get workspace.primary_project_id: {e}")
 
             execution_result_dict = await playbook_run_executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
                 inputs=executor_inputs,
                 workspace_id=workspace_id,
-                project_id=project_id_from_inputs,
+                project_id=project_id_to_use,
                 target_language=executor_inputs.get('target_language'),
                 locale=executor_locale,
                 context=context

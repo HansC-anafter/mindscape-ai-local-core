@@ -315,7 +315,7 @@ class PlaybookRegistry:
 
         # Support capability_code.playbook_code format
         # If playbook_code contains ".", try to extract capability_code
-        if not capability_code and "." in playbook_code:
+        if "." in playbook_code:
             parts = playbook_code.split(".", 1)
             if len(parts) == 2:
                 potential_capability_code = parts[0]
@@ -323,9 +323,19 @@ class PlaybookRegistry:
                 # Check if this looks like a capability code (not just a dot in the name)
                 # Simple heuristic: if the first part matches a known capability pack, use it
                 if potential_capability_code in self.capability_playbooks:
-                    capability_code = potential_capability_code
-                    playbook_code = actual_playbook_code
-                    logger.debug(f"Extracted capability_code={capability_code}, playbook_code={playbook_code} from combined code")
+                    # If capability_code was not provided, use extracted one
+                    # If capability_code was provided, verify it matches and use actual_playbook_code
+                    if not capability_code:
+                        capability_code = potential_capability_code
+                        playbook_code = actual_playbook_code
+                        logger.debug(f"Extracted capability_code={capability_code}, playbook_code={playbook_code} from combined code")
+                    elif capability_code == potential_capability_code:
+                        # Capability code matches, use the extracted playbook_code
+                        playbook_code = actual_playbook_code
+                        logger.debug(f"Extracted playbook_code={playbook_code} from combined code (capability_code already provided)")
+                    else:
+                        # Capability code mismatch, keep original playbook_code
+                        logger.debug(f"Capability code mismatch: provided={capability_code}, extracted={potential_capability_code}, keeping original playbook_code")
 
         logger.debug(f"PlaybookRegistry.get_playbook: code={playbook_code}, locale={locale}, workspace_id={workspace_id}, capability_code={capability_code}")
         logger.debug(f"Available system locales: {list(self.system_playbooks.keys())}")

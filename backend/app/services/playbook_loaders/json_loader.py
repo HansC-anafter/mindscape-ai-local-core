@@ -20,10 +20,16 @@ class PlaybookJsonLoader:
     def load_playbook_json(playbook_code: str) -> Optional[PlaybookJson]:
         """
         Load playbook.json file for a given playbook code
-        
+
         Tries to load from:
         1. NPM packages (@mindscape/playbook-*)
         2. Core playbooks directory (backward compatibility)
+
+        Note: Cloud capabilities playbook JSON specs should be accessed via
+        CloudExtensionManager (configured through settings page cloud_providers),
+        not through hardcoded environment variables or direct API calls.
+        Direct file system access to cloud capabilities is prohibited to maintain
+        architecture boundaries.
 
         Args:
             playbook_code: Playbook code
@@ -62,6 +68,12 @@ class PlaybookJsonLoader:
                 except Exception as e:
                     logger.error(f"Failed to load playbook.json from {playbook_json_path}: {e}")
                     continue
+
+        # Note: Cloud capabilities playbook JSON specs should be accessed via
+        # CloudExtensionManager (configured through settings page cloud_providers),
+        # not through hardcoded environment variables or direct API calls.
+        # This maintains architecture boundaries and allows users to configure
+        # external playbook remotes through the UI.
 
         logger.debug(f"playbook.json not found for {playbook_code} in any of the expected locations")
         return None

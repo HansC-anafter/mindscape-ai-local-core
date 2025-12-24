@@ -95,6 +95,10 @@ class ToolExecutor:
         # Ensure filesystem tools are registered (lazy init for worker processes)
         self._ensure_filesystem_tools_registered()
 
+        # Unsplash tools are provided by cloud capability pack
+        # They should be called via capability registry (e.g., "unsplash.unsplash_search_photos")
+        # If tool_name is "unsplash.xxx", it should be handled by capability registry above
+
         # Normalize parameters for filesystem read/write tools (path -> file_path)
         # Only filesystem_read_file and filesystem_write_file use file_path parameter
         if tool_name in ("filesystem_read_file", "filesystem_write_file") and "path" in kwargs and "file_path" not in kwargs:

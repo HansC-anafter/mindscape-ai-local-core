@@ -253,7 +253,8 @@ class WorkflowOrchestrator:
     def _evaluate_condition(
         self,
         step: WorkflowStep,
-        results: Dict[str, Dict[str, Any]]
+        results: Dict[str, Dict[str, Any]],
+        playbook_inputs: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Evaluate condition for workflow step
@@ -261,6 +262,7 @@ class WorkflowOrchestrator:
         Args:
             step: WorkflowStep with optional condition
             results: Current execution results
+            playbook_inputs: Playbook inputs for template evaluation
 
         Returns:
             True if step should execute, False if should skip
@@ -270,6 +272,26 @@ class WorkflowOrchestrator:
 
         try:
             condition = step.condition.strip()
+
+            # Handle Jinja2 template syntax: {{input.xxx or input.yyy}}
+            if condition.startswith('{{') and condition.endswith('}}'):
+                # Extract expression from {{...}}
+                expr = condition[2:-2].strip()
+
+                # Direct evaluation: input.xxx or input.yyy -> playbook_inputs.get('xxx') or playbook_inputs.get('yyy')
+                input_dict = playbook_inputs or {}
+                try:
+                    # Replace input.xxx with input_dict.get('xxx')
+                    import re
+                    python_expr = expr
+                    # Replace all input.xxx patterns with input_dict.get('xxx')
+                    python_expr = re.sub(r'input\.(\w+)', r"input_dict.get('\1')", python_expr)
+                    result_value = eval(python_expr, {'__builtins__': {}, 'input_dict': input_dict})
+                    logger.debug(f"Condition '{condition}' (expr: '{expr}') evaluated to: {result_value} (bool: {bool(result_value)})")
+                    return bool(result_value)
+                except Exception as e:
+                    logger.warning(f"Failed to evaluate condition '{condition}' for step {step.playbook_code}: {e}")
+                    return True
 
             if condition.startswith('$previous.'):
                 parts = condition.split('.')
@@ -495,7 +517,9 @@ class WorkflowOrchestrator:
         while len(completed_steps) < len(playbook_json.steps):
             ready_steps = self._get_ready_steps(
                 playbook_json.steps,
-                completed_steps
+                completed_steps,
+                playbook_inputs,
+                step_outputs
             )
 
             if not ready_steps:
@@ -662,14 +686,39 @@ class WorkflowOrchestrator:
     def _get_ready_steps(
         self,
         steps: List[Any],
-        completed_steps: set
+        completed_steps: set,
+        playbook_inputs: Optional[Dict[str, Any]] = None,
+        step_outputs: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> List[Any]:
-        """Get steps that are ready to execute (dependencies satisfied)"""
+        """
+        Get steps that are ready to execute (dependencies satisfied)
+
+        Args:
+            steps: List of steps to check
+            completed_steps: Set of completed step IDs (will be modified if steps are skipped)
+            playbook_inputs: Playbook inputs for condition evaluation
+            step_outputs: Step outputs dict (will be updated with skipped steps)
+        """
         ready = []
         for step in steps:
             if step.id in completed_steps:
                 continue
             if all(dep in completed_steps for dep in step.depends_on):
+                # Check condition if present
+                if hasattr(step, 'condition') and step.condition:
+                    # Build results dict for condition evaluation
+                    results = {step_id: {'status': 'completed', 'outputs': {}} for step_id in completed_steps}
+                    if not self._evaluate_condition(step, results, playbook_inputs):
+                        logger.info(f"Step {step.id} condition not met, skipping")
+                        # Mark step as completed (skipped) to avoid circular dependency
+                        completed_steps.add(step.id)
+                        # Record skipped status in step_outputs if provided
+                        if step_outputs is not None:
+                            step_outputs[step.id] = {
+                                'status': 'skipped',
+                                'reason': 'condition_not_met'
+                            }
+                        continue
                 ready.append(step)
         return ready
 

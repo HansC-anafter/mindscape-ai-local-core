@@ -80,6 +80,69 @@ class TemplateEngine:
         workflow_context: Dict[str, Any]
     ) -> Any:
         """Resolve a single template string"""
+        # Check if template_str is exactly a single variable (e.g., "{{step.xxx.yyy}}")
+        # In this case, return the raw value (list/dict) instead of converting to string
+        exact_match = TemplateEngine.PLAYBOOK_TEMPLATE_PATTERN.fullmatch(template_str.strip())
+        if exact_match:
+            var_expr = exact_match.group(1).strip()
+            parts = var_expr.split('.')
+            if len(parts) >= 1:
+                var_type = parts[0]
+                var_path = '.'.join(parts[1:]) if len(parts) > 1 else ""
+
+                # Handle {{step.xxx.yyy}}
+                if var_type == 'step':
+                    step_parts = var_path.split('.', 1)
+                    if len(step_parts) >= 2:
+                        step_id, output_path = step_parts[0], step_parts[1]
+                        step_result = step_outputs.get(step_id, {})
+                        value = step_result
+                        path_parts = output_path.split('.')
+                        for part in path_parts:
+                            if '[' in part:
+                                key, index_str = part.split('[')
+                                index = int(index_str.rstrip(']'))
+                                if isinstance(value, dict):
+                                    value = value.get(key)
+                                if isinstance(value, list) and 0 <= index < len(value):
+                                    value = value[index]
+                                else:
+                                    value = None
+                                    break
+                            else:
+                                if isinstance(value, dict):
+                                    value = value.get(part)
+                                else:
+                                    value = None
+                                    break
+                            if value is None:
+                                break
+                        # Return raw value for exact match (preserves list/dict types)
+                        if value is not None:
+                            return value
+
+                # Handle {{input.xxx}}
+                elif var_type == 'input':
+                    value = playbook_inputs
+                    for part in var_path.split('.'):
+                        if '[' in part:
+                            key, index_str = part.split('[')
+                            index = int(index_str.rstrip(']'))
+                            if isinstance(value, dict):
+                                value = value.get(key)
+                            if isinstance(value, list) and 0 <= index < len(value):
+                                value = value[index]
+                            else:
+                                value = None
+                                break
+                        else:
+                            value = value.get(part) if isinstance(value, dict) else None
+                        if value is None:
+                            break
+                    # Return raw value for exact match (preserves list/dict types)
+                    if value is not None:
+                        return value
+
         if '{{step.' in template_str or '{{input.' in template_str:
             logger.debug(f"TemplateEngine: Resolving template string (length={len(template_str)}): {template_str[:200]}...")
         def replace_var(match):
@@ -114,12 +177,16 @@ class TemplateEngine:
                         break
                 # Convert to string for template replacement
                 if value is not None:
-                    if isinstance(value, (list, dict)):
+                    if isinstance(value, list):
+                        # For lists, join with comma and space for better readability in prompts
+                        return ', '.join(str(item) for item in value)
+                    elif isinstance(value, dict):
                         import json
                         return json.dumps(value, ensure_ascii=False)
                     else:
                         return str(value)
-                return match.group(0)
+                logger.warning(f"Template variable {{input.{var_path}}} resolved to None, using empty string")
+                return ""
 
             # Handle {{step.xxx.yyy}} or {{step.xxx.yyy[0]}}
             elif var_type == 'step':
@@ -164,7 +231,10 @@ class TemplateEngine:
                 logger.debug(f"TemplateEngine: Resolved {{step.{var_expr}}} to {value_type}: {value_preview}")
 
                 # Convert to string for template replacement
-                if isinstance(value, (list, dict)):
+                if isinstance(value, list):
+                    # For lists, join with comma and space for better readability in prompts
+                    return ', '.join(str(item) for item in value)
+                elif isinstance(value, dict):
                     import json
                     return json.dumps(value, ensure_ascii=False)
                 else:

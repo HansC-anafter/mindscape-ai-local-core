@@ -46,18 +46,7 @@ class CapabilityRuntimeLoader:
         if env_dir:
             dirs.append(Path(env_dir))
 
-        # Try common locations relative to workspace
-        # Assume capabilities are in mindscape-ai-cloud/capabilities
-        workspace_root = Path(__file__).parent.parent.parent.parent.parent
-        cloud_capabilities = workspace_root / "mindscape-ai-cloud" / "capabilities"
-        if cloud_capabilities.exists():
-            dirs.append(cloud_capabilities)
-
-        # Try relative path from local-core
-        local_core_dir = Path(__file__).parent.parent.parent.parent
-        relative_capabilities = local_core_dir.parent / "mindscape-ai-cloud" / "capabilities"
-        if relative_capabilities.exists():
-            dirs.append(relative_capabilities)
+        # Cloud capabilities paths removed
 
         return dirs
 

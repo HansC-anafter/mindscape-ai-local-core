@@ -105,6 +105,7 @@ class PlaybookFileLoader:
                 owner=frontmatter.get('owner'),
                 runtime_tier=frontmatter.get('runtime_tier'),
                 runtime=frontmatter.get('runtime'),
+                capability_code=frontmatter.get('capability_code'),
             )
 
             playbook = Playbook(
@@ -181,6 +182,7 @@ class PlaybookFileLoader:
                 owner=frontmatter.get('owner'),
                 runtime_tier=frontmatter.get('runtime_tier'),
                 runtime=frontmatter.get('runtime'),
+                capability_code=frontmatter.get('capability_code'),
             )
 
             playbook = Playbook(

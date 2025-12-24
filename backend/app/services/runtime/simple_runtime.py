@@ -94,19 +94,33 @@ class SimpleRuntime(RuntimePort):
             playbook_code_from_context = context.tags.get("playbook_code") if context.tags else None
 
             # Convert playbook_run to HandoffPlan
-            handoff_plan = self._convert_to_handoff_plan(playbook_run, inputs or {}, playbook_code_from_context)
+            # Ensure inputs are properly passed to workflow_context
+            playbook_inputs = inputs or {}
+            logger.info(f"SimpleRuntime: playbook_inputs keys: {list(playbook_inputs.keys())}")
+            handoff_plan = self._convert_to_handoff_plan(playbook_run, playbook_inputs, playbook_code_from_context)
+            # Ensure inputs are in handoff_plan.context for template resolution
+            if playbook_inputs:
+                handoff_plan.context.update(playbook_inputs)
+                logger.info(f"SimpleRuntime: Updated handoff_plan.context with inputs. Context keys: {list(handoff_plan.context.keys())}")
 
             # Get execution_id from context tags or generate one
             execution_id = context.tags.get("execution_id") if context.tags else None
             profile_id = context.actor_id
+            project_id = context.tags.get("project_id") if context.tags else None
+            # Handle empty string as None
+            if project_id == "":
+                project_id = None
+
+            logger.info(f"SimpleRuntime: Extracted project_id={project_id} from context.tags={context.tags}")
 
             # Execute using orchestrator
-            logger.info(f"SimpleRuntime: Executing workflow with handoff_plan.steps count: {len(handoff_plan.steps)}")
+            logger.info(f"SimpleRuntime: Executing workflow with handoff_plan.steps count: {len(handoff_plan.steps)}, project_id={project_id}")
             result = await self.orchestrator.execute_workflow(
                 handoff_plan=handoff_plan,
                 execution_id=execution_id,
                 workspace_id=context.workspace_id,
-                profile_id=profile_id
+                profile_id=profile_id,
+                project_id=project_id
             )
 
             # Log result structure for debugging
@@ -147,17 +161,35 @@ class SimpleRuntime(RuntimePort):
                 if step_outputs:
                     outputs = step_outputs
 
-            return ExecutionResult(
-                status=status,
-                execution_id=execution_id or "unknown",
-                outputs=outputs,
-                error=error,
-                metadata={
-                    "runtime": "simple",
-                    "steps_completed": len(steps_info),
-                    "steps": steps_info  # Preserve full step information
-                }
-            )
+                    # Extract sandbox_id from result if available
+                    sandbox_id = None
+                    # First check if sandbox_id is in result directly (from _execute_playbook_steps)
+                    if isinstance(result, dict) and 'sandbox_id' in result:
+                        sandbox_id = result['sandbox_id']
+                        logger.info(f"SimpleRuntime: Found sandbox_id in result: {sandbox_id}")
+                    # Then check in steps
+                    elif "steps" in result:
+                        for step_code, step_result in result.get("steps", {}).items():
+                            if isinstance(step_result, dict) and 'sandbox_id' in step_result:
+                                sandbox_id = step_result['sandbox_id']
+                                logger.info(f"SimpleRuntime: Found sandbox_id in step {step_code}: {sandbox_id}")
+                                break
+
+                    metadata = {
+                        "runtime": "simple",
+                        "steps_completed": len(steps_info),
+                        "steps": steps_info  # Preserve full step information
+                    }
+                    if sandbox_id:
+                        metadata["sandbox_id"] = sandbox_id
+
+                    return ExecutionResult(
+                        status=status,
+                        execution_id=execution_id or "unknown",
+                        outputs=outputs,
+                        error=error,
+                        metadata=metadata
+                    )
 
         except Exception as e:
             logger.error(f"SimpleRuntime execution failed: {e}", exc_info=True)
