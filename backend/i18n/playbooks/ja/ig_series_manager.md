@@ -30,6 +30,7 @@ auto_localize: true
 
 entry_agent_type: writer
 icon: 📚
+capability_code: instagram
 ---
 
 # IG シリーズ管理

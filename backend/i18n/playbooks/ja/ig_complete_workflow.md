@@ -30,6 +30,7 @@ auto_localize: true
 
 entry_agent_type: coder
 icon: 🔄
+capability_code: instagram
 ---
 
 # IG 完全ワークフロー
