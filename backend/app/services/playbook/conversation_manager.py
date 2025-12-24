@@ -785,7 +785,15 @@ class PlaybookConversationManager:
                 else:
                     logger.debug(f"Could not get tool schema for {tool_name}")
 
-        results_text += "Please continue processing based on the above tool call results. If tool calls failed, please retry with the correct parameters from the tool definition.\n"
+        # In auto_execute mode, add stronger prompt to continue
+        if self.auto_execute:
+            results_text += "\n**⚡ AUTO-EXECUTE MODE: You MUST continue executing the next steps in the SOP immediately.**\n"
+            results_text += "- Review the tool results above\n"
+            results_text += "- Immediately call the next required tool from the SOP\n"
+            results_text += "- Do NOT stop or ask for confirmation\n"
+            results_text += "- Continue until all SOP phases are complete\n"
+        else:
+            results_text += "Please continue processing based on the above tool call results. If tool calls failed, please retry with the correct parameters from the tool definition.\n"
 
         self.conversation_history.append({
             "role": "system",

@@ -518,11 +518,19 @@ def init_playbook_executions_schema(cursor):
             last_checkpoint TEXT,
             progress_log_path TEXT,
             feature_list_path TEXT,
+            metadata TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
         )
     ''')
+
+    # Add metadata column if it doesn't exist (migration support)
+    try:
+        cursor.execute('ALTER TABLE playbook_executions ADD COLUMN metadata TEXT')
+    except Exception:
+        # Column already exists, ignore
+        pass
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_workspace ON playbook_executions(workspace_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_status ON playbook_executions(status)')
@@ -774,6 +782,151 @@ def init_background_routines_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_stage_results_artifact ON stage_results(artifact_id)')
 
 
+def init_mind_lens_schema(cursor):
+    """Initialize mind_lens_schemas, mind_lens_instances, and lens_specs tables"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mind_lens_schemas (
+            schema_id TEXT PRIMARY KEY,
+            role TEXT NOT NULL,
+            label TEXT,
+            dimensions TEXT NOT NULL,
+            version TEXT DEFAULT '0.1',
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_lens_schemas_role ON mind_lens_schemas(role)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS lens_specs (
+            lens_id TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            category TEXT NOT NULL,
+            applies_to TEXT NOT NULL,
+            inject TEXT NOT NULL,
+            params_schema TEXT,
+            transformers TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_lens_specs_category ON lens_specs(category)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mind_lens_instances (
+            mind_lens_id TEXT PRIMARY KEY,
+            schema_id TEXT NOT NULL,
+            owner_user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            label TEXT,
+            description TEXT,
+            "values" TEXT NOT NULL,
+            source TEXT,
+            version TEXT DEFAULT '0.1',
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_lens_instances_owner ON mind_lens_instances(owner_user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_lens_instances_role ON mind_lens_instances(role)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_lens_instances_schema ON mind_lens_instances(schema_id)')
+
+
+def init_lens_composition_schema(cursor):
+    """Initialize lens_compositions table"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS lens_compositions (
+            composition_id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            lens_stack TEXT NOT NULL,
+            fusion_strategy TEXT DEFAULT 'priority_then_weighted',
+            metadata TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_lens_compositions_workspace ON lens_compositions(workspace_id)')
+
+
+def init_commands_schema(cursor):
+    """Initialize commands table"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commands (
+            command_id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            source_surface TEXT NOT NULL,
+            intent_code TEXT NOT NULL,
+            parameters TEXT,
+            requires_approval INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            execution_id TEXT,
+            thread_id TEXT,
+            correlation_id TEXT,
+            parent_command_id TEXT,
+            metadata TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_commands_workspace ON commands(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_commands_thread ON commands(thread_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_commands_correlation ON commands(correlation_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status)')
+
+
+def init_surface_events_schema(cursor):
+    """Initialize surface_events table"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS surface_events (
+            event_id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            source_surface TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            actor_id TEXT,
+            payload TEXT,
+            command_id TEXT,
+            thread_id TEXT,
+            correlation_id TEXT,
+            parent_event_id TEXT,
+            execution_id TEXT,
+            pack_id TEXT,
+            card_id TEXT,
+            scope TEXT,
+            playbook_version TEXT,
+            timestamp TEXT,
+            created_at TEXT
+        )
+    ''')
+
+    # Add BYOP columns if they don't exist (migration support)
+    # Must be done BEFORE creating indexes on these columns
+    for column in ['pack_id', 'card_id', 'scope', 'playbook_version']:
+        try:
+            cursor.execute(f'ALTER TABLE surface_events ADD COLUMN {column} TEXT')
+        except Exception:
+            # Column already exists, ignore
+            pass
+
+    # Create indexes AFTER ensuring columns exist
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_surface_events_workspace ON surface_events(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_surface_events_thread ON surface_events(thread_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_surface_events_correlation ON surface_events(correlation_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_surface_events_command ON surface_events(command_id)')
+
+    # Only create indexes on pack_id and card_id if columns exist
+    # Check if pack_id column exists before creating index
+    cursor.execute("PRAGMA table_info(surface_events)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if 'pack_id' in columns:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_surface_events_pack_id ON surface_events(pack_id)')
+    if 'card_id' in columns:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_surface_events_card_id ON surface_events(card_id)')
+
+
 def init_project_phases_schema(cursor):
     """Initialize project_phases table and indexes"""
     cursor.execute('''
@@ -842,3 +995,9 @@ def init_schema(cursor):
 
     # Project-related tables (depend on Workspaces)
     init_project_phases_schema(cursor)
+
+    # Lens and Composition tables (depend on Workspaces)
+    init_mind_lens_schema(cursor)
+    init_lens_composition_schema(cursor)
+    init_commands_schema(cursor)
+    init_surface_events_schema(cursor)

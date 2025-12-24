@@ -36,6 +36,7 @@ import uuid
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.intent_analyzer import IntentPipeline
+from backend.app.services.decision.coordinator_factory import create_decision_coordinator
 from backend.app.services.playbook_runner import PlaybookRunner
 from backend.app.services.playbook_service import PlaybookService, ExecutionMode as PlaybookExecutionMode
 from backend.app.services.i18n_service import get_i18n_service
@@ -326,13 +327,14 @@ class ConversationOrchestrator:
             assistant_response = None
             handoff_plan = None
 
+            # Step 1: Get routing decision from UnifiedDecisionCoordinator
+            routing_decision = None
             try:
-                intent_result = await self.intent_pipeline.analyze(
+                decision_result = await self.decision_coordinator.make_unified_decision(
                     user_input=message,
-                    profile_id=profile_id,
-                    channel="local_workspace",
-                    project_id=project_id,
                     workspace_id=workspace_id,
+                    project_id=project_id,
+                    user_id=profile_id,
                     context={
                         "files": files,
                         "workspace_id": workspace_id,
@@ -340,8 +342,34 @@ class ConversationOrchestrator:
                         "uploaded_files": files
                     }
                 )
+
+                # Extract routing_decision from decision_result
+                if decision_result and decision_result.intent_contribution:
+                    routing_decision = decision_result.intent_contribution
+                    logger.info(f"UnifiedDecisionCoordinator: Suggested playbook={routing_decision.suggested_playbook.playbook_code if routing_decision.suggested_playbook else None}, confidence={routing_decision.confidence}")
             except Exception as e:
-                logger.warning(f"Intent analysis failed, falling back to QA: {str(e)}")
+                logger.warning(f"UnifiedDecisionCoordinator failed, falling back to IntentPipeline: {str(e)}")
+                routing_decision = None
+
+            # Step 2: Fallback to IntentPipeline if coordinator failed
+            intent_result = None
+            if not routing_decision:
+                try:
+                    intent_result = await self.intent_pipeline.analyze(
+                        user_input=message,
+                        profile_id=profile_id,
+                        channel="local_workspace",
+                        project_id=project_id,
+                        workspace_id=workspace_id,
+                        context={
+                            "files": files,
+                            "workspace_id": workspace_id,
+                            "mode": mode,
+                            "uploaded_files": files
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Intent analysis failed, falling back to QA: {str(e)}")
 
             if intent_result and intent_result.is_multi_step:
                 logger.info(f"Detected multi-step workflow with {len(intent_result.workflow_steps)} steps")
@@ -430,7 +458,8 @@ class ConversationOrchestrator:
                 use_llm=True,
                 project_id=final_project_id,
                 project_assignment_decision=project_assignment.to_dict(),
-                effective_playbooks=effective_playbooks
+                effective_playbooks=effective_playbooks,
+                routing_decision=routing_decision  # Pass routing_decision from UnifiedDecisionCoordinator
             )
             logger.info(f"ConversationOrchestrator: Generated execution plan with {len(execution_plan.tasks)} tasks")
             import sys

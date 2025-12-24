@@ -218,3 +218,7 @@ class SandboxApplier:
         # Default to web_page for most cases
         return "web_page"
 
+
+
+
+

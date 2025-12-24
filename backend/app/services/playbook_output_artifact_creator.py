@@ -28,6 +28,10 @@ def resolve_template(template: str, context: Dict[str, Any]) -> str:
     - {{execution_id}} - Execution ID
     - {{workspace_id}} - Workspace ID
     - {{intent_id}} - Intent ID
+    - {{artifact.title}} - Artifact title
+    - {{artifact.id}} - Artifact ID
+    - {{artifact.type}} - Artifact type
+    - {{title}} - Shortcut for {{artifact.title}}
 
     Args:
         template: Template string with variables
@@ -65,6 +69,27 @@ def resolve_template(template: str, context: Dict[str, Any]) -> str:
                 input_key = '.'.join(parts[1:])
                 inputs = context.get('input', {})
                 value = get_nested_value(inputs, input_key)
+                if value is None or value == '':
+                    # Provide default values for common empty inputs
+                    if input_key == 'source_content':
+                        return '指定內容'  # Default for empty source_content
+                    return ''
+                return str(value)
+        elif parts[0] == 'artifact':
+            # {{artifact.title}}, {{artifact.id}}, {{artifact.type}}
+            if len(parts) >= 2:
+                artifact_key = parts[1]
+                artifact_info = context.get('artifact', {})
+                value = artifact_info.get(artifact_key)
+                return str(value) if value is not None else ''
+        elif len(parts) == 1:
+            # Handle shortcuts like {{title}} -> {{artifact.title}} or direct context.title
+            if parts[0] == 'title':
+                # First try direct context.title (shortcut), then artifact.title
+                value = context.get('title')
+                if value is None:
+                    artifact_info = context.get('artifact', {})
+                    value = artifact_info.get('title')
                 return str(value) if value is not None else ''
 
         return match.group(0)  # Return original if not found
@@ -167,6 +192,7 @@ class PlaybookOutputArtifactCreator:
             "intent_id": execution_context.get("intent_id") if execution_context else None
         }
 
+        logger.error(f"🔍 create_artifacts_from_playbook_outputs: execution_context={execution_context}, sandbox_id={execution_context.get('sandbox_id') if execution_context else None}")
         for artifact_def in output_artifacts:
             try:
                 artifact = await self._create_single_artifact(
@@ -237,29 +263,74 @@ class PlaybookOutputArtifactCreator:
             logger.warning(f"Artifact definition {artifact_def.get('id')} missing source")
             return None
 
-        # Extract step_id and output_key from source (e.g., "step.generate_post.post_content")
-        source_parts = source_path.split('.', 2)  # Split into ['step', 'step_id', 'output_key...']
-        if len(source_parts) < 3 or source_parts[0] != 'step':
-            logger.warning(f"Invalid source path format: {source_path}")
-            return None
+        source_data = None
 
-        step_id = source_parts[1]
-        output_key = source_parts[2] if len(source_parts) > 2 else None
+        # Check if source is from sandbox (format: "sandbox.file_path")
+        if source_path.startswith("sandbox."):
+            # Read from sandbox
+            sandbox_file_path = source_path[8:]  # Remove "sandbox." prefix
+            sandbox_id = execution_context.get("sandbox_id") if execution_context else None
 
-        # Get source data from step outputs
-        step_outputs = context.get("step", {})
-        if step_id not in step_outputs:
-            logger.warning(f"Step {step_id} not found in step outputs")
-            return None
+            if not sandbox_id:
+                logger.warning(f"Sandbox ID not found in execution context, cannot read from sandbox: {sandbox_file_path}")
+                return None
 
-        if output_key:
-            source_data = get_nested_value(step_outputs[step_id], output_key)
+            try:
+                from backend.app.services.sandbox.sandbox_manager import SandboxManager
+                from backend.app.services.mindscape_store import MindscapeStore
+
+                store = MindscapeStore()
+                sandbox_manager = SandboxManager(store)
+                sandbox = await sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+
+                if not sandbox:
+                    logger.warning(f"Sandbox {sandbox_id} not found")
+                    return None
+
+                file_content = await sandbox.read_file(sandbox_file_path)
+                if not file_content:
+                    logger.warning(f"File {sandbox_file_path} not found in sandbox {sandbox_id}")
+                    return None
+
+                # Parse JSON content if file is JSON
+                import json
+                if sandbox_file_path.endswith('.json'):
+                    try:
+                        source_data = json.loads(file_content)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse JSON from sandbox file {sandbox_file_path}")
+                        source_data = {"content": file_content}
+                else:
+                    source_data = {"content": file_content}
+
+                logger.info(f"Successfully read file {sandbox_file_path} from sandbox {sandbox_id}")
+            except Exception as e:
+                logger.error(f"Failed to read file from sandbox: {e}", exc_info=True)
+                return None
         else:
-            source_data = step_outputs[step_id]
+            # Extract step_id and output_key from source (e.g., "step.generate_post.post_content")
+            source_parts = source_path.split('.', 2)  # Split into ['step', 'step_id', 'output_key...']
+            if len(source_parts) < 3 or source_parts[0] != 'step':
+                logger.warning(f"Invalid source path format: {source_path}")
+                return None
 
-        if source_data is None:
-            logger.warning(f"Source data not found for {source_path}")
-            return None
+            step_id = source_parts[1]
+            output_key = source_parts[2] if len(source_parts) > 2 else None
+
+            # Get source data from step outputs
+            step_outputs = context.get("step", {})
+            if step_id not in step_outputs:
+                logger.warning(f"Step {step_id} not found in step outputs")
+                return None
+
+            if output_key:
+                source_data = get_nested_value(step_outputs[step_id], output_key)
+            else:
+                source_data = step_outputs[step_id]
+
+            if source_data is None:
+                logger.warning(f"Source data not found for {source_path}")
+                return None
 
         # Resolve metadata
         metadata = {}
@@ -321,6 +392,7 @@ class PlaybookOutputArtifactCreator:
                     artifact_def=artifact_def,
                     context=context,
                     workspace_id=workspace_id,
+                    execution_context=execution_context,
                     playbook_metadata=playbook_metadata
                 )
             except Exception as e:
@@ -338,6 +410,7 @@ class PlaybookOutputArtifactCreator:
         artifact_def: Dict[str, Any],
         context: Dict[str, Any],
         workspace_id: str,
+        execution_context: Optional[Dict[str, Any]] = None,
         playbook_metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """
@@ -367,16 +440,33 @@ class PlaybookOutputArtifactCreator:
         else:
             playbook_scope = "workspace"
 
+        # Add artifact information to context for template resolution (e.g., {{title}})
+        enhanced_context = context.copy()
+        enhanced_context["artifact"] = {
+            "title": artifact.title,
+            "id": artifact.id,
+            "type": artifact.artifact_type.value if artifact.artifact_type else "other"
+        }
+        # Add title as shortcut for {{title}} -> {{artifact.title}}
+        enhanced_context["title"] = artifact.title
+
         # Resolve storage path based on three-layer architecture
         # Get file_name_template from file_write_config, not artifact_def directly
         file_name_template = file_write_config.get("file_name_template", "{{title}}.tsx")
+        logger.info(
+            f"🔍 _write_artifact_to_file: artifact.id={artifact.id}, "
+            f"file_name_template='{file_name_template}', "
+            f"artifact.title='{artifact.title}', "
+            f"enhanced_context.artifact.title='{enhanced_context['artifact']['title']}', "
+            f"enhanced_context.title='{enhanced_context.get('title')}'"
+        )
         storage_info = self._resolve_storage_path(
             playbook_code=playbook_metadata.get("playbook_code", ""),
             playbook_scope=playbook_scope,
             execution_id=context.get("execution_id", ""),
             artifact_file_name=file_name_template,
             workspace_id=workspace_id,
-            context=context
+            context=enhanced_context
         )
 
         if not storage_info:
@@ -389,7 +479,7 @@ class PlaybookOutputArtifactCreator:
         # Build file content
         content_template = file_write_config.get("content_template")
         if content_template:
-            file_content = resolve_template(content_template, context)
+            file_content = resolve_template(content_template, enhanced_context)
         else:
             source_data = artifact.content
             import json
@@ -412,6 +502,80 @@ class PlaybookOutputArtifactCreator:
         # Get encoding
         encoding = file_write_config.get("encoding", "utf-8")
 
+        # Check if sandbox_id exists - if so, write to sandbox instead of artifacts directory
+        sandbox_id = execution_context.get("sandbox_id") if execution_context else None
+        logger.error(f"🔍 _write_artifact_to_file: sandbox_id={sandbox_id}, execution_context={execution_context}, artifact.id={artifact.id}")
+        if sandbox_id:
+            logger.error(f"🔍 _write_artifact_to_file: Attempting to write to sandbox {sandbox_id}")
+            try:
+                from backend.app.services.sandbox.sandbox_manager import SandboxManager
+                from backend.app.services.mindscape_store import MindscapeStore
+
+                store = MindscapeStore()
+                sandbox_manager = SandboxManager(store)
+                sandbox = await sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+
+                if sandbox:
+                    # Write to sandbox using relative file path
+                    logger.info(f"🔍 Writing file to sandbox {sandbox_id}: {relative_file_path}")
+                    success = await sandbox.write_file(relative_file_path, file_content)
+                    logger.info(f"🔍 sandbox.write_file result: success={success}")
+                    if success:
+                        # Get sandbox base path for actual_file_path
+                        # Sandbox files are stored in storage.base_path / "current" / relative_file_path
+                        # Note: sandbox.storage.base_path already includes the sandbox_id directory
+                        from pathlib import Path
+                        if hasattr(sandbox, 'storage') and hasattr(sandbox.storage, 'base_path'):
+                            # sandbox.storage.base_path already points to the sandbox directory
+                            # e.g., /app/data/sandboxes/{workspace_id}/project_repo/{sandbox_id}
+                            sandbox_base_path = sandbox.storage.base_path / "current"
+                            actual_file_path = sandbox_base_path / relative_file_path
+                        else:
+                            # Fallback: construct path from sandbox_id
+                            # Try to get storage path from sandbox manager
+                            try:
+                                sandbox_info = await sandbox_manager.get_sandbox(sandbox_id, workspace_id)
+                                if sandbox_info and hasattr(sandbox_info, 'storage'):
+                                    # sandbox_info.storage.base_path already includes sandbox_id
+                                    sandbox_base_path = sandbox_info.storage.base_path / "current"
+                                else:
+                                    # Use default sandbox storage path
+                                    from backend.app.services.mindscape_store import MindscapeStore
+                                    store = MindscapeStore()
+                                    workspace = store.get_workspace(workspace_id)
+                                    if workspace and hasattr(workspace, 'storage_base_path') and workspace.storage_base_path:
+                                        sandbox_base_path = Path(workspace.storage_base_path) / "sandboxes" / workspace_id / "project_repo" / sandbox_id / "current"
+                                    else:
+                                        # Final fallback: use default path
+                                        sandbox_base_path = Path("/app/data/sandboxes") / workspace_id / "project_repo" / sandbox_id / "current"
+                                actual_file_path = sandbox_base_path / relative_file_path
+                            except Exception as e:
+                                logger.warning(f"Failed to get sandbox base path: {e}, using relative path")
+                                # Use relative path as fallback
+                                actual_file_path = Path(relative_file_path)
+
+                        # Update artifact metadata with actual file path
+                        artifact.metadata["actual_file_path"] = str(actual_file_path)
+                        artifact.metadata["storage_scope"] = playbook_scope
+                        artifact.storage_ref = str(actual_file_path)
+                        self.artifacts_store.update_artifact(
+                            artifact.id,
+                            metadata=artifact.metadata,
+                            storage_ref=str(actual_file_path)
+                        )
+                        logger.info(
+                            f"Successfully wrote artifact {artifact.id} to sandbox {sandbox_id}: {relative_file_path} "
+                            f"(size: {len(file_content)} bytes)"
+                        )
+                        return
+                    else:
+                        logger.warning(f"Failed to write file to sandbox {sandbox_id}, falling back to filesystem")
+                else:
+                    logger.warning(f"Sandbox {sandbox_id} not found, falling back to filesystem")
+            except Exception as e:
+                logger.error(f"Failed to write file to sandbox: {e}", exc_info=True)
+                # Fall through to filesystem write
+
         # Register filesystem tool instance for this base_directory if not already registered
         # This follows the three-layer architecture: different scopes get different tool instances
         try:
@@ -425,6 +589,20 @@ class PlaybookOutputArtifactCreator:
                 with open(full_file_path, "w", encoding=encoding) as f:
                     f.write(file_content)
                 result = {"success": True, "file_path": str(full_file_path)}
+
+                # Update artifact metadata with actual file path (CRITICAL: must update even in fallback)
+                artifact.metadata["actual_file_path"] = str(full_file_path)
+                artifact.metadata["storage_scope"] = playbook_scope
+                artifact.storage_ref = str(full_file_path)
+                self.artifacts_store.update_artifact(
+                    artifact.id,
+                    metadata=artifact.metadata,
+                    storage_ref=str(full_file_path)
+                )
+                logger.info(
+                    f"Successfully wrote artifact {artifact.id} to file (fallback): {full_file_path} "
+                    f"(size: {len(file_content)} bytes, scope: {playbook_scope})"
+                )
             else:
                 # Use registered tool instance
                 from backend.app.shared.tool_executor import execute_tool
@@ -482,6 +660,12 @@ class PlaybookOutputArtifactCreator:
 
         # Resolve file name template
         resolved_file_name = resolve_template(artifact_file_name, context)
+        logger.info(
+            f"🔍 _resolve_storage_path: artifact_file_name='{artifact_file_name}', "
+            f"resolved_file_name='{resolved_file_name}', "
+            f"context.artifact.title='{context.get('artifact', {}).get('title')}', "
+            f"context.title='{context.get('title')}'"
+        )
 
         if playbook_scope == "workspace":
             # Workspace-scoped: use workspace storage

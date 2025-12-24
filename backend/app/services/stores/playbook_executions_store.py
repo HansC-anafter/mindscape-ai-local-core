@@ -32,8 +32,8 @@ class PlaybookExecutionsStore(StoreBase):
                 INSERT INTO playbook_executions (
                     id, workspace_id, playbook_code, intent_instance_id,
                     status, phase, last_checkpoint, progress_log_path,
-                    feature_list_path, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    feature_list_path, metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 execution.id,
                 execution.workspace_id,
@@ -44,6 +44,7 @@ class PlaybookExecutionsStore(StoreBase):
                 execution.last_checkpoint,
                 execution.progress_log_path,
                 execution.feature_list_path,
+                self.serialize_json(execution.metadata) if execution.metadata else None,
                 self.to_isoformat(execution.created_at),
                 self.to_isoformat(execution.updated_at)
             ))
@@ -217,6 +218,51 @@ class PlaybookExecutionsStore(StoreBase):
             logger.info(f"Updated status for execution: {execution_id} to {status}")
             return True
 
+    def update_execution_metadata(self, execution_id: str, metadata: Dict[str, Any]) -> bool:
+        """
+        Update execution metadata with BYOP/BYOL fields
+
+        Args:
+            execution_id: Execution ID
+            metadata: Metadata dictionary to update
+
+        Returns:
+            True if updated, False if execution not found
+        """
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+
+            # Get existing metadata
+            cursor.execute('SELECT metadata FROM playbook_executions WHERE id = ?', (execution_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            # Merge with existing metadata
+            existing_metadata = self.deserialize_json(row[0]) if row[0] else {}
+            if existing_metadata:
+                existing_metadata.update(metadata)
+                merged_metadata = existing_metadata
+            else:
+                merged_metadata = metadata
+
+            # Update metadata
+            cursor.execute('''
+                UPDATE playbook_executions
+                SET metadata = ?, updated_at = ?
+                WHERE id = ?
+            ''', (
+                self.serialize_json(merged_metadata),
+                self.to_isoformat(datetime.utcnow()),
+                execution_id
+            ))
+
+            if cursor.rowcount == 0:
+                return False
+
+            logger.info(f"Updated metadata for execution: {execution_id}")
+            return True
+
     def _row_to_execution(self, row: Dict[str, Any]) -> PlaybookExecution:
         """
         Convert database row to PlaybookExecution model
@@ -237,6 +283,7 @@ class PlaybookExecutionsStore(StoreBase):
             last_checkpoint=row["last_checkpoint"],
             progress_log_path=row["progress_log_path"],
             feature_list_path=row["feature_list_path"],
+            metadata=self.deserialize_json(row.get("metadata")) if row.get("metadata") else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"])
         )

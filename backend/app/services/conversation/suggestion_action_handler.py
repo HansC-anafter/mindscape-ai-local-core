@@ -214,14 +214,15 @@ class SuggestionActionHandler:
                 f"HandoffPlan is required for execution. Please create playbook.json for structured workflow execution."
             )
 
-        logger.info(f"_handle_execute_playbook: Calling execute_playbook for {playbook_code}")
+        logger.info(f"_handle_execute_playbook: Calling execute_playbook for {playbook_code}, project_id={project_id}")
         execution_result_obj = await self.playbook_service.execute_playbook(
             playbook_code=playbook_code,
             workspace_id=ctx.workspace_id,
             profile_id=ctx.actor_id,
             inputs=playbook_context,
             execution_mode=PlaybookExecutionMode.ASYNC,
-            locale=locale
+            locale=locale,
+            project_id=project_id
         )
         # Convert ExecutionResult to dict format for backward compatibility
         execution_result = {

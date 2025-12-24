@@ -76,6 +76,135 @@ class PlaybookToolExecutor:
         self.workflow_tracker = workflow_tracker
         self.execution_context: Dict[str, Any] = {}
 
+    def _find_related_tools(self, attempted_name: str, workspace_id: Optional[str] = None) -> List[str]:
+        """
+        Find related tools based on keywords in the attempted tool name.
+        This is used when no similar tools are found, to provide context.
+
+        Args:
+            attempted_name: The tool name that was attempted
+            workspace_id: Workspace ID for tool list lookup
+
+        Returns:
+            List of related tool names (filtered by keywords)
+        """
+        try:
+            from backend.app.services.tools.registry import get_all_mindscape_tools
+            from backend.app.services.tool_list_service import get_tool_list_service
+
+            # Extract keywords from attempted name
+            attempted_lower = attempted_name.lower()
+            keywords = [word for word in attempted_lower.replace('.', '_').replace('-', '_').split('_') if len(word) > 2]
+
+            if not keywords:
+                return []
+
+            # Get all available tools
+            all_tools = []
+
+            # Get MindscapeTools
+            try:
+                mindscape_tools = get_all_mindscape_tools()
+                all_tools.extend([tool.metadata.name for tool in mindscape_tools.values() if hasattr(tool, 'metadata')])
+            except Exception:
+                pass
+
+            # Get tools from ToolListService
+            if workspace_id:
+                try:
+                    tool_list_service = get_tool_list_service()
+                    tool_infos = tool_list_service.get_tools(
+                        workspace_id=workspace_id,
+                        enabled_only=True
+                    )
+                    all_tools.extend([tool.tool_id for tool in tool_infos])
+                except Exception:
+                    pass
+
+            # Remove duplicates
+            all_tools = list(set(all_tools))
+
+            # Find tools that contain any of the keywords
+            related = []
+            for tool_name in all_tools:
+                tool_lower = tool_name.lower()
+                # Check if tool name contains any keyword
+                if any(keyword in tool_lower for keyword in keywords):
+                    related.append(tool_name)
+
+            # Sort by relevance (more keywords matched = higher priority)
+            related.sort(key=lambda t: sum(1 for k in keywords if k in t.lower()), reverse=True)
+            return related[:10]  # Return top 10
+
+        except Exception as e:
+            logger.debug(f"Failed to find related tools: {e}")
+            return []
+
+    def _suggest_tool_names(self, attempted_name: str, workspace_id: Optional[str] = None) -> List[str]:
+        """
+        Suggest similar tool names when a tool is not found.
+
+        Args:
+            attempted_name: The tool name that was attempted
+            workspace_id: Workspace ID for tool list lookup
+
+        Returns:
+            List of suggested tool names (similar matches)
+        """
+        suggestions = []
+        try:
+            from backend.app.services.tools.registry import get_all_mindscape_tools
+            from backend.app.services.tool_list_service import get_tool_list_service
+
+            # Get all available tools
+            all_tools = []
+
+            # Get MindscapeTools
+            try:
+                mindscape_tools = get_all_mindscape_tools()
+                all_tools.extend([tool.metadata.name for tool in mindscape_tools if hasattr(tool, 'metadata')])
+            except Exception:
+                pass
+
+            # Get tools from ToolListService
+            if workspace_id:
+                try:
+                    tool_list_service = get_tool_list_service()
+                    tool_infos = tool_list_service.get_tools(
+                        workspace_id=workspace_id,
+                        enabled_only=True
+                    )
+                    all_tools.extend([tool.tool_id for tool in tool_infos])
+                except Exception:
+                    pass
+
+            # Remove duplicates
+            all_tools = list(set(all_tools))
+
+            # Find similar tool names
+            attempted_lower = attempted_name.lower()
+            attempted_parts = set(attempted_lower.replace('.', '_').replace('-', '_').split('_'))
+
+            for tool_name in all_tools:
+                tool_lower = tool_name.lower()
+                tool_parts = set(tool_lower.replace('.', '_').replace('-', '_').split('_'))
+
+                # Calculate similarity score
+                common_parts = attempted_parts.intersection(tool_parts)
+                if common_parts:
+                    # If there's overlap, it's a potential match
+                    score = len(common_parts) / max(len(attempted_parts), len(tool_parts))
+                    if score > 0.3:  # At least 30% similarity
+                        suggestions.append((tool_name, score))
+
+            # Sort by score (descending) and return tool names
+            suggestions.sort(key=lambda x: x[1], reverse=True)
+            return [name for name, score in suggestions]
+
+        except Exception as e:
+            logger.debug(f"Failed to suggest tool names: {e}")
+            return []
+
     def _detect_tool_call_intent(self, response: str) -> Optional[str]:
         """
         Detect if LLM intended to call tools but used wrong format.
@@ -326,6 +455,10 @@ Please retry the tool call."""
                 logger.warning(f"Failed to create ToolCall record: {e}")
 
         try:
+            # Unsplash tools are provided by cloud capability pack
+            # They should be called via capability registry (e.g., "unsplash.unsplash_search_photos")
+            # If tool_fqn is "unsplash.xxx", it should be handled by capability registry
+
             normalized_kwargs = kwargs.copy()
             # Parameter normalization: convert common incorrect parameter names to correct ones
             if tool_fqn == "filesystem_write_file" and "path" in normalized_kwargs and "file_path" not in normalized_kwargs:
@@ -350,6 +483,15 @@ Please retry the tool call."""
                     if "workspace_id" not in normalized_kwargs:
                         normalized_kwargs["workspace_id"] = execution_workspace_id
                     logger.debug(f"Auto-injected sandbox_id={execution_sandbox_id} and workspace_id={execution_workspace_id} for {tool_fqn}")
+
+            # Auto-inject workspace_id for capability tools that need it
+            # (unsplash tools are cloud capability tools, handled via capability registry)
+            if tool_fqn and "." in tool_fqn:
+                capability, tool = tool_fqn.split(".", 1)
+                execution_workspace_id = workspace_id or self.execution_context.get("workspace_id")
+                if execution_workspace_id and "workspace_id" not in normalized_kwargs:
+                    normalized_kwargs["workspace_id"] = execution_workspace_id
+                    logger.debug(f"Auto-injected workspace_id={execution_workspace_id} for {tool_fqn}")
 
             result = await execute_tool(tool_fqn, **normalized_kwargs)
 
@@ -637,6 +779,29 @@ Please retry the tool call."""
                     conv_manager.add_assistant_message(current_response)
                     continue  # Try parsing again
 
+                # In auto_execute mode, be more persistent - prompt LLM to continue if we haven't reached max iterations
+                if conv_manager.auto_execute and tool_iteration < max_tool_iterations - 1:
+                    logger.info(f"PlaybookToolExecutor: Auto-execute mode - no tool calls found but prompting LLM to continue (iteration {tool_iteration + 1}/{max_tool_iterations})")
+                    # Add a prompt to continue executing
+                    continue_prompt = (
+                        "**⚡ AUTO-EXECUTE MODE: You must continue executing the next steps in the SOP.**\n"
+                        "- Review the conversation history and tool results above\n"
+                        "- Check the SOP for the next required tool to call\n"
+                        "- Immediately call the next tool using the correct JSON format\n"
+                        "- Do NOT stop or provide explanations without calling tools\n"
+                        "- Continue until all SOP phases are complete\n"
+                    )
+                    conv_manager.conversation_history.append({
+                        "role": "system",
+                        "content": continue_prompt
+                    })
+                    # Get LLM response again
+                    messages = await conv_manager.get_messages_for_llm()
+                    current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+                    conv_manager.add_assistant_message(current_response)
+                    tool_iteration += 1
+                    continue  # Try parsing again
+
                 logger.info(f"PlaybookToolExecutor: No tool calls found in iteration {tool_iteration + 1}, exiting loop")
                 break  # No tool calls found, exit loop
 
@@ -662,6 +827,9 @@ Please retry the tool call."""
                     # Execute tool (support both slot and name modes)
                     if tool_slot:
                         logger.info(f"PlaybookToolExecutor: Executing tool slot {tool_slot} with parameters: {list(parameters.keys())}")
+                        # Prepare execution kwargs - remove workspace_id and project_id from kwargs if present
+                        # They are passed as method parameters for slot resolution, not in kwargs
+                        execution_kwargs = {k: v for k, v in parameters.items() if k not in ["workspace_id", "project_id"]}
                         result = await self.execute_tool(
                             tool_slot=tool_slot,
                             tool_policy=tool_policy,
@@ -670,18 +838,23 @@ Please retry the tool call."""
                             project_id=conv_manager.project_id,
                             execution_id=execution_id,
                             step_id=None,  # Will be set when step event is created
-                            **parameters
+                            **execution_kwargs
                         )
                         display_name = tool_slot
                     else:
                         logger.info(f"PlaybookToolExecutor: Executing tool {tool_name} with parameters: {list(parameters.keys())}")
+                        # Prepare execution kwargs
+                        execution_kwargs = parameters.copy()
+                        # workspace_id is not a method parameter for direct tool calls, only for slot resolution
+                        # So we keep it in kwargs if present, or add it if the tool needs it
+                        if "workspace_id" not in execution_kwargs and conv_manager.workspace_id:
+                            execution_kwargs["workspace_id"] = conv_manager.workspace_id
                         result = await self.execute_tool(
                             tool_fqn=tool_name,
                             profile_id=profile_id,
-                            workspace_id=conv_manager.workspace_id,
                             execution_id=execution_id,
                             step_id=None,  # Will be set when step event is created
-                            **parameters
+                            **execution_kwargs
                         )
                         display_name = tool_name
 
@@ -700,9 +873,41 @@ Please retry the tool call."""
                     display_name = tool_slot if tool_slot else tool_name
                     logger.error(f"PlaybookToolExecutor: Tool {display_name} execution failed: {e}", exc_info=True)
 
-                    # Enhanced error message for slot-related errors
+                    # Enhanced error message with tool name suggestions
                     enhanced_error = error_msg
-                    if tool_slot and ("not configured" in error_msg.lower() or "not found" in error_msg.lower()):
+                    if "not found" in error_msg.lower() and tool_name:
+                        logger.info(f"PlaybookToolExecutor: Tool '{tool_name}' not found, attempting to find suggestions...")
+                        # Try to find similar tool names
+                        suggestions = self._suggest_tool_names(tool_name, conv_manager.workspace_id)
+                        logger.info(f"PlaybookToolExecutor: Found {len(suggestions)} suggestions for '{tool_name}'")
+                        if suggestions:
+                            enhanced_error = (
+                                f"Tool '{tool_name}' not found.\n"
+                                f"**Did you mean one of these?**\n"
+                            )
+                            for i, suggestion in enumerate(suggestions[:5], 1):
+                                enhanced_error += f"{i}. `{suggestion}`\n"
+                            enhanced_error += f"\nPlease retry with the correct tool name from the list above."
+                        else:
+                            # Dynamically find related tools based on attempted name
+                            logger.info(f"PlaybookToolExecutor: No suggestions found, trying to find related tools for '{tool_name}'...")
+                            related_tools = self._find_related_tools(tool_name, conv_manager.workspace_id)
+                            logger.info(f"PlaybookToolExecutor: Found {len(related_tools)} related tools for '{tool_name}'")
+                            if related_tools:
+                                enhanced_error = (
+                                    f"Tool '{tool_name}' not found.\n"
+                                    f"**Related tools you might want to use:**\n"
+                                )
+                                for i, tool in enumerate(related_tools[:5], 1):
+                                    enhanced_error += f"{i}. `{tool}`\n"
+                                enhanced_error += f"\nPlease check the available tools list and use the exact tool name."
+                            else:
+                                logger.warning(f"PlaybookToolExecutor: No suggestions or related tools found for '{tool_name}'")
+                                enhanced_error = (
+                                    f"Tool '{tool_name}' not found.\n"
+                                    f"Please check the available tools list and use the exact tool name."
+                                )
+                    elif tool_slot and ("not configured" in error_msg.lower() or "not found" in error_msg.lower()):
                         enhanced_error = error_msg  # Already enhanced by SlotNotFoundError handling
                     elif tool_slot:
                         # Add context for slot execution failures

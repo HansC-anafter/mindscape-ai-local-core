@@ -133,23 +133,46 @@ class PlaybookScopeResolver:
             )
             all_candidates.extend(tenant_playbooks)
 
-        workspace_playbooks = await self.playbook_service.list_for_workspace(workspace_id)
-        all_candidates.extend(workspace_playbooks)
+        if workspace_id:
+            workspace_playbooks = await self.playbook_service.list_for_workspace(workspace_id)
+            all_candidates.extend(workspace_playbooks)
+        # Note: When workspace_id is None, we still get system playbooks from above
+        # and can optionally include all playbooks for testing
 
         user_playbooks = await self.playbook_service.list_for_user(user_id)
         all_candidates.extend(user_playbooks)
 
         unique_by_code = {}
         for pb in all_candidates:
-            code = pb.get("playbook_code")
+            # Handle both dict and PlaybookMetadata objects
+            if isinstance(pb, dict):
+                code = pb.get("playbook_code")
+                owner_type = pb.get("owner_type")
+            else:
+                # PlaybookMetadata object
+                code = getattr(pb, "playbook_code", None)
+                owner_type = getattr(pb, "owner_type", None)
+
             if code and code not in unique_by_code:
-                unique_by_code[code] = pb
+                # Convert to dict if needed
+                if not isinstance(pb, dict):
+                    pb_dict = pb.dict() if hasattr(pb, "dict") else pb.model_dump() if hasattr(pb, "model_dump") else {}
+                else:
+                    pb_dict = pb
+                unique_by_code[code] = pb_dict
             elif code:
                 existing = unique_by_code[code]
-                existing_priority = self._get_owner_priority(existing.get("owner_type"))
-                new_priority = self._get_owner_priority(pb.get("owner_type"))
+                existing_priority = self._get_owner_priority(
+                    existing.get("owner_type") if isinstance(existing, dict) else getattr(existing, "owner_type", None)
+                )
+                new_priority = self._get_owner_priority(owner_type)
                 if new_priority < existing_priority:
-                    unique_by_code[code] = pb
+                    # Convert to dict if needed
+                    if not isinstance(pb, dict):
+                        pb_dict = pb.dict() if hasattr(pb, "dict") else pb.model_dump() if hasattr(pb, "model_dump") else {}
+                    else:
+                        pb_dict = pb
+                    unique_by_code[code] = pb_dict
 
         return list(unique_by_code.values())
 

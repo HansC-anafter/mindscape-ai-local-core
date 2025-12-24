@@ -30,6 +30,10 @@ from backend.app.services.stores.intent_logs_store import IntentLogsStore
 from backend.app.services.stores.entities_store import EntitiesStore
 from backend.app.services.stores.workspaces_store import WorkspacesStore
 from backend.app.services.stores.artifacts_store import ArtifactsStore
+from backend.app.services.stores.mind_lens_store import MindLensStore
+from backend.app.services.stores.lens_composition_store import LensCompositionStore
+from backend.app.services.stores.commands_store import CommandsStore
+from backend.app.services.stores.surface_events_store import SurfaceEventsStore
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +67,10 @@ class MindscapeStore:
         self.entities = EntitiesStore(db_path)
         self.workspaces = WorkspacesStore(db_path)
         self.artifacts = ArtifactsStore(db_path)
+        self.mind_lens = MindLensStore(db_path)
+        self.lens_compositions = LensCompositionStore(db_path)
+        self.commands = CommandsStore(db_path)
+        self.surface_events = SurfaceEventsStore(db_path)
 
         # Initialize database schema
         # Note: Database migrations are managed by Alembic (run: alembic upgrade head)

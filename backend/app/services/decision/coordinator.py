@@ -411,6 +411,17 @@ class UnifiedDecisionCoordinator:
             policy_decision=policy_decision
         )
 
+        # Record governance decisions to database (Cloud environment)
+        await self._record_governance_decisions(
+            workspace_id=workspace_id,
+            execution_id=None,  # Will be set when execution starts
+            node_governance_decision=node_governance_decision,
+            cost_governance_decision=cost_governance_decision,
+            policy_decision=policy_decision,
+            playbook_preflight_result=playbook_preflight_result,
+            playbook_code=intent_decision.recommended_playbook_code
+        )
+
         return decision_result
 
     async def _synthesize_decision(
@@ -930,6 +941,19 @@ class UnifiedDecisionCoordinator:
         if decision_result.conflicts:
             priority = "high"
 
+        # Build governance_decision payload if any governance layer rejected
+        governance_decision = None
+        if (
+            decision_result.node_governance_contribution and not decision_result.node_governance_contribution.approved
+        ) or (
+            decision_result.cost_governance_contribution and not decision_result.cost_governance_contribution.approved
+        ) or (
+            decision_result.policy_contribution and not decision_result.policy_contribution.approved
+        ) or (
+            decision_result.playbook_contribution and not decision_result.playbook_contribution.accepted
+        ):
+            governance_decision = self._build_governance_decision_payload(decision_result)
+
         try:
             event = MindEvent(
                 id=str(uuid.uuid4()),
@@ -949,10 +973,11 @@ class UnifiedDecisionCoordinator:
                     "clarification_questions": clarification_questions,
                     "conflicts": [self._serialize_conflict(c) for c in decision_result.conflicts] if decision_result.conflicts else [],
                     "blocking_steps": blocked_step_ids,
-                    "card_type": card_type,
+                    "card_type": card_type if not governance_decision else "governance",
                     "priority": priority,
                     "selected_playbook_code": decision_result.selected_playbook_code,
                     "rationale": decision_result.intent_contribution.rationale,
+                    "governance_decision": governance_decision,
                 },
                 entity_ids={
                     "decision_id": decision_result.decision_id,
@@ -967,6 +992,239 @@ class UnifiedDecisionCoordinator:
             logger.info(f"Emitted DECISION_REQUIRED event for decision {decision_result.decision_id}")
         except Exception as e:
             logger.error(f"Failed to emit DECISION_REQUIRED event: {e}", exc_info=True)
+
+    def _build_governance_decision_payload(
+        self,
+        decision_result: UnifiedDecisionResult
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build governance_decision payload for event
+
+        Args:
+            decision_result: Unified decision result
+
+        Returns:
+            Governance decision payload or None
+        """
+        # Determine which governance layer rejected
+        if decision_result.cost_governance_contribution and not decision_result.cost_governance_contribution.approved:
+            cost_gov = decision_result.cost_governance_contribution
+            workspace_id = decision_result.workspace_id
+
+            # Get quota settings from cost governance service
+            quota_limit = 0.0
+            current_usage = 0.0
+            downgrade_suggestion = None
+
+            if hasattr(self, 'cost_governance') and self.cost_governance:
+                try:
+                    quota_settings = self.cost_governance._get_quota_settings(workspace_id or "")
+                    quota_limit = quota_settings.get("daily_quota", 0.0)
+                    current_usage = self.cost_governance._get_today_usage(workspace_id or "")
+
+                    # Extract downgrade suggestion from reason if present
+                    if cost_gov.reason and "consider" in cost_gov.reason.lower():
+                        downgrade_suggestion = cost_gov.reason
+                except Exception:
+                    pass
+
+            return {
+                "type": "cost_exceeded",
+                "layer": "cost",
+                "approved": False,
+                "reason": cost_gov.reason,
+                "cost_governance": {
+                    "estimated_cost": cost_gov.estimated_cost or 0.0,
+                    "quota_limit": quota_limit,
+                    "current_usage": current_usage,
+                    "downgrade_suggestion": downgrade_suggestion,
+                }
+            }
+
+        if decision_result.node_governance_contribution and not decision_result.node_governance_contribution.approved:
+            node_gov = decision_result.node_governance_contribution
+            reason_lower = (node_gov.reason or "").lower()
+
+            # Determine rejection reason from actual reason text
+            if "blacklist" in reason_lower:
+                rejection_reason = "blacklist"
+            elif "whitelist" in reason_lower:
+                rejection_reason = "whitelist"
+            elif "risk" in reason_lower or "label" in reason_lower:
+                rejection_reason = "risk_label"
+            elif "throttle" in reason_lower or "limit" in reason_lower:
+                rejection_reason = "throttle"
+            else:
+                rejection_reason = "unknown"
+
+            return {
+                "type": "node_rejected",
+                "layer": "node",
+                "approved": False,
+                "reason": node_gov.reason,
+                "node_governance": {
+                    "rejection_reason": rejection_reason,
+                    "affected_playbooks": [decision_result.selected_playbook_code] if decision_result.selected_playbook_code else [],
+                    "alternatives": [],
+                }
+            }
+
+        if decision_result.policy_contribution and not decision_result.policy_contribution.approved:
+            policy = decision_result.policy_contribution
+            reason_lower = (policy.reason or "").lower()
+
+            # Determine violation type from actual reason text
+            if "role" in reason_lower:
+                violation_type = "role"
+            elif "domain" in reason_lower or "data" in reason_lower:
+                violation_type = "data_domain"
+            elif "pii" in reason_lower:
+                violation_type = "pii"
+            else:
+                violation_type = "unknown"
+
+            return {
+                "type": "policy_violation",
+                "layer": "policy",
+                "approved": False,
+                "reason": policy.reason,
+                "policy_violation": {
+                    "violation_type": violation_type,
+                    "policy_id": None,
+                    "violation_items": [policy.reason] if policy.reason else [],
+                    "request_permission_url": None,
+                }
+            }
+
+        if decision_result.playbook_contribution and not decision_result.playbook_contribution.accepted:
+            preflight = decision_result.playbook_contribution
+
+            # Extract missing credentials and environment issues from rejection reason
+            missing_credentials = []
+            environment_issues = []
+
+            if preflight.rejection_reason:
+                reason_lower = preflight.rejection_reason.lower()
+                if "credential" in reason_lower or "api key" in reason_lower or "key" in reason_lower:
+                    missing_credentials = [preflight.rejection_reason]
+                elif "environment" in reason_lower or "sandbox" in reason_lower or "repo" in reason_lower:
+                    environment_issues = [preflight.rejection_reason]
+
+            return {
+                "type": "preflight_failed",
+                "layer": "preflight",
+                "approved": False,
+                "reason": preflight.rejection_reason,
+                "preflight_failure": {
+                    "missing_inputs": preflight.missing_inputs or [],
+                    "missing_credentials": missing_credentials,
+                    "environment_issues": environment_issues,
+                    "recommended_alternatives": preflight.recommended_alternatives or [],
+                }
+            }
+
+        return None
+
+    async def _record_governance_decisions(
+        self,
+        workspace_id: str,
+        execution_id: Optional[str],
+        node_governance_decision: Optional[NodeGovernanceDecision],
+        cost_governance_decision: Optional[CostGovernanceDecision],
+        policy_decision: Optional[PolicyDecision],
+        playbook_preflight_result: Optional[PlaybookPreflightResult],
+        playbook_code: Optional[str]
+    ) -> None:
+        """
+        Record governance decisions to database (Cloud environment)
+
+        Args:
+            workspace_id: Workspace ID
+            execution_id: Execution ID (optional)
+            node_governance_decision: Node governance decision
+            cost_governance_decision: Cost governance decision
+            policy_decision: Policy decision
+            playbook_preflight_result: Playbook preflight result
+            playbook_code: Playbook code
+        """
+        try:
+            from backend.app.services.governance.decision_recorder import GovernanceDecisionRecorder
+            from pathlib import Path
+            import sqlite3
+
+            # Get database connection for Local-Core (SQLite) or Cloud (PostgreSQL)
+            db_connection = None
+            try:
+                # Try SQLite for Local-Core
+                db_path = Path("./data/mindscape.db")
+                if db_path.exists():
+                    conn = sqlite3.connect(str(db_path))
+                    conn.row_factory = sqlite3.Row
+                    db_connection = conn
+            except Exception as e:
+                logger.warning(f"Failed to get database connection for governance recording: {e}")
+
+            recorder = GovernanceDecisionRecorder(db_connection=db_connection)
+
+            # Record each governance layer decision
+            if node_governance_decision:
+                await recorder.record_decision(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    layer="node",
+                    approved=node_governance_decision.approved,
+                    reason=node_governance_decision.reason,
+                    playbook_code=playbook_code
+                )
+
+            if cost_governance_decision:
+                await recorder.record_decision(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    layer="cost",
+                    approved=cost_governance_decision.approved,
+                    reason=cost_governance_decision.reason,
+                    playbook_code=playbook_code,
+                    metadata={
+                        "estimated_cost": cost_governance_decision.estimated_cost
+                    }
+                )
+                # Also record cost usage if approved
+                if cost_governance_decision.approved and cost_governance_decision.estimated_cost:
+                    await recorder.record_cost_usage(
+                        workspace_id=workspace_id,
+                        execution_id=execution_id,
+                        cost=cost_governance_decision.estimated_cost,
+                        playbook_code=playbook_code
+                    )
+
+            if policy_decision:
+                await recorder.record_decision(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    layer="policy",
+                    approved=policy_decision.approved,
+                    reason=policy_decision.reason,
+                    playbook_code=playbook_code
+                )
+
+            if playbook_preflight_result:
+                await recorder.record_decision(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    layer="preflight",
+                    approved=playbook_preflight_result.accepted,
+                    reason=playbook_preflight_result.rejection_reason,
+                    playbook_code=playbook_code,
+                    metadata={
+                        "missing_inputs": playbook_preflight_result.missing_inputs,
+                        "clarification_questions": playbook_preflight_result.clarification_questions,
+                    }
+                )
+
+        except Exception as e:
+            logger.warning(f"Failed to record governance decisions: {e}", exc_info=True)
+            # Don't fail the decision if recording fails
 
     def _emit_branch_proposed_event(
         self,

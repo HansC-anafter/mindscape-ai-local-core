@@ -53,11 +53,13 @@ from backend.app.services.sandbox.types.web_page_sandbox import WebPageSandbox
 from backend.app.services.sandbox.types.threejs_hero_sandbox import ThreeJSHeroSandbox
 from backend.app.services.sandbox.types.writing_project_sandbox import WritingProjectSandbox
 from backend.app.services.sandbox.types.project_repo_sandbox import ProjectRepoSandbox
+from backend.app.services.sandbox.types.ig_post_sandbox import IGPostSandbox
 
 register_sandbox_type("web_page", WebPageSandbox)
 register_sandbox_type("threejs_hero", ThreeJSHeroSandbox)
 register_sandbox_type("writing_project", WritingProjectSandbox)
 register_sandbox_type("project_repo", ProjectRepoSandbox)
+register_sandbox_type("ig_post", IGPostSandbox)
 
 __all__ = [
     "register_sandbox_type",
@@ -67,5 +69,6 @@ __all__ = [
     "ThreeJSHeroSandbox",
     "WritingProjectSandbox",
     "ProjectRepoSandbox",
+    "IGPostSandbox",
 ]
 
