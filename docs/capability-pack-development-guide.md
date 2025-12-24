@@ -125,7 +125,7 @@ ig_related_codes = [
 1. **Highest**: Explicit `bootstrap` configuration in `manifest.yaml`
 2. **Fallback**: Capability code matching whitelist (for backward compatibility)
 
-**Best Practice**: Don't rely on whitelist matching. Always include `bootstrap` in your manifest:
+**⚠️ Important**: Don't rely on whitelist matching. Always include `bootstrap` in your manifest:
 
 ```yaml
 bootstrap:
@@ -133,7 +133,19 @@ bootstrap:
     vault_path: null
 ```
 
-This ensures your pack works even if the whitelist changes or your pack code doesn't match the pattern.
+**Why this matters**:
+- The whitelist is hardcoded and may not include your pack's code
+- If your pack code doesn't match the whitelist pattern, Content Vault won't auto-initialize
+- Explicit `bootstrap` configuration ensures your pack works regardless of whitelist changes
+
+**Current whitelist** (for reference only):
+- `ig_post`, `ig_post_generation`, `instagram`, `social_media`
+- `ig_series_manager`, `ig_review_system`
+
+**If you're creating a new IG-related pack**:
+1. ✅ **Recommended**: Add `bootstrap` to your manifest.yaml (always works)
+2. ⚠️ **Alternative**: Ensure your pack code matches the whitelist pattern (fragile)
+3. 🔧 **If missed**: Manually run `python backend/scripts/init_content_vault.py` after installation
 
 ## Environment Variables
 
@@ -151,7 +163,8 @@ export CONTENT_VAULT_PATH=/custom/path/to/vault
 
 - If `CONTENT_VAULT_PATH` is not set, uses `~/content-vault`
 - If vault doesn't exist, automatically initializes on first startup
-- If vault exists but subdirectories are missing, automatically creates them
+- If vault exists but subdirectories are missing, automatically creates them on startup
+- The system always verifies vault structure completeness on startup, even if vault already exists
 
 ### Application Startup Initialization
 

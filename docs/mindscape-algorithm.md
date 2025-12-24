@@ -32,6 +32,16 @@ Signal 會被收斂成 **IntentCard**（長期意圖）與 **短期任務**，�
 
 ---
 
+## Governance-first hypothesis (real-world constraint)
+
+現實世界的可行解空間通常很小（往往只有 1–3 個可行方案）。Mindscape 假設 AI 的主要價值在於**深化與 operationalize 少數可信方案**（例如把 2 個方案拓成約 5 個可用變體），而不是無限制地生成數百個點子。
+
+Mindscape is designed with the assumption that real-world work has a small feasible solution space (often 1–3 viable options). We expect AI to deepen and operationalize a few grounded options (e.g., turning 2 options into ~5 usable variants) rather than generate hundreds of unconstrained ideas.
+
+Note: this is a design hypothesis today; enforcement mechanisms are not yet implemented at the system level.
+
+---
+
 ## For Developers / Researchers
 
 Mindscape AI 把自己定位在「**intent-first 的 LLM agent 架構**」：
@@ -52,4 +62,3 @@ Mindscape AI 把自己定位在「**intent-first 的 LLM agent 架構**」：
 ---
 
 **最後更新**: 2025-12-05
-

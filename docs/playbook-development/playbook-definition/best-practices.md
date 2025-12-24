@@ -54,6 +54,36 @@ Define clear inputs and outputs:
 }
 ```
 
+### 5. Use capability_code for Grouping
+
+Use `capability_code` to group related playbooks together in the UI:
+
+✅ **Good**: Set `capability_code` when you have multiple related playbooks
+```yaml
+# In Markdown frontmatter
+capability_code: instagram
+```
+
+```json
+// In JSON metadata
+{
+  "metadata": {
+    "capability_code": "instagram"
+  }
+}
+```
+
+✅ **When to use**:
+- You have multiple playbooks that belong to the same capability domain (e.g., Instagram, SEO, Web Generation)
+- You want to organize playbooks into logical groups in the UI
+- Related playbooks share common tools or workflows
+
+❌ **When not to use**:
+- Single, standalone playbook with no related playbooks
+- Playbook is truly generic and doesn't belong to any specific capability domain
+
+**Note**: If `capability_code` is not set, the playbook will be grouped under "System Playbooks" by default.
+
 ## UI Design
 
 ### 1. Use Common Components

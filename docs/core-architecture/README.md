@@ -317,9 +317,10 @@ The main README describes two key concepts:
 
 ### Adding a New Tool / Integration
 
-1. Implement tool provider in `backend/app/services/tools/providers/`
-2. Register in tool registry
-3. Add to playbook tool list if needed
-4. See tool registry documentation for details
+1. **For External Contributors**: See [Adapter Compilation Guide](../contributor-guide/adapter-compilation-guide.md) - Complete ABI guide for wrapping tools, creating playbooks, and publishing packs
+2. **For Internal Development**: Implement tool provider in `backend/app/services/tools/providers/`
+3. Register in tool registry
+4. Add to playbook tool list if needed
+5. See tool registry documentation for details
 
 ---

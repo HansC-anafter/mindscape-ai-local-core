@@ -78,7 +78,8 @@ Create `playbook/my_playbook.json`:
     "description": "A simple playbook example",
     "tags": ["example"],
     "scope": "user",
-    "entry_agent_type": "workspace"
+    "entry_agent_type": "workspace",
+    "capability_code": "my_capability"
   },
   "steps": [
     {
@@ -106,16 +107,16 @@ Create `playbook/my_playbook.json`:
 Create `playbook/my_playbook.md` (Traditional Chinese):
 
 ```markdown
+---
 playbook_code: my_playbook
-
+version: 1.0.0
 name: 我的 Playbook
 description: 一個簡單的 Playbook 範例
-
 tags:
   - example
-
-entry_points:
-  - workspace_playbook_menu
+entry_agent_type: workspace
+capability_code: my_capability
+---
 
 # 我的 Playbook
 
@@ -130,16 +131,16 @@ entry_points:
 Create `playbook/i18n/en/my_playbook.md` (English):
 
 ```markdown
+---
 playbook_code: my_playbook
-
+version: 1.0.0
 name: My Playbook
 description: A simple playbook example
-
 tags:
   - example
-
-entry_points:
-  - workspace_playbook_menu
+entry_agent_type: workspace
+capability_code: my_capability
+---
 
 # My Playbook
 

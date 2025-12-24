@@ -60,6 +60,20 @@ Agent type that can initiate this playbook.
 
 **Values**: `"workspace"`, `"intent"`, etc.
 
+### capability_code
+
+Capability pack code this playbook belongs to. Used for grouping playbooks in the UI.
+
+**Type**: `string` (optional)
+
+**Description**: When set, playbooks with the same `capability_code` will be grouped together in a separate tab in the Playbooks page. If not set, the playbook will be grouped under "System Playbooks".
+
+**Example**: `"instagram"`, `"web_generation"`, `"seo"`
+
+**Note**: This field can be set in both:
+- Markdown frontmatter (`.md` files): `capability_code: instagram`
+- JSON metadata (`.json` files): `"capability_code": "instagram"`
+
 ## Step Fields
 
 ### id

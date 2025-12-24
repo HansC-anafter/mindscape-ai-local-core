@@ -50,6 +50,7 @@ Complete schema documentation for playbook JSON definitions.
 - `tags` (array of strings): Tags for categorization
 - `scope` (string): `"system"` or `"user"`
 - `entry_agent_type` (string): Entry point agent type
+- `capability_code` (string, optional): Capability pack code for UI grouping
 
 **Example**:
 ```json
@@ -58,7 +59,8 @@ Complete schema documentation for playbook JSON definitions.
   "description": "A simple playbook",
   "tags": ["example"],
   "scope": "user",
-  "entry_agent_type": "workspace"
+  "entry_agent_type": "workspace",
+  "capability_code": "instagram"
 }
 ```
 
