@@ -17,13 +17,14 @@ class PlaybookJsonLoader:
     """Loads playbook.json files"""
 
     @staticmethod
-    def load_playbook_json(playbook_code: str) -> Optional[PlaybookJson]:
+    def load_playbook_json(playbook_code: str, capability_code: Optional[str] = None) -> Optional[PlaybookJson]:
         """
         Load playbook.json file for a given playbook code
 
         Tries to load from:
-        1. NPM packages (@mindscape/playbook-*)
-        2. Core playbooks directory (backward compatibility)
+        1. Cloud providers (via CloudExtensionManager) - if capability_code is provided
+        2. NPM packages (@mindscape/playbook-*)
+        3. Core playbooks directory (backward compatibility)
 
         Note: Cloud capabilities playbook JSON specs should be accessed via
         CloudExtensionManager (configured through settings page cloud_providers),
@@ -33,10 +34,37 @@ class PlaybookJsonLoader:
 
         Args:
             playbook_code: Playbook code
+            capability_code: Optional capability code for cloud playbooks
 
         Returns:
             PlaybookJson model or None if not found
         """
+        # Try cloud providers first (if capability_code is provided)
+        if capability_code:
+            try:
+                import asyncio
+                from ...services.cloud_extension_manager import CloudExtensionManager
+
+                manager = CloudExtensionManager.instance()
+                playbook_data = asyncio.run(
+                    manager.get_playbook_from_any_provider(
+                        capability_code=capability_code,
+                        playbook_code=playbook_code,
+                        locale="zh-TW"
+                    )
+                )
+
+                if playbook_data:
+                    # Extract playbook dict from response
+                    playbook_dict = playbook_data.get("playbook") if isinstance(playbook_data, dict) else playbook_data
+                    if playbook_dict:
+                        try:
+                            return PlaybookJson(**playbook_dict)
+                        except Exception as e:
+                            logger.debug(f"Failed to parse playbook JSON from cloud provider: {e}")
+            except Exception as e:
+                logger.debug(f"Failed to load from cloud provider: {e}")
+
         # First try NPM packages
         try:
             from .npm_loader import PlaybookNpmLoader

@@ -12,6 +12,7 @@ from ...services.cloud_extension_manager import CloudExtensionManager
 from ...services.system_settings_store import SystemSettingsStore
 from ...services.cloud_providers.official import OfficialCloudProvider
 from ...services.cloud_providers.generic_http import GenericHttpProvider
+from ...models.system_settings import SettingType
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,12 @@ async def create_provider(
         }
 
         providers_config.append(new_provider)
-        settings_store.set("cloud_providers", providers_config)
+        settings_store.set_setting(
+            key="cloud_providers",
+            value=providers_config,
+            value_type=SettingType.JSON,
+            category="cloud"
+        )
 
         # Register provider if enabled
         if provider.enabled and provider_instance:
@@ -259,7 +265,12 @@ async def update_provider(
         if not found:
             raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
 
-        settings_store.set("cloud_providers", providers_config)
+        settings_store.set_setting(
+            key="cloud_providers",
+            value=providers_config,
+            value_type=SettingType.JSON,
+            category="cloud"
+        )
 
         provider_instance = cloud_manager.get_provider(provider_id)
         return {
@@ -303,7 +314,12 @@ async def delete_provider(
         if not found:
             raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
 
-        settings_store.set("cloud_providers", providers_config)
+        settings_store.set_setting(
+            key="cloud_providers",
+            value=providers_config,
+            value_type=SettingType.JSON,
+            category="cloud"
+        )
 
         # Unregister from manager
         if cloud_manager.get_provider(provider_id):
