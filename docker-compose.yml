@@ -46,6 +46,7 @@ services:
       - ./scripts:/app/scripts:rw
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
+      - ./web-console:/app/web-console:rw
       # Mount user's custom directory for workspace storage (optional)
       # Uncomment and set the path below to mount your Documents or other directory
       # Example for Mac: /Users/yourname/Documents:/host/documents:rw

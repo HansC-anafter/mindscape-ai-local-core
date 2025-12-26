@@ -7,6 +7,7 @@ Handles:
 - Validating manifest
 - Installing playbooks (specs + markdown)
 - Installing tools and services
+- Installing UI components to frontend
 - Updating capability registry
 """
 
@@ -83,7 +84,8 @@ class CapabilityInstaller:
             "installed": {
                 "playbooks": [],
                 "tools": [],
-                "services": []
+                "services": [],
+                "ui_components": []
             },
             "warnings": [],
             "errors": []
@@ -260,13 +262,16 @@ class CapabilityInstaller:
             # 3. Install services
             self._install_services(cap_dir, capability_code, result)
 
-            # 4. Install manifest
+            # 4. Install UI components
+            self._install_ui_components(cap_dir, capability_code, manifest, result)
+
+            # 5. Install manifest
             self._install_manifest(cap_dir, capability_code, manifest)
 
-            # 5. Check dependencies and generate summary
+            # 6. Check dependencies and generate summary
             self._check_dependencies(manifest, result)
 
-            # 6. Run post-install hooks (bootstrap scripts)
+            # 7. Run post-install hooks (bootstrap scripts)
             self._run_post_install_hooks(cap_dir, capability_code, manifest, result)
 
             logger.info(f"Successfully installed capability: {capability_code}")
@@ -408,6 +413,76 @@ class CapabilityInstaller:
             service_name = service_file.stem
             result["installed"]["services"].append(service_name)
             logger.debug(f"Installed service: {service_name}")
+
+    def _install_ui_components(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        manifest: Dict,
+        result: Dict
+    ):
+        """
+        Install UI components from capability pack to Local-Core frontend.
+
+        Args:
+            cap_dir: Extracted capability directory (from .mindpack)
+            capability_code: Capability code
+            manifest: Parsed manifest dict
+            result: Result dict to update
+        """
+        ui_components = manifest.get("ui_components", [])
+        if not ui_components:
+            return
+
+        # Target directory: web-console/src/app/capabilities/{capability_code}/components
+        frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+        target_cap_dir = frontend_dir / capability_code / "components"
+        target_cap_dir.mkdir(parents=True, exist_ok=True)
+
+        installed_components = []
+
+        # Install entire ui/ directory if it exists (to include all dependencies)
+        source_ui_dir = cap_dir / "ui"
+        if source_ui_dir.exists() and source_ui_dir.is_dir():
+            # Copy all files from ui/ directory (always overwrite to ensure latest version)
+            for file_path in source_ui_dir.rglob("*"):
+                if file_path.is_file():
+                    relative_path = file_path.relative_to(source_ui_dir)
+                    target_path = target_cap_dir / relative_path.name
+                    # Create subdirectories if needed
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(file_path, target_path)
+                    logger.debug(f"Installed UI file: {relative_path.name}")
+
+        # Also install individual components specified in manifest
+        for component_def in ui_components:
+            component_code = component_def.get("code")
+            component_path = component_def.get("path")
+
+            if not component_path:
+                result["warnings"].append(f"Component {component_code} missing path")
+                continue
+
+            # Source: extracted capability pack directory
+            source_path = cap_dir / component_path
+            if not source_path.exists():
+                result["warnings"].append(f"Component file not found: {component_path}")
+                continue
+
+            # Target: Local-Core frontend
+            target_path = target_cap_dir / source_path.name
+
+            # Copy component file (always overwrite to ensure latest version)
+            shutil.copy2(source_path, target_path)
+
+            # Process import paths (if needed)
+            # TODO: Handle import path mapping if Cloud components use different paths
+
+            installed_components.append(component_code)
+            logger.debug(f"Installed UI component: {component_code}")
+
+        if installed_components:
+            result["installed"]["ui_components"] = installed_components
 
     def _install_manifest(
         self,
