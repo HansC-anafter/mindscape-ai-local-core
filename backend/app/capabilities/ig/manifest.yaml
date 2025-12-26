@@ -19,6 +19,18 @@ storage:
       vault_path_template: "${OBSIDIAN_VAULT_PATH}/IG"
 
 playbooks:
+  - code: ig_post_generation
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_post_generation.md
+    spec_path: playbooks/specs/ig_post_generation.json
+    tool_dependencies:
+      - core_llm.structured_extract
+      - ig_post_style_analyzer
+      - unsplash_search_photos
+    service_dependencies: []
+
   - code: ig_hashtag_manager
     locales:
       - zh-TW
@@ -183,7 +195,8 @@ tools:
     path: tools/ig_post_style_analyzer.py
     backend: "capabilities.ig.tools.ig_post_style_analyzer:ig_post_style_analyzer"
     description: "Analyze Instagram post style from reference image and generate design recommendations. Input: reference_image_path (optional), reference_image_url (optional), include_mood (boolean)."
-    used_by_playbooks: []
+    used_by_playbooks:
+      - ig_post_generation
 
   - code: ig_hashtag_manager_tool
     name: ig_hashtag_manager_tool
@@ -296,4 +309,15 @@ tools:
     description: "Validate frontmatter against Unified Frontmatter Schema v2.0.0 and calculate Readiness Score."
     used_by_playbooks:
       - ig_frontmatter_validator
+
+ui_components:
+  - code: ig_posts_grid_view
+    path: ui/IGGridViewModal.tsx
+    description: "IG Posts Grid View and Timeline View"
+    export: default
+    route: "/workspaces/{workspace_id}/ig-posts"
+    artifact_types:
+      - ig_posts
+    playbook_codes:
+      - ig_post_generation
 

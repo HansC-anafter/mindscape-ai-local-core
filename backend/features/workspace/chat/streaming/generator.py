@@ -147,8 +147,8 @@ async def generate_streaming_response(
         logger.info(f"WorkspaceChat: Calling intent extractor in streaming path")
         print(f"WorkspaceChat: Calling intent extractor in streaming path", file=sys.stderr)
         try:
-            from backend.app.core.execution_context import ExecutionContext
-            ctx = ExecutionContext(
+            from backend.app.core.domain_context import LocalDomainContext
+            ctx = LocalDomainContext(
                 workspace_id=workspace_id,
                 actor_id=profile_id
             )
@@ -451,7 +451,8 @@ Keep it concise and friendly. Respond in {locale}."""
                 profile_id=profile_id,
                 profile=profile,
                 store=orchestrator.store,
-                project_id=project_id  # Pass project_id (may be None if auto-detection failed)
+                project_id=project_id,  # Pass project_id (may be None if auto-detection failed)
+                files=request.files  # Pass files for image handling
             )
 
             if execution_playbook_result:

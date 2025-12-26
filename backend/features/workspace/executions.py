@@ -945,7 +945,7 @@ async def post_execution_chat(
     Creates a MindEvent with event_type=EXECUTION_CHAT and returns the created message.
     The assistant reply will be generated asynchronously and pushed via SSE.
 
-    Aligned with Port architecture using ExecutionContext.
+    Aligned with Port architecture using LocalDomainContext.
     """
     try:
         from backend.app.models.workspace import ExecutionChatMessageType
@@ -954,7 +954,7 @@ async def post_execution_chat(
 
         store = MindscapeStore()
 
-        # Get ExecutionContext from identity port
+        # Get LocalDomainContext from identity port
         ctx = await identity_port.get_current_context(
             workspace_id=workspace_id,
             profile_id=profile_id
