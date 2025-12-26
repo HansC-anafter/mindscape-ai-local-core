@@ -79,6 +79,10 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "http://localhost:3002",
         "http://127.0.0.1:3002",
+        "http://localhost:8001",  # Cloud service (production)
+        "http://127.0.0.1:8001",
+        "http://localhost:8002",  # Cloud service (development)
+        "http://127.0.0.1:8002",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
@@ -123,9 +127,36 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.error(f"Failed to load cloud capability API routers: {e}", exc_info=True)
 
+    # Register YogaCoach API routes directly (installed capability)
+    try:
+        from backend.app.capabilities.yogacoach.routes.api import router as yogacoach_router
+        app.include_router(yogacoach_router)
+        logger.info("YogaCoach API routes registered")
+    except ImportError as e:
+        logger.debug(f"YogaCoach API routes not available: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to register YogaCoach API routes: {e}")
+
     app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
     app.include_router(cloud_providers_router, tags=["cloud-providers"])
     app.include_router(cloud_sync.router, tags=["cloud-sync"])
+
+    # Story Thread proxy routes (optional - requires Cloud API configuration)
+    try:
+        from .routes.core.story_thread import router as story_thread_router
+        app.include_router(story_thread_router, tags=["story-threads"])
+        logger.info("Story Thread proxy routes registered")
+    except Exception as e:
+        logger.debug(f"Story Thread proxy routes not registered: {e}")
+
+    # Cloud navigation proxy routes (optional - requires Cloud frontend configuration)
+    try:
+        from .routes.core.cloud_navigation import router as cloud_navigation_router
+        app.include_router(cloud_navigation_router, tags=["cloud-navigation"])
+        logger.info("Cloud navigation proxy routes registered")
+    except Exception as e:
+        logger.debug(f"Cloud navigation proxy routes not registered: {e}")
+
     app.include_router(blueprint.router, tags=["blueprints"])
     app.include_router(unsplash_fingerprints_router)
 
@@ -254,11 +285,18 @@ async def startup_event():
         # through proper installer/configuration process. Direct file system access
         # to cloud capabilities is prohibited to maintain architecture boundaries.
         app_dir = Path(__file__).parent
-        local_capabilities_dir = app_dir / "capabilities"
+        local_capabilities_dir = (app_dir / "capabilities").resolve()
+        logger.info(f"Loading capabilities from: {local_capabilities_dir}")
+        if not local_capabilities_dir.exists():
+            logger.error(f"Capabilities directory does not exist: {local_capabilities_dir}")
         load_capabilities(local_capabilities_dir)
-        logger.info("Local capability packages loaded successfully")
+        from backend.app.capabilities.registry import get_registry
+        registry = get_registry()
+        logger.info(f"Local capability packages loaded successfully: {len(registry.list_capabilities())} capabilities, {len(registry.list_tools())} tools")
     except Exception as e:
-        logger.warning(f"Failed to load capability packages: {e}", exc_info=True)
+        logger.error(f"Failed to load capability packages: {e}", exc_info=True)
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
     # Register workspace tools
     try:
