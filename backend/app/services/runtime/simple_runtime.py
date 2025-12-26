@@ -13,7 +13,7 @@ from backend.app.core.runtime_port import (
     ExecutionProfile,
     ExecutionResult
 )
-from backend.app.core.execution_context import ExecutionContext
+from backend.app.core.domain_context import LocalDomainContext
 from backend.app.services.workflow_orchestrator import WorkflowOrchestrator
 from backend.app.models.playbook import (
     PlaybookRun,
@@ -63,7 +63,7 @@ class SimpleRuntime(RuntimePort):
     async def execute(
         self,
         playbook_run: PlaybookRun,
-        context: ExecutionContext,
+        context: LocalDomainContext,
         inputs: Optional[Dict[str, Any]] = None
     ) -> ExecutionResult:
         """
@@ -71,7 +71,7 @@ class SimpleRuntime(RuntimePort):
 
         Args:
             playbook_run: PlaybookRun instance
-            context: ExecutionContext
+            context: LocalDomainContext
             inputs: Optional input parameters
 
         Returns:
@@ -193,13 +193,18 @@ class SimpleRuntime(RuntimePort):
 
         except Exception as e:
             logger.error(f"SimpleRuntime execution failed: {e}", exc_info=True)
+            import traceback
+            error_details = traceback.format_exc()
             execution_id = context.tags.get("execution_id", "unknown") if context.tags else "unknown"
             return ExecutionResult(
                 status="failed",
                 execution_id=execution_id,
                 outputs={},
                 error=str(e),
-                metadata={"runtime": "simple"}
+                metadata={
+                    "runtime": "simple",
+                    "error_details": error_details
+                }
             )
 
     async def resume(
