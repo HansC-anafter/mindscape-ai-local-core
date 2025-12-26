@@ -54,7 +54,7 @@ class ExecutionLauncher:
         self,
         playbook_code: str,
         inputs: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         project_meta: Optional[Dict[str, Any]] = None,
         project_id: Optional[str] = None,
         plan_id: Optional[str] = None,
@@ -174,7 +174,7 @@ class ExecutionLauncher:
         self,
         playbook_code: str,
         inputs: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         context: Optional[PlaybookInvocationContext] = None,
     ) -> Dict[str, Any]:
         """
@@ -216,7 +216,7 @@ class ExecutionLauncher:
         self,
         playbook_code: str,
         inputs: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         project_id: Optional[str],
         context: Optional[PlaybookInvocationContext] = None,
     ) -> Dict[str, Any]:

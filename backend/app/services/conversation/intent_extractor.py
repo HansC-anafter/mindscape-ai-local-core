@@ -88,7 +88,7 @@ class IntentExtractor:
 
     async def extract_and_create_timeline_item(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message: str,
         message_id: str,
         locale: Optional[str] = None
@@ -433,14 +433,14 @@ class IntentExtractor:
             List of candidate IntentTags
         """
         from ...core.execution_context import ExecutionContext
-        ctx = ExecutionContext(
+        ctx = LocalDomainContext(
             actor_id=profile_id,
             workspace_id=workspace_id,
             tags={"mode": "local"}
         )
         return self.extract_intents_with_ctx(ctx=ctx, message=message, message_id=message_id)
 
-    def extract_intents_with_ctx(self, ctx: ExecutionContext, message: str, message_id: str) -> List[IntentTag]:
+    def extract_intents_with_ctx(self, ctx: LocalDomainContext, message: str, message_id: str) -> List[IntentTag]:
         """
         Extract intents and return candidate IntentTags using ExecutionContext
 

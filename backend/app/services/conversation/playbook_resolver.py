@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Any
 from dataclasses import dataclass
 
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class PlaybookResolver:
     async def resolve(
         self,
         pack_id: str,
-        ctx: Optional[ExecutionContext] = None,
+        ctx: Optional[LocalDomainContext] = None,
     ) -> Optional[ResolvedPlaybook]:
         """
         Resolve playbook code from pack_id
@@ -80,7 +80,7 @@ class PlaybookResolver:
         return resolved
 
     async def _try_capability_playbooks(
-        self, pack_id: str, ctx: Optional[ExecutionContext]
+        self, pack_id: str, ctx: Optional[LocalDomainContext]
     ) -> Optional[ResolvedPlaybook]:
         """
         Try to resolve playbook from capability packs
@@ -143,7 +143,7 @@ class PlaybookResolver:
             return None
 
     async def _try_system_playbooks(
-        self, pack_id: str, ctx: Optional[ExecutionContext]
+        self, pack_id: str, ctx: Optional[LocalDomainContext]
     ) -> Optional[ResolvedPlaybook]:
         """
         Try to resolve playbook from system playbooks
@@ -181,7 +181,7 @@ class PlaybookResolver:
             return None
 
     async def get_playbook(
-        self, playbook_code: str, ctx: Optional[ExecutionContext] = None
+        self, playbook_code: str, ctx: Optional[LocalDomainContext] = None
     ):
         """
         Get playbook instance by code

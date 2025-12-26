@@ -209,8 +209,8 @@ class ConversationOrchestrator:
             Response dict with events, triggered_playbook, pending_tasks
         """
         try:
-            from backend.app.core.execution_context import ExecutionContext
-            ctx = ExecutionContext(
+            from backend.app.core.domain_context import LocalDomainContext
+            ctx = LocalDomainContext(
                 actor_id=profile_id,
                 workspace_id=workspace_id,
                 tags={"mode": "local"}

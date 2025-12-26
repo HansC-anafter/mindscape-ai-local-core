@@ -15,7 +15,7 @@ from ...services.mindscape_store import MindscapeStore
 from ...services.playbook_service import PlaybookService, ExecutionMode as PlaybookExecutionMode
 from ...services.intent_infra import IntentInfraService
 from ...capabilities.registry import get_registry
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class SuggestionActionHandler:
         # Extract suggestion_id from action_params if available
         suggestion_id = action_params.get('suggestion_id') or action_params.get('task_id')
 
-        ctx = ExecutionContext(
+        ctx = LocalDomainContext(
             actor_id=profile_id,
             workspace_id=workspace_id,
             tags={"mode": "local"}
@@ -100,7 +100,7 @@ class SuggestionActionHandler:
 
     async def handle_suggestion_action_with_ctx(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         suggestion_id: Optional[str],
         action: str,
         action_params: Dict[str, Any],
@@ -171,7 +171,7 @@ class SuggestionActionHandler:
 
     async def _handle_execute_playbook(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         action_params: Dict[str, Any],
         project_id: Optional[str],
         message_id: Optional[str] = None
@@ -259,7 +259,7 @@ class SuggestionActionHandler:
 
     async def _handle_use_tool(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         action_params: Dict[str, Any],
         project_id: Optional[str],
         message_id: Optional[str] = None
@@ -338,7 +338,7 @@ class SuggestionActionHandler:
 
     async def _handle_add_to_mindscape(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         action_params: Dict[str, Any],
         project_id: Optional[str],
         message_id: Optional[str] = None
@@ -469,7 +469,7 @@ class SuggestionActionHandler:
 
     def _handle_create_intent(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         action_params: Dict[str, Any],
         project_id: Optional[str],
         message_id: Optional[str] = None
@@ -606,7 +606,7 @@ class SuggestionActionHandler:
 
     async def _handle_execute_pack(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         action_params: Dict[str, Any],
         project_id: Optional[str],
         message_id: Optional[str] = None
@@ -667,7 +667,7 @@ class SuggestionActionHandler:
                         if not store:
                             raise ValueError("Store not available for re-analyzing intent")
 
-                        # Get profile from actor_id (ExecutionContext uses actor_id, not profile_id)
+                        # Get profile from actor_id (LocalDomainContext uses actor_id, not profile_id)
                         profile_id = ctx.actor_id
                         profile = None
                         if profile_id:
@@ -683,7 +683,8 @@ class SuggestionActionHandler:
                             workspace_id=ctx.workspace_id,
                             profile_id=profile_id,
                             profile=profile,
-                            store=store
+                            store=store,
+                            files=None  # Suggestion actions don't have file context
                         )
 
                         if execution_result:
@@ -1086,7 +1087,7 @@ class SuggestionActionHandler:
     async def _execute_via_plan(
         self,
         pack_id: str,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         files: List[str],
         message: str,

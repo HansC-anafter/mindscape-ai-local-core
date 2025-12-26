@@ -7,7 +7,7 @@ Processes files in chat flow, extracting file document IDs from MindEvents.
 import logging
 from typing import List
 from ...services.mindscape_store import MindscapeStore
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class FileProcessor:
         Returns:
             List of file_document_ids
         """
-        ctx = ExecutionContext(
+        ctx = LocalDomainContext(
             actor_id=profile_id,
             workspace_id=workspace_id,
             tags={"mode": "local"}
@@ -60,7 +60,7 @@ class FileProcessor:
 
     async def process_files_in_chat_with_ctx(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         files: List[str]
     ) -> List[str]:
         """

@@ -2,7 +2,7 @@
 Execution Chat Service
 
 Handles LLM reply generation for execution-scoped chat.
-Aligned with Port architecture using ExecutionContext.
+Aligned with Port architecture using LocalDomainContext.
 """
 
 import logging
@@ -11,7 +11,7 @@ import re
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 from ...models.workspace import ExecutionSession, PlaybookExecutionStep, ExecutionChatMessage
 from ...models.playbook import PlaybookMetadata
 from ...models.mindscape import MindEvent, EventType, EventActor
@@ -43,17 +43,17 @@ def detect_language_from_text(text: str) -> str:
 
 async def build_execution_chat_context(
     execution_id: str,
-    ctx: ExecutionContext,
+    ctx: LocalDomainContext,
     current_message: str
 ) -> str:
     """
     Build Execution Chat context string (for LLM prompt)
 
-    Note: Method name is `build_execution_chat_context` to avoid conflict with `ExecutionContext` class.
+    Note: Method name is `build_execution_chat_context` to avoid conflict with `LocalDomainContext` class.
 
     Args:
         execution_id: Execution ID
-        ctx: ExecutionContext (contains workspace_id, actor_id, tags)
+        ctx: LocalDomainContext (contains workspace_id, actor_id, tags)
         current_message: Current user message
 
     Returns:
@@ -231,7 +231,7 @@ Analyze the execution, identify issues, and provide specific suggestions for imp
 
 async def generate_execution_chat_reply(
     execution_id: str,
-    ctx: ExecutionContext,
+    ctx: LocalDomainContext,
     user_message: str,
     user_message_id: str,
     playbook_metadata: Optional[PlaybookMetadata] = None
@@ -247,7 +247,7 @@ async def generate_execution_chat_reply(
 
     Args:
         execution_id: Execution ID
-        ctx: ExecutionContext (contains workspace_id, actor_id, tags)
+        ctx: LocalDomainContext (contains workspace_id, actor_id, tags)
         user_message: User message content
         user_message_id: User message event ID
         playbook_metadata: Optional playbook metadata

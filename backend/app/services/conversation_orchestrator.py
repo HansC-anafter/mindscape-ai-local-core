@@ -50,7 +50,7 @@ from backend.app.services.conversation.coordinator_facade import CoordinatorFaca
 from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
 from backend.app.services.conversation.message_generator import MessageGenerator
 from backend.app.services.conversation.intent_extractor import IntentExtractor
-from backend.app.core.execution_context import ExecutionContext
+from backend.app.core.domain_context import LocalDomainContext
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.core.ports.intent_registry_port import IntentRegistryPort
 from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings

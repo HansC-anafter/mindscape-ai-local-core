@@ -40,7 +40,7 @@ class TaskCreator:
         self,
         playbook_code: str,
         playbook_context: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         execution_id: Optional[str],
         execution_result: Optional[Dict[str, Any]] = None,

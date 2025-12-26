@@ -62,7 +62,7 @@ class PlanExecutor:
     async def execute_plan(
         self,
         execution_plan: ExecutionPlan,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         files: List[str],
         message: str,
@@ -286,7 +286,7 @@ class PlanExecutor:
     async def _execute_readonly_task(
         self,
         task_plan,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         files: List[str],
         message: str,
@@ -401,7 +401,7 @@ class PlanExecutor:
     async def _handle_execution_failure(
         self,
         task_plan,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         results: Dict[str, Any],
         prevent_suggestion_creation: bool,
@@ -454,7 +454,7 @@ class PlanExecutor:
     async def _handle_soft_write_task(
         self,
         task_plan,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         files: List[str],
         message: str,

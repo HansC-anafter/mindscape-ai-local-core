@@ -40,7 +40,7 @@ class ExecutionContextBuilder:
         self,
         playbook_code: str,
         playbook_context: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         execution_result: Optional[Dict[str, Any]] = None,
         execution_mode: str = "conversation",
     ) -> Dict[str, Any]:
@@ -144,7 +144,7 @@ class ExecutionContextBuilder:
         self,
         playbook_code: str,
         playbook_context: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         execution_result: Optional[Dict[str, Any]] = None,
         execution_mode: str = "conversation",
     ) -> int:

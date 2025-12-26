@@ -23,7 +23,7 @@ from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
 from ...services.stores.tasks_store import TasksStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 
 from .plan_preparer import PlanPreparer, PreparedPlan
 from .playbook_resolver import PlaybookResolver, ResolvedPlaybook
@@ -162,7 +162,7 @@ class CoordinatorFacade:
         Returns:
             Dict with execution results
         """
-        ctx = ExecutionContext(
+        ctx = LocalDomainContext(
             actor_id=profile_id, workspace_id=workspace_id, tags={"mode": "local"}
         )
         return await self.execute_plan_with_ctx(
@@ -178,7 +178,7 @@ class CoordinatorFacade:
     async def execute_plan_with_ctx(
         self,
         execution_plan: ExecutionPlan,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         files: List[str],
         message: str,
@@ -187,7 +187,7 @@ class CoordinatorFacade:
         prevent_suggestion_creation: bool = False,
     ) -> Dict[str, Any]:
         """
-        Execute execution plan based on side_effect_level (using ExecutionContext)
+        Execute execution plan based on side_effect_level (using LocalDomainContext)
 
         Args:
             execution_plan: Execution plan with tasks
@@ -226,7 +226,7 @@ class CoordinatorFacade:
         )
 
     async def _resolve_mind_lens(
-        self, execution_plan: ExecutionPlan, ctx: ExecutionContext
+        self, execution_plan: ExecutionPlan, ctx: LocalDomainContext
     ) -> None:
         """
         Resolve Mind Lens if not already set
@@ -273,7 +273,7 @@ class CoordinatorFacade:
     async def _execute_readonly_task(
         self,
         task_plan,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         files: List[str],
         message: str,
@@ -450,7 +450,7 @@ class CoordinatorFacade:
         Returns:
             Dict with execution result
         """
-        ctx = ExecutionContext(
+        ctx = LocalDomainContext(
             actor_id=profile_id, workspace_id=workspace_id, tags={"mode": "local"}
         )
         return await self.create_execution_with_ctx(
@@ -465,7 +465,7 @@ class CoordinatorFacade:
         self,
         playbook_code: str,
         playbook_context: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -547,7 +547,7 @@ class CoordinatorFacade:
         self,
         playbook_code: str,
         playbook_context: Dict[str, Any],
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         message_id: str,
         project_id: Optional[str],
         event_emitter: TaskEventsEmitter,
