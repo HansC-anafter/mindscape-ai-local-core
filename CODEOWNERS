@@ -1,0 +1,76 @@
+# Code Owners for Mindscape AI Local-Core
+# This file defines who is responsible for reviewing changes to specific paths
+
+# Core architecture boundaries - require strict review
+# These paths should NEVER contain cloud-specific business logic
+/backend/app/routes/core/ @HansC-anafter
+/backend/app/main.py @HansC-anafter
+/backend/playbooks/specs/ @HansC-anafter
+/web-console/src/app/workspaces/ @HansC-anafter
+
+# Capability registry and loading - critical for architecture compliance
+/backend/app/capabilities/ @HansC-anafter
+/backend/app/services/playbook_loaders/ @HansC-anafter
+
+# CI and workflow files - protect against bypassing checks
+/.github/workflows/ @HansC-anafter
+
+# All cloud-related paths - must be empty or removed
+# If any file is added to these paths, it's a violation
+/backend/app/routes/core/*ig* @HansC-anafter
+/web-console/src/**/*IG* @HansC-anafter
+/web-console/src/services/localCore/*ig* @HansC-anafter
+
+# Default owners for all other files
+* @HansC-anafter
+
+# This file defines who is responsible for reviewing changes to specific paths
+
+# Core architecture boundaries - require strict review
+# These paths should NEVER contain cloud-specific business logic
+/backend/app/routes/core/ @HansC-anafter
+/backend/app/main.py @HansC-anafter
+/backend/playbooks/specs/ @HansC-anafter
+/web-console/src/app/workspaces/ @HansC-anafter
+
+# Capability registry and loading - critical for architecture compliance
+/backend/app/capabilities/ @HansC-anafter
+/backend/app/services/playbook_loaders/ @HansC-anafter
+
+# CI and workflow files - protect against bypassing checks
+/.github/workflows/ @HansC-anafter
+
+# All cloud-related paths - must be empty or removed
+# If any file is added to these paths, it's a violation
+/backend/app/routes/core/*ig* @HansC-anafter
+/web-console/src/**/*IG* @HansC-anafter
+/web-console/src/services/localCore/*ig* @HansC-anafter
+
+# Default owners for all other files
+* @HansC-anafter
+
+# This file defines who is responsible for reviewing changes to specific paths
+
+# Core architecture boundaries - require strict review
+# These paths should NEVER contain cloud-specific business logic
+/backend/app/routes/core/ @HansC-anafter
+/backend/app/main.py @HansC-anafter
+/backend/playbooks/specs/ @HansC-anafter
+/web-console/src/app/workspaces/ @HansC-anafter
+
+# Capability registry and loading - critical for architecture compliance
+/backend/app/capabilities/ @HansC-anafter
+/backend/app/services/playbook_loaders/ @HansC-anafter
+
+# CI and workflow files - protect against bypassing checks
+/.github/workflows/ @HansC-anafter
+
+# All cloud-related paths - must be empty or removed
+# If any file is added to these paths, it's a violation
+/backend/app/routes/core/*ig* @HansC-anafter
+/web-console/src/**/*IG* @HansC-anafter
+/web-console/src/services/localCore/*ig* @HansC-anafter
+
+# Default owners for all other files
+* @HansC-anafter
+

@@ -1,0 +1,15 @@
+# ============================================
+# HARD BARRIER: 禁止 Cloud 组件进入 Local-Core
+# ============================================
+# 这些路径应该永远为空，如果出现文件则说明架构违规
+# 所有通过 CapabilityInstaller 安装的文件都应该被排除
+# AI 助手不应修改这些目录中的任何文件
+# 如需修改能力组件，请在 mindscape-ai-cloud/capabilities/ 中修改，然后重新打包安装
+
+/web-console/src/app/capabilities/
+/backend/app/capabilities/
+
+
+
+
+
