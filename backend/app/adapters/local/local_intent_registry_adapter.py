@@ -11,7 +11,7 @@ from ...core.ports.intent_registry_port import (
     IntentResolutionResult,
     IntentDefinition
 )
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 from ...services.intent_llm_extractor import IntentLLMExtractor
 
 
@@ -30,7 +30,7 @@ class LocalIntentRegistryAdapter(IntentRegistryPort):
     async def resolve_intent(
         self,
         user_input: str,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         context: Optional[str] = None,
         locale: Optional[str] = None
     ) -> IntentResolutionResult:
@@ -52,7 +52,7 @@ class LocalIntentRegistryAdapter(IntentRegistryPort):
 
     async def list_available_intents(
         self,
-        ctx: ExecutionContext
+        ctx: LocalDomainContext
     ) -> List[IntentDefinition]:
         """
         List available Intents - Temporarily returns empty list
