@@ -1,0 +1,56 @@
+{
+  "version": "1.0",
+  "playbook_code": "cis_lens_packaging",
+  "kind": "user_workflow",
+  "description": "將完成的 CIS 打包成可複用的 Brand Lens",
+  "steps": [
+    {
+      "id": "collect_cis_components",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.cis_data}}",
+        "schema_description": "收集所有 CIS 組件（MI、BI、VI）"
+      },
+      "outputs": {
+        "cis_components": "extracted_data"
+      }
+    },
+    {
+      "id": "package_brand_lens",
+      "tool": "cloud_capability.call",
+      "inputs": {
+        "capability": "brand_identity",
+        "endpoint": "cis-mapper/package-lens",
+        "params": {
+          "workspace_id": "{{input.workspace_id}}",
+          "cis_components": "{{step.collect_cis_components.cis_components}}"
+        }
+      },
+      "outputs": {
+        "brand_lens": "packaged_lens"
+      },
+      "depends_on": ["collect_cis_components"]
+    }
+  ],
+  "inputs": {
+    "cis_data": {
+      "type": "object",
+      "description": "完整的 CIS 資料（MI、BI、VI）",
+      "required": true
+    },
+    "workspace_id": {
+      "type": "string",
+      "description": "Workspace ID",
+      "required": true
+    }
+  },
+  "outputs": {
+    "brand_lens": {
+      "type": "object",
+      "description": "打包完成的 Brand Lens",
+      "source": "step.package_brand_lens.brand_lens"
+    }
+  }
+}
+
+

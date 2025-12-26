@@ -1,0 +1,251 @@
+{
+  "version": "1.2",
+  "playbook_code": "ig_post_generation",
+  "kind": "user_workflow",
+  "steps": [
+    {
+      "id": "extract_topics",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.source_content}}",
+        "schema_description": "A JSON object with a 'topics' property: array of strings (key topics extracted from the content for Instagram post generation)."
+      },
+      "outputs": {
+        "topics": "extracted_data.topics"
+      }
+    },
+    {
+      "id": "analyze_style",
+      "tool": "ig.ig_post_style_analyzer",
+      "inputs": {
+        "reference_image_path": "{{input.reference_image_path}}",
+        "reference_image_url": "{{input.reference_image_url}}",
+        "include_mood": true
+      },
+      "outputs": {
+        "style_analysis": "features",
+        "recommendations": "recommendations",
+        "suggested_format": "suggested_format",
+        "color_palette": "color_palette"
+      },
+      "condition": "{{input.reference_image_path or input.reference_image_url}}"
+    },
+    {
+      "id": "generate_image",
+      "tool": "unsplash_search_photos",
+      "inputs": {
+        "query": "{{input.image_query or step.extract_topics.topics[0]}}",
+        "workspace_id": "{{workspace_id}}",
+        "per_page": 10,
+        "orientation": "{{step.analyze_style.suggested_format if step.analyze_style else 'square'}}"
+      },
+      "outputs": {
+        "photos": "results"
+      },
+      "condition": "{{input.image_query or input.enable_image_search}}",
+      "depends_on": ["extract_topics"]
+    },
+    {
+      "id": "load_file_context",
+      "tool": "content_vault.load_context",
+      "inputs": {
+        "series_id": "{{input.series_id}}",
+        "arc_id": "{{input.arc_id}}",
+        "n_recent_posts": 20
+      },
+      "outputs": {
+        "series_context": "series",
+        "arc_context": "arc",
+        "recent_posts": "recent_posts"
+      },
+      "condition": "{{input.series_id and input.arc_id}}",
+      "depends_on": []
+    },
+    {
+      "id": "vector_search_context",
+      "tool": "vector_search.search_external_docs",
+      "inputs": {
+        "query": "{{input.source_content or input.user_input}}",
+        "source_apps": ["content-vault"],
+        "user_id": "{{user_id}}",
+        "top_k": 5,
+        "filters": {
+          "series_id": "{{input.series_id}}"
+        }
+      },
+      "outputs": {
+        "vector_results": "results"
+      },
+      "condition": "{{input.series_id}}",
+      "depends_on": []
+    },
+    {
+      "id": "merge_context",
+      "tool": "content_vault.merge_context",
+      "inputs": {
+        "file_context": {
+          "series": "{{step.load_file_context.series_context}}",
+          "arc": "{{step.load_file_context.arc_context}}",
+          "recent_posts": "{{step.load_file_context.recent_posts}}"
+        },
+        "vector_context": "{{step.vector_search_context.vector_results}}"
+      },
+      "outputs": {
+        "merged_prompt": "merged_prompt"
+      },
+      "condition": "{{step.load_file_context or step.vector_search_context}}",
+      "depends_on": ["load_file_context", "vector_search_context"]
+    },
+    {
+      "id": "build_prompt",
+      "tool": "content_vault.build_prompt",
+      "inputs": {
+        "series_context": "{{step.load_file_context.series_context}}",
+        "arc_context": "{{step.load_file_context.arc_context}}",
+        "recent_posts": "{{step.load_file_context.recent_posts}}",
+        "user_input": "{{input.source_content}}"
+      },
+      "outputs": {
+        "prompt": "prompt"
+      },
+      "condition": "{{step.load_file_context and not step.merge_context}}",
+      "depends_on": ["load_file_context"]
+    },
+    {
+      "id": "generate_posts",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{% if step.merge_context %}{{step.merge_context.merged_prompt}}{% elif step.build_prompt %}{{step.build_prompt.prompt}}{% else %}Source content: {{input.source_content}}\n\nExtracted topics: {{step.extract_topics.topics}}\n\n{% if step.analyze_style %}Style analysis: {{step.analyze_style.style_analysis}}\nRecommended format: {{step.analyze_style.suggested_format}}\nColor palette: {{step.analyze_style.color_palette}}\n{% endif %}\n\nGenerate {{input.post_count}} Instagram posts based on the topics above. Each post should:\n- Be engaging and suitable for Instagram (casual, friendly tone)\n- Be 100-300 characters long (Instagram post length)\n- Include relevant hashtags (3-10 hashtags per post)\n- Be creative and original, not just copying the source content\n- Use emojis appropriately to make it more engaging\n- Have a clear call-to-action or engaging hook\n{% if step.analyze_style %}- Follow the visual style recommendations (format: {{step.analyze_style.suggested_format}}, colors: {{step.analyze_style.color_palette}})\n{% endif %}\n\nMake each post unique and valuable for Instagram audience.{% endif %}",
+        "schema_description": "A JSON object with an 'ig_posts' property: array of objects, each with 'text' (string, the post content in 100-300 characters, engaging and Instagram-appropriate), 'hashtags' (array of strings, 3-10 relevant hashtags for the post), 'narrative_phase' (string, optional), and 'emotion' (string, optional)."
+      },
+      "outputs": {
+        "ig_posts": "extracted_data.ig_posts"
+      },
+      "depends_on": ["extract_topics"]
+    },
+    {
+      "id": "write_to_vault",
+      "tool": "content_vault.write_posts",
+      "inputs": {
+        "series_id": "{{input.series_id}}",
+        "arc_id": "{{input.arc_id}}",
+        "posts": "{{step.generate_posts.ig_posts}}",
+        "platform": "instagram"
+      },
+      "outputs": {
+        "vault_files": "files"
+      },
+      "condition": "{{input.series_id and input.arc_id and step.generate_posts.ig_posts}}",
+      "depends_on": ["generate_posts"]
+    }
+  ],
+  "inputs": {
+    "source_content": {
+      "type": "string",
+      "required": true,
+      "description": "Source content to generate posts from"
+    },
+    "user_input": {
+      "type": "string",
+      "required": false,
+      "description": "User input or topic (for vector search)"
+    },
+    "post_count": {
+      "type": "integer",
+      "default": 5,
+      "description": "Number of posts to generate"
+    },
+    "series_id": {
+      "type": "string",
+      "required": false,
+      "description": "Content Vault series ID (optional, enables narrative context and vector search)"
+    },
+    "arc_id": {
+      "type": "string",
+      "required": false,
+      "description": "Content Vault arc ID (optional, enables narrative context)"
+    },
+    "reference_image_path": {
+      "type": "string",
+      "required": false,
+      "description": "Path to reference image file for style analysis (local file path)"
+    },
+    "reference_image_url": {
+      "type": "string",
+      "required": false,
+      "description": "URL to reference image for style analysis (will be downloaded to temp file)"
+    },
+    "image_query": {
+      "type": "string",
+      "required": false,
+      "description": "Search query for Unsplash image search (optional)"
+    },
+    "enable_image_search": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable automatic image search based on topics"
+    }
+  },
+  "outputs": {
+    "ig_posts": {
+      "type": "list[object]",
+      "description": "Generated IG posts list",
+      "source": "step.generate_posts.ig_posts"
+    },
+    "topics": {
+      "type": "list[string]",
+      "description": "Extracted key topics",
+      "source": "step.extract_topics.topics"
+    },
+    "style_analysis": {
+      "type": "object",
+      "description": "Visual style analysis results (if reference image provided)",
+      "source": "step.analyze_style.style_analysis"
+    },
+    "recommendations": {
+      "type": "object",
+      "description": "IG Post design recommendations (if reference image provided)",
+      "source": "step.analyze_style.recommendations"
+    },
+    "photos": {
+      "type": "list[object]",
+      "description": "Unsplash search results (if image search enabled)",
+      "source": "step.generate_image.photos"
+    },
+    "vault_files": {
+      "type": "list[string]",
+      "description": "Content Vault file paths (if series_id and arc_id provided)",
+      "source": "step.write_to_vault.vault_files"
+    },
+    "vector_results": {
+      "type": "list[object]",
+      "description": "Vector search results (if series_id provided)",
+      "source": "step.vector_search_context.vector_results"
+    }
+  },
+  "output_artifacts": [
+    {
+      "id": "instagram_posts",
+      "artifact_type": "post",
+      "primary_action_type": "copy",
+      "title_template": "Instagram 貼文 - {{input.post_count}} 篇",
+      "summary_template": "基於「{{input.source_content}}」生成的 {{input.post_count}} 篇 Instagram 貼文{% if input.series_id %} (Series: {{input.series_id}}, Arc: {{input.arc_id}}){% endif %}{% if step.vector_search_context %} (Enhanced with vector search){% endif %}",
+      "source": "step.generate_posts.ig_posts",
+      "file_write": {
+        "enabled": true,
+        "file_name_template": "ig_posts.json",
+        "encoding": "utf-8"
+      },
+      "metadata": {
+        "platform": "instagram",
+        "post_count": "{{input.post_count}}",
+        "navigate_to": "{{execution_id}}",
+        "navigate_type": "execution",
+        "series_id": "{{input.series_id}}",
+        "arc_id": "{{input.arc_id}}",
+        "vault_files": "{{step.write_to_vault.vault_files}}",
+        "vector_search_enabled": "{{step.vector_search_context}}"
+      }
+    }
+  ]
+}

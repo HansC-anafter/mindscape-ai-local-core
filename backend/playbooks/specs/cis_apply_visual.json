@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "playbook_code": "cis_apply_visual",
+  "kind": "user_workflow",
+  "description": "基於 CIS Lens 生成海報、簡報、Banner",
+  "steps": [
+    {
+      "id": "load_brand_lens",
+      "tool": "cloud_capability.call",
+      "inputs": {
+        "capability": "brand_identity",
+        "endpoint": "cis-mapper/get-lens",
+        "params": {
+          "workspace_id": "{{input.workspace_id}}",
+          "lens_id": "{{input.lens_id}}"
+        }
+      },
+      "outputs": {
+        "brand_lens": "lens_data"
+      }
+    },
+    {
+      "id": "generate_visual",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "基於 Brand Lens {{step.load_brand_lens.brand_lens}} 生成 {{input.visual_type}} 規格"
+      },
+      "outputs": {
+        "visual_spec": "generated_spec"
+      },
+      "depends_on": ["load_brand_lens"]
+    }
+  ],
+  "inputs": {
+    "lens_id": {
+      "type": "string",
+      "description": "Brand Lens ID",
+      "required": true
+    },
+    "workspace_id": {
+      "type": "string",
+      "description": "Workspace ID",
+      "required": true
+    },
+    "visual_type": {
+      "type": "string",
+      "enum": ["poster", "presentation", "banner", "social_media_image"],
+      "description": "視覺素材類型",
+      "required": true
+    },
+    "visual_requirements": {
+      "type": "object",
+      "description": "視覺需求",
+      "required": false
+    }
+  },
+  "outputs": {
+    "visual_spec": {
+      "type": "object",
+      "description": "生成的視覺規格",
+      "source": "step.generate_visual.visual_spec"
+    }
+  }
+}
+
+

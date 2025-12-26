@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "playbook_code": "cis_apply_content",
+  "kind": "user_workflow",
+  "description": "基於 CIS Lens 生成文案、博客、社群內容",
+  "steps": [
+    {
+      "id": "load_brand_lens",
+      "tool": "cloud_capability.call",
+      "inputs": {
+        "capability": "brand_identity",
+        "endpoint": "cis-mapper/get-lens",
+        "params": {
+          "workspace_id": "{{input.workspace_id}}",
+          "lens_id": "{{input.lens_id}}"
+        }
+      },
+      "outputs": {
+        "brand_lens": "lens_data"
+      }
+    },
+    {
+      "id": "generate_content",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "基於 Brand Lens {{step.load_brand_lens.brand_lens}} 生成 {{input.content_type}} 內容"
+      },
+      "outputs": {
+        "generated_content": "generated_text"
+      },
+      "depends_on": ["load_brand_lens"]
+    }
+  ],
+  "inputs": {
+    "lens_id": {
+      "type": "string",
+      "description": "Brand Lens ID",
+      "required": true
+    },
+    "workspace_id": {
+      "type": "string",
+      "description": "Workspace ID",
+      "required": true
+    },
+    "content_type": {
+      "type": "string",
+      "enum": ["blog", "social_media", "copywriting", "article"],
+      "description": "內容類型",
+      "required": true
+    },
+    "content_topic": {
+      "type": "string",
+      "description": "內容主題",
+      "required": false
+    }
+  },
+  "outputs": {
+    "generated_content": {
+      "type": "string",
+      "description": "生成的內容",
+      "source": "step.generate_content.generated_content"
+    }
+  }
+}
+
+

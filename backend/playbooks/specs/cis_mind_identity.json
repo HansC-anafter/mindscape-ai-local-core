@@ -1,0 +1,107 @@
+{
+  "version": "1.0",
+  "playbook_code": "cis_mind_identity",
+  "kind": "user_workflow",
+  "description": "建立品牌的核心心智模型，包括品牌定位與價值主張、品牌世界觀、品牌紅線、品牌人格與語氣",
+  "steps": [
+    {
+      "id": "collect_brand_background",
+      "tool": "cloud_capability.call",
+      "inputs": {
+        "capability": "brand_identity",
+        "endpoint": "cis-mapper/map",
+        "params": {
+          "document_content": "{{input.document_content}}",
+          "document_type": "{{input.document_type}}",
+          "workspace_id": "{{input.workspace_id}}",
+          "target_language": "{{input.target_language}}"
+        }
+      },
+      "outputs": {
+        "brand_info": "mapped_data"
+      }
+    },
+    {
+      "id": "explore_worldview",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "基於品牌資訊 {{step.collect_brand_background.brand_info}}，生成 3-5 套候選世界線"
+      },
+      "outputs": {
+        "worldview_options": "generated_options"
+      },
+      "depends_on": ["collect_brand_background"]
+    },
+    {
+      "id": "define_value_proposition",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{step.collect_brand_background.brand_info}}",
+        "schema_description": "分析競品，提出差異化價值主張建議"
+      },
+      "outputs": {
+        "value_proposition": "extracted_data"
+      },
+      "depends_on": ["collect_brand_background"]
+    },
+    {
+      "id": "define_brand_personality",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "基於品牌資訊生成人格特質選項"
+      },
+      "outputs": {
+        "personality_options": "generated_options"
+      },
+      "depends_on": ["collect_brand_background"]
+    }
+  ],
+  "inputs": {
+    "document_content": {
+      "type": "string",
+      "description": "品牌相關文檔內容（訪談稿、品牌簡報、提案等）",
+      "required": false
+    },
+    "document_type": {
+      "type": "string",
+      "enum": ["interview", "brief", "presentation", "other"],
+      "description": "文檔類型",
+      "required": false
+    },
+    "workspace_id": {
+      "type": "string",
+      "description": "Workspace ID",
+      "required": true
+    },
+    "target_language": {
+      "type": "string",
+      "default": "zh-TW",
+      "description": "目標語言",
+      "required": false
+    }
+  },
+  "outputs": {
+    "brand_info": {
+      "type": "object",
+      "description": "提取的品牌資訊",
+      "source": "step.collect_brand_background.brand_info"
+    },
+    "worldview_options": {
+      "type": "array",
+      "description": "候選世界線選項",
+      "source": "step.explore_worldview.worldview_options"
+    },
+    "value_proposition": {
+      "type": "object",
+      "description": "價值主張",
+      "source": "step.define_value_proposition.value_proposition"
+    },
+    "personality_options": {
+      "type": "array",
+      "description": "人格特質選項",
+      "source": "step.define_brand_personality.personality_options"
+    }
+  }
+}
+
+

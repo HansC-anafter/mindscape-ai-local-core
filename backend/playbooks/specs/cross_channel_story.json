@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "playbook_code": "cross_channel_story",
+  "kind": "user_workflow",
+  "description": "基於故事線生成跨平台內容（網站、社群、課程、電子書）",
+  "steps": [
+    {
+      "id": "load_storyline",
+      "tool": "core_llm.structured_extract",
+      "inputs": {
+        "text": "{{input.storyline_data}}",
+        "schema_description": "載入故事線資料"
+      },
+      "outputs": {
+        "storyline": "extracted_data"
+      }
+    },
+    {
+      "id": "generate_cross_channel_content",
+      "tool": "core_llm.generate",
+      "inputs": {
+        "prompt": "基於故事線 {{step.load_storyline.storyline}} 生成跨平台內容（{{input.channels}}）"
+      },
+      "outputs": {
+        "cross_channel_content": "generated_content"
+      },
+      "depends_on": ["load_storyline"]
+    }
+  ],
+  "inputs": {
+    "storyline_data": {
+      "type": "object",
+      "description": "故事線資料",
+      "required": true
+    },
+    "workspace_id": {
+      "type": "string",
+      "description": "Workspace ID",
+      "required": true
+    },
+    "channels": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "目標平台（website, social_media, course, ebook）",
+      "required": true
+    }
+  },
+  "outputs": {
+    "cross_channel_content": {
+      "type": "object",
+      "description": "生成的跨平台內容",
+      "source": "step.generate_cross_channel_content.cross_channel_content"
+    }
+  }
+}
+
+
