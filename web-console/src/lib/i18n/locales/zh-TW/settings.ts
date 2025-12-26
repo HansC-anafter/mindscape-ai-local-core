@@ -553,6 +553,12 @@ export const settingsZhTW = {
 
   // Cloud Extension
   cloudExtension: '雲端擴充',
+  cloudFrontendUrl: 'Cloud Frontend URL',
+  cloudFrontendUrlDescription: '設定 Cloud 前端 URL，用於導航到 Cloud UI 組件（例如 IG Posts 網格視圖）。注意：這是 Cloud 服務的前端，不是 Local-Core 的前端。',
+  cloudFrontendUrlLabel: 'Cloud Frontend URL',
+  cloudFrontendUrlPlaceholder: '例如: http://localhost:3000 (Cloud 前端端口，不是 Local-Core 的 3001)',
+  cloudFrontendUrlSaved: 'Cloud Frontend URL 已儲存',
+  failedToSaveCloudFrontendUrl: '儲存 Cloud Frontend URL 失敗',
   unsplashFingerprints: 'Unsplash 指紋庫',
   unsplashFingerprintsTitle: 'Unsplash Dataset 指紋庫（精簡版）',
   unsplashFingerprintsDescription: '透過下載並建立 Unsplash Dataset 指紋庫來增強 Visual Lens 抽取品質。此資料庫包含照片的詳細顏色、關鍵字和元數據。目前提供精簡版（Lite），包含約 25,000 張照片的元數據。',

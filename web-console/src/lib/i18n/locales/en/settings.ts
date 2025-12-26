@@ -562,6 +562,12 @@ export const settingsEn = {
 
   // Cloud Extension
   cloudExtension: 'Cloud Extension',
+  cloudFrontendUrl: 'Cloud Frontend URL',
+  cloudFrontendUrlDescription: 'Configure Cloud frontend URL for navigation to Cloud UI components (e.g., IG Posts grid view). Note: This is the Cloud service frontend, not the Local-Core frontend.',
+  cloudFrontendUrlLabel: 'Cloud Frontend URL',
+  cloudFrontendUrlPlaceholder: 'e.g., http://localhost:3000 (Cloud frontend port, not Local-Core\'s 3001)',
+  cloudFrontendUrlSaved: 'Cloud Frontend URL saved',
+  failedToSaveCloudFrontendUrl: 'Failed to save Cloud Frontend URL',
   unsplashFingerprints: 'Unsplash Fingerprints',
   unsplashFingerprintsTitle: 'Unsplash Dataset Fingerprints',
   unsplashFingerprintsDescription: 'Enhance Visual Lens extraction quality by downloading and building a fingerprint database from the Unsplash Dataset. This database contains detailed color, keyword, and metadata for millions of photos.',

@@ -1,9 +1,15 @@
 /**
  * Story Thread API client
- * Communicates with Cloud API for Story Thread operations
+ *
+ * Uses local-core backend proxy routes to maintain architectural boundaries.
+ * Frontend calls local-core backend, which then proxies to Cloud API.
+ *
+ * Proxy routes: /api/v1/story-threads/*
+ * Backend implementation: backend/app/routes/core/story_thread.py
  */
 
-const CLOUD_API_URL = process.env.NEXT_PUBLIC_CLOUD_API_URL || 'http://localhost:8001';
+// Use local-core backend API (which proxies to Cloud API)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface StoryThread {
   thread_id: string;
@@ -85,7 +91,8 @@ export interface UpdateContextRequest {
 class StoryThreadAPI {
   private baseUrl: string;
 
-  constructor(baseUrl: string = CLOUD_API_URL) {
+  constructor(baseUrl: string = API_BASE_URL) {
+    // Use local-core backend proxy routes
     this.baseUrl = baseUrl;
   }
 

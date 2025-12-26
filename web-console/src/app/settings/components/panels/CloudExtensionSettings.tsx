@@ -27,6 +27,8 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [testStatus, setTestStatus] = useState<Record<string, 'idle' | 'testing' | 'success' | 'error'>>({});
   const [testMessages, setTestMessages] = useState<Record<string, string>>({});
+  const [cloudFrontendUrl, setCloudFrontendUrl] = useState('');
+  const [savingFrontendUrl, setSavingFrontendUrl] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -47,7 +49,45 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
 
   useEffect(() => {
     loadProviders();
+    loadCloudFrontendUrl();
   }, []);
+
+  const loadCloudFrontendUrl = async () => {
+    try {
+      const response = await fetch('/api/v1/system-settings/cloud_frontend_url');
+      if (response.ok) {
+        const data = await response.json();
+        setCloudFrontendUrl(data.value || '');
+      }
+    } catch (error) {
+      console.error('Failed to load cloud frontend URL:', error);
+    }
+  };
+
+  const handleSaveCloudFrontendUrl = async () => {
+    try {
+      setSavingFrontendUrl(true);
+      const params = new URLSearchParams({
+        value: cloudFrontendUrl,
+        category: 'cloud',
+        description: 'Cloud frontend URL for navigation'
+      });
+      const response = await fetch(`/api/v1/system-settings/cloud_frontend_url?${params.toString()}`, {
+        method: 'PUT'
+      });
+
+      if (response.ok) {
+        showNotification('success', t('cloudFrontendUrlSaved'));
+      } else {
+        const error = await response.json();
+        showNotification('error', error.detail || t('failedToSaveCloudFrontendUrl'));
+      }
+    } catch (error: any) {
+      showNotification('error', error.message || t('failedToSaveCloudFrontendUrl'));
+    } finally {
+      setSavingFrontendUrl(false);
+    }
+  };
 
   const loadProviders = async () => {
     try {
@@ -219,6 +259,43 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
 
   return (
     <div className="space-y-6">
+      {/* Cloud Frontend URL Configuration */}
+      <Card>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+              {t('cloudFrontendUrl')}
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {t('cloudFrontendUrlDescription')}
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              {t('cloudFrontendUrlLabel')}
+            </label>
+            <input
+              type="text"
+              value={cloudFrontendUrl}
+              onChange={(e) => setCloudFrontendUrl(e.target.value)}
+              placeholder={t('cloudFrontendUrlPlaceholder')}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            />
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleSaveCloudFrontendUrl}
+              disabled={savingFrontendUrl}
+              className="px-4 py-2 text-sm bg-gray-900 dark:bg-gray-700 text-white rounded-md hover:bg-gray-800 dark:hover:bg-gray-600 disabled:opacity-50"
+            >
+              {savingFrontendUrl ? t('saving') : t('save')}
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Cloud Playbook Providers */}
       <Card>
         <div className="space-y-6">
           <div>

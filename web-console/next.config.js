@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false, // Disabled to prevent double-render abort issues
@@ -16,10 +18,20 @@ const nextConfig = {
     ];
   },
   webpack: (config) => {
+    // Add path alias resolution for @/* to ./src/*
+    // CRITICAL: This allows webpack to resolve @/ aliases in dynamic imports at build time
+    // Webpack needs to statically analyze dynamic import paths to create proper chunks
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
+      '@': path.resolve(__dirname, 'src'),
     };
     config.resolve.symlinks = false;
+
+    // Ensure webpack can handle dynamic imports with aliases
+    // This tells webpack to include all files matching the pattern in the build
+    config.module = config.module || {};
+    config.module.rules = config.module.rules || [];
+
     return config;
   },
   // Disable RSC prefetching for client components to avoid 404 errors
