@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from backend.app.models.playbook import PlaybookRun
-    from backend.app.core.execution_context import ExecutionContext
+    from backend.app.core.domain_context import LocalDomainContext
 
 
 class ExecutionProfile(BaseModel):
@@ -93,7 +93,7 @@ class RuntimePort(ABC):
     async def execute(
         self,
         playbook_run: "PlaybookRun",
-        context: "ExecutionContext",
+        context: "LocalDomainContext",
         inputs: Optional[Dict[str, Any]] = None
     ) -> ExecutionResult:
         """
@@ -101,7 +101,7 @@ class RuntimePort(ABC):
 
         Args:
             playbook_run: PlaybookRun instance (playbook.md + playbook.json)
-            context: ExecutionContext with actor_id, workspace_id, etc.
+            context: LocalDomainContext with actor_id, workspace_id, etc.
             inputs: Optional input parameters
 
         Returns:

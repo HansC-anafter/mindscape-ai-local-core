@@ -5,7 +5,7 @@ Intent Registry Port - Resolve user input to Intent
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
-from ..execution_context import ExecutionContext
+from ..domain_context import LocalDomainContext
 
 
 class IntentResolutionResult(BaseModel):
@@ -47,7 +47,7 @@ class IntentRegistryPort(ABC):
     async def resolve_intent(
         self,
         user_input: str,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         context: Optional[str] = None,
         locale: Optional[str] = None
     ) -> IntentResolutionResult:
@@ -68,7 +68,7 @@ class IntentRegistryPort(ABC):
     @abstractmethod
     async def list_available_intents(
         self,
-        ctx: ExecutionContext
+        ctx: LocalDomainContext
     ) -> List[IntentDefinition]:
         """
         List available Intent definitions

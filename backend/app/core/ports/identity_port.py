@@ -4,7 +4,7 @@ Identity Port - Get current execution context
 
 from abc import ABC, abstractmethod
 from typing import Optional
-from ..execution_context import ExecutionContext
+from ..domain_context import LocalDomainContext
 
 
 class IdentityPort(ABC):
@@ -17,7 +17,7 @@ class IdentityPort(ABC):
         self,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None
-    ) -> ExecutionContext:
+    ) -> LocalDomainContext:
         """
         Get current execution context
 
@@ -26,7 +26,7 @@ class IdentityPort(ABC):
             profile_id: Optional, if provided use this value (local mode)
 
         Returns:
-            ExecutionContext object
+            LocalDomainContext object
         """
         pass
 
