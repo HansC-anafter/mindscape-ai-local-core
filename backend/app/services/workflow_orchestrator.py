@@ -73,6 +73,8 @@ class WorkflowOrchestrator:
         """
         results = {}
         workflow_context = handoff_plan.context.copy()
+        # playbook_inputs are stored in workflow_context
+        playbook_inputs = workflow_context.copy()
 
         dependency_graph = self._build_dependency_graph(handoff_plan.steps)
         completed_steps: Set[str] = set()
@@ -83,7 +85,8 @@ class WorkflowOrchestrator:
                 pending_steps,
                 completed_steps,
                 dependency_graph,
-                results
+                results,
+                playbook_inputs
             )
 
             if not ready_steps:
@@ -199,7 +202,8 @@ class WorkflowOrchestrator:
         pending_steps: Dict[str, WorkflowStep],
         completed_steps: Set[str],
         dependency_graph: Dict[str, Set[str]],
-        results: Dict[str, Dict[str, Any]]
+        results: Dict[str, Dict[str, Any]],
+        playbook_inputs: Optional[Dict[str, Any]] = None
     ) -> List[WorkflowStep]:
         """
         Get steps that are ready to execute in parallel
@@ -209,11 +213,13 @@ class WorkflowOrchestrator:
             completed_steps: Set of completed step playbook_codes
             dependency_graph: Dependency graph
             results: Current execution results
+            playbook_inputs: Playbook inputs for condition evaluation
 
         Returns:
             List of ready steps that can be executed in parallel
         """
         ready_steps = []
+        playbook_inputs = playbook_inputs or {}
 
         for playbook_code, step in pending_steps.items():
             if playbook_code in completed_steps:
@@ -222,7 +228,7 @@ class WorkflowOrchestrator:
             dependencies = dependency_graph.get(playbook_code, set())
 
             if not dependencies:
-                if self._evaluate_condition(step, results):
+                if self._evaluate_condition(step, results, playbook_inputs):
                     ready_steps.append(step)
                 continue
 
@@ -237,7 +243,7 @@ class WorkflowOrchestrator:
                     break
 
             if all_dependencies_met:
-                if self._evaluate_condition(step, results):
+                if self._evaluate_condition(step, results, playbook_inputs):
                     ready_steps.append(step)
                 else:
                     logger.info(f"Step {playbook_code} condition not met, skipping")
@@ -287,7 +293,7 @@ class WorkflowOrchestrator:
                     # Replace all input.xxx patterns with input_dict.get('xxx')
                     python_expr = re.sub(r'input\.(\w+)', r"input_dict.get('\1')", python_expr)
                     result_value = eval(python_expr, {'__builtins__': {}, 'input_dict': input_dict})
-                    logger.debug(f"Condition '{condition}' (expr: '{expr}') evaluated to: {result_value} (bool: {bool(result_value)})")
+                    logger.info(f"Condition '{condition}' (expr: '{expr}') evaluated to: {result_value} (bool: {bool(result_value)}), input_dict keys: {list(input_dict.keys())}")
                     return bool(result_value)
                 except Exception as e:
                     logger.warning(f"Failed to evaluate condition '{condition}' for step {step.playbook_code}: {e}")
@@ -379,6 +385,7 @@ class WorkflowOrchestrator:
         # The workflow_context contains the original inputs passed to the playbook execution
         if workflow_context:
             # Merge workflow_context into resolved_inputs, but don't overwrite existing keys
+            # IMPORTANT: playbook_inputs (from plan_preparer) should take precedence over workflow_context
             for key, value in workflow_context.items():
                 if key not in resolved_inputs:
                     resolved_inputs[key] = value
@@ -521,6 +528,7 @@ class WorkflowOrchestrator:
                 playbook_inputs,
                 step_outputs
             )
+            logger.debug(f"WorkflowOrchestrator._execute_playbook_steps: Found {len(ready_steps)} ready steps, playbook_inputs keys: {list(playbook_inputs.keys())}")
 
             if not ready_steps:
                 raise RuntimeError("Circular dependency or missing dependencies detected")

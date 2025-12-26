@@ -278,3 +278,7 @@ class ContentVaultIndexer:
             'total_chunks': total_chunks
         }
 
+
+
+
+

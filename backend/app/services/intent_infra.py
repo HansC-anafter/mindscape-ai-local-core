@@ -25,7 +25,7 @@ from backend.app.models.workspace import TaskStatus, TimelineItem, TimelineItemT
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.i18n_service import get_i18n_service
-from backend.app.core.execution_context import ExecutionContext
+from backend.app.core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class IntentInfraService:
 
     async def handle_extraction_task(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         task: Any,
         original_message_id: str
     ) -> Dict[str, Any]:
@@ -135,7 +135,7 @@ class IntentInfraService:
 
     async def _create_intent_cards_from_candidates(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         intent_candidates: List[Any],
         task_id: str,
         workspace_id: str
@@ -209,7 +209,7 @@ class IntentInfraService:
 
     async def _create_timeline_for_extraction(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         original_message_id: str,
         task_id: str,
         intents: List[Any],
@@ -267,7 +267,7 @@ class IntentInfraService:
 
     async def _create_project_from_intent(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         intent_candidates: List[Any],
         workspace_id: str
     ) -> Optional[str]:
@@ -490,7 +490,7 @@ class IntentInfraService:
 
     async def _sync_to_semantic_hub(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         intents: List[Any],
         themes: List[Any]
     ):
@@ -521,7 +521,7 @@ class IntentInfraService:
 
     async def create_intent_card(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         payload: Dict[str, Any]
     ) -> Optional[IntentCard]:
         """
@@ -565,7 +565,7 @@ class IntentInfraService:
 
     async def list_intents(
         self,
-        ctx: ExecutionContext,
+        ctx: LocalDomainContext,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[IntentCard]:
         """

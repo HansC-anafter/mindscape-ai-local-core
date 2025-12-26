@@ -354,3 +354,16 @@ class GenericHttpProvider(CloudProvider):
 
         return True, None
 
+    def get_api_url(self) -> str:
+        """Get provider API URL"""
+        return self.api_url
+
+    def get_api_key(self) -> Optional[str]:
+        """Get provider API key/token for authentication"""
+        auth_type = self.auth_config.get("auth_type", "bearer")
+        if auth_type == "bearer":
+            return self.auth_config.get("token")
+        elif auth_type == "api_key":
+            return self.auth_config.get("api_key")
+        return None
+
