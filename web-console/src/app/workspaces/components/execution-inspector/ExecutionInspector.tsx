@@ -318,6 +318,9 @@ export default function ExecutionInspector({
                         currentStepToolCalls={currentStepToolCalls}
                         stepEvents={executionSteps.stepEvents}
                         executionStatus={executionCore.execution?.status}
+                        artifacts={executionSteps.artifacts}
+                        workspaceId={workspaceId}
+                        apiUrl={apiUrl}
                         t={t}
                       />
                     </>

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
 import { t } from '@/lib/i18n';
 import SandboxModalWrapper from '../../components/execution-inspector/SandboxModalWrapper';
-// IG Posts Grid View is now in Cloud - removed from Local-Core
+import { loadCapabilityUIComponent, artifactsMatchComponent, createLazyCapabilityComponent } from '@/lib/capability-ui-loader';
 
 interface Artifact {
   id: string;
@@ -63,7 +63,11 @@ export default function OutcomesPanel({
   const [sandboxId, setSandboxId] = useState<string | null>(null);
   const [sandboxInitialFile, setSandboxInitialFile] = useState<string | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
-  // IG Posts Grid View is now in Cloud - removed from Local-Core
+
+  // Dynamic capability UI components (boundary: no hardcoded Cloud components)
+  const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
+  const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
+  const [openModalKey, setOpenModalKey] = useState<string | null>(null);
 
   const loadArtifacts = async () => {
     try {
@@ -71,15 +75,12 @@ export default function OutcomesPanel({
       setError(null);
       // Use new API parameters for better filtering and content inclusion
       const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?include_content=true&include_preview=true&limit=100`;
-      console.log('[OutcomesPanel] Loading artifacts from:', url);
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to load artifacts: ${response.statusText}`);
       }
       const data = await response.json();
-      console.log('[OutcomesPanel] API response data:', JSON.stringify(data, null, 2));
       const newArtifacts = data.artifacts || data || [];
-      console.log('[OutcomesPanel] Loaded artifacts:', { count: newArtifacts.length, artifacts: newArtifacts });
 
       // Detect newly added artifacts (compare before and after lists)
       if (previousArtifactsRef.current.length > 0) {
@@ -128,6 +129,77 @@ export default function OutcomesPanel({
     }
   };
 
+  // Load installed capabilities and their UI component metadata (boundary: via API, not hardcoded)
+  useEffect(() => {
+    const loadCapabilities = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`);
+        if (response.ok) {
+          const capabilities = await response.json();
+          setInstalledCapabilities(capabilities);
+        }
+      } catch (err) {
+        // Silently fail - capabilities are optional
+      }
+    };
+
+    loadCapabilities();
+  }, [apiUrl]);
+
+  // Load UI components when artifacts change and match component criteria (boundary: lazy loading)
+  useEffect(() => {
+    const loadMatchingComponents = async () => {
+      if (artifacts.length === 0 || installedCapabilities.length === 0) {
+        return;
+      }
+
+      const componentMap = new Map<string, React.ComponentType<any>>();
+
+      for (const capability of installedCapabilities) {
+        if (capability.ui_components && capability.ui_components.length > 0) {
+          for (const componentInfo of capability.ui_components) {
+            // Check if artifacts match this component's criteria (boundary: generic check)
+            if (artifactsMatchComponent(artifacts, componentInfo)) {
+              const key = `${capability.code}:${componentInfo.code}`;
+
+              // Check if already loaded to avoid duplicate loading
+              setCapabilityUIComponents(prev => {
+                if (prev.has(key)) {
+                  return prev; // Already loaded, skip
+                }
+                return prev;
+              });
+
+              // Load component asynchronously (with caching in loader)
+              loadCapabilityUIComponent(
+                capability.code,
+                componentInfo.code,
+                apiUrl
+              ).then(Component => {
+                if (Component) {
+                  setCapabilityUIComponents(prev => {
+                    // Double-check to avoid race conditions
+                    if (prev.has(key)) {
+                      return prev;
+                    }
+                    const newMap = new Map(prev);
+                    newMap.set(key, Component);
+                    return newMap;
+                  });
+                }
+              }).catch(err => {
+                console.warn(`Failed to load component ${key}:`, err);
+              });
+            }
+          }
+        }
+      }
+    };
+
+    loadMatchingComponents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifacts.length, installedCapabilities.length, apiUrl]);
+
   useEffect(() => {
     // Load artifacts on mount
     loadArtifacts();
@@ -146,7 +218,6 @@ export default function OutcomesPanel({
       timeoutTimer = setTimeout(() => {
         const timeSinceLastRefresh = Date.now() - lastRefreshTime;
         if (timeSinceLastRefresh >= 5000 && !isPending) {
-          console.log('OutcomesPanel: Timeout backup refresh triggered');
           isPending = true;
           loadArtifacts().finally(() => {
             isPending = false;
@@ -158,7 +229,6 @@ export default function OutcomesPanel({
 
     // Listen for workspace chat updates to refresh artifacts
     const handleChatUpdate = () => {
-      console.log('OutcomesPanel: Received workspace-chat-updated event, scheduling refresh');
       lastRefreshTime = Date.now();
       // Debounce: only trigger load after 1 second of no events
       if (debounceTimer) {
@@ -314,7 +384,6 @@ export default function OutcomesPanel({
   }
 
   if (artifacts.length === 0) {
-    console.log('[OutcomesPanel] No artifacts to display, showing empty state');
     return (
       <div className="flex items-center justify-center h-full px-2">
         <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes') || '尚無成果'}</div>
@@ -322,10 +391,24 @@ export default function OutcomesPanel({
     );
   }
 
-  // 移除调试日志以减少 console 噪音
-  // console.log('[OutcomesPanel] Rendering', artifacts.length, 'artifacts');
 
-  // IG Posts detection and Grid View moved to Cloud - removed from Local-Core
+  // Find matching capability UI components for current artifacts (boundary: generic, no hardcoded logic)
+  const matchingComponentKeys: string[] = [];
+
+  for (const capability of installedCapabilities) {
+    if (capability.ui_components && capability.ui_components.length > 0) {
+      for (const componentInfo of capability.ui_components) {
+        const matches = artifactsMatchComponent(artifacts, componentInfo);
+
+        if (matches) {
+          const key = `${capability.code}:${componentInfo.code}`;
+          if (capabilityUIComponents.has(key)) {
+            matchingComponentKeys.push(key);
+          }
+        }
+      }
+    }
+  }
 
   return (
     <>
@@ -343,7 +426,39 @@ export default function OutcomesPanel({
         />
       )}
 
-      {/* IG Posts Grid View moved to Cloud - removed from Local-Core */}
+      {/* Dynamic Capability UI Components (boundary: loaded via API, not hardcoded) */}
+      {matchingComponentKeys.map((key) => {
+        const [capabilityCode, componentCode] = key.split(':');
+        const Component = capabilityUIComponents.get(key);
+        const capability = installedCapabilities.find(c => c.code === capabilityCode);
+        const componentInfo = capability?.ui_components?.find((c: any) => c.code === componentCode);
+        const isOpen = openModalKey === key;
+
+        if (!Component || !componentInfo) {
+          return null;
+        }
+
+        return (
+          <div key={key} className="p-2 border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setOpenModalKey(key)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
+            >
+              <span>📱</span>
+              <span>{componentInfo.description || `查看 ${componentInfo.code}`}</span>
+            </button>
+            {isOpen && (
+              <Suspense fallback={<div className="p-4 text-center">載入中...</div>}>
+                <Component
+                  isOpen={isOpen}
+                  onClose={() => setOpenModalKey(null)}
+                  workspaceId={workspaceId}
+                />
+              </Suspense>
+            )}
+          </div>
+        );
+      })}
 
       <div className="h-full overflow-y-auto p-2 space-y-2">
         {artifacts.map((artifact) => {
@@ -361,36 +476,13 @@ export default function OutcomesPanel({
             minute: '2-digit'
           });
 
-          // 移除调试日志以减少 console 噪音
-          // console.log('[OutcomesPanel] Rendering artifact:', {
-          //   id: artifact.id,
-          //   fileName,
-          //   playbook_code: artifact.playbook_code,
-          //   formattedDate,
-          //   filePath,
-          //   execution_id: executionId
-          // });
 
           const handleFileClick = (e: React.MouseEvent) => {
             e.stopPropagation();
 
-            console.log('[OutcomesPanel] handleFileClick called for artifact:', {
-              artifactId: artifact.id,
-              artifactTitle: artifact.title,
-              filePath,
-              executionId,
-              artifactData: artifact,
-            });
-
             // Extract sandbox ID and relative file path from artifact metadata
             const actualFilePath = (artifact as any).file_path || (artifact.metadata && (artifact.metadata as any).actual_file_path);
             const execId = executionId || (artifact.metadata && (artifact.metadata as any).execution_id);
-
-            console.log('[OutcomesPanel] Extracted paths:', {
-              actualFilePath,
-              execId,
-              metadata: artifact.metadata,
-            });
 
             // Try to extract sandbox ID from file path
             // Format: /app/data/sandboxes/{workspace_id}/project_repo/{sandbox_id}/current/...
@@ -403,41 +495,30 @@ export default function OutcomesPanel({
               if (sandboxMatch) {
                 extractedSandboxId = sandboxMatch[1];
                 relativeFilePath = sandboxMatch[2];
-                console.log('[OutcomesPanel] Matched sandbox from project_repo:', { extractedSandboxId, relativeFilePath });
               } else {
                 // Fallback: try to extract from other path formats
                 const fallbackMatch = actualFilePath.match(/sandboxes\/[^\/]+\/[^\/]+\/([^\/]+)\/current\/(.+)$/);
                 if (fallbackMatch) {
                   extractedSandboxId = fallbackMatch[1];
                   relativeFilePath = fallbackMatch[2];
-                  console.log('[OutcomesPanel] Matched sandbox from fallback:', { extractedSandboxId, relativeFilePath });
-                } else {
-                  console.log('[OutcomesPanel] No sandbox match found for path:', actualFilePath);
                 }
               }
-            } else {
-              console.log('[OutcomesPanel] No actualFilePath found');
             }
 
             // Priority: 1. Open SandboxModal if we have sandbox ID and file path, 2. Open artifact detail, 3. Download file
             if (extractedSandboxId && relativeFilePath && execId) {
-              console.log('[OutcomesPanel] Opening SandboxModal with:', { extractedSandboxId, relativeFilePath, execId });
               // Open SandboxModal with the artifact file
               setSandboxId(extractedSandboxId);
               setSandboxInitialFile(relativeFilePath);
               setExecutionId(execId);
               setShowSandboxModal(true);
             } else if (onArtifactClick) {
-              console.log('[OutcomesPanel] Calling onArtifactClick');
               // Open artifact detail dialog
               onArtifactClick(artifact);
             } else if (filePath || actualFilePath) {
-              console.log('[OutcomesPanel] Opening file URL directly:', `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/file`);
               // Last resort: download file
               const fileUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/file`;
               window.open(fileUrl, '_blank');
-            } else {
-              console.log('[OutcomesPanel] No action taken - no conditions met');
             }
           };
 

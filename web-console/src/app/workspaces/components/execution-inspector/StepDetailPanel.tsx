@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import type { ExecutionStep, ToolCall, StepEvent, PlaybookStepDefinition, Artifact } from './types/execution';
 import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
+import { loadCapabilityUIComponent, artifactsMatchComponent } from '@/lib/capability-ui-loader';
 
 export interface StepDetailPanelProps {
   steps: ExecutionStep[];
@@ -14,6 +15,8 @@ export interface StepDetailPanelProps {
   stepEvents: StepEvent[];
   executionStatus?: string;
   artifacts?: Artifact[];
+  workspaceId?: string;
+  apiUrl?: string;
   onViewArtifact?: (artifact: Artifact) => void;
   t: (key: string, params?: any) => string;
 }
@@ -27,9 +30,78 @@ export default function StepDetailPanel({
   stepEvents,
   executionStatus,
   artifacts = [],
+  workspaceId,
+  apiUrl,
   onViewArtifact,
   t,
 }: StepDetailPanelProps) {
+  // Dynamic capability UI components (boundary: no hardcoded Cloud components)
+  const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
+  const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
+  const [openModalKey, setOpenModalKey] = useState<string | null>(null);
+
+  // Load installed capabilities (boundary: via API, not hardcoded)
+  useEffect(() => {
+    if (!apiUrl) return;
+
+    const loadCapabilities = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`);
+        if (response.ok) {
+          const capabilities = await response.json();
+          setInstalledCapabilities(capabilities);
+        }
+      } catch (err) {
+        console.warn('Failed to load installed capabilities:', err);
+      }
+    };
+
+    loadCapabilities();
+  }, [apiUrl]);
+
+  // Load UI components when artifacts match (boundary: lazy loading)
+  useEffect(() => {
+    if (!apiUrl || artifacts.length === 0 || installedCapabilities.length === 0) {
+      return;
+    }
+
+    for (const capability of installedCapabilities) {
+      if (capability.ui_components && capability.ui_components.length > 0) {
+        for (const componentInfo of capability.ui_components) {
+          // Check if artifacts match this component's criteria (boundary: generic check)
+          if (artifactsMatchComponent(artifacts, componentInfo)) {
+            const key = `${capability.code}:${componentInfo.code}`;
+
+            // Only load if not already loaded
+            setCapabilityUIComponents(prev => {
+              if (prev.has(key)) {
+                return prev; // Already loaded
+              }
+              return prev;
+            });
+
+            // Load component asynchronously
+            loadCapabilityUIComponent(
+              capability.code,
+              componentInfo.code,
+              apiUrl
+            ).then(Component => {
+              if (Component) {
+                setCapabilityUIComponents(prev => {
+                  const newMap = new Map(prev);
+                  newMap.set(key, Component);
+                  return newMap;
+                });
+              }
+            }).catch(err => {
+              console.warn(`Failed to load component ${key}:`, err);
+            });
+          }
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifacts.length, installedCapabilities.length, apiUrl]);
   const allSteps = deriveAllSteps({
     playbookStepDefinitions,
     totalSteps,
@@ -192,6 +264,56 @@ export default function StepDetailPanel({
           <div className="text-sm text-red-600 dark:text-red-400">{currentStep?.error}</div>
         </div>
       )}
+
+      {/* Dynamic Capability UI Components (boundary: loaded via API, not hardcoded) */}
+      {workspaceId && apiUrl && (() => {
+        const matchingComponentKeys: string[] = [];
+        for (const capability of installedCapabilities) {
+          if (capability.ui_components && capability.ui_components.length > 0) {
+            for (const componentInfo of capability.ui_components) {
+              if (artifactsMatchComponent(artifacts, componentInfo)) {
+                const key = `${capability.code}:${componentInfo.code}`;
+                if (capabilityUIComponents.has(key)) {
+                  matchingComponentKeys.push(key);
+                }
+              }
+            }
+          }
+        }
+
+        return matchingComponentKeys.map((key) => {
+          const [capabilityCode, componentCode] = key.split(':');
+          const Component = capabilityUIComponents.get(key);
+          const capability = installedCapabilities.find(c => c.code === capabilityCode);
+          const componentInfo = capability?.ui_components?.find((c: any) => c.code === componentCode);
+          const isOpen = openModalKey === key;
+
+          if (!Component || !componentInfo) {
+            return null;
+          }
+
+          return (
+            <div key={key} className="mb-3 p-2 border-b border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setOpenModalKey(key)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
+              >
+                <span>📱</span>
+                <span>{componentInfo.description || `查看 ${componentInfo.code}`}</span>
+              </button>
+              {isOpen && (
+                <Suspense fallback={<div className="p-4 text-center">載入中...</div>}>
+                  <Component
+                    isOpen={isOpen}
+                    onClose={() => setOpenModalKey(null)}
+                    workspaceId={workspaceId}
+                  />
+                </Suspense>
+              )}
+            </div>
+          );
+        });
+      })()}
 
       {/* Artifacts for this step */}
       <div className="mt-4">

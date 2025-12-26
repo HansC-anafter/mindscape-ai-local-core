@@ -171,9 +171,6 @@ export default function ExecutionSidebar({
               });
 
               setPlaybookGroups(processedGroups);
-            } else {
-              // execution-tree returned empty array or no playbookGroups
-              console.log('[ExecutionSidebar] execution-tree returned empty playbookGroups, keeping existing state');
             }
           } else if (executionTreeResponse && !executionTreeResponse.ok) {
             // execution-tree API returned error (e.g., 404 Project not found)
@@ -537,37 +534,23 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-medium text-primary dark:text-gray-100">
           {(() => {
-            // Debug: Log execution data
-            console.log('[ExecutionSidebar] Execution data for display:', {
-              executionId: execution.executionId,
-              runNumber: execution.runNumber,
-              playbookCode: execution.playbookCode,
-              playbookName: execution.playbookName,
-              'execution keys': Object.keys(execution),
-              'full execution': execution
-            });
-
             // Try to get playbook name from multiple sources
             // Priority: playbookName > i18n metadata > playbookCode > runNumber
             if (execution.playbookName && execution.playbookName !== 'unknown') {
-              console.log('[ExecutionSidebar] Using execution.playbookName:', execution.playbookName);
               return execution.playbookName;
             }
 
             // Try i18n metadata
             if (execution.playbookCode) {
               const playbookName = getPlaybookMetadata(execution.playbookCode, 'name', 'zh-TW');
-              console.log('[ExecutionSidebar] playbookCode:', execution.playbookCode, 'playbookName from metadata:', playbookName);
               if (playbookName) {
                 return playbookName;
               }
               // Fallback to playbookCode if metadata not found
-              console.log('[ExecutionSidebar] Using playbookCode:', execution.playbookCode);
               return execution.playbookCode;
             }
 
             // Last resort: show runNumber
-            console.log('[ExecutionSidebar] Fallback to runNumber:', execution.runNumber);
             return `[#${execution.runNumber}]`;
           })()}
         </span>

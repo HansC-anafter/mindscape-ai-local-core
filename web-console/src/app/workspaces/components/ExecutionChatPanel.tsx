@@ -47,13 +47,6 @@ export default function ExecutionChatPanel({
   collapsible = false,
   defaultCollapsed = false,
 }: ExecutionChatPanelProps) {
-  console.log('[ExecutionChatPanel] Component rendered/re-rendered', {
-    executionId,
-    workspaceId,
-    playbookCode: playbookMetadata?.playbook_code,
-    timestamp: new Date().toISOString()
-  });
-
   const t = useT();
   const [messages, setMessages] = useState<ExecutionChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -155,18 +148,6 @@ export default function ExecutionChatPanel({
 
         setNeedsContinue(shouldContinue);
         setCurrentStepStatus(currentStepStatus);
-
-        console.log('[ExecutionChatPanel] Execution status checked', {
-          executionId,
-          execStatus,
-          currentStepStatus,
-          currentStepRequiresConfirmation,
-          currentStepConfirmationStatus,
-          pausedAt,
-          pausedAtFromContext,
-          needsContinue: shouldContinue,
-          executionContextKeys: Object.keys(executionContext)
-        });
       } catch (err) {
         console.error('[ExecutionChatPanel] Failed to check execution status:', err);
         // Fallback: use executionStatus prop
@@ -186,23 +167,14 @@ export default function ExecutionChatPanel({
 
   // Load initial messages
   useEffect(() => {
-    console.log('[ExecutionChatPanel] useEffect triggered', {
-      executionId,
-      workspaceId,
-      apiUrl,
-      timestamp: new Date().toISOString()
-    });
-
     // Skip if executionId is invalid
     if (!executionId || executionId === 'undefined') {
-      console.log('[ExecutionChatPanel] ⚠️ Skipping load - invalid executionId:', executionId);
       setIsLoading(false);
       setMessages([]);
       return;
     }
 
     // Reset state when executionId changes
-    console.log('[ExecutionChatPanel] Resetting state for executionId:', executionId);
     setMessages([]);
     setIsLoading(true);
     setIsSending(false);
@@ -216,18 +188,13 @@ export default function ExecutionChatPanel({
     setShowScrollToBottom(false);
 
     let cancelled = false;
-    const currentExecutionId = executionId; // Capture executionId for logging
+    const currentExecutionId = executionId;
 
     const loadMessages = async () => {
       const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${currentExecutionId}/chat`;
-      console.log('[ExecutionChatPanel] Fetching messages from:', url);
-      console.log('[ExecutionChatPanel] Request executionId:', currentExecutionId);
-      console.log('[ExecutionChatPanel] Cancelled flag at start:', cancelled);
 
       try {
-        console.log('[ExecutionChatPanel] Starting fetch for executionId:', currentExecutionId, 'cancelled:', cancelled);
         const fetchPromise = fetch(url);
-        console.log('[ExecutionChatPanel] Fetch promise created for executionId:', currentExecutionId);
 
         // Add timeout and error handling
         const timeoutPromise = new Promise((_, reject) => {
@@ -236,36 +203,18 @@ export default function ExecutionChatPanel({
           }, 10000); // 10 second timeout
         });
 
-        console.log('[ExecutionChatPanel] Waiting for fetch to complete for executionId:', currentExecutionId);
         const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
-        console.log('[ExecutionChatPanel] Fetch completed for executionId:', currentExecutionId, 'status:', response.status);
-        console.log('[ExecutionChatPanel] Checking cancelled flag. executionId:', currentExecutionId, 'cancelled:', cancelled);
 
         if (cancelled) {
-          console.log('[ExecutionChatPanel] ⚠️ Request cancelled AFTER fetch for executionId:', currentExecutionId);
           return;
         }
 
-        console.log('[ExecutionChatPanel] Response status:', response.status, 'for executionId:', currentExecutionId);
-
         if (response.ok) {
-          console.log('[ExecutionChatPanel] Parsing JSON for executionId:', currentExecutionId);
           const data = await response.json();
           const loadedMessages = data.messages || [];
-          console.log('[ExecutionChatPanel] Received messages:', {
-            executionId: currentExecutionId,
-            messageCount: loadedMessages.length,
-            messages: loadedMessages.map((m: any) => ({
-              id: m.id,
-              role: m.role,
-              content: m.content?.substring(0, 50)
-            }))
-          });
 
-          console.log('[ExecutionChatPanel] Checking cancelled before setState. executionId:', currentExecutionId, 'cancelled:', cancelled);
           if (!cancelled) {
             setMessages(loadedMessages);
-            console.log('[ExecutionChatPanel] ✅ State updated with', loadedMessages.length, 'messages for executionId:', currentExecutionId);
             // Auto scroll to bottom after loading messages (instant)
             // Use ref to avoid dependency on scrollToBottom function
             setTimeout(() => {
@@ -275,30 +224,19 @@ export default function ExecutionChatPanel({
             }, 50);
           }
         } else {
-          console.log('[ExecutionChatPanel] Response not OK. executionId:', currentExecutionId, 'status:', response.status, 'cancelled:', cancelled);
           if (!cancelled) {
-            console.error('[ExecutionChatPanel] Failed to load execution chat messages:', response.status, 'for executionId:', currentExecutionId);
+            console.error('[ExecutionChatPanel] Failed to load execution chat messages:', response.status);
           }
         }
       } catch (err) {
-        console.log('[ExecutionChatPanel] ❌ Exception caught. executionId:', currentExecutionId, 'cancelled:', cancelled, 'error:', err);
-        console.log('[ExecutionChatPanel] Error details:', {
-          name: (err as Error)?.name,
-          message: (err as Error)?.message,
-          stack: (err as Error)?.stack?.substring(0, 200)
-        });
         if (!cancelled) {
-          console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err, 'for executionId:', currentExecutionId);
+          console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err);
           // Still set loading to false even on error
           setIsLoading(false);
         }
       } finally {
-        console.log('[ExecutionChatPanel] Finally block. executionId:', currentExecutionId, 'cancelled:', cancelled);
         if (!cancelled) {
           setIsLoading(false);
-          console.log('[ExecutionChatPanel] ✅ Loading completed for executionId:', currentExecutionId);
-        } else {
-          console.log('[ExecutionChatPanel] ⚠️ Loading NOT completed (cancelled) for executionId:', currentExecutionId);
         }
       }
     };
@@ -307,9 +245,7 @@ export default function ExecutionChatPanel({
 
     // Cleanup function to cancel request if executionId changes
     return () => {
-      console.log('[ExecutionChatPanel] 🧹 Cleanup triggered for executionId:', currentExecutionId);
       cancelled = true;
-      console.log('[ExecutionChatPanel] Cancelled flag set to true for executionId:', currentExecutionId);
     };
   }, [executionId, workspaceId, apiUrl]);
 
@@ -488,7 +424,6 @@ export default function ExecutionChatPanel({
       // Determine which API to use based on execution status
       if (needsContinue) {
         // Scenario A: Continue execution
-        console.log('[ExecutionChatPanel] Using continue API to continue execution');
         response = await fetch(
           `${apiUrl}/api/v1/playbooks/execute/${executionId}/continue`,
           {
@@ -503,7 +438,6 @@ export default function ExecutionChatPanel({
         );
       } else {
         // Scenario B: Discussion and optimization
-        console.log('[ExecutionChatPanel] Using chat API for discussion');
         response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`,
           {
@@ -553,7 +487,6 @@ export default function ExecutionChatPanel({
           });
 
           setIsWaitingForReply(true);
-          console.log('[ExecutionChatPanel] Continue request sent, waiting for execution updates via SSE');
         } else {
           // For chat API, add thinking placeholder
           const thinkingId = `thinking-${Date.now()}`;
@@ -690,7 +623,6 @@ export default function ExecutionChatPanel({
           className="h-full overflow-y-auto px-4 pt-4"
         >
         {(() => {
-          console.log('[ExecutionChatPanel] Render check - isLoading:', isLoading, 'messages.length:', messages.length);
           return isLoading ? (
             <div className="flex justify-center py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 dark:border-blue-500"></div>

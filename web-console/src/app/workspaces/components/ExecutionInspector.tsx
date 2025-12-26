@@ -83,11 +83,13 @@ export default function ExecutionInspector({
 
   // Fetch artifacts from API for this execution
   const [artifacts, setArtifacts] = useState<typeof artifacts[0][]>([]);
+  const [originalArtifacts, setOriginalArtifacts] = useState<any[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
 
   useEffect(() => {
     if (!executionId || !workspaceId) {
       setArtifacts([]);
+      setOriginalArtifacts([]);
       return;
     }
 
@@ -98,7 +100,7 @@ export default function ExecutionInspector({
       try {
         console.log('[ExecutionInspector] Fetching artifacts for execution:', executionId);
         const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100`
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100&include_content=true`
         );
         if (cancelled) return;
 
@@ -115,6 +117,10 @@ export default function ExecutionInspector({
             return matches;
           });
           console.log('[ExecutionInspector] Filtered artifacts for execution:', executionArtifacts.length);
+          // Store original artifacts for IG post detection
+          if (!cancelled) {
+            setOriginalArtifacts(executionArtifacts);
+          }
           // Convert to Artifact format
           const convertedArtifacts = executionArtifacts.map((art: any) => ({
             id: art.id,
@@ -135,6 +141,7 @@ export default function ExecutionInspector({
         console.error('[ExecutionInspector] Failed to fetch artifacts:', error);
         if (!cancelled) {
           setArtifacts([]);
+          setOriginalArtifacts([]);
         }
       } finally {
         if (!cancelled) {
@@ -296,6 +303,8 @@ export default function ExecutionInspector({
                         stepEvents={executionSteps.stepEvents}
                         executionStatus={executionCore.execution?.status}
                         artifacts={currentStepArtifacts}
+                        originalArtifacts={originalArtifacts}
+                        workspaceId={workspaceId}
                         onViewArtifact={handleArtifactView}
                         t={t}
                       />
