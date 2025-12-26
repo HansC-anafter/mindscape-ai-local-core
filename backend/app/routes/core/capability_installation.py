@@ -82,17 +82,60 @@ async def install_capability_from_mindpack(
             # Install capability
             success, result = installer.install_from_mindpack(tmp_path, validate=True)
 
+            # Register in database if installation succeeded
+            if success:
+                capability_code = result.get("capability_code")
+                if capability_code:
+                    try:
+                        import sqlite3
+                        import json
+                        import os
+                        from datetime import datetime
+
+                        # Get database path (same logic as capability_packs.py)
+                        if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
+                            db_path = '/app/data/mindscape.db'
+                        else:
+                            base_dir = Path(__file__).parent.parent.parent.parent.parent
+                            data_dir = base_dir / "data"
+                            data_dir.mkdir(parents=True, exist_ok=True)
+                            db_path = str(data_dir / "mindscape.db")
+
+                        conn = sqlite3.connect(db_path)
+                        cursor = conn.cursor()
+                        # Check if already registered
+                        cursor.execute('SELECT pack_id FROM installed_packs WHERE pack_id = ?', (capability_code,))
+                        if not cursor.fetchone():
+                            # Register in database
+                            metadata = {
+                                "version": result.get("version") or "1.0.0",
+                                "installed_components": result.get("installed", {})
+                            }
+                            cursor.execute('''
+                                INSERT INTO installed_packs (pack_id, installed_at, enabled, metadata)
+                                VALUES (?, ?, 1, ?)
+                            ''', (capability_code, datetime.now().isoformat(), json.dumps(metadata)))
+                            conn.commit()
+                            logger.info(f"Registered {capability_code} in database")
+                        conn.close()
+                    except Exception as e:
+                        logger.warning(f"Failed to register {capability_code} in database: {e}")
+
             # Build response
             if success:
                 playbook_count = len(result.get("installed", {}).get("playbooks", []))
                 tool_count = len(result.get("installed", {}).get("tools", []))
                 service_count = len(result.get("installed", {}).get("services", []))
+                ui_component_count = len(result.get("installed", {}).get("ui_components", []))
 
                 # Build message with dependency information
                 message_parts = [
                     f"Successfully installed capability '{result['capability_code']}': "
                     f"{playbook_count} playbooks, {tool_count} tools, {service_count} services"
                 ]
+
+                if ui_component_count > 0:
+                    message_parts[0] += f", {ui_component_count} UI components"
 
                 missing_deps = result.get("missing_dependencies", {})
                 if missing_deps:

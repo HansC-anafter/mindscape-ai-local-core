@@ -108,19 +108,32 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
         if meta:
             packs.append(meta)
 
-    # Cloud capabilities scanning removed
-    cloud_root_candidates = []
-    for cloud_root in cloud_root_candidates:
-        if not cloud_root.exists():
-            continue
-        for cap_dir in cloud_root.iterdir():
+    # Scan installed capabilities from backend/app/capabilities/
+    # In Docker: /app/backend/app/routes/core/capability_packs.py -> /app/backend/app/capabilities
+    # In local: backend/app/routes/core/capability_packs.py -> backend/app/capabilities
+    capabilities_dir = base_dir / "app" / "capabilities"
+    if not capabilities_dir.exists():
+        # Try alternative paths
+        alt_paths = [
+            Path("/app/backend/app/capabilities"),  # Docker
+            base_dir / "backend" / "app" / "capabilities",  # Local dev
+        ]
+        for alt_path in alt_paths:
+            if alt_path.exists():
+                capabilities_dir = alt_path
+                break
+
+    if capabilities_dir.exists():
+        for cap_dir in capabilities_dir.iterdir():
+            if not cap_dir.is_dir():
+                continue
             manifest_path = cap_dir / "manifest.yaml"
             if manifest_path.exists():
                 meta = _load_manifest_file(manifest_path)
                 if not meta:
                     continue
                 # Map manifest fields to pack meta fields expected by API
-                code = meta.get("code")
+                code = meta.get("code") or cap_dir.name
                 name = meta.get("display_name") or meta.get("name") or code
                 description = meta.get("description", "")
                 # Attach playbook codes for visibility (if present)
@@ -131,13 +144,18 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
                     elif isinstance(pb, str):
                         playbooks.append(pb)
                 meta_mapped = {
-                    "id": code or cap_dir.name,
+                    "id": code,  # Use code as id
                     "name": name or cap_dir.name,
                     "description": description,
                     "version": meta.get("version", "1.0.0"),
                     "playbooks": playbooks,
+                    "ui_components": meta.get("ui_components", []),  # Include UI components
                     "_file_path": str(manifest_path),
                 }
+                # Merge other fields from original meta
+                for key, value in meta.items():
+                    if key not in meta_mapped and key != "_file_path":
+                        meta_mapped[key] = value
                 packs.append(meta_mapped)
 
     return packs
@@ -356,17 +374,73 @@ async def list_installed_capabilities():
             if pack_id and pack_id in installed_ids:
                 installed_capabilities.append({
                     'id': pack_id,
-                    'code': pack_id,  # Use pack_id as code
+                    'code': pack_meta.get('code', pack_id),  # Use code from meta if available
                     'display_name': pack_meta.get('name', pack_id),
                     'version': pack_meta.get('version', '1.0.0'),
                     'description': pack_meta.get('description', ''),
-                    'scope': pack_meta.get('scope', 'global')
+                    'scope': pack_meta.get('scope', 'global'),
+                    'ui_components': pack_meta.get('ui_components', [])  # Include UI components info
                 })
 
         return installed_capabilities
     except Exception as e:
         logger.error(f"Failed to list installed capabilities: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list installed capabilities: {str(e)}")
+
+
+@router.get("/installed-capabilities/{capability_code}/ui-components", response_model=List[Dict[str, Any]])
+async def get_capability_ui_components(capability_code: str):
+    """
+    Get UI components information for an installed capability
+
+    Returns UI components metadata from the capability's manifest.
+    Frontend uses this to dynamically load UI components.
+
+    Boundary: This API only reads manifest metadata, does not serve component code.
+    Component code must be installed via CapabilityInstaller, not hardcoded.
+    """
+    try:
+        # Get all packs
+        pack_metas = _scan_pack_yaml_files()
+
+        # Find the capability
+        pack_meta = next((p for p in pack_metas if p.get('id') == capability_code), None)
+
+        if not pack_meta:
+            raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' not found")
+
+        # Check if installed
+        installed_ids = _get_installed_pack_ids()
+        if capability_code not in installed_ids:
+            raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' is not installed")
+
+        # Return UI components from manifest
+        ui_components = pack_meta.get('ui_components', [])
+
+        # Format response with component metadata
+        formatted_components = []
+        for component in ui_components:
+            # Component file should be at: web-console/src/app/capabilities/{capability_code}/components/{filename}
+            # Remove .tsx/.ts extension for dynamic import
+            component_filename = Path(component.get("path", "")).name
+            component_name = component_filename.replace('.tsx', '').replace('.ts', '')
+
+            formatted_components.append({
+                'code': component.get('code'),
+                'path': component.get('path'),
+                'description': component.get('description', ''),
+                'export': component.get('export', 'default'),
+                'artifact_types': component.get('artifact_types', []),
+                'playbook_codes': component.get('playbook_codes', []),
+                'import_path': f'@/app/capabilities/{capability_code}/components/{component_name}'
+            })
+
+        return formatted_components
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get UI components for capability {capability_code}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get UI components: {str(e)}")
 
 
 # ============================================
@@ -399,6 +473,7 @@ async def install_from_file(
         current_file = Path(__file__).resolve()
         app_dir = current_file.parent.parent  # app/routes -> app
         backend_dir = app_dir.parent  # app -> backend
+        local_core_root = backend_dir.parent  # backend -> workspace root
 
         backend_dir_str = str(backend_dir)
         if backend_dir_str not in sys.path:
@@ -413,8 +488,25 @@ async def install_from_file(
 
         try:
             allow_overwrite_bool = allow_overwrite.lower() in ('true', '1', 'yes', 'on')
-            installer = CapabilityInstaller()
-            result = installer.install_from_file(tmp_path, allow_overwrite=allow_overwrite_bool)
+            installer = CapabilityInstaller(local_core_root=local_core_root)
+            success, install_result = installer.install_from_mindpack(tmp_path, validate=True)
+
+            # Convert result format to match expected format
+            if not success:
+                error_msg = install_result.get('errors', ['Installation failed'])
+                if isinstance(error_msg, list) and error_msg:
+                    error_msg = error_msg[0]
+                elif not isinstance(error_msg, str):
+                    error_msg = 'Installation failed'
+                result = {'success': False, 'error': error_msg}
+            else:
+                capability_code = install_result.get('capability_code', 'grant_scout')
+                result = {
+                    'success': True,
+                    'capability_id': capability_code,
+                    'version': '1.0.0',
+                    'target_dir': str(backend_dir / 'app' / 'capabilities' / capability_code)
+                }
 
             if not result.get('success'):
                 error_msg = result.get('error', 'Installation failed')
