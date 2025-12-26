@@ -92,3 +92,11 @@ scripts-internal/
 
 # Local development overrides
 docker-compose.override.yml
+
+# ============================================
+# HARD BARRIER: 禁止 Cloud 组件进入 Local-Core
+# ============================================
+# 这些路径应该永远为空，如果出现文件则说明架构违规
+# 所有通过 CapabilityInstaller 安装的文件都应该被排除
+/web-console/src/app/capabilities/
+/backend/app/capabilities/

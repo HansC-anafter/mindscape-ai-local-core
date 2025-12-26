@@ -1,0 +1,70 @@
+name: Check Cloud Component Leakage
+
+on:
+  pull_request:
+    paths:
+      - 'web-console/src/app/capabilities/**'
+      - 'backend/app/capabilities/**/ui/**'
+      - 'backend/app/capabilities/**/playbooks/specs/**'
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  check-cloud-components:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for Cloud components in Local-Core
+        run: |
+          echo "Checking for forbidden Cloud components in Local-Core..."
+
+          # Local-Core 原生的 capabilities（允许有 UI 组件）
+          NATIVE_CAPS="brand_identity"
+
+          # 检查 web-console 中是否有 IG 相关的 Cloud capability UI 组件
+          if find web-console/src/app/capabilities -type d -name "*ig*" 2>/dev/null | grep -q .; then
+            echo "❌ ERROR: Found IG-related Cloud capability components in Local-Core web-console!"
+            find web-console/src/app/capabilities -type d -name "*ig*"
+            exit 1
+          fi
+
+          # 检查 web-console 中是否有其他 Cloud capability UI 组件（排除原生 capabilities）
+          # 只检查非原生 capability 的 UI 组件
+          for cap_dir in web-console/src/app/capabilities/*/; do
+            if [ -d "$cap_dir" ]; then
+              cap_name=$(basename "$cap_dir")
+              # 如果是原生 capability，跳过检查
+              if echo "$NATIVE_CAPS" | grep -q "$cap_name"; then
+                continue
+              fi
+              # 非原生 capability 不应该有 UI 组件
+              if find "$cap_dir" -type f \( -name "*.tsx" -o -name "*.ts" \) 2>/dev/null | grep -q .; then
+                echo "❌ ERROR: Found Cloud UI components in non-native capability: $cap_name"
+                find "$cap_dir" -type f \( -name "*.tsx" -o -name "*.ts" \)
+                exit 1
+              fi
+            fi
+          done
+
+          # 检查 backend capabilities 中是否有 UI 目录（Cloud capability 不应该有 UI 目录）
+          if find backend/app/capabilities -type d -name "ui" 2>/dev/null | grep -q .; then
+            echo "❌ ERROR: Found UI directories in backend capabilities!"
+            echo "Cloud capabilities should not have UI directories in Local-Core backend"
+            find backend/app/capabilities -type d -name "ui"
+            exit 1
+          fi
+
+          # 检查 backend 中是否有 IG capability 的 UI 相关文件（工具文件是合法的，但 UI 不应该存在）
+          if find backend/app/capabilities/ig -type f \( -name "*.tsx" -o -name "*.ts" -o -path "*/ui/*" \) 2>/dev/null | grep -q .; then
+            echo "❌ ERROR: Found UI files in backend IG capability!"
+            echo "IG capability tools are allowed, but UI files should not be in backend"
+            find backend/app/capabilities/ig -type f \( -name "*.tsx" -o -name "*.ts" -o -path "*/ui/*" \)
+            exit 1
+          fi
+
+          echo "✅ No forbidden Cloud components found in Local-Core"
+

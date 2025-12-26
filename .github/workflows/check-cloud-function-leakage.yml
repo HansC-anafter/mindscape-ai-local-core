@@ -54,3 +54,37 @@ jobs:
             exit 1
           fi
 
+      - name: Check for Cloud playbook specs in Local-Core
+        run: |
+          # Check for any cloud-specific playbook specs that should not be in Local-Core
+          FORBIDDEN_PLAYBOOKS=("ig_post_generation" "facebook_post" "twitter_post" "linkedin_post")
+          for playbook in "${FORBIDDEN_PLAYBOOKS[@]}"; do
+            if find backend/playbooks/specs -name "*${playbook}*" -type f 2>/dev/null | grep -q .; then
+              echo "ERROR: Cloud playbook spec '${playbook}' found in Local-Core!"
+              echo "Cloud playbook specs should be in mindscape-ai-cloud/capabilities/, not in Local-Core"
+              echo "Local-Core should load them via CloudExtensionManager, not store them locally"
+              exit 1
+            fi
+          done
+
+      - name: Check for modifications to protected paths
+        run: |
+          # Check if PR modifies protected paths that should rarely change
+          PROTECTED_PATHS=(
+            "backend/playbooks/specs/"
+            "backend/app/routes/core/"
+            "web-console/src/services/localCore/"
+          )
+
+          CHANGED_FILES=$(git diff --name-only origin/master...HEAD 2>/dev/null || git diff --name-only HEAD~1...HEAD 2>/dev/null || echo "")
+
+          if [ -n "$CHANGED_FILES" ]; then
+            for path in "${PROTECTED_PATHS[@]}"; do
+              if echo "$CHANGED_FILES" | grep -q "^${path}"; then
+                echo "WARNING: Modified protected path: ${path}"
+                echo "Please ensure this change does not introduce Cloud business logic into Local-Core"
+                echo "If this is a Cloud capability, it should be in mindscape-ai-cloud repo"
+              fi
+            done
+          fi
+
