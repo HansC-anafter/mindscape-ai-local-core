@@ -1,15 +1,15 @@
 """
-工具基礎類別和接口定義
+Tool base classes and interface definitions
 
-定義 Mindscape AI 的工具抽象層，包括：
-- ToolConnection: 工具連接配置
-- Tool: 舊版工具基礎類(向後兼容)
-- MindscapeTool: 新版工具抽象基礎類，支援 LangChain/MCP 轉換
+Defines Mindscape AI's tool abstraction layer, including:
+- ToolConnection: Tool connection configuration
+- Tool: Legacy tool base class (backward compatible)
+- MindscapeTool: New tool abstract base class, supports LangChain/MCP conversion
 
-設計原則：
-- 向後兼容：保留舊 Tool 類
-- 框架中立：支援多種工具生態轉換
-- 異步優先：所有執行都是異步
+Design principles:
+- Backward compatible: Keep legacy Tool class
+- Framework neutral: Support multiple tool ecosystem conversions
+- Async first: All executions are asynchronous
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
@@ -125,16 +125,16 @@ class MindscapeTool(ABC):
 
     def __init__(self, metadata: ToolMetadata):
         """
-        初始化工具
+        Initialize tool
 
         Args:
-            metadata: 工具元數據
+            metadata: Tool metadata
         """
         self.metadata = metadata
         self._validate_metadata()
 
     def _validate_metadata(self):
-        """驗證 metadata 完整性"""
+        """Validate metadata completeness"""
         if not self.metadata.name:
             raise ValueError("Tool name is required")
         if not self.metadata.description:
@@ -144,39 +144,39 @@ class MindscapeTool(ABC):
 
     @property
     def name(self) -> str:
-        """工具名稱"""
+        """Tool name"""
         return self.metadata.name
 
     @property
     def description(self) -> str:
-        """工具描述"""
+        """Tool description"""
         return self.metadata.description
 
     @property
     def source_type(self) -> ToolSourceType:
-        """工具來源類型"""
+        """Tool source type"""
         return self.metadata.source_type
 
     @abstractmethod
     async def execute(self, **kwargs) -> Any:
         """
-        執行工具
+        Execute tool
 
         Args:
-            **kwargs: 根據 input_schema 定義的參數
+            **kwargs: Parameters defined by input_schema
 
         Returns:
-            工具執行結果(任意類型)
+            Tool execution result (any type)
 
         Raises:
-            ValueError: 參數驗證失敗
-            RuntimeError: 執行失敗
+            ValueError: Parameter validation failed
+            RuntimeError: Execution failed
         """
         pass
 
     def validate_input(self, **kwargs) -> Dict[str, Any]:
         """
-        驗證輸入參數是否符合 schema
+        Validate input parameters against schema
 
         Args:
             **kwargs: Input parameters

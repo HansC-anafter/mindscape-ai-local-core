@@ -72,7 +72,7 @@ def resolve_template(template: str, context: Dict[str, Any]) -> str:
                 if value is None or value == '':
                     # Provide default values for common empty inputs
                     if input_key == 'source_content':
-                        return '指定內容'  # Default for empty source_content
+                        return 'specified_content'  # Default for empty source_content
                     return ''
                 return str(value)
         elif parts[0] == 'artifact':

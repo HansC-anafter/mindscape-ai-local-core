@@ -118,3 +118,7 @@ class VectorSearchTool(MindscapeTool):
             logger.error(f"Vector search failed: {e}", exc_info=True)
             return []
 
+
+
+
+

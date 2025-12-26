@@ -297,7 +297,7 @@ async def discover_playbook(
 
         if not query:
             return {
-                'suggestion': '請描述你的需求，例如：「我想分析數據」、「我需要生成 Instagram 貼文」等。',
+                'suggestion': 'Please describe your needs, for example: "I want to analyze data", "I need to generate Instagram posts", etc.',
                 'recommended_playbooks': []
             }
 
@@ -334,9 +334,9 @@ async def discover_playbook(
                 f"{i + 1}. {p.get('icon', '📋')} {p.get('name', '')}\n   {p.get('description', '')}"
                 for i, p in enumerate(matched_playbooks)
             ])
-            suggestion = f'根據你的需求「{query}」，我找到 {len(matched_playbooks)} 個相關的 Playbook：\n\n{playbook_list}'
+            suggestion = f'Based on your needs "{query}", I found {len(matched_playbooks)} relevant Playbook(s):\n\n{playbook_list}'
         else:
-            suggestion = f'抱歉，我沒有找到與「{query}」相關的 Playbook。請嘗試使用其他關鍵字，或查看完整的 Playbook 列表。'
+            suggestion = f'Sorry, I could not find any Playbook related to "{query}". Please try other keywords or view the complete Playbook list.'
 
         return {
             'suggestion': suggestion,
@@ -345,7 +345,7 @@ async def discover_playbook(
     except Exception as e:
         logger.error(f"Failed to discover playbook: {e}")
         return {
-            'suggestion': '抱歉，暫時無法處理你的請求。請稍後再試。',
+            'suggestion': 'Sorry, I am temporarily unable to process your request. Please try again later.',
             'recommended_playbooks': []
         }
 
@@ -805,7 +805,7 @@ async def install_playbook_tools(
                 "installed": installed,
                 "failed": failed,
                 "still_missing": still_missing,
-                "message": "部分必要工具無法安裝"
+                "message": "Some required tools could not be installed"
             }
 
         return {
@@ -813,7 +813,7 @@ async def install_playbook_tools(
             "installed": installed,
             "failed": failed,
             "available": check_result["available"],
-            "message": f"成功安裝 {len(installed)} 個工具"
+            "message": f"Successfully installed {len(installed)} tool(s)"
         }
 
     except HTTPException:

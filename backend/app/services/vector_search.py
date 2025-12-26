@@ -298,7 +298,7 @@ class VectorSearchService:
         top_k: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        场景 2：搜索外部知识（RAG）
+        Scenario 2: Search external knowledge (RAG)
 
         Args:
             query: Search query
