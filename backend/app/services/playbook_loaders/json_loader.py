@@ -46,7 +46,7 @@ class PlaybookJsonLoader:
                 from ...services.cloud_extension_manager import CloudExtensionManager
 
                 manager = CloudExtensionManager.instance()
-                
+
                 # Try to get existing event loop, or create new one if not in async context
                 try:
                     loop = asyncio.get_event_loop()

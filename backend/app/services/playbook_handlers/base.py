@@ -161,7 +161,7 @@ class PlaybookHandlerRegistry:
             return
 
         try:
-            from ...playbook_loaders.npm_loader import PlaybookNpmLoader
+            from backend.app.services.playbook_loaders.npm_loader import PlaybookNpmLoader
             import importlib
             import sys
             from pathlib import Path

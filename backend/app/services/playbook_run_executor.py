@@ -34,7 +34,7 @@ from backend.app.models.workspace import PlaybookExecution
 from backend.app.services.runtime.runtime_factory import RuntimeFactory
 from backend.app.services.runtime.simple_runtime import SimpleRuntime
 from backend.app.core.runtime_port import ExecutionProfile
-from backend.app.core.execution_context import ExecutionContext
+from backend.app.core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)
 
@@ -200,8 +200,8 @@ class PlaybookRunExecutor:
             from datetime import datetime
             execution_id = str(uuid.uuid4())
 
-            logger.info(f"PlaybookRunExecutor: Creating ExecutionContext with project_id={project_id}")
-            exec_context = ExecutionContext(
+            logger.info(f"PlaybookRunExecutor: Creating LocalDomainContext with project_id={project_id}")
+            exec_context = LocalDomainContext(
                 actor_id=profile_id,
                 workspace_id=workspace_id,
                 tags={
@@ -210,7 +210,7 @@ class PlaybookRunExecutor:
                     "project_id": project_id or ""
                 }
             )
-            logger.info(f"PlaybookRunExecutor: ExecutionContext.tags.project_id={exec_context.tags.get('project_id') if exec_context.tags else 'None'}")
+            logger.info(f"PlaybookRunExecutor: LocalDomainContext.tags.project_id={exec_context.tags.get('project_id') if exec_context.tags else 'None'}")
 
             # Execute using selected runtime
             try:
