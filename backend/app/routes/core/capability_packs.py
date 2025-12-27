@@ -227,6 +227,20 @@ async def list_packs():
                 continue
 
             installed_info = installed_metadata.get(pack_id, {})
+
+            # 处理 tools 字段：如果是字典列表，提取工具名称
+            tools_raw = pack_meta.get('tools', [])
+            tools_list = []
+            if isinstance(tools_raw, list):
+                for tool in tools_raw:
+                    if isinstance(tool, str):
+                        tools_list.append(tool)
+                    elif isinstance(tool, dict):
+                        # 从字典中提取工具名称
+                        tool_name = tool.get('name') or tool.get('id') or tool.get('tool')
+                        if tool_name:
+                            tools_list.append(tool_name)
+
             packs.append(PackResponse(
                 id=pack_id,
                 name=pack_meta.get('name', pack_id),
@@ -236,7 +250,7 @@ async def list_packs():
                 installed=pack_id in installed_ids,
                 routes=pack_meta.get('routes', []),
                 playbooks=pack_meta.get('playbooks', []),
-                tools=pack_meta.get('tools', []),
+                tools=tools_list,
                 version=installed_info.get('version') or pack_meta.get('version', '1.0.0'),
                 installed_at=installed_info.get('installed_at')
             ))
@@ -471,9 +485,11 @@ async def install_from_file(
 
         # Get backend directory and add to sys.path
         current_file = Path(__file__).resolve()
-        app_dir = current_file.parent.parent  # app/routes -> app
-        backend_dir = app_dir.parent  # app -> backend
-        local_core_root = backend_dir.parent  # backend -> workspace root
+        app_dir = current_file.parent.parent
+        backend_dir = app_dir.parent
+
+        # Resolve workspace root directory for CapabilityInstaller
+        local_core_root = current_file.parent.parent.parent.parent.parent
 
         backend_dir_str = str(backend_dir)
         if backend_dir_str not in sys.path:
@@ -501,11 +517,12 @@ async def install_from_file(
                 result = {'success': False, 'error': error_msg}
             else:
                 capability_code = install_result.get('capability_code', 'grant_scout')
+                correct_backend_dir = local_core_root / 'backend'
                 result = {
                     'success': True,
                     'capability_id': capability_code,
                     'version': '1.0.0',
-                    'target_dir': str(backend_dir / 'app' / 'capabilities' / capability_code)
+                    'target_dir': str(correct_backend_dir / 'app' / 'capabilities' / capability_code)
                 }
 
             if not result.get('success'):
