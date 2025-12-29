@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from ...services.cloud_extension_manager import CloudExtensionManager
 from ...services.system_settings_store import SystemSettingsStore
-from ...services.cloud_providers.official import OfficialCloudProvider
+# OfficialCloudProvider removed - use GenericHttpProvider instead
 from ...services.cloud_providers.generic_http import GenericHttpProvider
 from ...models.system_settings import SettingType
 
@@ -42,7 +42,7 @@ class ProviderAction(BaseModel):
     """
     Provider action link (neutral contract)
 
-    ⚠️ Hard Rule: This is part of Provider Contract, not site-hub specific.
+    Hard Rule: This is part of Provider Contract, not site-hub specific.
     local-core does not need to know if it's site-hub, green world, or WooCommerce.
     """
     type: str  # e.g., "BROWSER_AUTH", "MANAGE", "DOCS"
@@ -56,7 +56,7 @@ class ProviderActionRequired(BaseModel):
     """
     Provider action required response (neutral contract)
 
-    ⚠️ Hard Rule: This is Provider Contract, not site-hub specific.
+    Hard Rule: This is Provider Contract, not site-hub specific.
     """
     state: str  # e.g., "ACTION_REQUIRED"
     reason: str  # e.g., "ENTITLEMENT_REQUIRED"
@@ -79,7 +79,37 @@ def get_settings_store() -> SystemSettingsStore:
 def get_cloud_manager() -> CloudExtensionManager:
     """Dependency to get cloud extension manager"""
     try:
-        return CloudExtensionManager.instance()
+        manager = CloudExtensionManager.instance()
+        # Always reload providers from system settings to ensure consistency
+        # This ensures providers are loaded even if manager was initialized before providers were configured
+        settings_store = SystemSettingsStore()
+        providers_config = settings_store.get("cloud_providers", default=[])
+        if isinstance(providers_config, list):
+            # Get currently registered provider IDs
+            registered_ids = set(manager.providers.keys())
+            for provider_config in providers_config:
+                if not isinstance(provider_config, dict):
+                    continue
+                provider_id = provider_config.get("provider_id")
+                provider_type = provider_config.get("provider_type")
+                enabled = provider_config.get("enabled", False)
+                config = provider_config.get("config", {})
+                if provider_id and enabled:
+                    # Only register if not already registered or if config changed
+                    if provider_id not in registered_ids:
+                        try:
+                            provider_instance = _create_provider_instance(
+                                provider_id,
+                                provider_type,
+                                config,
+                                settings_store
+                            )
+                            if provider_instance:
+                                manager.register_provider(provider_instance)
+                                logger.info(f"Loaded provider {provider_id} from settings")
+                        except Exception as e:
+                            logger.warning(f"Failed to load provider {provider_id}: {e}", exc_info=True)
+        return manager
     except Exception as e:
         logger.error(f"Failed to get cloud extension manager: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to initialize cloud extension manager: {str(e)}")
@@ -175,6 +205,7 @@ async def create_provider(
 
         # Validate provider type
         if provider.provider_type not in ["official", "generic_http", "custom"]:
+            # Note: "official" is deprecated but still supported for backward compatibility
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid provider type: {provider.provider_type}"
@@ -420,7 +451,7 @@ async def install_default_packs(
     """
     Install default packs from provider (one-click install)
 
-    ⚠️ Hard Rule: This endpoint only triggers PackInstaller.
+    Hard Rule: This endpoint only triggers PackInstaller.
     PackInstaller creates isolated pack venv and installs protocol there.
     local-core core does NOT install protocol.
     """
@@ -433,7 +464,7 @@ async def install_default_packs(
             raise HTTPException(status_code=400, detail="Provider not configured")
 
         # Get packs catalog from provider API
-        # ⚠️ Hard Rule: local-core backend calls provider API (not site-hub directly)
+        # Hard Rule: local-core backend calls provider API (not site-hub directly)
         packs_catalog = await _get_packs_catalog(provider, bundle)
 
         # Check if response indicates action required (neutral Provider Contract)
@@ -453,7 +484,7 @@ async def install_default_packs(
             raise HTTPException(status_code=404, detail=f"No packs found for bundle '{bundle}'")
 
         # Use existing CapabilityInstaller
-        # ⚠️ Hard Rule: Pack venv and protocol installation should be handled by pack runtime executor
+        # Hard Rule: Pack venv and protocol installation should be handled by pack runtime executor
         # For now, CapabilityInstaller installs packs to local-core capabilities directory
         # Protocol installation in pack venv will be handled when pack is executed (not during install)
 
@@ -471,16 +502,37 @@ async def install_default_packs(
         for pack_info in packs_catalog.get("packs", []):
             try:
                 pack_code = pack_info.get("code")
+                pack_ref = pack_info.get("pack_ref")
                 download_url = pack_info.get("download_url")
 
-                if not pack_code or not download_url:
+                if not pack_code:
+                    continue
+
+                # If download_url is not provided, get it from download_link API
+                if not download_url and pack_ref:
+                    try:
+                        download_info = await provider.get_download_link(pack_ref)
+                        download_url = download_info.get("download_url")
+                        if not download_url:
+                            logger.warning(f"No download_url for pack {pack_ref}, skipping")
+                            continue
+                    except Exception as e:
+                        logger.error(f"Failed to get download link for pack {pack_ref}: {e}", exc_info=True)
+                        errors.append({
+                            "pack_code": pack_code,
+                            "error": f"Failed to get download link: {str(e)}"
+                        })
+                        continue
+
+                if not download_url:
+                    logger.warning(f"No download_url for pack {pack_code}, skipping")
                     continue
 
                 # Download pack zip/mindpack file
                 headers = {}
                 api_key = provider.get_api_key() if hasattr(provider, 'get_api_key') else None
                 if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
+                    headers["X-API-Key"] = api_key
 
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.get(download_url, headers=headers)
@@ -596,7 +648,7 @@ async def get_provider_actions(
             raise HTTPException(status_code=400, detail="Provider not configured")
 
         # Get actions from provider API (neutral Provider Contract)
-        # ⚠️ Hard Rule: This is Provider Contract, not site-hub specific
+        # Hard Rule: This is Provider Contract, not site-hub specific
         catalog = await _get_packs_catalog(provider)
 
         if isinstance(catalog, dict) and catalog.get("state") == "ACTION_REQUIRED":
@@ -626,7 +678,7 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
     """
     Get packs catalog from provider API
 
-    ⚠️ Hard Rule: local-core backend calls provider API (not site-hub directly)
+    Hard Rule: local-core backend calls provider API (not site-hub directly)
     Returns neutral Provider Contract format (actions[] instead of purchase_url)
     """
     import httpx
@@ -639,21 +691,36 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
 
     headers = {}
     if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-API-Key"] = api_key
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.get(
-                f"{api_url}/v1/packs",
+                f"{api_url}/api/v1/packs",
                 params={"bundle": bundle},
                 headers=headers
             )
 
             if response.status_code == 403:
                 # Check if response contains neutral Provider Contract format
-                error_data = response.json()
+                try:
+                    error_data = response.json()
+                except Exception:
+                    # If JSON parsing fails, return a default ACTION_REQUIRED response
+                    return {
+                        "state": "ACTION_REQUIRED",
+                        "reason": "ENTITLEMENT_REQUIRED",
+                        "actions": [],
+                        "retry_after_sec": 5
+                    }
+
+                # FastAPI HTTPException wraps detail in {"detail": {...}}
+                # Check if detail exists and extract it
+                if "detail" in error_data and isinstance(error_data["detail"], dict):
+                    error_data = error_data["detail"]
+
                 # Support both old format (backward compatibility) and new format
-                if error_data.get("state") == "ACTION_REQUIRED" or error_data.get("error") == "ENTITLEMENT_REQUIRED":
+                if error_data.get("state") == "ACTION_REQUIRED" or error_data.get("reason") == "ENTITLEMENT_REQUIRED" or error_data.get("error") == "ENTITLEMENT_REQUIRED":
                     # Convert old format to new format if needed
                     if "actions" in error_data:
                         return error_data  # Already in new format
@@ -661,7 +728,7 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
                         # Convert old format to new format
                         return {
                             "state": "ACTION_REQUIRED",
-                            "reason": error_data.get("error", "ENTITLEMENT_REQUIRED"),
+                            "reason": error_data.get("error") or error_data.get("reason", "ENTITLEMENT_REQUIRED"),
                             "actions": [
                                 {
                                     "type": "BROWSER_AUTH",
@@ -676,8 +743,8 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
                     else:
                         return {
                             "state": "ACTION_REQUIRED",
-                            "reason": error_data.get("error", "ENTITLEMENT_REQUIRED"),
-                            "actions": [],
+                            "reason": error_data.get("error") or error_data.get("reason", "ENTITLEMENT_REQUIRED"),
+                            "actions": error_data.get("actions", []),
                             "retry_after_sec": 5
                         }
 
@@ -685,25 +752,47 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
             return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
-                error_data = e.response.json()
-                # Convert old format to new format if needed
-                if "actions" in error_data:
-                    return error_data
-                elif "purchase_url" in error_data:
+                try:
+                    error_data = e.response.json()
+                except Exception:
                     return {
                         "state": "ACTION_REQUIRED",
-                        "reason": error_data.get("error", "ENTITLEMENT_REQUIRED"),
-                        "actions": [
-                            {
-                                "type": "BROWSER_AUTH",
-                                "label": "Login / Purchase",
-                                "rel": "purchase",
-                                "url": error_data.get("purchase_url"),
-                                "expires_at": None
-                            }
-                        ],
+                        "reason": "ENTITLEMENT_REQUIRED",
+                        "actions": [],
                         "retry_after_sec": 5
                     }
+
+                # FastAPI HTTPException wraps detail in {"detail": {...}}
+                # Check if detail exists and extract it
+                if "detail" in error_data and isinstance(error_data["detail"], dict):
+                    error_data = error_data["detail"]
+
+                # Convert old format to new format if needed
+                if error_data.get("state") == "ACTION_REQUIRED" or error_data.get("reason") == "ENTITLEMENT_REQUIRED" or error_data.get("error") == "ENTITLEMENT_REQUIRED":
+                    if "actions" in error_data:
+                        return error_data
+                    elif "purchase_url" in error_data:
+                        return {
+                            "state": "ACTION_REQUIRED",
+                            "reason": error_data.get("error") or error_data.get("reason", "ENTITLEMENT_REQUIRED"),
+                            "actions": [
+                                {
+                                    "type": "BROWSER_AUTH",
+                                    "label": "Login / Purchase",
+                                    "rel": "purchase",
+                                    "url": error_data.get("purchase_url"),
+                                    "expires_at": None
+                                }
+                            ],
+                            "retry_after_sec": 5
+                        }
+                    else:
+                        return {
+                            "state": "ACTION_REQUIRED",
+                            "reason": error_data.get("error") or error_data.get("reason", "ENTITLEMENT_REQUIRED"),
+                            "actions": error_data.get("actions", []),
+                            "retry_after_sec": 5
+                        }
             raise
 
 
@@ -749,17 +838,51 @@ def _create_provider_instance(
     """
     try:
         if provider_type == "official":
-            return OfficialCloudProvider(
+            # Official provider type is deprecated - use generic_http instead
+            # Convert to generic_http configuration for backward compatibility
+            logger.warning(
+                f"Provider type 'official' is deprecated. "
+                f"Converting '{provider_id}' to generic_http configuration."
+            )
+            return GenericHttpProvider(
+                provider_id=provider_id,
+                provider_name=config.get("name", "Mindscape AI Cloud"),
                 api_url=config.get("api_url"),
-                license_key=config.get("license_key"),
-                settings_store=settings_store
+                auth_config={
+                    "auth_type": "api_key",
+                    "api_key": config.get("license_key")
+                },
+                api_path_template=config.get(
+                    "api_path_template",
+                    "/api/v1/playbooks/{capability_code}/{playbook_code}"
+                ),
+                pack_download_path=config.get("pack_download_path")
             )
         elif provider_type == "generic_http":
+            # Build auth_config from config
+            auth_config = config.get("auth", {})
+            if not auth_config:
+                # Fallback: build auth_config from flat config keys
+                auth_type = config.get("auth_type", "bearer")
+                auth_config = {"auth_type": auth_type}
+                if auth_type == "bearer":
+                    auth_config["token"] = config.get("token")
+                elif auth_type == "api_key":
+                    auth_config["api_key"] = config.get("api_key")
+                elif auth_type == "oauth":
+                    auth_config["client_id"] = config.get("client_id")
+                    auth_config["client_secret"] = config.get("client_secret")
+
             return GenericHttpProvider(
                 provider_id=provider_id,
                 provider_name=config.get("name", provider_id),
                 api_url=config.get("api_url"),
-                auth_config=config.get("auth", {})
+                auth_config=auth_config,
+                api_path_template=config.get(
+                    "api_path_template",
+                    "/api/v1/playbooks/{capability_code}/{playbook_code}"
+                ),
+                pack_download_path=config.get("pack_download_path")
             )
         else:
             logger.warning(f"Provider type '{provider_type}' not supported for instantiation")
