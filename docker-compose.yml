@@ -7,7 +7,7 @@ services:
     container_name: mindscape-ai-local-core-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8200:8200"
       - "${SANDBOX_PREVIEW_PORT_START:-3002}-${SANDBOX_PREVIEW_PORT_END:-3020}:${SANDBOX_PREVIEW_PORT_START:-3002}-${SANDBOX_PREVIEW_PORT_END:-3020}"
     environment:
       # Sandbox preview port range
@@ -15,7 +15,7 @@ services:
       - SANDBOX_PREVIEW_PORT_END=${SANDBOX_PREVIEW_PORT_END:-3020}
       - ENVIRONMENT=development
       - HOST=0.0.0.0
-      - PORT=8000
+      - PORT=8200
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Database
       - DATABASE_URL=sqlite:///./data/mindscape.db
@@ -61,7 +61,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -75,13 +75,13 @@ services:
     container_name: mindscape-ai-local-core-frontend
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "8300:3000"
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-      - BACKEND_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8200
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8200
+      - BACKEND_URL=http://backend:8200
       - TZ=${TZ:-UTC}
     volumes:
       - ./web-console/src:/app/src:ro

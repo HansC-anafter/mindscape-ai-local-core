@@ -22,20 +22,43 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Get database path from environment or use default
-# Use same database as MindscapeStore: mindscape.db
-data_dir = Path(backend_dir.parent / "data")
-data_dir.mkdir(parents=True, exist_ok=True)
-db_path = data_dir / "mindscape.db"
+# ===== PostgreSQL ORM Models (Sonic Space) =====
+# Import PostgreSQL Base and models
+from app.database import Base
+from app.models.sonic_space.sonic_space import (
+    SonicAudioAsset,
+    SonicLicenseCard,
+    SonicSegment,
+    SonicEmbedding,
+    SonicIntentCard,
+    SonicCandidateSet,
+    SonicDecisionTrace,
+    SonicBookmark,
+    SonicSoundKit,
+    SonicSoundKitItem,
+    SonicPerceptualAxes,
+    SonicExportAudit,
+)
 
-# Override sqlalchemy.url with absolute path
-config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.absolute()}")
+# Set target_metadata for PostgreSQL models
+target_metadata = Base.metadata
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+# ===== Use PostgreSQL URL =====
+# Alembic manages PostgreSQL models (Sonic Space)
+# SQLite stores are managed separately via StoreBase
+from app.database.config import get_postgres_url
+try:
+    postgres_url = get_postgres_url()
+    config.set_main_option("sqlalchemy.url", postgres_url)
+    print(f"Alembic using PostgreSQL: {postgres_url.split('@')[-1] if '@' in postgres_url else postgres_url}")
+except Exception as e:
+    print(f"Warning: Failed to get PostgreSQL URL: {e}")
+    print("Alembic will use default SQLite configuration (won't work for Sonic Space)")
+    # Fallback to SQLite (for backward compatibility, but won't work for Sonic Space)
+    data_dir = Path(backend_dir.parent / "data")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "mindscape.db"
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.absolute()}")
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

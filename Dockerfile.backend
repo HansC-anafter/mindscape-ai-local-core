@@ -22,16 +22,21 @@ COPY backend/ ./backend/
 # Create data and logs directories
 RUN mkdir -p /app/data /app/logs
 
-# Set PYTHONPATH to include /app so backend.app can be imported
-ENV PYTHONPATH=/app
+# Set PYTHONPATH to include /app and /app/backend so app modules can be imported
+# /app/backend is needed for "from app.database import Base"
+# /app is needed for "backend.app.main:app" in uvicorn command
+ENV PYTHONPATH=/app:/app/backend
 
-# Expose port
-EXPOSE 8000
+# Expose port (will be set by docker-compose.yml)
+# Note: EXPOSE is just documentation, actual port mapping is in docker-compose.yml
+# We expose common ports but actual port comes from PORT env var
+EXPOSE 8000 8200
 
-# Health check
+# Health check (uses PORT env var from docker-compose.yml, no hardcoded default)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+    CMD python -c "import os, urllib.request; port = os.getenv('PORT'); urllib.request.urlopen(f'http://localhost:{port}/health') if port else exit(1)"
 
-# Run the application
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the application (uses PORT env var from docker-compose.yml, no hardcoded default)
+# The PORT environment variable MUST be set in docker-compose.yml
+CMD ["sh", "-c", "exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT}"]
 
