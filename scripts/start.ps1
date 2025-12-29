@@ -151,10 +151,15 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
         $response = Read-Host "Would you like to remove them? (Y/N)"
         if ($response -eq "Y" -or $response -eq "y") {
             Write-Host "Removing existing containers..." -ForegroundColor Cyan
-            docker compose down 2>&1 | Out-Null
+            # Suppress all output including warnings (like missing env vars)
+            $null = docker compose down 2>&1
+            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) {
+                # Exit code 1 is OK (some containers may not exist)
+                Write-Host "  ⚠ Warning: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
+            }
             # Also try to remove individual containers if compose down didn't work
             foreach ($container in $containerList) {
-                docker rm -f $container 2>&1 | Out-Null
+                $null = docker rm -f $container 2>&1
             }
             Write-Host "  ✓ Containers removed" -ForegroundColor Green
             Write-Host ""
@@ -179,14 +184,14 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "❌ Failed to start services" -ForegroundColor Red
     Write-Host ""
-    
+
     # Wait a moment for containers to initialize
     Start-Sleep -Seconds 2
-    
+
     # Check which services failed
     Write-Host "Checking service status..." -ForegroundColor Yellow
     $failedServices = docker compose ps --format json | ConvertFrom-Json | Where-Object { $_.State -ne "running" -and $_.State -ne "healthy" }
-    
+
     if ($failedServices) {
         Write-Host ""
         Write-Host "⚠️  The following services failed to start:" -ForegroundColor Yellow
@@ -194,7 +199,7 @@ if ($LASTEXITCODE -ne 0) {
             Write-Host "  - $($service.Service): $($service.State)" -ForegroundColor Red
         }
         Write-Host ""
-        
+
         # Show logs for failed services
         Write-Host "Showing logs for failed services..." -ForegroundColor Cyan
         Write-Host ""
@@ -209,7 +214,7 @@ if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         docker compose logs --tail=50
     }
-    
+
     Write-Host ""
     Write-Host "For more detailed logs, run:" -ForegroundColor Yellow
     Write-Host "  docker compose logs [service-name]" -ForegroundColor Cyan
