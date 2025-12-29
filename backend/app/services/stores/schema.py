@@ -503,8 +503,21 @@ def init_tasks_schema(cursor):
     except sqlite3.OperationalError:
         pass  # Column already exists
 
-    # storyline_tags column is now added via _apply_migrations()
-    # This ensures consistent migration execution
+    # Migration: Add storyline_tags column if it doesn't exist
+    # Note: This is also handled in _apply_migrations(), but we add it here
+    # for cases where the table is created after migrations run (fresh installs)
+    try:
+        cursor.execute('ALTER TABLE tasks ADD COLUMN storyline_tags TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: Add project_id column if it doesn't exist
+    # Note: This is also handled in _apply_migrations(), but we add it here
+    # for cases where the table is created after migrations run (fresh installs)
+    try:
+        cursor.execute('ALTER TABLE tasks ADD COLUMN project_id TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_message ON tasks(message_id)')
