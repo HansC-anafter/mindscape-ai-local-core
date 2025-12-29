@@ -2,43 +2,102 @@
 
 This guide will help you get the `mindscape-ai-local-core` repository up and running quickly.
 
-## Prerequisites
+## 🚀 Fastest Way: Docker (Recommended)
+
+**You can start the system immediately after cloning - no configuration required!**
+
+### Prerequisites
+
+- **Docker Desktop** installed and running ([Download Docker](https://docs.docker.com/get-docker/))
+- At least **4GB RAM** available for Docker
+
+### Quick Start Steps
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. Start all services (no configuration needed!)
+docker compose up -d
+
+# 3. Check service status
+docker compose ps
+
+# 4. View logs (optional)
+docker compose logs -f
+```
+
+### Access the Application
+
+- **Web Console**: http://localhost:8300
+- **Backend API**: http://localhost:8200
+- **API Documentation**: http://localhost:8200/docs
+
+> **💡 Important**: API keys are **optional** for initial startup. The system will start successfully without them. You can configure API keys later through the web interface at http://localhost:8300/settings. Some AI features will be unavailable until API keys are configured.
+
+### Optional: Configure API Keys
+
+If you want to configure API keys before starting (optional):
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and add your API keys:
+   ```bash
+   OPENAI_API_KEY=your_openai_api_key_here
+   # or
+   ANTHROPIC_API_KEY=your_anthropic_api_key_here
+   ```
+
+3. Restart services:
+   ```bash
+   docker compose restart backend
+   ```
+
+---
+
+## 📦 Manual Installation (Alternative)
+
+If you prefer to run without Docker:
+
+### Prerequisites
 
 - Python 3.9 or higher
 - Node.js 18 or higher
 - npm or yarn
 
-## Installation
+### Installation Steps
 
-### 1. Clone the Repository
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 ```
 
-### 2. Install Backend Dependencies
+#### 2. Install Backend Dependencies
 
 ```bash
 cd backend
 pip install -r requirements.txt
 ```
 
-### 3. Install Frontend Dependencies
+#### 3. Install Frontend Dependencies
 
 ```bash
 cd ../web-console
 npm install
 ```
 
-## Configuration
+#### 4. Configure Environment (Optional)
 
-### Backend Configuration
-
-Create a `.env` file in the `backend/` directory:
+Create a `.env` file in the project root (or use `.env.example` as a template):
 
 ```bash
-# LLM Provider (choose one)
+# LLM Provider (optional - can be configured later via web UI)
 OPENAI_API_KEY=your_openai_api_key
 # or
 ANTHROPIC_API_KEY=your_anthropic_api_key
@@ -48,25 +107,19 @@ DATABASE_PATH=./data/mindscape.db
 
 # Server
 HOST=0.0.0.0
-PORT=8000
+PORT=8200
 ```
 
-### Frontend Configuration
-
-The frontend will automatically connect to the backend at `http://localhost:8000`.
-
-## Running the Application
-
-### Start Backend
+#### 5. Start Backend
 
 ```bash
 cd backend
 python -m app.main
 ```
 
-The backend will start at `http://localhost:8000`.
+The backend will start at `http://localhost:8200`.
 
-### Start Frontend
+#### 6. Start Frontend
 
 In a new terminal:
 

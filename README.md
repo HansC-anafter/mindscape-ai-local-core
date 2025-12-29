@@ -8,6 +8,18 @@
 
 It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape**, so the LLM is not just answering isolated prompts, but thinking and acting with you across time.
 
+### 🎨 Mind-Lens: A Palette for Rendering
+
+> **Mind-Lens is a Palette for rendering** — a user-authored control surface that *projects* values, aesthetics, and working style into AI execution. It does not "represent you"; it helps you **direct outputs consistently** across workflows.
+
+Mind-Lens works as a **three-layer palette**:
+
+1. **Global Preset** — your baseline palette (how you/your brand generally behaves)
+2. **Workspace Override** — project-specific tuning (same person, different context)
+3. **Session Override** — temporary knobs for this task (resets after the conversation)
+
+Both the **Mindscape Graph** (author mode) and **Workspace execution** (runtime mode) operate on the same Lens contract — they just edit different scopes of the same palette.
+
 ---
 
 ## 🧠 AI-driven visible thinking workflow
@@ -151,11 +163,29 @@ Cloud / multi-tenant features are provided through separate repositories and are
 
 ## 🚀 Getting started
 
-For installation and quick start, please follow:
+### Quick Start with Docker (Recommended)
 
-1. **Install & prerequisites** – [Installation Guide](./docs/getting-started/installation.md)
+The easiest way to get started is using Docker Compose. **You can start the system immediately after cloning** - API keys are optional and can be configured later through the web interface.
 
-2. **Run with Docker** – [Docker Deployment Guide](./docs/getting-started/docker.md) or [Quick Start](./docs/getting-started/quick-start.md)
+```bash
+# 1. Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. Start all services (no configuration required!)
+docker compose up -d
+
+# 3. Access the web console
+# Frontend: http://localhost:8300
+# Backend API: http://localhost:8200
+```
+
+> **💡 Note**: API keys (OpenAI or Anthropic) are **optional** for initial startup. The system will start successfully without them, and you can configure them later through the web interface. Some AI features will be unavailable until API keys are configured.
+
+For detailed instructions, see:
+- **Docker Deployment** – [Docker Deployment Guide](./docs/getting-started/docker.md)
+- **Manual Installation** – [Installation Guide](./docs/getting-started/installation.md)
+- **Quick Start** – [Quick Start Guide](./QUICKSTART.md)
 
 Once the stack is running:
 

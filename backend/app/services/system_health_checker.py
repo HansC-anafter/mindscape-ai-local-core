@@ -216,10 +216,12 @@ class SystemHealthChecker:
                                     action_url="/settings?tab=llm"
                                 ))
                             else:
+                                # Missing API key is a WARNING, not ERROR, to allow system startup
+                                # Some features may be unavailable, but core functionality should work
                                 issues.append(HealthIssue(
                                     issue_type="api_key_missing",
-                                    severity=HealthIssueSeverity.ERROR,
-                                    message="LLM API key not configured (OpenAI or Anthropic)",
+                                    severity=HealthIssueSeverity.WARNING,
+                                    message="LLM API key not configured (OpenAI or Anthropic). Some AI features may be unavailable.",
                                     action_url="/settings?tab=llm"
                                 ))
                 else:
@@ -230,10 +232,12 @@ class SystemHealthChecker:
                             configured = current_backend.get("available", False)
                             available = configured
                         else:
+                            # Missing API key is a WARNING, not ERROR, to allow system startup
+                            # Some features may be unavailable, but core functionality should work
                             issues.append(HealthIssue(
                                 issue_type="api_key_missing",
-                                severity=HealthIssueSeverity.ERROR,
-                                message="LLM API key not configured (OpenAI or Anthropic)",
+                                severity=HealthIssueSeverity.WARNING,
+                                message="LLM API key not configured (OpenAI or Anthropic). Some AI features may be unavailable.",
                                 action_url="/settings?tab=llm"
                             ))
                             configured = False
@@ -259,10 +263,12 @@ class SystemHealthChecker:
 
                 if not configured and current_mode == "local":
                     if not config.agent_backend.openai_api_key and not config.agent_backend.anthropic_api_key:
+                        # Missing API key is a WARNING, not ERROR, to allow system startup
+                        # Some features may be unavailable, but core functionality should work
                         issues.append(HealthIssue(
                             issue_type="api_key_missing",
-                            severity=HealthIssueSeverity.ERROR,
-                            message="LLM API key not configured (OpenAI or Anthropic)",
+                            severity=HealthIssueSeverity.WARNING,
+                            message="LLM API key not configured (OpenAI or Anthropic). Some AI features may be unavailable.",
                             action_url="/settings?tab=llm"
                         ))
 
@@ -434,10 +440,26 @@ class SystemHealthChecker:
         """Check backend API service health"""
         # If we're already in the backend service checking itself, just return healthy
         # to avoid infinite loop or unnecessary HTTP calls
+        # 从端口配置服务获取后端 URL
+        try:
+            from .port_config_service import port_config_service
+            import os
+            current_cluster = os.getenv('CLUSTER_NAME')
+            current_env = os.getenv('ENVIRONMENT')
+            current_site = os.getenv('SITE_NAME')
+            url = port_config_service.get_service_url(
+                'backend_api',
+                cluster=current_cluster,
+                environment=current_env,
+                site=current_site
+            )
+        except Exception:
+            url = "http://localhost:8200"
+
         return {
             "status": "healthy",
             "available": True,
-            "url": "http://localhost:8000"
+            "url": url
         }
 
     async def _check_ocr_service(self, issues: List[HealthIssue]) -> Dict[str, Any]:

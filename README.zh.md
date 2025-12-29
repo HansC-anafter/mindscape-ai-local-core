@@ -8,6 +8,18 @@
 
 它把你的長期意圖、專案主線、創作主題，整理成一個**可治理、可導航的心智空間（mindscape）**，讓 LLM 不再只是回應單一 prompt，而是圍繞你的長線專案一起思考與行動。
 
+### 🎨 Mind-Lens：輸出的調色盤
+
+> **Mind-Lens 是一個「渲染用的調色盤」** —— 一個由使用者定義的控制介面，把價值觀、美學偏好、工作風格**投射**到 AI 執行中。它不是「代表你」，而是幫你**在各種工作流中一致地導演輸出**。
+
+Mind-Lens 採用**三層疊加**的設計：
+
+1. **Global Preset（全域預設）** — 你的常態調色盤（你這個人/品牌大致長什麼樣）
+2. **Workspace Override（工作區覆寫）** — 專案級的調整（同一個人，不同情境的偏移）
+3. **Session Override（本次覆寫）** — 這輪任務的臨時旋鈕（對話結束後回彈）
+
+無論是 **Mindscape Graph（作者模式）** 還是 **Workspace 執行（運行模式）**，都在操作同一份 Lens 合約 —— 只是編輯的作用域不同。
+
 ---
 
 ## 🧠 AI 驅動的思維可視化工作流
@@ -153,11 +165,70 @@ Local Core 的重點放在：
 
 ## 🚀 安裝與快速上手
 
-完整步驟請參考：
+### 使用 Docker 快速啟動（推薦）
 
-1. **安裝與環境需求**： [安裝指南](./docs/getting-started/installation.md)
+最簡單的方式是使用 Docker Compose。**克隆後即可立即啟動** - API 金鑰是可選的，可以稍後透過網頁介面配置。
 
-2. **使用 Docker 啟動**： [Docker 部署指南](./docs/getting-started/docker.md) 或 [快速開始](./docs/getting-started/quick-start.md)
+```bash
+# 1. 克隆倉庫
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. 啟動所有服務（無需配置！）
+docker compose up -d
+
+# 3. 訪問網頁控制台
+# 前端：http://localhost:8300
+# 後端 API：http://localhost:8200
+```
+
+> **💡 提示**：API 金鑰（OpenAI 或 Anthropic）在初始啟動時是**可選的**。系統可以在沒有 API 金鑰的情況下成功啟動，您可以稍後透過網頁介面配置它們。在配置 API 金鑰之前，某些 AI 功能將不可用。
+
+詳細說明請參考：
+- **Docker 部署** – [Docker 部署指南](./docs/getting-started/docker.md)
+- **手動安裝** – [安裝指南](./docs/getting-started/installation.md)
+- **快速開始** – [快速開始指南](./QUICKSTART.md)
+
+### ⚠️ 重要：PostgreSQL 環境變數配置（必須）
+
+**Sonic Space 能力需要 PostgreSQL**（用於向量儲存和音訊資產管理）。以下環境變數**必須配置**：
+
+| 環境變數 | 預設值 | 說明 | 狀態 |
+|---------|--------|------|------|
+| `POSTGRES_HOST` | `postgres` | PostgreSQL 服務主機名 | ✅ docker-compose.yml 已配置 |
+| `POSTGRES_PORT` | `5432` | PostgreSQL 端口 | ✅ docker-compose.yml 已配置 |
+| `POSTGRES_DB` | `mindscape_vectors` | 資料庫名稱 | ✅ docker-compose.yml 已配置 |
+| `POSTGRES_USER` | `mindscape` | 資料庫用戶名 | ✅ docker-compose.yml 已配置 |
+| `POSTGRES_PASSWORD` | `mindscape_password` | 資料庫密碼 | ⚠️ **生產環境請修改** |
+
+**⚠️ 如果未配置**：
+- `engine_postgres` 會初始化為 `None`
+- 所有 Sonic Space API 會返回 503 錯誤
+- 應用可以啟動，但 Sonic Space 功能不可用
+- 啟動日誌會顯示錯誤訊息
+
+**驗證 PostgreSQL 配置**：
+```bash
+# 1. 檢查 PostgreSQL 服務狀態
+docker ps | grep postgres
+
+# 2. 檢查環境變數（必須全部存在）
+docker exec mindscape-ai-local-core-backend env | grep POSTGRES
+
+# 3. 驗證連接 URL
+docker exec mindscape-ai-local-core-backend python3 -c "from app.database.config import get_postgres_url; print(get_postgres_url())"
+
+# 4. 檢查 Engine 初始化狀態
+docker exec mindscape-ai-local-core-backend python3 -c "from app.database import engine_postgres; print(f'Engine: {engine_postgres}')"
+
+# 5. 檢查啟動日誌（應該看到 "PostgreSQL engine initialized successfully"）
+docker logs mindscape-ai-local-core-backend | grep -i "postgresql engine"
+```
+
+**如果 PostgreSQL 未正確配置**：
+- 檢查 `docker-compose.yml` 中的 `POSTGRES_*` 環境變數
+- 檢查 `.env` 文件（如果使用）
+- 檢查 PostgreSQL 服務是否健康：`docker exec mindscape-ai-local-core-postgres pg_isready -U mindscape`
 
 啟動完成之後，你可以：
 

@@ -11,6 +11,8 @@ This guide explains how to deploy Mindscape AI Local Core using Docker and Docke
 
 ## Quick Start
 
+**You can start the system immediately after cloning - no configuration required!**
+
 ### 1. Clone the Repository
 
 ```bash
@@ -18,7 +20,30 @@ git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 ```
 
-### 2. Configure Environment Variables (Optional)
+### 2. Start Services (No Configuration Needed!)
+
+```bash
+# Build and start all services
+docker compose up -d
+
+# Check service status
+docker compose ps
+
+# View logs
+docker compose logs -f
+```
+
+The system will start successfully **without any API keys**. You can configure API keys later through the web interface.
+
+### 3. Access the Application
+
+- **Frontend**: http://localhost:8300
+- **Backend API**: http://localhost:8200
+- **API Documentation**: http://localhost:8200/docs
+
+> **💡 Important**: API keys (OpenAI or Anthropic) are **optional** for initial startup. The system will start successfully without them, and you can configure them later through the web interface at http://localhost:8300/settings. Some AI features will be unavailable until API keys are configured.
+
+### 4. Configure API Keys (Optional)
 
 > **Note**: You can configure API keys through the web interface after starting services. Creating a `.env` file is optional but recommended for production use.
 
@@ -52,34 +77,13 @@ OCR_LANG=ch
 TZ=UTC
 ```
 
-### 3. Start Services
-
-```bash
-# Build and start all services
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Check service status
-docker compose ps
-```
-
-### 4. Access the Application
-
-- **Frontend**: http://localhost:3001
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-- **OCR Service**: http://localhost:8001
-
-> **💡 Tip**: If you haven't configured API keys in `.env`, you can configure them through the web interface after accessing the frontend.
 
 ## Services
 
 The Docker Compose configuration includes:
 
-1. **backend** - FastAPI backend service (port 8000)
-2. **frontend** - Next.js web console (port 3001, mapped from container port 3000)
+1. **backend** - FastAPI backend service (port 8200)
+2. **frontend** - Next.js web console (port 8300, mapped from container port 3000)
 3. **postgres** - PostgreSQL with pgvector for vector storage (port 5433, mapped from container port 5432)
 4. **ocr-service** - PaddleOCR service for PDF processing (port 8001)
 
