@@ -203,6 +203,41 @@ For production deployment, modify the Dockerfiles to use production builds.
 
 ## Troubleshooting
 
+### Container Name Conflict
+
+If you encounter an error like:
+```
+Error response from daemon: Conflict. The container name "/mindscape-ai-local-core-xxx" is already in use
+```
+
+This happens when a previous container with the same name still exists (even if stopped).
+
+**Solution:**
+
+**Option 1: Use the start script (recommended)**
+The start scripts (`start.ps1` / `start.sh`) automatically detect and offer to clean up conflicting containers.
+
+**Option 2: Manual cleanup**
+```bash
+# Remove all containers for this project
+docker compose down
+
+# Or remove a specific container
+docker rm -f mindscape-ai-local-core-ocr
+
+# Then start again
+docker compose up -d
+```
+
+**Option 3: Force recreate**
+```bash
+# Stop and remove containers, then recreate
+docker compose down
+docker compose up -d --force-recreate
+```
+
+### Other Issues
+
 ### Port Already in Use
 
 If ports 3000, 8000, 8001, or 5432 are already in use:

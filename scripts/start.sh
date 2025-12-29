@@ -13,21 +13,21 @@ echo ""
 # Function to check Docker availability
 check_docker() {
     echo "Checking Docker availability..."
-    
+
     # Check if docker command exists
     if ! command -v docker &> /dev/null; then
         echo "  ✗ Docker command not found"
         return 1
     fi
     echo "  ✓ Docker client found"
-    
+
     # Check if Docker daemon is running
     if ! docker info &> /dev/null; then
         echo "  ✗ Docker daemon is not running"
         return 1
     fi
     echo "  ✓ Docker daemon is running"
-    
+
     # Check Docker Compose
     if ! docker compose version &> /dev/null; then
         echo "  ✗ Docker Compose not available"
@@ -35,7 +35,7 @@ check_docker() {
     fi
     COMPOSE_VERSION=$(docker compose version 2>&1)
     echo "  ✓ Docker Compose: $COMPOSE_VERSION"
-    
+
     return 0
 }
 
@@ -58,7 +58,7 @@ if [ "$1" != "--skip-check" ]; then
         echo ""
         exit 1
     fi
-    
+
     echo ""
     echo "✅ Docker is ready"
     echo ""
@@ -66,6 +66,42 @@ fi
 
 # Change to project root
 cd "$PROJECT_ROOT"
+
+# Check for existing containers with same names and offer to clean them up
+echo "Checking for existing containers..."
+EXISTING_CONTAINERS=$(docker ps -a --filter "name=mindscape-ai-local-core" --format "{{.Names}}" 2>/dev/null)
+if [ -n "$EXISTING_CONTAINERS" ]; then
+    echo ""
+    echo "⚠️  Found existing containers with conflicting names:"
+    echo "$EXISTING_CONTAINERS" | while read -r container; do
+        if [ -n "$container" ]; then
+            echo "  - $container"
+        fi
+    done
+    echo ""
+    echo "These containers may prevent new containers from starting."
+    echo ""
+    read -p "Would you like to remove them? (Y/N) " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Removing existing containers..."
+        docker compose down 2>/dev/null
+        # Also try to remove individual containers if compose down didn't work
+        echo "$EXISTING_CONTAINERS" | while read -r container; do
+            if [ -n "$container" ]; then
+                docker rm -f "$container" 2>/dev/null
+            fi
+        done
+        echo "  ✓ Containers removed"
+        echo ""
+    else
+        echo ""
+        echo "⚠️  Keeping existing containers. If you encounter errors, run:"
+        echo "  docker compose down"
+        echo "  docker compose up -d"
+        echo ""
+    fi
+fi
 
 echo "Starting services..."
 echo ""
