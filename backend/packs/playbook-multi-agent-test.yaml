@@ -1,0 +1,59 @@
+id: playbook_multi_agent_test
+name: "Multi-Agent Test Playbook"
+enabled_by_default: false
+description: "Test playbook for multi-agent orchestration with agent_roster"
+
+routes: []
+
+playbooks:
+  - id: multi_agent_research_and_write
+    name: "Multi-Agent Research and Write"
+    description: "Test playbook with researcher and writer agents"
+    enabled: true
+
+    agent_roster:
+      researcher:
+        agent_id: "researcher"
+        agent_name: "Research Agent"
+        role: "researcher"
+        system_prompt: "You are a research agent focused on gathering and analyzing information."
+        tools: ["read_file", "search", "analyze"]
+        memory_scope: "workspace"
+        responsibility_boundary: "Research and information gathering"
+
+      writer:
+        agent_id: "writer"
+        agent_name: "Writing Agent"
+        role: "writer"
+        system_prompt: "You are a writing agent focused on creating structured documents."
+        tools: ["write_file", "edit_file", "format"]
+        memory_scope: "workspace"
+        responsibility_boundary: "Document creation and editing"
+
+      reviewer:
+        agent_id: "reviewer"
+        agent_name: "Review Agent"
+        role: "reviewer"
+        system_prompt: "You are a review agent focused on quality assurance."
+        tools: ["read_file", "lint", "review"]
+        memory_scope: "workspace"
+        responsibility_boundary: "Quality review and validation"
+
+    steps:
+      - step_id: "research"
+        description: "Research phase"
+        agent_id: "researcher"
+
+      - step_id: "write"
+        description: "Writing phase"
+        agent_id: "writer"
+        depends_on: ["research"]
+
+      - step_id: "review"
+        description: "Review phase"
+        agent_id: "reviewer"
+        depends_on: ["write"]
+
+tools: []
+
+
