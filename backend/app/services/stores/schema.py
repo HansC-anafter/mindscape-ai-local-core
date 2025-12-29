@@ -94,25 +94,25 @@ def _apply_migrations(cursor):
                 logger.debug("Migration: No tasks to update from execution_context (all already migrated or no project_id in data)")
         except sqlite3.OperationalError as e:
             logger.warning(f"Data migration from execution_context failed: {e}")
+
+        # Also try extracting from params
+        try:
+            cursor.execute("""
+                UPDATE tasks
+                SET project_id = json_extract(params, '$.project_id')
+                WHERE params IS NOT NULL
+                AND json_extract(params, '$.project_id') IS NOT NULL
+                AND project_id IS NULL
+            """)
+            updated_count = cursor.rowcount
+            if updated_count > 0:
+                logger.info(f"Migration: Updated {updated_count} existing tasks with project_id from params")
+            elif column_exists:
+                logger.debug("Migration: No tasks to update from params (all already migrated or no project_id in data)")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Data migration from params failed: {e}")
     else:
         logger.debug("tasks table does not exist yet, skipping project_id migration (will be handled when table is created)")
-
-    # Also try extracting from params
-    try:
-        cursor.execute("""
-            UPDATE tasks
-            SET project_id = json_extract(params, '$.project_id')
-            WHERE params IS NOT NULL
-            AND json_extract(params, '$.project_id') IS NOT NULL
-            AND project_id IS NULL
-        """)
-        updated_count = cursor.rowcount
-        if updated_count > 0:
-            logger.info(f"Migration: Updated {updated_count} existing tasks with project_id from params")
-        elif column_exists:
-            logger.debug("Migration: No tasks to update from params (all already migrated or no project_id in data)")
-    except sqlite3.OperationalError as e:
-        logger.warning(f"Data migration from params failed: {e}")
 
     logger.info("Database migrations completed")
 
