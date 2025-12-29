@@ -15,8 +15,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install PaddlePaddle (auto-detect GPU/CPU)
+# Fix Windows line endings (CRLF -> LF) and make executable
 COPY install_paddle.sh .
-RUN chmod +x install_paddle.sh && ./install_paddle.sh
+RUN sed -i 's/\r$//' install_paddle.sh && \
+    chmod +x install_paddle.sh && \
+    ./install_paddle.sh
 
 # Copy application code
 COPY app/ ./app/
