@@ -187,17 +187,30 @@ if ($LASTEXITCODE -ne 0) {
 
     # Wait a moment for containers to initialize
     Start-Sleep -Seconds 2
-    
+
     # Check which services failed
     Write-Host "Checking service status..." -ForegroundColor Yellow
     
     # Get service status using a more reliable method
-    $serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>&1
+    # Suppress warnings (like missing env vars) and capture only stdout
+    $serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        # If command failed, try without format to get basic info
+        $serviceStatus = docker compose ps 2>$null
+    }
+    
     $failedServices = @()
     
-    # Parse the output line by line (skip header)
-    $lines = $serviceStatus -split "`n" | Where-Object { $_ -match "^\w" -and $_ -notmatch "SERVICE" }
+    # Parse the output line by line (skip header and warning lines)
+    $lines = $serviceStatus -split "`n" | Where-Object { 
+        $_ -match "^\w" -and 
+        $_ -notmatch "SERVICE" -and 
+        $_ -notmatch "level=warning" -and
+        $_ -notmatch "time="
+    }
+    
     foreach ($line in $lines) {
+        # Match table format: SERVICE STATE HEALTH
         if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
             $serviceName = $matches['service']
             $state = $matches['state']
@@ -213,12 +226,12 @@ if ($LASTEXITCODE -ne 0) {
             }
         }
     }
-    
+
     if ($failedServices.Count -gt 0) {
         Write-Host ""
         Write-Host "⚠️  The following services failed to start or are unhealthy:" -ForegroundColor Yellow
         Write-Host ""
-        
+
         # Show logs for failed services
         Write-Host "Showing logs for failed services..." -ForegroundColor Cyan
         Write-Host ""
@@ -246,12 +259,25 @@ if ($LASTEXITCODE -ne 0) {
 
 # Check if any services are unhealthy after starting
 Start-Sleep -Seconds 3
-$serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>&1
+# Suppress warnings (like missing env vars) and capture only stdout
+$serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    # If command failed, try without format to get basic info
+    $serviceStatus = docker compose ps 2>$null
+}
+
 $unhealthyServices = @()
 
-# Parse the output line by line (skip header)
-$lines = $serviceStatus -split "`n" | Where-Object { $_ -match "^\w" -and $_ -notmatch "SERVICE" }
+# Parse the output line by line (skip header and warning lines)
+$lines = $serviceStatus -split "`n" | Where-Object { 
+    $_ -match "^\w" -and 
+    $_ -notmatch "SERVICE" -and 
+    $_ -notmatch "level=warning" -and
+    $_ -notmatch "time="
+}
+
 foreach ($line in $lines) {
+    # Match table format: SERVICE STATE HEALTH
     if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
         $serviceName = $matches['service']
         $health = $matches['health']
