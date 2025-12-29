@@ -169,12 +169,33 @@ Local Core 的重點放在：
 
 最簡單的方式是使用 Docker Compose。**克隆後即可立即啟動** - API 金鑰是可選的，可以稍後透過網頁介面配置。
 
+**Windows PowerShell:**
+```powershell
+# 1. 克隆倉庫
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. 啟動所有服務（包含 Docker 健康檢查）
+.\scripts\start.ps1
+```
+
+**Linux/macOS:**
 ```bash
 # 1. 克隆倉庫
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
-# 2. 啟動所有服務（無需配置！）
+# 2. 啟動所有服務（包含 Docker 健康檢查）
+./scripts/start.sh
+```
+
+**或手動執行:**
+```bash
+# 1. 克隆倉庫
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. 啟動所有服務
 docker compose up -d
 
 # 3. 訪問網頁控制台

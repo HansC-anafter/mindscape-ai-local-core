@@ -13,12 +13,33 @@ This guide will help you get the `mindscape-ai-local-core` repository up and run
 
 ### Quick Start Steps
 
+**Windows PowerShell:**
+```powershell
+# 1. Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. Start all services (includes Docker health check)
+.\scripts\start.ps1
+```
+
+**Linux/macOS:**
 ```bash
 # 1. Clone the repository
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
-# 2. Start all services (no configuration needed!)
+# 2. Start all services (includes Docker health check)
+./scripts/start.sh
+```
+
+**Or manually:**
+```bash
+# 1. Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. Start all services
 docker compose up -d
 
 # 3. Check service status
@@ -27,6 +48,8 @@ docker compose ps
 # 4. View logs (optional)
 docker compose logs -f
 ```
+
+> **Note**: The start scripts automatically check if Docker Desktop is running and provide clear instructions if it's not available.
 
 ### Access the Application
 

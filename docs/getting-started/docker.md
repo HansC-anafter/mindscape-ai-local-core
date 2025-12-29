@@ -22,6 +22,25 @@ cd mindscape-ai-local-core
 
 ### 2. Start Services (No Configuration Needed!)
 
+**Windows PowerShell:**
+```powershell
+# Change to project directory
+cd mindscape-ai-local-core
+
+# Start all services (script includes Docker health check)
+.\scripts\start.ps1
+```
+
+**Linux/macOS:**
+```bash
+# Change to project directory
+cd mindscape-ai-local-core
+
+# Start all services (script includes Docker health check)
+./scripts/start.sh
+```
+
+**Or manually:**
 ```bash
 # Build and start all services
 docker compose up -d
@@ -32,6 +51,8 @@ docker compose ps
 # View logs
 docker compose logs -f
 ```
+
+> **Note**: The start scripts (`start.ps1` / `start.sh`) automatically check Docker availability and provide helpful error messages if Docker Desktop is not running.
 
 The system will start successfully **without any API keys**. You can configure API keys later through the web interface.
 

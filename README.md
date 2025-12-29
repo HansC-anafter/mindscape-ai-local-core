@@ -167,12 +167,33 @@ Cloud / multi-tenant features are provided through separate repositories and are
 
 The easiest way to get started is using Docker Compose. **You can start the system immediately after cloning** - API keys are optional and can be configured later through the web interface.
 
+**Windows PowerShell:**
+```powershell
+# 1. Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. Start all services (includes Docker health check)
+.\scripts\start.ps1
+```
+
+**Linux/macOS:**
 ```bash
 # 1. Clone the repository
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
-# 2. Start all services (no configuration required!)
+# 2. Start all services (includes Docker health check)
+./scripts/start.sh
+```
+
+**Or manually:**
+```bash
+# 1. Clone the repository
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+
+# 2. Start all services
 docker compose up -d
 
 # 3. Access the web console
