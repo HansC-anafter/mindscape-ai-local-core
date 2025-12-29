@@ -66,14 +66,20 @@ class ToolPolicyResolver:
 
         # Resolve capability_code (with fallback)
         capability_code = tool.effective_capability_code
-        if not capability_code:
+        # Handle empty string (from old data without migration)
+        if not capability_code or capability_code.strip() == "":
             # Fallback: infer from tool_id (e.g., "wp.my-site.post.create_draft" -> "wp")
             parts = tool_id.split(".")
             capability_code = parts[0] if parts else "unknown"
-            logger.warning(f"Tool {tool_id} missing capability_code, inferred: {capability_code}")
+            logger.warning(f"Tool {tool_id} missing capability_code (empty string), inferred: {capability_code}")
 
         # Resolve risk_class (with fallback)
         risk_class = tool.effective_risk_class
+        # Handle empty string (from old data without migration)
+        if not risk_class or risk_class.strip() == "":
+            # Fallback: infer from tool_id or default to "unknown"
+            risk_class = "unknown"
+            logger.warning(f"Tool {tool_id} missing risk_class (empty string), using default: {risk_class}")
 
         # Create policy info
         policy_info = ToolPolicyInfo(
@@ -91,4 +97,5 @@ class ToolPolicyResolver:
     def clear_cache(self):
         """Clear the cache"""
         self.cache.clear()
+
 

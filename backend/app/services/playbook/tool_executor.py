@@ -383,6 +383,10 @@ Please retry the tool call."""
                 # Get tool registry
                 tool_registry = ToolRegistryService(db_path=self.store.db_path)
 
+                # Get event store for event recording
+                from backend.app.services.stores.events_store import EventsStore
+                event_store = EventsStore(db_path=self.store.db_path)
+
                 # Check policy (always check, even with default profile)
                 policy_guard = PolicyGuard(strict_mode=True, tool_registry=tool_registry)
 
@@ -395,7 +399,10 @@ Please retry the tool call."""
                     tool_call_params=kwargs,
                     tool_registry=tool_registry,
                     execution_id=execution_id,
-                    previous_tool_id=previous_tool_id
+                    previous_tool_id=previous_tool_id,
+                    workspace_id=effective_workspace_id,
+                    profile_id=getattr(runtime_profile, 'profile_id', None),
+                    event_store=event_store
                 )
 
                 # Record tool call in chain tracker (Phase 2)
