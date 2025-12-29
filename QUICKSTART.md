@@ -163,6 +163,30 @@ The frontend will start at `http://localhost:3000`.
 
 ## Troubleshooting
 
+### Container Name Conflict
+
+If you see an error like `The container name "/mindscape-ai-local-core-xxx" is already in use`:
+
+**Quick fix:**
+```bash
+# Remove existing containers
+docker compose down
+
+# Then start again
+docker compose up -d
+```
+
+**Or manually remove specific container:**
+```bash
+# List containers
+docker ps -a
+
+# Remove specific container
+docker rm -f mindscape-ai-local-core-ocr
+```
+
+The start scripts (`start.ps1` / `start.sh`) will automatically detect and offer to clean up conflicting containers.
+
 ### Backend Issues
 
 - **Port already in use**: Change the `PORT` in `.env` file
