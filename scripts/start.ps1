@@ -187,25 +187,44 @@ if ($LASTEXITCODE -ne 0) {
 
     # Wait a moment for containers to initialize
     Start-Sleep -Seconds 2
-
+    
     # Check which services failed
     Write-Host "Checking service status..." -ForegroundColor Yellow
-    $failedServices = docker compose ps --format json | ConvertFrom-Json | Where-Object { $_.State -ne "running" -and $_.State -ne "healthy" }
-
-    if ($failedServices) {
-        Write-Host ""
-        Write-Host "⚠️  The following services failed to start:" -ForegroundColor Yellow
-        foreach ($service in $failedServices) {
-            Write-Host "  - $($service.Service): $($service.State)" -ForegroundColor Red
+    
+    # Get service status using a more reliable method
+    $serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>&1
+    $failedServices = @()
+    
+    # Parse the output line by line (skip header)
+    $lines = $serviceStatus -split "`n" | Where-Object { $_ -match "^\w" -and $_ -notmatch "SERVICE" }
+    foreach ($line in $lines) {
+        if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
+            $serviceName = $matches['service']
+            $state = $matches['state']
+            $health = $matches['health']
+            
+            # Check if service failed or is unhealthy
+            if ($state -ne "running" -or $health -eq "unhealthy") {
+                $failedServices += $serviceName
+                Write-Host "  - $serviceName : $state" -ForegroundColor Red
+                if ($health -eq "unhealthy") {
+                    Write-Host "    Health: $health" -ForegroundColor Red
+                }
+            }
         }
+    }
+    
+    if ($failedServices.Count -gt 0) {
         Write-Host ""
-
+        Write-Host "⚠️  The following services failed to start or are unhealthy:" -ForegroundColor Yellow
+        Write-Host ""
+        
         # Show logs for failed services
         Write-Host "Showing logs for failed services..." -ForegroundColor Cyan
         Write-Host ""
         foreach ($service in $failedServices) {
-            Write-Host "=== Logs for $($service.Service) ===" -ForegroundColor Yellow
-            docker compose logs --tail=50 $($service.Service)
+            Write-Host "=== Logs for $service ===" -ForegroundColor Yellow
+            docker compose logs --tail=50 $service
             Write-Host ""
         }
     } else {
