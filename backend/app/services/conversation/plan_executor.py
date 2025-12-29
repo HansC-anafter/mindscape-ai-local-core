@@ -149,6 +149,7 @@ class PlanExecutor:
         # Phase 2: Multi-Agent Orchestration Setup
         multi_agent_orchestrator = None
         registered_execution_ids = []  # Track all registered execution_ids for cleanup
+        primary_execution_id = None  # Track primary execution_id for event association
 
         # Use try-finally to ensure cleanup even on exceptions (P3: Recycling Mechanism)
         try:
@@ -533,9 +534,11 @@ class PlanExecutor:
                     db_path = getattr(self.tasks_store, 'db_path', None)
                     event_store = EventsStore(db_path=db_path) if db_path else None
 
-                    # Get execution_id from first task (if available)
-                    execution_id_for_quality = None
-                    if results.get("executed_tasks"):
+                    # Use primary execution_id (from first task launch) for event association
+                    # This ensures quality gate events are properly associated with the execution
+                    execution_id_for_quality = primary_execution_id
+                    if not execution_id_for_quality and results.get("executed_tasks"):
+                        # Fallback: try to get from first task if primary_execution_id not available
                         first_task = results["executed_tasks"][0]
                         if isinstance(first_task, dict):
                             execution_id_for_quality = first_task.get("execution_id")
