@@ -7,7 +7,7 @@ Builds execution context for tasks from playbook context and execution results.
 import logging
 from typing import Dict, Any, Optional
 
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)
 

@@ -12,6 +12,9 @@ from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.shared.tool_executor import execute_tool
 from backend.app.services.conversation.workflow_tracker import WorkflowTracker
 from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
+from backend.app.services.conversation.policy_guard import PolicyGuard, PolicyCheckResult
+from backend.app.services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
+from backend.app.services.tool_registry import ToolRegistryService
 
 logger = logging.getLogger(__name__)
 
@@ -361,6 +364,128 @@ Please retry the tool call."""
                     raise ValueError(error_msg)
         elif not tool_fqn:
             raise ValueError("Either tool_fqn or tool_slot must be provided")
+
+        # Runtime Profile PolicyGuard check (before tool execution)
+        # Try to get workspace_id from multiple sources to ensure PolicyGuard always runs
+        effective_workspace_id = workspace_id or self.execution_context.get("workspace_id")
+
+        if effective_workspace_id:
+            try:
+                # Get runtime profile (create default if not exists, like GET API)
+                profile_store = WorkspaceRuntimeProfileStore(db_path=self.store.db_path)
+                runtime_profile = profile_store.get_runtime_profile(effective_workspace_id)
+
+                if not runtime_profile:
+                    # Create default profile if not exists (ensure PolicyGuard always works)
+                    runtime_profile = profile_store.create_default_profile(effective_workspace_id)
+                    logger.info(f"Created default runtime profile for workspace {effective_workspace_id}")
+
+                # Get tool registry
+                tool_registry = ToolRegistryService(db_path=self.store.db_path)
+
+                # Check policy (always check, even with default profile)
+                policy_guard = PolicyGuard(strict_mode=True, tool_registry=tool_registry)
+
+                # Track tool call chain for Phase 2 max_tool_call_chain enforcement
+                previous_tool_id = self.execution_context.get("last_tool_id")
+
+                policy_result = policy_guard.check_tool_call(
+                    tool_id=tool_fqn,
+                    runtime_profile=runtime_profile,
+                    tool_call_params=kwargs,
+                    tool_registry=tool_registry,
+                    execution_id=execution_id,
+                    previous_tool_id=previous_tool_id
+                )
+
+                # Record tool call in chain tracker (Phase 2)
+                if execution_id:
+                    from backend.app.services.conversation.tool_call_chain_tracker import get_chain_tracker
+                    chain_tracker = get_chain_tracker(execution_id)
+                    chain_tracker.record_tool_call(tool_fqn, previous_tool_id)
+                    self.execution_context["last_tool_id"] = tool_fqn
+
+                    # Phase 2: Record tool call in MultiAgentOrchestrator (for LoopBudget tracking)
+                    try:
+                        from backend.app.services.orchestration.orchestrator_registry import get_orchestrator_registry
+                        orchestrator_registry = get_orchestrator_registry()
+
+                        # Try execution_id first (primary key)
+                        orchestrator = orchestrator_registry.get(execution_id)
+
+                        # Fallback: try multiple keys if execution_id lookup fails
+                        if not orchestrator:
+                            # Get possible fallback keys from execution_context
+                            trace_id = self.execution_context.get("trace_id")
+                            message_id = self.execution_context.get("message_id")
+
+                            # Try fallback keys in order of priority
+                            fallback_keys = []
+                            if trace_id:
+                                fallback_keys.append(trace_id)
+                            if message_id:
+                                fallback_keys.append(message_id)
+
+                            if fallback_keys:
+                                orchestrator = orchestrator_registry.find_by_any_key(*fallback_keys)
+                                if orchestrator:
+                                    logger.info(
+                                        f"OrchestratorRegistry: Found orchestrator using fallback key "
+                                        f"(execution_id={execution_id} not found, used one of: {fallback_keys})"
+                                    )
+
+                            # Last resort: try to find any registered orchestrator (risky but better than nothing)
+                            if not orchestrator:
+                                orchestrator = orchestrator_registry.find_any()
+                                if orchestrator:
+                                    logger.warning(
+                                        f"OrchestratorRegistry: Using 'find_any' fallback for execution_id={execution_id}. "
+                                        f"This may return incorrect orchestrator if multiple executions are running."
+                                    )
+
+                            # If still not found, log warning
+                            if not orchestrator:
+                                logger.warning(
+                                    f"OrchestratorRegistry: No orchestrator found for execution_id={execution_id} "
+                                    f"(tried fallback keys: {fallback_keys}). "
+                                    f"Tool call will not be counted in LoopBudget. "
+                                    f"This may indicate a registration key mismatch or orchestrator not initialized."
+                                )
+
+                        if orchestrator:
+                            orchestrator.record_tool_call()
+                            logger.debug(
+                                f"MultiAgentOrchestrator: Recorded tool call '{tool_fqn}' "
+                                f"(total: {orchestrator.state.tool_call_count}, "
+                                f"execution_id={execution_id})"
+                            )
+                    except Exception as e:
+                        logger.warning(f"Failed to record tool call in orchestrator: {e}", exc_info=True)
+
+                if not policy_result.allowed:
+                    error_msg = f"Tool execution blocked by Runtime Profile policy: {policy_result.reason}"
+                    if policy_result.user_message:
+                        error_msg += f"\n{policy_result.user_message}"
+                    logger.warning(f"PolicyGuard blocked tool '{tool_fqn}': {policy_result.reason}")
+                    raise ValueError(error_msg)
+
+                if policy_result.requires_approval:
+                    logger.info(f"Tool '{tool_fqn}' requires approval: {policy_result.reason}")
+                    # TODO: In future, implement approval flow
+                    # For now, log and proceed (can be enhanced in stage 2)
+            except ValueError:
+                raise  # Re-raise policy violations
+            except Exception as e:
+                logger.warning(f"Failed to check Runtime Profile policy: {e}", exc_info=True)
+                # Don't block execution if policy check fails (fail-open for MVP)
+        else:
+            # No workspace_id available - log warning but allow execution (fail-open for MVP)
+            # This should be rare and indicates a code path that doesn't provide workspace context
+            logger.warning(
+                f"PolicyGuard skipped for tool '{tool_fqn}': no workspace_id available. "
+                f"This may indicate a code path that bypasses workspace context. "
+                f"Consider ensuring workspace_id is always provided."
+            )
 
         tool_start_time = datetime.utcnow()
         tool_call_id = str(uuid.uuid4())
@@ -740,8 +865,34 @@ Please retry the tool call."""
             self.execution_context["sandbox_id"] = sandbox_id
             logger.debug(f"Set execution context: workspace_id={workspace_id}, sandbox_id={sandbox_id}")
 
-        max_tool_iterations = max_iterations
+        # Phase 2: Set execution_id and trace_id in execution_context for orchestrator fallback lookup
+        if execution_id:
+            self.execution_context["execution_id"] = execution_id
+            # Use execution_id as trace_id if not set (for orchestrator fallback)
+            if "trace_id" not in self.execution_context:
+                self.execution_context["trace_id"] = execution_id
+
+        # Load runtime profile and get LoopBudget (Phase 2)
+        effective_workspace_id = workspace_id or self.execution_context.get("workspace_id")
+        loop_budget_max_iterations = max_iterations  # Default fallback
+        loop_budget_max_tool_calls = None  # No limit by default
+
+        if effective_workspace_id:
+            try:
+                profile_store = WorkspaceRuntimeProfileStore(db_path=self.store.db_path)
+                runtime_profile = profile_store.get_runtime_profile(effective_workspace_id)
+                if runtime_profile:
+                    runtime_profile.ensure_phase2_fields()
+                    loop_budget = runtime_profile.loop_budget
+                    loop_budget_max_iterations = min(max_iterations, loop_budget.max_iterations)
+                    loop_budget_max_tool_calls = loop_budget.max_tool_calls
+                    logger.debug(f"Using LoopBudget: max_iterations={loop_budget_max_iterations}, max_tool_calls={loop_budget_max_tool_calls}")
+            except Exception as e:
+                logger.debug(f"Failed to load runtime profile for LoopBudget: {e}")
+
+        max_tool_iterations = loop_budget_max_iterations
         tool_iteration = 0
+        tool_call_count = 0  # Track total tool calls for max_tool_calls check
         used_tools = []
         current_response = assistant_response
         format_retry_count = 0
@@ -809,6 +960,21 @@ Please retry the tool call."""
             format_retry_count = 0
             logger.info(f"PlaybookToolExecutor: Found {len(tool_calls)} tool call(s) in iteration {tool_iteration + 1}")
 
+            # Check max_tool_calls limit (Phase 2 LoopBudget)
+            if loop_budget_max_tool_calls is not None:
+                remaining_tool_calls = loop_budget_max_tool_calls - tool_call_count
+                if remaining_tool_calls <= 0:
+                    logger.warning(
+                        f"LoopBudget: Tool call limit reached ({loop_budget_max_tool_calls}). "
+                        f"Stopping tool execution loop."
+                    )
+                    break
+                if len(tool_calls) > remaining_tool_calls:
+                    logger.warning(
+                        f"LoopBudget: Limiting tool calls in this iteration from {len(tool_calls)} to {remaining_tool_calls}"
+                    )
+                    tool_calls = tool_calls[:remaining_tool_calls]
+
             # Execute all tool calls
             tool_results = []
             for tool_call in tool_calls:
@@ -865,8 +1031,17 @@ Please retry the tool call."""
                         "success": True
                     })
                     used_tools.append(display_name)
+                    tool_call_count += 1  # Increment tool call count for LoopBudget
 
-                    logger.info(f"PlaybookToolExecutor: Tool {display_name} executed successfully")
+                    logger.info(f"PlaybookToolExecutor: Tool {display_name} executed successfully (call #{tool_call_count})")
+
+                    # Check max_tool_calls limit after each call (Phase 2 LoopBudget)
+                    if loop_budget_max_tool_calls is not None and tool_call_count >= loop_budget_max_tool_calls:
+                        logger.warning(
+                            f"LoopBudget: Tool call limit reached ({loop_budget_max_tool_calls}). "
+                            f"Stopping tool execution loop."
+                        )
+                        break
 
                 except Exception as e:
                     error_msg = str(e)[:500]

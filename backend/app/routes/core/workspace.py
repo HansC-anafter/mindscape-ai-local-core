@@ -31,6 +31,8 @@ from ...models.workspace import (
     CreateWorkspaceRequest,
     UpdateWorkspaceRequest
 )
+from ...models.workspace_runtime_profile import WorkspaceRuntimeProfile
+from ...services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
 from ...models.mindscape import MindEvent, EventType, EventActor, IntentTagStatus
 from ...services.mindscape_store import MindscapeStore
 from ...services.i18n_service import get_i18n_service
@@ -46,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 # Initialize store (singleton)
 store = MindscapeStore()
+
+# Initialize runtime profile store
+def get_runtime_profile_store() -> WorkspaceRuntimeProfileStore:
+    """Get runtime profile store instance"""
+    return WorkspaceRuntimeProfileStore(store.db_path)
 
 
 # ============================================================================
@@ -1412,6 +1419,94 @@ async def analyze_file(
     except Exception as e:
         logger.error(f"Failed to analyze file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Runtime Profile Endpoints
+# ============================================================================
+
+@router.get("/{workspace_id}/runtime-profile", response_model=WorkspaceRuntimeProfile)
+async def get_runtime_profile(
+    workspace_id: str = PathParam(..., description="Workspace ID")
+):
+    """
+    Get workspace runtime profile
+
+    Returns the runtime profile configuration for the workspace.
+    If no profile exists, returns a default profile.
+    """
+    try:
+        profile_store = get_runtime_profile_store()
+        profile = profile_store.get_runtime_profile(workspace_id)
+
+        if not profile:
+            # Return default profile if not found
+            profile = profile_store.create_default_profile(workspace_id)
+
+        return profile
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to get runtime profile: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get runtime profile: {str(e)}")
+
+
+@router.put("/{workspace_id}/runtime-profile", response_model=WorkspaceRuntimeProfile)
+async def update_runtime_profile(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    profile: WorkspaceRuntimeProfile = Body(..., description="Runtime profile configuration"),
+    updated_by: Optional[str] = Query(None, description="User ID who updated this profile"),
+    updated_reason: Optional[str] = Query(None, description="Reason for update")
+):
+    """
+    Update workspace runtime profile
+
+    Updates or creates the runtime profile configuration for the workspace.
+    """
+    try:
+        # Verify workspace exists
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        profile_store = get_runtime_profile_store()
+        updated_profile = profile_store.save_runtime_profile(
+            workspace_id=workspace_id,
+            profile=profile,
+            updated_by=updated_by,
+            updated_reason=updated_reason
+        )
+
+        return updated_profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update runtime profile: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update runtime profile: {str(e)}")
+
+
+@router.delete("/{workspace_id}/runtime-profile", status_code=204)
+async def delete_runtime_profile(
+    workspace_id: str = PathParam(..., description="Workspace ID")
+):
+    """
+    Delete workspace runtime profile
+
+    Removes the runtime profile configuration for the workspace.
+    """
+    try:
+        profile_store = get_runtime_profile_store()
+        deleted = profile_store.delete_runtime_profile(workspace_id)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Runtime profile not found")
+
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete runtime profile: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete runtime profile: {str(e)}")
 
 
 # ============================================================================

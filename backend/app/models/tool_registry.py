@@ -38,6 +38,45 @@ class RegisteredTool(BaseModel):
     allowed_agent_roles: List[str] = Field(default_factory=list, description="Agent roles allowed to use this tool")
     side_effect_level: Optional[str] = Field(default=None, description="readonly, soft_write, or external_write")
 
+    # Runtime Profile support (新增字段)
+    capability_code: str = Field(
+        default="",
+        description="Capability code for policy matching (defaults to origin_capability_id if not set)"
+    )
+
+    risk_class: Literal["readonly", "soft_write", "external_write", "destructive"] = Field(
+        default="readonly",
+        description="Risk class for confirmation policy (maps from side_effect_level if not set)"
+    )
+
+    @property
+    def effective_capability_code(self) -> str:
+        """Effective capability code (capability_code or origin_capability_id)"""
+        return self.capability_code or self.origin_capability_id
+
+    @property
+    def effective_risk_class(self) -> str:
+        """Effective risk class (risk_class or mapped from side_effect_level)"""
+        if self.risk_class != "readonly":  # 已明確設置
+            return self.risk_class
+
+        # 從 side_effect_level 映射（如果已存在）
+        if self.side_effect_level:
+            mapping = {
+                "readonly": "readonly",
+                "soft_write": "soft_write",
+                "external_write": "external_write"
+            }
+            return mapping.get(self.side_effect_level, "readonly")
+
+        # 從 danger_level 推斷（fallback）
+        if self.danger_level == "high":
+            return "external_write"
+        elif self.danger_level == "medium":
+            return "soft_write"
+        else:
+            return "readonly"  # 默認值（保守策略）
+
     # Scope (Phase 2.2: support for shared resources)
     scope: Optional[str] = Field(
         default="profile",

@@ -9,8 +9,8 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import uuid
 
+from ...core.domain_context import LocalDomainContext
 from ...models.workspace import Task, TaskStatus
-from ...core.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
 

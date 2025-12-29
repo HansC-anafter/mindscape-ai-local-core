@@ -28,7 +28,7 @@ mindscape_store = MindscapeStore()
 cloud_extension_manager = None
 try:
     from ...services.cloud_extension_manager import CloudExtensionManager
-    from ...services.cloud_providers.official import OfficialCloudProvider
+    from ...services.cloud_providers.generic_http import GenericHttpProvider
     from ...services.system_settings_store import SystemSettingsStore
 
     # Get settings store for reading cloud configuration
@@ -96,20 +96,34 @@ try:
 
                 try:
                     if provider_type == "official":
-                        # Official cloud provider (same as others, just a provider type)
-                        provider = OfficialCloudProvider(
+                        # Official provider type is deprecated - convert to generic_http
+                        logger.info(f"Converting deprecated 'official' provider '{provider_id}' to generic_http")
+                        provider = GenericHttpProvider(
+                            provider_id=provider_id,
+                            provider_name=config.get("name", "Mindscape AI Cloud"),
                             api_url=config.get("api_url"),
-                            license_key=config.get("license_key"),
-                            settings_store=settings_store
+                            auth_config={
+                                "auth_type": "bearer",
+                                "token": config.get("license_key")
+                            },
+                            api_path_template=config.get(
+                                "api_path_template",
+                                "/api/v1/playbooks/{capability_code}/{playbook_code}"
+                            ),
+                            pack_download_path=config.get("pack_download_path")
                         )
                     elif provider_type == "generic_http":
                         # Generic HTTP provider
-                        from ...services.cloud_providers.generic_http import GenericHttpProvider
                         provider = GenericHttpProvider(
                             provider_id=provider_id,
                             provider_name=config.get("name", provider_id),
                             api_url=config.get("api_url"),
-                            auth_config=config.get("auth", {})
+                            auth_config=config.get("auth", {}),
+                            api_path_template=config.get(
+                                "api_path_template",
+                                "/api/v1/playbooks/{capability_code}/{playbook_code}"
+                            ),
+                            pack_download_path=config.get("pack_download_path")
                         )
                     else:
                         logger.warning(f"Unknown provider type: {provider_type}, skipping")

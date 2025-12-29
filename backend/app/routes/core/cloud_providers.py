@@ -749,7 +749,21 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
                         }
 
             response.raise_for_status()
-            return response.json()
+            catalog_data = response.json()
+
+            # Site-Hub API returns {"packs": [...]} directly
+            # Ensure we return a dict with "packs" key
+            if isinstance(catalog_data, dict):
+                # If it already has "packs" key, return as is
+                if "packs" in catalog_data:
+                    return catalog_data
+                # If it's a list, wrap it
+                elif isinstance(catalog_data, list):
+                    return {"packs": catalog_data}
+                else:
+                    return {"packs": []}
+            else:
+                return {"packs": []}
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
                 try:

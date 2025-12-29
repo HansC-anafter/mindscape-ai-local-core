@@ -9,7 +9,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional
 
-from ...core.execution_context import ExecutionContext
+from ...core.domain_context import LocalDomainContext
 from ...models.playbook import (
     PlaybookInvocationContext,
     InvocationMode,

@@ -188,7 +188,23 @@ async def canva_oauth_authorize(
             raise_api_error(400, "client_id is required. Provide via query parameter or ensure connection has stored credentials.")
 
         if not final_redirect_uri:
-            final_redirect_uri = f"http://localhost:8000/api/tools/canva/oauth/callback"
+            # 从端口配置服务获取后端 URL
+            try:
+                from ....services.port_config_service import port_config_service
+                import os
+                current_cluster = os.getenv('CLUSTER_NAME')
+                current_env = os.getenv('ENVIRONMENT')
+                current_site = os.getenv('SITE_NAME')
+                backend_url = port_config_service.get_service_url(
+                    'backend_api',
+                    cluster=current_cluster,
+                    environment=current_env,
+                    site=current_site
+                )
+                final_redirect_uri = f"{backend_url}/api/tools/canva/oauth/callback"
+            except Exception:
+                # 回退到默认值
+                final_redirect_uri = f"http://localhost:8200/api/tools/canva/oauth/callback"
 
         oauth_manager = get_canva_oauth_manager()
         auth_url, code_verifier = oauth_manager.build_authorization_url(

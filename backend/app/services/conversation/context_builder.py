@@ -405,6 +405,7 @@ class ContextBuilder:
             messages_to_keep = conversation_context[-max_messages:]
 
             # Check if summary should be triggered using multi-factor policy
+            # Also check SharedStatePolicy from Runtime Profile (Phase 2)
             should_summarize_flag, summary_reason = await self.should_summarize(
                 workspace_id=workspace_id,
                 conversation_context=conversation_context,
@@ -461,6 +462,10 @@ class ContextBuilder:
         Score = 0.5 * capacity_score + 0.3 * structure_score + 0.2 * salience_score
         Returns True if score >= 0.7
 
+        Also checks SharedStatePolicy from Runtime Profile (Phase 2):
+        - summarize_on_turn_count: Trigger summary after N turns
+        - summarize_on_token_count: Trigger summary after N tokens
+
         Args:
             workspace_id: Workspace ID
             conversation_context: List of conversation messages
@@ -469,6 +474,48 @@ class ContextBuilder:
         Returns:
             Tuple of (should_summarize, reason)
         """
+        # Check SharedStatePolicy from Runtime Profile (Phase 2)
+        shared_state_policy_triggered = False
+        shared_state_reason = None
+
+        try:
+            from backend.app.services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
+            from backend.app.services.stores.workspaces_store import WorkspacesStore
+
+            if workspace_id and self.store:
+                workspaces_store = WorkspacesStore(db_path=self.store.db_path)
+                workspace = workspaces_store.get_workspace(workspace_id)
+
+                if workspace:
+                    profile_store = WorkspaceRuntimeProfileStore(db_path=self.store.db_path)
+                    runtime_profile = profile_store.get_runtime_profile(workspace_id)
+
+                    if runtime_profile:
+                        runtime_profile.ensure_phase2_fields()
+                        shared_state_policy = runtime_profile.shared_state_policy
+
+                        # Check summarize_on_turn_count
+                        if shared_state_policy.summarize_on_turn_count:
+                            turn_count = len(conversation_context) // 2  # Approximate turn count (each turn = user + assistant)
+                            if turn_count >= shared_state_policy.summarize_on_turn_count:
+                                shared_state_policy_triggered = True
+                                shared_state_reason = f"turn_count({turn_count} >= {shared_state_policy.summarize_on_turn_count})"
+
+                        # Check summarize_on_token_count
+                        if shared_state_policy.summarize_on_token_count and not shared_state_policy_triggered:
+                            total_text = "\n".join(conversation_context)
+                            token_count = self.estimate_token_count(total_text, self.model_name)
+                            if token_count >= shared_state_policy.summarize_on_token_count:
+                                shared_state_policy_triggered = True
+                                shared_state_reason = f"token_count({token_count} >= {shared_state_policy.summarize_on_token_count})"
+        except Exception as e:
+            logger.debug(f"Failed to check SharedStatePolicy: {e}")
+
+        # If SharedStatePolicy triggered, return early
+        if shared_state_policy_triggered:
+            logger.info(f"SharedStatePolicy: Summary triggered by {shared_state_reason}")
+            return True, f"shared_state_policy({shared_state_reason})"
+
         # Capacity-based score (0~1)
         capacity_score = await self._calculate_capacity_score(conversation_context)
 

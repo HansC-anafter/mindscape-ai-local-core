@@ -299,6 +299,10 @@ class EventType(str, Enum):
     DECISION_REQUIRED = "decision_required"  # Human-in-the-loop: requires user decision (ReAct: Ask Human)
     BRANCH_PROPOSED = "branch_proposed"      # Tree of Thoughts: alternative branches proposed
     ARTIFACT_CREATED = "artifact_created"    # Artifact created/updated
+    # Runtime Profile Events (Phase 2)
+    POLICY_CHECK = "policy_check"            # PolicyGuard policy check result
+    LOOP_BUDGET_EXHAUSTED = "loop_budget_exhausted"  # LoopBudget limit reached
+    QUALITY_GATE_CHECK = "quality_gate_check"  # QualityGates check result
     ARTIFACT_UPDATED = "artifact_updated"    # Artifact updated
     RUN_STATE_CHANGED = "run_state_changed"  # Execution state changed (WAITING_HUMAN / READY / RUNNING / DONE)
 

@@ -107,6 +107,8 @@ class ToolRegistryService:
                 scope TEXT DEFAULT 'profile',
                 tenant_id TEXT,
                 owner_profile_id TEXT,
+                capability_code TEXT DEFAULT '',
+                risk_class TEXT DEFAULT 'readonly',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -125,6 +127,17 @@ class ToolRegistryService:
 
         try:
             cursor.execute("ALTER TABLE tool_registry ADD COLUMN owner_profile_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Migration: Add capability_code and risk_class columns (for Runtime Profile support)
+        try:
+            cursor.execute("ALTER TABLE tool_registry ADD COLUMN capability_code TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE tool_registry ADD COLUMN risk_class TEXT DEFAULT 'readonly'")
         except sqlite3.OperationalError:
             pass  # Column already exists
 
@@ -225,6 +238,8 @@ class ToolRegistryService:
                         "read_only": bool(row["read_only"]),
                         "allowed_agent_roles": json.loads(row["allowed_agent_roles"]) if row["allowed_agent_roles"] else [],
                         "side_effect_level": row["side_effect_level"],
+                        "capability_code": row.get("capability_code") or "",  # Runtime Profile support
+                        "risk_class": row.get("risk_class") or "readonly",  # Runtime Profile support
                         "created_at": datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
                         "updated_at": datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow(),
                     }
@@ -337,8 +352,9 @@ class ToolRegistryService:
                         category, description, endpoint, methods, danger_level,
                         input_schema, enabled, read_only, allowed_agent_roles,
                         side_effect_level, scope, tenant_id, owner_profile_id,
+                        capability_code, risk_class,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     tool.tool_id,
                     tool.site_id,
@@ -358,6 +374,8 @@ class ToolRegistryService:
                     tool.scope or "profile",
                     tool.tenant_id,
                     tool.owner_profile_id,
+                    tool.capability_code,  # Runtime Profile support
+                    tool.risk_class,  # Runtime Profile support
                     tool.created_at.isoformat(),
                     tool.updated_at.isoformat(),
                 ))
@@ -690,6 +708,18 @@ class ToolRegistryService:
                 # TODO: When DataSource is fully integrated, check data_source_type
                 # and set scope accordingly (tenant vs profile)
 
+            # Determine capability_code and risk_class for Runtime Profile support
+            # capability_code defaults to origin_capability_id (e.g., "wp" for WordPress tools)
+            capability_code = discovered_tool.tool_id.split(".")[0] if "." in discovered_tool.tool_id else discovered_tool.tool_id
+
+            # risk_class maps from side_effect_level
+            risk_class_mapping = {
+                "readonly": "readonly",
+                "soft_write": "soft_write",
+                "external_write": "external_write"
+            }
+            risk_class = risk_class_mapping.get(side_effect_level, "readonly")
+
             registered_tool = RegisteredTool(
                 tool_id=tool_id,
                 site_id=connection_id,
@@ -708,6 +738,8 @@ class ToolRegistryService:
                 scope=tool_scope,
                 tenant_id=tool_tenant_id,
                 owner_profile_id=tool_owner_profile_id,
+                capability_code=capability_code,  # Runtime Profile support
+                risk_class=risk_class,  # Runtime Profile support
             )
 
             self._tools[tool_id] = registered_tool

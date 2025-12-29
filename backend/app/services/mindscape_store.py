@@ -14,7 +14,7 @@ from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import logging
 
-from backend.app.models.mindscape import (
+from app.models.mindscape import (
     MindscapeProfile, IntentCard, AgentExecution,
     IntentStatus, PriorityLevel, MindEvent, EventType, EventActor, IntentLog,
     Entity, EntityType, Tag, TagCategory, EntityTag

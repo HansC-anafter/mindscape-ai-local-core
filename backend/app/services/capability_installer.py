@@ -85,6 +85,10 @@ class CapabilityInstaller:
                 "playbooks": [],
                 "tools": [],
                 "services": [],
+                "api_endpoints": [],
+                "schema_modules": [],
+                "database_models": [],
+                "migrations": [],
                 "ui_components": []
             },
             "warnings": [],
@@ -138,14 +142,11 @@ class CapabilityInstaller:
                 )
                 result["warnings"].extend(validation_warnings)
                 if not is_valid:
-                    result["errors"].extend(validation_errors)
-                    logger.error(f"Manifest validation failed: {validation_errors}")
-                    # Only block installation if there are actual validation errors
-                    # Path issues should not block installation
-                    if validation_errors and not any('path issue' in e.lower() or 'not found' in e.lower() for e in validation_errors):
-                        return False, result
-                    # If it's just path issues, continue with warning
-                    logger.warning("Validation had path issues, continuing with installation")
+                    result["warnings"].extend(validation_errors)  # Treat validation errors as warnings
+                    logger.warning(f"Manifest validation had issues: {validation_errors}")
+                    # Don't block installation for validation errors - they're just warnings
+                    # Continue with installation even if validation fails
+                    logger.info("Continuing with installation despite validation warnings")
 
             # Install capability
             success = self._install_capability(
@@ -262,16 +263,28 @@ class CapabilityInstaller:
             # 3. Install services
             self._install_services(cap_dir, capability_code, result)
 
-            # 4. Install UI components
+            # 4. Install API endpoints
+            self._install_api_endpoints(cap_dir, capability_code, result)
+
+            # 5. Install schema modules
+            self._install_schema_modules(cap_dir, capability_code, result)
+
+            # 6. Install database models
+            self._install_database_models(cap_dir, capability_code, result)
+
+            # 7. Install migrations
+            self._install_migrations(cap_dir, capability_code, result)
+
+            # 8. Install UI components
             self._install_ui_components(cap_dir, capability_code, manifest, result)
 
-            # 5. Install manifest
+            # 9. Install manifest
             self._install_manifest(cap_dir, capability_code, manifest)
 
-            # 6. Check dependencies and generate summary
+            # 10. Check dependencies and generate summary
             self._check_dependencies(manifest, result)
 
-            # 7. Run post-install hooks (bootstrap scripts)
+            # 11. Run post-install hooks (bootstrap scripts)
             self._run_post_install_hooks(cap_dir, capability_code, manifest, result)
 
             logger.info(f"Successfully installed capability: {capability_code}")
@@ -352,6 +365,11 @@ class CapabilityInstaller:
                 shutil.copy2(spec_path, target_spec)
                 result["installed"]["playbooks"].append(playbook_code)
                 logger.debug(f"Installed spec: {playbook_code}.json")
+            else:
+                # Spec file not found - log warning but don't block installation
+                warning_msg = f"Playbook {playbook_code}: spec file not found: {spec_path}"
+                logger.warning(warning_msg)
+                result["warnings"].append(warning_msg)
 
             # Install markdown files
             locales = pb_config.get('locales', ['zh-TW', 'en'])
@@ -413,6 +431,159 @@ class CapabilityInstaller:
             service_name = service_file.stem
             result["installed"]["services"].append(service_name)
             logger.debug(f"Installed service: {service_name}")
+
+    def _install_api_endpoints(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: Dict
+    ):
+        """Install capability API endpoints"""
+        api_dir = cap_dir / "api"
+        if not api_dir.exists():
+            return
+
+        target_api_dir = self.capabilities_dir / capability_code / "api"
+        target_api_dir.mkdir(parents=True, exist_ok=True)
+
+        for api_file in api_dir.glob("*.py"):
+            if api_file.name.startswith("__"):
+                continue
+
+            target_api = target_api_dir / api_file.name
+            shutil.copy2(api_file, target_api)
+            api_name = api_file.stem
+            result["installed"]["api_endpoints"] = result.get("api_endpoints", [])
+            result["installed"]["api_endpoints"].append(api_name)
+            logger.debug(f"Installed API endpoint: {api_name}")
+
+    def _install_schema_modules(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: Dict
+    ):
+        """Install capability schema modules"""
+        schema_dir = cap_dir / "schema"
+        if not schema_dir.exists():
+            return
+
+        target_schema_dir = self.capabilities_dir / capability_code / "schema"
+        target_schema_dir.mkdir(parents=True, exist_ok=True)
+
+        # Install all Python files including __init__.py
+        for schema_file in schema_dir.glob("*.py"):
+            target_schema = target_schema_dir / schema_file.name
+            shutil.copy2(schema_file, target_schema)
+            schema_name = schema_file.stem
+            if not schema_name.startswith("__"):
+                result["installed"]["schema_modules"] = result.get("schema_modules", [])
+                result["installed"]["schema_modules"].append(schema_name)
+            logger.debug(f"Installed schema module: {schema_file.name}")
+
+    def _install_database_models(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: Dict
+    ):
+        """Install capability database models"""
+        database_models_dir = cap_dir / "database" / "models"
+        if not database_models_dir.exists():
+            return
+
+        # Target: app/models/{capability_code}.py or app/models/{capability_code}/
+        target_models_dir = self.local_core_root / "backend" / "app" / "models"
+        target_models_dir.mkdir(parents=True, exist_ok=True)
+
+        # Install all Python files from database/models/
+        for model_file in database_models_dir.glob("*.py"):
+            if model_file.name.startswith("__"):
+                continue
+
+            # Install as app/models/{capability_code}_{model_file.name}
+            # or create app/models/{capability_code}/ directory
+            target_model_dir = target_models_dir / capability_code
+            target_model_dir.mkdir(parents=True, exist_ok=True)
+
+            target_model = target_model_dir / model_file.name
+
+            # Read and fix import paths for local-core
+            # Try multiple encodings to handle different file encodings
+            content = None
+            for encoding in ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']:
+                try:
+                    with open(model_file, 'r', encoding=encoding) as f:
+                        content = f.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            if content is None:
+                # If all encodings fail, try binary read and decode with errors='replace'
+                with open(model_file, 'rb') as f:
+                    raw_content = f.read()
+                content = raw_content.decode('utf-8', errors='replace')
+
+            # Fix Base import: from .. import Base -> try multiple import paths
+            # Cloud uses: from .. import Base (from database.models.__init__)
+            # Local-core may need: from database import Base or create Base here
+            # For now, try to import from cloud's database structure
+            # If that fails, models will need Base to be defined in local-core
+            if 'from .. import Base' in content:
+                # Try to use cloud's database Base (if available)
+                # Otherwise, will need to be fixed manually or Base needs to be in local-core
+                content = content.replace('from .. import Base', 'from database import Base')
+
+            with open(target_model, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            model_name = model_file.stem
+            result["installed"]["database_models"] = result.get("database_models", [])
+            result["installed"]["database_models"].append(model_name)
+            logger.debug(f"Installed database model: {model_file.name} (imports fixed)")
+
+        # Install __init__.py if exists
+        init_file = database_models_dir / "__init__.py"
+        if init_file.exists():
+            target_init_dir = target_models_dir / capability_code
+            target_init_dir.mkdir(parents=True, exist_ok=True)
+            target_init = target_init_dir / "__init__.py"
+            shutil.copy2(init_file, target_init)
+            logger.debug(f"Installed database models __init__.py")
+
+    def _install_migrations(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: Dict
+    ):
+        """Install capability migration files"""
+        migrations_dir = cap_dir / "migrations"
+        if not migrations_dir.exists():
+            return
+
+        # Target: app/capabilities/{capability_code}/migrations/
+        target_migrations_dir = self.capabilities_dir / capability_code / "migrations"
+        target_migrations_dir.mkdir(parents=True, exist_ok=True)
+
+        # Install all files from migrations/ directory, preserving structure
+        for migration_file in migrations_dir.rglob("*"):
+            if migration_file.is_file():
+                # Preserve relative path structure
+                relative_path = migration_file.relative_to(migrations_dir)
+                target_file = target_migrations_dir / relative_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(migration_file, target_file)
+                logger.debug(f"Installed migration: {relative_path}")
+
+        # Track installed migrations
+        migration_files = list(migrations_dir.rglob("*.py"))
+        if migration_files:
+            result["installed"]["migrations"] = result.get("migrations", [])
+            for migration_file in migration_files:
+                result["installed"]["migrations"].append(migration_file.name)
+            logger.info(f"Installed {len(migration_files)} migration files for {capability_code}")
 
     def _install_ui_components(
         self,

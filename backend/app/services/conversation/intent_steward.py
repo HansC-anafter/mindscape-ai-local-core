@@ -19,7 +19,6 @@ from ...services.mindscape_store import MindscapeStore
 from ...services.stores.intent_tags_store import IntentTagsStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...services.stores.events_store import EventsStore
-from ...core.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
 

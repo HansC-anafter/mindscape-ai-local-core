@@ -141,6 +141,23 @@ class ToolDependency(BaseModel):
         return v
 
 
+class AgentDefinition(BaseModel):
+    """Agent Definition - Agent 定義（球員名單中的一個球員）"""
+
+    agent_id: str = Field(..., description="Unique agent ID (e.g., 'researcher', 'writer', 'reviewer')")
+    agent_name: str = Field(..., description="Display name")
+
+    # Agent 定義（可解析的定義）
+    system_prompt: Optional[str] = Field(None, description="Agent-specific system prompt")
+    role: Optional[str] = Field(None, description="Agent role (e.g., 'researcher', 'engineer', 'reviewer')")
+    tools: List[str] = Field(default_factory=list, description="Tool IDs this agent can use")
+    memory_scope: Optional[str] = Field(None, description="Memory scope: workspace/session/task")
+    responsibility_boundary: Optional[str] = Field(None, description="Responsibility boundary description")
+
+    # Capability profile
+    capability_profile: Optional[str] = Field(None, description="Capability profile for this agent")
+
+
 class PlaybookMetadata(BaseModel):
     """Playbook metadata (simplified for v0)"""
     playbook_code: str = Field(..., description="Unique playbook identifier")
@@ -369,6 +386,12 @@ class Playbook(BaseModel):
 
     # Optional: user notes for personalization
     user_notes: Optional[str] = Field(None, description="User's personal notes about this playbook")
+
+    # 階段 2 擴展：Agent Roster（球員名單）
+    agent_roster: Optional[Dict[str, AgentDefinition]] = Field(
+        None,
+        description="Agent roster for this playbook: {agent_id: AgentDefinition}"
+    )
 
     class Config:
         json_encoders = {

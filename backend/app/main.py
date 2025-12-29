@@ -36,6 +36,8 @@ from .routes.core.workspace_resource_bindings import router as workspace_resourc
 from .routes.core.cloud_providers import router as cloud_providers_router
 from .routes.core import deployment
 from .routes.core.unsplash_fingerprints import router as unsplash_fingerprints_router
+from .routes.graph import router as graph_router
+from .routes.lens import router as lens_unified_router
 
 # Core primitives
 from .routes.core import (
@@ -65,25 +67,77 @@ app = FastAPI(
     description="Personal AI agent platform with mindscape management",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    redirect_slashes=False  # Disable automatic redirect for trailing slashes to avoid issues with Next.js proxy
 )
 
 # CORS middleware - MUST be first middleware (before TrustedHostMiddleware)
 # This ensures CORS headers are added to all responses, including error responses
+# 动态获取 CORS 允许的源（从端口配置服务读取）
+def get_cors_origins():
+    """从端口配置服务获取 CORS 允许的源"""
+    try:
+        from .services.port_config_service import port_config_service
+        import os
+
+        # 获取当前作用域（从环境变量或配置）
+        current_cluster = os.getenv('CLUSTER_NAME')
+        current_env = os.getenv('ENVIRONMENT')
+        current_site = os.getenv('SITE_NAME')
+
+        # 获取前端 URL（自动从配置读取主机名和端口）
+        frontend_url = port_config_service.get_service_url(
+            'frontend',
+            cluster=current_cluster,
+            environment=current_env,
+            site=current_site
+        )
+        port_config = port_config_service.get_port_config(
+            cluster=current_cluster,
+            environment=current_env,
+            site=current_site
+        )
+        host_config = port_config_service.get_host_config()
+
+        # 构建 CORS 允许的源（自动从配置读取主机名）
+        allow_origins = [frontend_url]
+
+        # 如果前端主机名不是 localhost，也添加 127.0.0.1 变体
+        if 'localhost' in frontend_url:
+            allow_origins.append(frontend_url.replace('localhost', '127.0.0.1'))
+
+        # 添加 Cloud API（如果配置了）
+        if port_config.cloud_api and host_config.cloud_api_host:
+            cloud_api_url = port_config_service.get_service_url(
+                'cloud_api',
+                cluster=current_cluster,
+                environment=current_env,
+                site=current_site
+            )
+            allow_origins.append(cloud_api_url)
+            if 'localhost' in cloud_api_url:
+                allow_origins.append(cloud_api_url.replace('localhost', '127.0.0.1'))
+
+        # 添加 CORS 配置中的其他源（如果配置了）
+        if host_config.cors_origins:
+            allow_origins.extend(host_config.cors_origins)
+
+        return allow_origins
+    except Exception as e:
+        logger.warning(f"无法从端口配置服务获取 CORS 源，使用默认值: {e}")
+        # 回退到默认值（向后兼容）
+        return [
+            "http://localhost:8300",  # 新默认前端端口
+            "http://127.0.0.1:8300",
+            "http://localhost:3000",  # 保留旧端口以兼容
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:3002",
-        "http://127.0.0.1:3002",
-        "http://localhost:8001",  # Cloud service (production)
-        "http://127.0.0.1:8001",
-        "http://localhost:8002",  # Cloud service (development)
-        "http://127.0.0.1:8002",
-    ],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=["*"],
@@ -140,6 +194,8 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(workspace_resource_bindings_router, tags=["workspace-resource-bindings"])
     app.include_router(cloud_providers_router, tags=["cloud-providers"])
     app.include_router(cloud_sync.router, tags=["cloud-sync"])
+    app.include_router(graph_router, tags=["graph"])
+    app.include_router(lens_unified_router, tags=["lens-unified"])
 
     # Story Thread proxy routes (optional - requires Cloud API configuration)
     try:
@@ -213,12 +269,72 @@ except Exception as e:
 @app.on_event("startup")
 async def startup_event():
     """Initialize database tables and background tasks on startup"""
-    logger.info("Initializing mindscape database tables...")
+    # Run database migrations using unified migration orchestrator
+    logger.info("Running database migrations...")
     try:
-        init_mindscape_tables()
-        logger.info("Mindscape tables initialized successfully")
+        from pathlib import Path
+        from app.services.migrations import MigrationOrchestrator
+
+        capabilities_root = Path(__file__).parent / "capabilities"
+        alembic_configs = {
+            "sqlite": Path(__file__).parent.parent / "alembic.sqlite.ini",
+            "postgres": Path(__file__).parent.parent / "alembic.postgres.ini",
+        }
+
+        orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
+
+        # Run SQLite migrations
+        logger.info("Checking SQLite migrations...")
+        sqlite_result = orchestrator.apply("sqlite", dry_run=False)
+        if sqlite_result.get("status") == "validation_failed":
+            logger.error(f"SQLite migration validation failed: {sqlite_result.get('failed_checks')}")
+        elif sqlite_result.get("status") == "error":
+            logger.error(f"SQLite migration error: {sqlite_result.get('error')}")
+        else:
+            logger.info(f"SQLite migrations: {sqlite_result.get('status')}, applied: {sqlite_result.get('migrations_applied', 0)}")
+
+        # Run PostgreSQL migrations
+        logger.info("Checking PostgreSQL migrations...")
+        postgres_result = orchestrator.apply("postgres", dry_run=False)
+        if postgres_result.get("status") == "validation_failed":
+            logger.error(f"PostgreSQL migration validation failed: {postgres_result.get('failed_checks')}")
+            logger.warning("Falling back to init_db.py for PostgreSQL tables...")
+            # Fallback to init_db.py if migration validation fails
+            try:
+                init_mindscape_tables()
+                logger.info("Mindscape tables initialized via init_db.py fallback")
+            except Exception as e:
+                logger.warning(f"Failed to initialize mindscape tables via init_db.py: {e}")
+        elif postgres_result.get("status") == "error":
+            logger.error(f"PostgreSQL migration error: {postgres_result.get('error')}")
+            logger.warning("Falling back to init_db.py for PostgreSQL tables...")
+            try:
+                init_mindscape_tables()
+                logger.info("Mindscape tables initialized via init_db.py fallback")
+            except Exception as e:
+                logger.warning(f"Failed to initialize mindscape tables via init_db.py: {e}")
+        else:
+            logger.info(f"PostgreSQL migrations: {postgres_result.get('status')}, applied: {postgres_result.get('migrations_applied', 0)}")
+            # Migration system working, init_db.py no longer needed
+            logger.info("Database migrations completed via unified migration system")
+    except ImportError as e:
+        logger.warning(f"Migration orchestrator not available: {e}")
+        logger.warning("Falling back to init_db.py...")
+        # Fallback to init_db.py if migration system not available
+        try:
+            init_mindscape_tables()
+            logger.info("Mindscape tables initialized via init_db.py fallback")
+        except Exception as e:
+            logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
     except Exception as e:
-        logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
+        logger.error(f"Migration system error: {e}", exc_info=True)
+        logger.warning("Falling back to init_db.py...")
+        # Fallback to init_db.py on any error
+        try:
+            init_mindscape_tables()
+            logger.info("Mindscape tables initialized via init_db.py fallback")
+        except Exception as e:
+            logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
 
 
     logger.info("Validating routes against manifest declarations...")
@@ -609,15 +725,39 @@ async def general_exception_handler(request: Request, exc: Exception):
     print(f"ERROR: Unhandled exception: {str(exc)}", file=sys.stderr)
     print(full_traceback, file=sys.stderr)
     origin = request.headers.get("origin", "*")
-    # Validate origin against allowed origins
-    allowed_origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:3002",
-        "http://127.0.0.1:3002",
-    ]
+    # Validate origin against allowed origins (从端口配置服务获取)
+    try:
+        from .services.port_config_service import port_config_service
+        import os
+
+        current_cluster = os.getenv('CLUSTER_NAME')
+        current_env = os.getenv('ENVIRONMENT')
+        current_site = os.getenv('SITE_NAME')
+
+        frontend_url = port_config_service.get_service_url(
+            'frontend',
+            cluster=current_cluster,
+            environment=current_env,
+            site=current_site
+        )
+        host_config = port_config_service.get_host_config()
+
+        allowed_origins = [frontend_url]
+        if 'localhost' in frontend_url:
+            allowed_origins.append(frontend_url.replace('localhost', '127.0.0.1'))
+        if host_config.cors_origins:
+            allowed_origins.extend(host_config.cors_origins)
+    except Exception as e:
+        logger.warning(f"无法从端口配置服务获取允许的源，使用默认值: {e}")
+        allowed_origins = [
+            "http://localhost:8300",
+            "http://127.0.0.1:8300",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ]
+
     if origin not in allowed_origins:
         origin = allowed_origins[0] if allowed_origins else "*"
     return JSONResponse(

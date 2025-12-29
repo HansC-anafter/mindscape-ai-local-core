@@ -241,7 +241,22 @@ async def oauth_callback(
 
     if error:
         logger.error(f"OAuth error for {provider}: {error} - {error_description}")
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+        # 从端口配置服务获取前端 URL
+        try:
+            from ...services.port_config_service import port_config_service
+            import os
+            current_cluster = os.getenv('CLUSTER_NAME')
+            current_env = os.getenv('ENVIRONMENT')
+            current_site = os.getenv('SITE_NAME')
+            frontend_url = port_config_service.get_service_url(
+                'frontend',
+                cluster=current_cluster,
+                environment=current_env,
+                site=current_site
+            )
+        except Exception:
+            # 回退到环境变量或默认值
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
         error_params = urlencode({
             "error": error,
             "error_description": error_description or "",
@@ -295,7 +310,22 @@ async def oauth_callback(
         )
     except Exception as e:
         logger.error(f"Failed to exchange token for {provider}: {str(e)}")
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+        # 从端口配置服务获取前端 URL
+        try:
+            from ...services.port_config_service import port_config_service
+            import os
+            current_cluster = os.getenv('CLUSTER_NAME')
+            current_env = os.getenv('ENVIRONMENT')
+            current_site = os.getenv('SITE_NAME')
+            frontend_url = port_config_service.get_service_url(
+                'frontend',
+                cluster=current_cluster,
+                environment=current_env,
+                site=current_site
+            )
+        except Exception:
+            # 回退到环境变量或默认值
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
         error_params = urlencode({
             "error": "token_exchange_failed",
             "error_description": str(e),

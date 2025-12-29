@@ -17,8 +17,8 @@ from ...models.mindscape import IntentTag, IntentTagStatus, IntentSource
 from ...services.mindscape_store import MindscapeStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...services.stores.intent_tags_store import IntentTagsStore
+from ...core.domain_context import LocalDomainContext
 from ...services.i18n_service import get_i18n_service
-from ...core.execution_context import ExecutionContext
 from ...core.ports.intent_registry_port import IntentRegistryPort
 from backend.app.services.conversation.context_builder import ContextBuilder
 from backend.app.services.conversation.pack_suggester import PackSuggester
@@ -432,7 +432,6 @@ class IntentExtractor:
         Returns:
             List of candidate IntentTags
         """
-        from ...core.execution_context import ExecutionContext
         ctx = LocalDomainContext(
             actor_id=profile_id,
             workspace_id=workspace_id,

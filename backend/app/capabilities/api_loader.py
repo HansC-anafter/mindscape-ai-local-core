@@ -174,11 +174,13 @@ class CapabilityAPILoader:
                 return None
 
             module = importlib.util.module_from_spec(spec)
-            # Set __package__ to support relative imports in imported modules
-            if not hasattr(module, '__package__') or module.__package__ is None:
-                # Extract package name from module_name (e.g., 'capabilities.brand_identity.api.cis_mapper_endpoints' -> 'capabilities.brand_identity.api')
-                if '.' in module_name:
-                    module.__package__ = '.'.join(module_name.split('.')[:-1])
+            # Set __package__ and __file__ to support relative imports
+            if '.' in module_name:
+                module.__package__ = '.'.join(module_name.split('.')[:-1])
+            module.__file__ = str(api_file_path)
+            # Ensure capability directory is in sys.path for relative imports
+            if str(capability_dir) not in sys.path:
+                sys.path.insert(0, str(capability_dir))
             spec.loader.exec_module(module)
 
             router_export = cap_def.get('router_export', 'router')
@@ -315,16 +317,26 @@ class CapabilityAPILoader:
         Returns:
             List of APIRouter instances
         """
-        capabilities_dir = self.find_remote_capabilities_dir()
-        if not capabilities_dir:
+        # Priority: Use local installed capabilities first (from .mindpack installation)
+        # Fallback to remote capabilities directory if local doesn't exist
+        local_capabilities_dir = Path("/app/backend/app/capabilities")
+        remote_capabilities_dir = self.find_remote_capabilities_dir()
+
+        if local_capabilities_dir.exists():
+            capabilities_dir = local_capabilities_dir
+            logger.info(f"Using local installed capabilities directory: {capabilities_dir}")
+        elif remote_capabilities_dir and remote_capabilities_dir.exists():
+            capabilities_dir = remote_capabilities_dir
+            logger.info(f"Using remote capabilities directory: {capabilities_dir}")
+        else:
             logger.warning(
-                "Remote capabilities directory not found. "
+                "Neither local nor remote capabilities directory found. "
                 "Skipping capability API loading."
             )
             return []
 
         if not capabilities_dir.exists():
-            logger.warning(f"Remote capabilities directory does not exist: {capabilities_dir}")
+            logger.warning(f"Capabilities directory does not exist: {capabilities_dir}")
             return []
 
         loaded_routers = []

@@ -9,7 +9,7 @@ Packs are loaded from /packs/*.yaml files or plugin registry.
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -590,5 +590,188 @@ async def install_from_file(
         raise HTTPException(
             status_code=500,
             detail=f"Installation failed: {str(e)}"
+        )
+
+
+# ============================================
+# Cloud Pack Installation (From Remote Provider)
+# ============================================
+
+class InstallFromCloudRequest(BaseModel):
+    """Request model for installing pack from cloud provider"""
+    pack_ref: str = Field(..., description="Pack reference in format 'provider_id:code@version'")
+    provider_id: str = Field(..., description="Provider ID to download from")
+    verify_checksum: bool = Field(True, description="Whether to verify SHA256 checksum")
+
+
+@router.post("/install-from-cloud", response_model=Dict[str, Any])
+async def install_from_cloud(
+    request: InstallFromCloudRequest,
+    profile_id: str = Query("default-user", description="User profile ID for role mapping")
+):
+    """
+    Install capability pack from cloud provider
+
+    Downloads pack from configured cloud provider and installs it locally.
+    Supports any provider that implements the CloudProvider interface.
+
+    Flow:
+    1. Get provider instance from CloudExtensionManager
+    2. Get download link from provider
+    3. Download pack file
+    4. Verify checksum (if enabled)
+    5. Install using CapabilityInstaller
+    """
+    try:
+        import sys
+        from pathlib import Path
+
+        # Get backend directory and add to sys.path
+        current_file = Path(__file__).resolve()
+        app_dir = current_file.parent.parent
+        backend_dir = app_dir.parent
+        local_core_root = current_file.parent.parent.parent.parent.parent
+
+        backend_dir_str = str(backend_dir)
+        if backend_dir_str not in sys.path:
+            sys.path.insert(0, backend_dir_str)
+
+        from app.services.capability_installer import CapabilityInstaller
+        from app.services.cloud_extension_manager import CloudExtensionManager
+        from app.services.pack_download_service import get_pack_download_service
+        from app.services.system_settings_store import SystemSettingsStore
+        from app.routes.core.cloud_providers import get_cloud_manager
+
+        # Get cloud extension manager (with auto-loading from settings)
+        cloud_manager = get_cloud_manager()
+
+        # Get provider instance
+        provider = cloud_manager.get_provider(request.provider_id)
+        if not provider:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Provider '{request.provider_id}' not found. Please configure it first."
+            )
+
+        if not provider.is_configured():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider '{request.provider_id}' is not configured. Please configure it first."
+            )
+
+        # Check if provider supports get_download_link
+        if not hasattr(provider, 'get_download_link'):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider '{request.provider_id}' does not support pack downloads"
+            )
+
+        # Download pack from cloud provider
+        download_service = get_pack_download_service()
+        success, pack_file, error_msg = await download_service.download_pack(
+            provider=provider,
+            pack_ref=request.pack_ref,
+            verify_checksum=request.verify_checksum
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to download pack: {error_msg}"
+            )
+
+        if not pack_file:
+            raise HTTPException(
+                status_code=500,
+                detail="Download succeeded but pack file not returned"
+            )
+
+        try:
+            # Install pack using CapabilityInstaller
+            installer = CapabilityInstaller(local_core_root=local_core_root)
+            install_success, install_result = installer.install_from_mindpack(
+                pack_file, validate=True
+            )
+
+            if not install_success:
+                error_msg = install_result.get('errors', ['Installation failed'])
+                if isinstance(error_msg, list) and error_msg:
+                    error_msg = error_msg[0]
+                elif not isinstance(error_msg, str):
+                    error_msg = 'Installation failed'
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_msg
+                )
+
+            capability_code = install_result.get('capability_code')
+            correct_backend_dir = local_core_root / 'backend'
+
+            # Register in installed_packs table
+            if capability_code:
+                try:
+                    target_dir = correct_backend_dir / 'app' / 'capabilities' / capability_code
+                    manifest_path = target_dir / "manifest.yaml"
+
+                    pack_metadata = {
+                        'installed_from_cloud': True,
+                        'provider_id': request.provider_id,
+                        'pack_ref': request.pack_ref,
+                        'version': install_result.get('version', '1.0.0')
+                    }
+
+                    if manifest_path.exists():
+                        with open(manifest_path, 'r', encoding='utf-8') as f:
+                            manifest = yaml.safe_load(f)
+                            pack_metadata.update({
+                                'side_effect_level': manifest.get('side_effect_level'),
+                                'version': manifest.get('version', pack_metadata['version'])
+                            })
+
+                    with get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO installed_packs (pack_id, installed_at, enabled, metadata)
+                            VALUES (?, ?, 1, ?)
+                        ''', (
+                            capability_code,
+                            datetime.utcnow().isoformat(),
+                            json.dumps(pack_metadata)
+                        ))
+                        conn.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to register pack in database: {e}")
+
+            return {
+                "success": True,
+                "capability_id": capability_code,
+                "version": pack_metadata.get('version', '1.0.0'),
+                "message": f"Successfully installed {capability_code} from {request.provider_id}",
+                "warnings": install_result.get('warnings', []),
+                "provider_id": request.provider_id,
+                "pack_ref": request.pack_ref
+            }
+
+        finally:
+            # Clean up downloaded file
+            if pack_file and pack_file.exists():
+                try:
+                    pack_file.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary pack file: {e}")
+
+    except HTTPException:
+        raise
+    except ImportError as e:
+        logger.error(f"Import error in install_from_cloud: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import required modules: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Cloud installation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Cloud installation failed: {str(e)}"
         )
 
