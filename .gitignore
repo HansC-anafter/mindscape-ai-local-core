@@ -101,5 +101,28 @@ docker-compose.override.yml
 /web-console/src/app/capabilities/
 /backend/app/capabilities/
 
+# ============================================
+# CapabilityInstaller 安装的内容（不应提交）
+# ============================================
+# Playbook 文件应该通过 CapabilityInstaller 安装，不应直接提交
+# 系统 playbook 除外（如 cis_*, grant_scout 等核心 playbook）
+# 特定功能的 playbook 和 models 应该被排除
+
+# Playbook specs (排除特定功能的 playbook)
+/backend/playbooks/specs/sonic_*.json
+/backend/playbooks/specs/yoga_*.json
+# 注意：系统 playbook (cis_*, grant_scout, ig_* 等) 可以提交
+# 但特定功能的 playbook 应该通过 installer 安装
+
+# Playbook i18n translations (排除特定功能的翻译)
+/backend/i18n/playbooks/**/yoga_*.md
+/backend/i18n/playbooks/**/sonic_*.md
+# 注意：系统 playbook 的翻译可以提交
+
+# 特定功能模块的 models (应该通过 CapabilityInstaller 安装)
+/backend/app/models/sonic_space/
+/backend/app/models/yogacoach/
+# 注意：核心 models 可以提交，但特定功能的 models 应该被排除
+
 # Ignore nested backend/backend/ directory (should not exist)
 /backend/backend/
