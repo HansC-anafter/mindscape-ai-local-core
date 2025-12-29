@@ -9,8 +9,10 @@ from backend.app.services.conversation.context_builder import ContextBuilder
 from backend.app.shared.prompt_templates import (
     build_workspace_context_prompt,
     build_execution_mode_prompt,
-    build_agent_mode_prompt
+    build_agent_mode_prompt,
+    build_runtime_profile_prompt
 )
+from backend.app.models.workspace_runtime_profile import WorkspaceRuntimeProfile
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,8 @@ def inject_execution_mode_prompt(
     workspace_id: str,
     available_playbooks: List[Dict[str, Any]],
     expected_artifacts: Optional[List[str]] = None,
-    execution_priority: str = "medium"
+    execution_priority: str = "medium",
+    runtime_profile: Optional[WorkspaceRuntimeProfile] = None
 ) -> str:
     """
     Inject execution mode-specific prompt into enhanced prompt
@@ -124,6 +127,20 @@ def inject_execution_mode_prompt(
         else:
             enhanced_prompt = workspace_system_prompt + "\n\n" + enhanced_prompt
             logger.info(f"Prepended {execution_mode} mode prompt to system prompt")
+
+        # Inject Runtime Profile prompt (after execution_mode, before role/lens/playbook/intent)
+        # Order: Global System → Execution Mode → Runtime Profile → AI Role → Mind-Lens → Playbook → Intents → Context → User Message
+        if runtime_profile:
+            try:
+                runtime_profile_prompt = build_runtime_profile_prompt(
+                    runtime_profile=runtime_profile,
+                    preferred_language=locale
+                )
+                # Inject after execution mode prompt
+                enhanced_prompt = enhanced_prompt + "\n\n" + runtime_profile_prompt
+                logger.info("Injected Runtime Profile prompt into system prompt")
+            except Exception as e:
+                logger.warning(f"Failed to inject runtime profile prompt: {e}", exc_info=True)
 
     except Exception as e:
         logger.warning(f"Failed to inject execution mode prompt: {e}", exc_info=True)

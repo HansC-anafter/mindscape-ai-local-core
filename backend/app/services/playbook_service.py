@@ -71,7 +71,7 @@ class PlaybookService:
         elif cloud_client:
             # Legacy support: wrap old cloud_client in extension manager
             from ...services.cloud_extension_manager import CloudExtensionManager
-            from ...services.cloud_providers.official import OfficialCloudProvider
+            from ...services.cloud_providers.generic_http import GenericHttpProvider
 
             self.cloud_extension_manager = CloudExtensionManager.instance()
             logger.warning("Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager.")

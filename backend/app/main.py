@@ -67,8 +67,7 @@ app = FastAPI(
     description="Personal AI agent platform with mindscape management",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc",
-    redirect_slashes=False  # Disable automatic redirect for trailing slashes to avoid issues with Next.js proxy
+    redoc_url="/redoc"
 )
 
 # CORS middleware - MUST be first middleware (before TrustedHostMiddleware)

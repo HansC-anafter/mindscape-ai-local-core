@@ -10,8 +10,31 @@ logger = logging.getLogger(__name__)
 
 
 def _get_cloud_api_base_url() -> str:
-    """Get cloud API base URL from environment or default."""
-    return os.getenv("CLOUD_API_URL", "http://localhost:8000")
+    """Get cloud API base URL from port config service or environment or default."""
+    try:
+        from ...port_config_service import port_config_service
+        import os
+        current_cluster = os.getenv('CLUSTER_NAME')
+        current_env = os.getenv('ENVIRONMENT')
+        current_site = os.getenv('SITE_NAME')
+        port_config = port_config_service.get_port_config(
+            cluster=current_cluster,
+            environment=current_env,
+            site=current_site
+        )
+        if port_config.cloud_api:
+            host_config = port_config_service.get_host_config()
+            if host_config.cloud_api_host:
+                return port_config_service.get_service_url(
+                    'cloud_api',
+                    cluster=current_cluster,
+                    environment=current_env,
+                    site=current_site
+                )
+    except Exception:
+        pass
+    # 回退到环境变量或默认值
+    return os.getenv("CLOUD_API_URL", "http://localhost:8500")
 
 
 async def download_image_to_temp(image_url: str) -> str:

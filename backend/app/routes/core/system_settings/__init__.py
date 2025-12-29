@@ -13,6 +13,7 @@ from . import (
     env_vars,
     system_control,
     governance,
+    ports,
 )
 
 router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
@@ -27,5 +28,6 @@ router.include_router(obsidian.router)
 router.include_router(embedding_migrations.router)
 router.include_router(env_vars.router)
 router.include_router(system_control.router)
+router.include_router(ports.router)  # Port configuration routes
 router.include_router(general.router)  # Catch-all routes last
 

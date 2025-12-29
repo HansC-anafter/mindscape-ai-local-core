@@ -17,6 +17,8 @@ from backend.app.services.conversation.context_builder import ContextBuilder
 from backend.app.services.system_settings_store import SystemSettingsStore
 from backend.app.shared.i18n_loader import get_locale_from_context, load_i18n_string
 from backend.app.shared.llm_utils import build_prompt
+from backend.app.utils.runtime_profile import get_resolved_mode
+from backend.app.services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
 
 from .context_builder import build_streaming_context, load_available_playbooks
 from .prompt_builder import build_enhanced_prompt, inject_execution_mode_prompt, parse_prompt_parts
@@ -122,7 +124,16 @@ async def generate_streaming_response(
         logger.info(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}")
         print(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}", file=sys.stderr)
 
-        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
+        # Load runtime profile and get resolved execution mode
+        runtime_profile_store = WorkspaceRuntimeProfileStore(db_path=orchestrator.store.db_path)
+        runtime_profile = runtime_profile_store.get_runtime_profile(workspace_id)
+        if not runtime_profile:
+            # Create default profile if not exists (ensure PolicyGuard always works)
+            runtime_profile = runtime_profile_store.create_default_profile(workspace_id)
+
+        # Use get_resolved_mode() to respect runtime_profile.default_mode priority
+        resolved_mode_enum = get_resolved_mode(workspace, runtime_profile)
+        execution_mode = resolved_mode_enum.value if resolved_mode_enum else (getattr(workspace, 'execution_mode', None) or "qa")
 
         if execution_mode in ("execution", "hybrid"):
             locale = get_locale_from_context(profile=profile, workspace=workspace)
@@ -184,8 +195,10 @@ async def generate_streaming_response(
         except Exception:
             pass
 
-        # Get execution mode settings
-        execution_mode = getattr(workspace, 'execution_mode', None) or "qa"
+        # Get execution mode settings (use resolved mode from runtime profile)
+        # Note: runtime_profile is already loaded above at line ~125, reuse it
+        resolved_mode_enum = get_resolved_mode(workspace, runtime_profile)
+        execution_mode = resolved_mode_enum.value if resolved_mode_enum else (getattr(workspace, 'execution_mode', None) or "qa")
         expected_artifacts = getattr(workspace, 'expected_artifacts', None)
         execution_priority = getattr(workspace, 'execution_priority', None) or "medium"
 
@@ -461,7 +474,7 @@ Keep it concise and friendly. Respond in {locale}."""
                 summary_text = f"I've started executing the playbook '{execution_playbook_result.get('playbook_code', 'unknown')}'. Check the execution panel for progress."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': summary_text})}\n\n"
 
-        # Inject execution mode prompt
+        # Inject execution mode prompt with runtime profile
         enhanced_prompt = inject_execution_mode_prompt(
             enhanced_prompt=enhanced_prompt,
             execution_mode=execution_mode,
@@ -469,7 +482,8 @@ Keep it concise and friendly. Respond in {locale}."""
             workspace_id=workspace_id,
             available_playbooks=available_playbooks,
             expected_artifacts=expected_artifacts,
-            execution_priority=execution_priority
+            execution_priority=execution_priority,
+            runtime_profile=runtime_profile  # Pass runtime profile for prompt injection
         )
 
         # Calculate context token count

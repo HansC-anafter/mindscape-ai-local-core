@@ -89,20 +89,49 @@ class GoogleDriveOAuthManager:
             # Fallback to environment variables only
             self.client_id = os.getenv("GOOGLE_CLIENT_ID")
             self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+            # 从端口配置服务获取后端 URL
+            try:
+                from ....services.port_config_service import port_config_service
+                import os
+                current_cluster = os.getenv('CLUSTER_NAME')
+                current_env = os.getenv('ENVIRONMENT')
+                current_site = os.getenv('SITE_NAME')
+                backend_url = port_config_service.get_service_url(
+                    'backend_api',
+                    cluster=current_cluster,
+                    environment=current_env,
+                    site=current_site
+                )
+                self.backend_url = backend_url
+                self.redirect_uri = f"{backend_url}/api/tools/google-drive/oauth/callback"
+            except Exception:
+                # 回退到环境变量或默认值
+                self.backend_url = os.getenv("BACKEND_URL", "http://localhost:8200")
             self.redirect_uri = os.getenv(
                 "GOOGLE_REDIRECT_URI",
-                "http://localhost:8000/api/tools/google-drive/oauth/callback"
-            )
-            self.backend_url = os.getenv(
-                "BACKEND_URL",
-                "http://localhost:8000"
+                    f"{self.backend_url}/api/tools/google-drive/oauth/callback"
             )
 
     def _get_backend_url(self, backend_url_setting=None):
         """Get backend URL from system settings or environment variable"""
         if backend_url_setting and backend_url_setting.value:
             return str(backend_url_setting.value)
-        return os.getenv("BACKEND_URL", "http://localhost:8000")
+        # 从端口配置服务获取后端 URL
+        try:
+            from ....services.port_config_service import port_config_service
+            import os
+            current_cluster = os.getenv('CLUSTER_NAME')
+            current_env = os.getenv('ENVIRONMENT')
+            current_site = os.getenv('SITE_NAME')
+            return port_config_service.get_service_url(
+                'backend_api',
+                cluster=current_cluster,
+                environment=current_env,
+                site=current_site
+            )
+        except Exception:
+            # 回退到环境变量或默认值
+            return os.getenv("BACKEND_URL", "http://localhost:8200")
 
     def reload_configuration(self):
         """Reload configuration from system settings (useful after settings update)"""

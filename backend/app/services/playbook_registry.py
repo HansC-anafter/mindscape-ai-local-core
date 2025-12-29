@@ -188,11 +188,16 @@ class PlaybookRegistry:
         import yaml
 
         # Load from local capabilities directory only
-        app_dir = Path(__file__).parent.parent.parent
-        local_capabilities_dir = app_dir / "capabilities"
+        # Path calculation: __file__ is in app/services/playbook_registry.py
+        # parent = services/, parent.parent = app/, so app/capabilities
+        app_dir = Path(__file__).parent.parent  # app/
+        local_capabilities_dir = app_dir / "capabilities"  # app/capabilities
+        logger.info(f"Checking capabilities directory: {local_capabilities_dir} (exists: {local_capabilities_dir.exists()})")
         if local_capabilities_dir.exists():
-            logger.debug(f"Loading local capability playbooks from {local_capabilities_dir}")
+            logger.info(f"Loading local capability playbooks from {local_capabilities_dir}")
             self._load_playbooks_from_directory(local_capabilities_dir)
+        else:
+            logger.warning(f"Local capabilities directory does not exist: {local_capabilities_dir}")
 
     def _load_playbooks_from_directory(self, capabilities_dir: Path):
         """Load playbooks from a capabilities directory"""
@@ -246,8 +251,20 @@ class PlaybookRegistry:
                                 playbook.metadata.locale = locale
                                 playbook.metadata.capability_code = capability_code
                                 full_code = f"{capability_code}.{playbook_code}"
+                                # Store with locale-specific key to avoid overwriting
+                                locale_key = f"{playbook_code}:{locale}"
                                 self.capability_playbooks[capability_code][full_code] = playbook
-                                self.capability_playbooks[capability_code][playbook_code] = playbook
+                                self.capability_playbooks[capability_code][locale_key] = playbook
+                                # Also store without locale for backward compatibility (prefer zh-TW, then en, then any)
+                                if playbook_code not in self.capability_playbooks[capability_code]:
+                                    self.capability_playbooks[capability_code][playbook_code] = playbook
+                                else:
+                                    # Prefer zh-TW > en > others
+                                    existing = self.capability_playbooks[capability_code][playbook_code]
+                                    existing_locale = existing.metadata.locale
+                                    locale_priority = {'zh-TW': 3, 'en': 2, 'ja': 1}
+                                    if locale_priority.get(locale, 0) > locale_priority.get(existing_locale, 0):
+                                        self.capability_playbooks[capability_code][playbook_code] = playbook
                                 logger.debug(f"Loaded capability playbook: {full_code} ({locale}) from {capability_code}")
                         except Exception as e:
                             logger.warning(f"Failed to load playbook {playbook_code} ({locale}) from {capability_code}: {e}")
@@ -351,16 +368,46 @@ class PlaybookRegistry:
         # 2. Check local capability playbooks
         # If capability_code is specified, check that specific capability first
         if capability_code and capability_code in self.capability_playbooks:
+            # First try locale-specific key
+            locale_key = f"{playbook_code}:{locale}"
+            if locale_key in self.capability_playbooks[capability_code]:
+                logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {capability_code}")
+                return self.capability_playbooks[capability_code][locale_key]
+            # Then try full_code
             full_code = f"{capability_code}.{playbook_code}"
             if full_code in self.capability_playbooks[capability_code]:
-                logger.debug(f"Found playbook {full_code} in capability {capability_code}")
-                return self.capability_playbooks[capability_code][full_code]
+                found_playbook = self.capability_playbooks[capability_code][full_code]
+                # Check if locale matches
+                if found_playbook.metadata.locale == locale:
+                    logger.debug(f"Found playbook {full_code} ({locale}) in capability {capability_code}")
+                    return found_playbook
+            # Fallback to playbook_code without locale
+            if playbook_code in self.capability_playbooks[capability_code]:
+                found_playbook = self.capability_playbooks[capability_code][playbook_code]
+                # Check if locale matches
+                if found_playbook.metadata.locale == locale:
+                    logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {capability_code}")
+                    return found_playbook
         # Otherwise, check all capabilities
         for cap_code, playbooks in self.capability_playbooks.items():
+            # Try locale-specific key first
+            locale_key = f"{playbook_code}:{locale}"
+            if locale_key in playbooks:
+                logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {cap_code}")
+                return playbooks[locale_key]
+            # Then try full_code
             full_code = f"{cap_code}.{playbook_code}"
             if full_code in playbooks:
-                logger.debug(f"Found playbook {full_code} in capability {cap_code}")
-                return playbooks[full_code]
+                found_playbook = playbooks[full_code]
+                if found_playbook.metadata.locale == locale:
+                    logger.debug(f"Found playbook {full_code} ({locale}) in capability {cap_code}")
+                    return found_playbook
+            # Fallback to playbook_code
+            if playbook_code in playbooks:
+                found_playbook = playbooks[playbook_code]
+                if found_playbook.metadata.locale == locale:
+                    logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {cap_code}")
+                    return found_playbook
 
         # 3. Check system playbooks
         if locale in self.system_playbooks:

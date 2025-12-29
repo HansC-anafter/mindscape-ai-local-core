@@ -10,7 +10,7 @@ from ....models.playbook import Playbook, CreatePlaybookRequest, UpdatePlaybookR
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["playbooks-crud"])
+router = APIRouter(prefix="", tags=["playbooks-crud"])
 
 
 @router.patch("/{playbook_code}/meta", response_model=Dict[str, Any])
@@ -57,7 +57,7 @@ async def update_playbook_meta(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("", response_model=Playbook, status_code=201)
+@router.post("/", response_model=Playbook, status_code=201)
 async def create_playbook(request: CreatePlaybookRequest):
     """Create a new playbook"""
     try:

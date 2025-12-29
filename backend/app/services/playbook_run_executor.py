@@ -212,6 +212,33 @@ class PlaybookRunExecutor:
             )
             logger.info(f"PlaybookRunExecutor: LocalDomainContext.tags.project_id={exec_context.tags.get('project_id') if exec_context.tags else 'None'}")
 
+            # Inject Lens if feature flag is enabled
+            lens_context = None
+            effective_lens = None
+            from backend.app.core.feature_flags import FeatureFlags
+            if FeatureFlags.USE_EFFECTIVE_LENS_RESOLVER:
+                try:
+                    from backend.app.services.lens.lens_execution_injector import LensExecutionInjector
+                    injector = LensExecutionInjector()
+                    session_id = exec_context.tags.get("execution_id")  # Use execution_id as session_id
+                    lens_context = injector.prepare_lens_context(
+                        profile_id=profile_id,
+                        workspace_id=workspace_id,
+                        session_id=session_id
+                    )
+                    if lens_context:
+                        effective_lens = lens_context.get("effective_lens")
+                        logger.info(f"PlaybookRunExecutor: Lens context prepared, hash={lens_context.get('effective_lens_hash')}")
+                        # Inject lens context into execution inputs
+                        if "system_prompt_additions" in lens_context:
+                            normalized_inputs["_lens_system_prompt"] = lens_context["system_prompt_additions"]
+                        if "anti_goals" in lens_context:
+                            normalized_inputs["_lens_anti_goals"] = lens_context["anti_goals"]
+                        if "emphasized_values" in lens_context:
+                            normalized_inputs["_lens_emphasized_values"] = lens_context["emphasized_values"]
+                except Exception as e:
+                    logger.warning(f"PlaybookRunExecutor: Failed to inject lens context: {e}", exc_info=True)
+
             # Execute using selected runtime
             try:
                 runtime_result = await runtime.execute(
@@ -230,6 +257,25 @@ class PlaybookRunExecutor:
                     "context": runtime_result.outputs if runtime_result else {},
                     "steps": steps_from_metadata  # Use actual steps from metadata
                 }
+
+                # Generate Lens Receipt if feature flag is enabled
+                from backend.app.core.feature_flags import FeatureFlags
+                if FeatureFlags.USE_EFFECTIVE_LENS_RESOLVER and effective_lens:
+                    try:
+                        from backend.app.services.lens.lens_execution_injector import LensExecutionInjector
+                        injector = LensExecutionInjector()
+                        output_text = str(runtime_result.outputs) if runtime_result and runtime_result.outputs else None
+                        receipt = injector.generate_receipt(
+                            execution_id=execution_id,
+                            workspace_id=workspace_id,
+                            effective_lens=effective_lens,
+                            output=output_text,
+                            base_output=None  # Base output not available in execution flow
+                        )
+                        if receipt:
+                            logger.info(f"PlaybookRunExecutor: Lens receipt generated for execution {execution_id}")
+                    except Exception as e:
+                        logger.warning(f"PlaybookRunExecutor: Failed to generate lens receipt: {e}", exc_info=True)
 
                 # Update task status if using task system
                 if execution_profile.execution_mode == "simple":

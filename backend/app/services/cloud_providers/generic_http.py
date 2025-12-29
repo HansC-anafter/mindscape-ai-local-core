@@ -7,7 +7,7 @@ Allows developers to easily add custom cloud providers
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any
 from datetime import datetime, timedelta
 
 try:
@@ -38,7 +38,8 @@ class GenericHttpProvider(CloudProvider):
         auth_config: Dict,
         cache_dir: Optional[Path] = None,
         cache_ttl_days: int = 1,
-        api_path_template: str = "/api/v1/playbooks/{capability_code}/{playbook_code}"
+        api_path_template: str = "/api/v1/playbooks/{capability_code}/{playbook_code}",
+        pack_download_path: Optional[str] = None
     ):
         """
         Initialize Generic HTTP Provider
@@ -53,6 +54,7 @@ class GenericHttpProvider(CloudProvider):
             cache_dir: Directory for caching playbooks
             cache_ttl_days: Cache TTL in days
             api_path_template: API path template (supports {capability_code}, {playbook_code}, {locale})
+            pack_download_path: API path for getting pack download link (e.g., "/api/v1/packs/download_link")
         """
         self.provider_id = provider_id
         self.provider_name = provider_name
@@ -60,6 +62,7 @@ class GenericHttpProvider(CloudProvider):
         self.auth_config = auth_config
         self.api_path_template = api_path_template
         self.cache_ttl_days = cache_ttl_days
+        self.pack_download_path = pack_download_path or "/api/v1/packs/download_link"
 
         if cache_dir:
             self.cache_dir = Path(cache_dir)
@@ -333,6 +336,14 @@ class GenericHttpProvider(CloudProvider):
                     "required": False,
                     "description": "API key (if auth_type is api_key)",
                     "sensitive": True
+                },
+                {
+                    "name": "pack_download_path",
+                    "type": "string",
+                    "label": "Pack Download API Path",
+                    "required": False,
+                    "description": "API path for getting pack download link (default: /api/v1/packs/download_link)",
+                    "default": "/api/v1/packs/download_link"
                 }
             ],
             "required": ["api_url", "auth_type"]
@@ -352,6 +363,10 @@ class GenericHttpProvider(CloudProvider):
         elif auth_type == "api_key" and not config.get("api_key"):
             return False, "API key is required for api_key authentication"
 
+        # Update pack_download_path if provided in config
+        if config.get("pack_download_path"):
+            self.pack_download_path = config["pack_download_path"]
+
         return True, None
 
     def get_api_url(self) -> str:
@@ -366,4 +381,71 @@ class GenericHttpProvider(CloudProvider):
         elif auth_type == "api_key":
             return self.auth_config.get("api_key")
         return None
+
+    async def get_download_link(self, pack_ref: str) -> Dict[str, Any]:
+        """
+        Get download link for a pack from cloud provider
+
+        Generic implementation that calls the configured pack_download_path endpoint.
+        Provider-specific implementations can override this method.
+
+        Args:
+            pack_ref: Pack reference in format "provider_id:code@version" or provider-specific format
+
+        Returns:
+            Dict containing download_url, expires_at, checksum, size
+
+        Raises:
+            ValueError: If authentication fails or pack not found
+            Exception: If API call fails
+        """
+        if not self.is_configured():
+            raise ValueError(f"{self.provider_name} not configured")
+
+        if not self._httpx_available:
+            raise ValueError("httpx not available")
+
+        # Use configured pack_download_path (default: "/api/v1/packs/download_link")
+        url = f"{self.api_url}{self.pack_download_path}"
+        headers = self._get_auth_headers()
+        headers["Content-Type"] = "application/json"
+        headers["Accept"] = "application/json"
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    url,
+                    json={"pack_ref": pack_ref},
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 401:
+                    logger.error("Authentication failed when getting download link")
+                    raise ValueError("Authentication failed")
+                elif response.status_code == 403:
+                    logger.error(f"Access denied for pack {pack_ref}")
+                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    raise ValueError(f"Access denied: {error_data.get('detail', 'Entitlement required')}")
+                elif response.status_code == 404:
+                    logger.warning(f"Pack {pack_ref} not found")
+                    raise ValueError(f"Pack {pack_ref} not found")
+                else:
+                    logger.error(f"Failed to get download link: {response.status_code}")
+                    error_msg = f"Failed to get download link: {response.status_code}"
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("detail", error_msg)
+                    except:
+                        pass
+                    raise Exception(error_msg)
+        except httpx.TimeoutException:
+            logger.error(f"Timeout getting download link for pack {pack_ref}")
+            raise Exception("Request timeout")
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting download link: {e}")
+            raise
 
