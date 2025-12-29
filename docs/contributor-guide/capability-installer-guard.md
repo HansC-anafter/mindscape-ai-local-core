@@ -121,15 +121,31 @@ python -m backend.app.services.capability_installer install <pack-file.mindpack>
 # 5. Install UI components to web-console/src/app/capabilities/
 ```
 
+## Installation
+
+### Setting Up Git Hooks
+
+Git hooks are not automatically tracked by git. After cloning the repository, install them:
+
+```bash
+# Install hooks from templates
+./scripts/install-git-hooks.sh
+```
+
+This will copy hook templates from `scripts/git-hooks/` to `.git/hooks/` and make them executable.
+
+**Note**: Hooks must be installed manually after cloning, or they can be set up automatically via a setup script.
+
 ## Troubleshooting
 
 ### Hook Not Working
 
 If hooks are not executing:
 
-1. Check permissions: `chmod +x .git/hooks/pre-commit .git/hooks/pre-push`
-2. Verify hook exists: `ls -la .git/hooks/pre-commit`
-3. Test manually: `.git/hooks/pre-commit`
+1. **Install hooks**: Run `./scripts/install-git-hooks.sh`
+2. Check permissions: `chmod +x .git/hooks/pre-commit .git/hooks/pre-push`
+3. Verify hook exists: `ls -la .git/hooks/pre-commit`
+4. Test manually: `.git/hooks/pre-commit`
 
 ### Bypassing Hooks (Not Recommended)
 
