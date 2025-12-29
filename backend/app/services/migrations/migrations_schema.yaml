@@ -1,0 +1,29 @@
+# migrations.yaml 規範
+# 位置：每個 capability 的根目錄，例如 backend/app/capabilities/sonic_space/migrations.yaml
+
+# 資料庫類型（必需）
+db: sqlite | postgres
+
+# 依賴的 capabilities（可選）
+depends_on:
+  - capability_code@version  # 例如: "mind_lens@1.0.0"
+  - another_capability@latest
+
+# 遷移檔列表（revision IDs，必需）
+revisions:
+  - "20251228000001"  # Alembic revision ID（使用時間戳格式）
+
+# 環境要求（可選）
+environment_requirements:
+  postgres:
+    extensions:
+      - vector  # pgvector extension
+    min_version: "12.0"
+  sqlite:
+    min_version: "3.35.0"
+
+# 遷移檔路徑（相對於 capability 根目錄，可選）
+# 如果未指定，orchestrator 會在標準位置查找（alembic/{db_type}/versions/）
+migration_paths:
+  - "migrations/versions/"  # 可選的自定義路徑
+

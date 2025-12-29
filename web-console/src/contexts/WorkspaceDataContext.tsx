@@ -12,9 +12,11 @@ import React, {
 
 // Get API URL - for 'use client' components, always use browser-accessible URL
 // In browser, NEXT_PUBLIC_API_URL points to host's localhost
+import { getApiBaseUrl } from '../lib/api-url';
+
 // This is evaluated at runtime, not module load time
 const getApiUrl = () => {
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return getApiBaseUrl();
 };
 
 // Workspace data types
