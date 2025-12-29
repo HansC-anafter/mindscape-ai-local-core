@@ -246,20 +246,34 @@ if ($LASTEXITCODE -ne 0) {
 
 # Check if any services are unhealthy after starting
 Start-Sleep -Seconds 3
-$unhealthyServices = docker compose ps --format json | ConvertFrom-Json | Where-Object { $_.Health -eq "unhealthy" }
+$serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>&1
+$unhealthyServices = @()
 
-if ($unhealthyServices) {
+# Parse the output line by line (skip header)
+$lines = $serviceStatus -split "`n" | Where-Object { $_ -match "^\w" -and $_ -notmatch "SERVICE" }
+foreach ($line in $lines) {
+    if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
+        $serviceName = $matches['service']
+        $health = $matches['health']
+        
+        if ($health -eq "unhealthy") {
+            $unhealthyServices += $serviceName
+        }
+    }
+}
+
+if ($unhealthyServices.Count -gt 0) {
     Write-Host ""
     Write-Host "⚠️  Warning: Some services are unhealthy:" -ForegroundColor Yellow
     foreach ($service in $unhealthyServices) {
-        Write-Host "  - $($service.Service): $($service.Health)" -ForegroundColor Yellow
+        Write-Host "  - $service" -ForegroundColor Yellow
     }
     Write-Host ""
     Write-Host "Showing logs for unhealthy services..." -ForegroundColor Cyan
     Write-Host ""
     foreach ($service in $unhealthyServices) {
-        Write-Host "=== Logs for $($service.Service) ===" -ForegroundColor Yellow
-        docker compose logs --tail=50 $($service.Service)
+        Write-Host "=== Logs for $service ===" -ForegroundColor Yellow
+        docker compose logs --tail=50 $service
         Write-Host ""
     }
     Write-Host ""
