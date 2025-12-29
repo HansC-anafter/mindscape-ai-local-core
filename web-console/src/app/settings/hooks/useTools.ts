@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { t } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
+import { getApiBaseUrl } from '../../../lib/api-url';
 import type { ToolConnection, RegisteredTool, VectorDBConfig, ToolStatus, ToolStatusInfo } from '../types';
 import {
   listenToToolStatusChanged,
@@ -93,7 +94,7 @@ export function useTools(): UseToolsReturn {
 
   const loadVectorDBHealthStatus = useCallback(async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(`${apiUrl}/health`);
       if (response.ok) {
         const health = await response.json();
@@ -113,7 +114,7 @@ export function useTools(): UseToolsReturn {
 
   const loadUnsplashConfig = useCallback(async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const workspaceId = typeof window !== 'undefined' ? window.location.pathname.match(/\/workspaces\/([^\/]+)/)?.[1] : null;
       if (!workspaceId) {
         setUnsplashConfigured(null);

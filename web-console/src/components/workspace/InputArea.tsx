@@ -168,7 +168,7 @@ export function InputArea({
 
         <IntentChips
           workspaceId={workspaceId}
-          apiUrl={apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8000') : 'http://localhost:8000')}
+          apiUrl={apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8200') : 'http://localhost:8200')}
         />
 
         <InputBottomBar

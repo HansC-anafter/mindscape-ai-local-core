@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { useLocale, t } from '../../lib/i18n';
+import { getApiBaseUrl } from '../../lib/api-url';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = getApiBaseUrl();
 
 interface PlaybookInfoProps {
   playbook: {

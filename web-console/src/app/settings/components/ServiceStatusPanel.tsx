@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { t } from '../../../lib/i18n';
+import { getApiBaseUrl } from '../../../lib/api-url';
 
 interface ServiceStatus {
   status: 'healthy' | 'unhealthy' | 'unavailable';
@@ -39,7 +40,7 @@ export function ServiceStatusPanel() {
       setLoading(true);
       setError(null);
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
 
       // Try to get workspace ID from URL or localStorage
       let workspaceId: string | null = null;

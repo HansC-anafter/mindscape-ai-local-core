@@ -7,6 +7,7 @@ import WorkspaceModeSelector, { WorkspaceMode } from '../../../components/Worksp
 import ActivePlaybookIndicator from '../../../components/ActivePlaybookIndicator';
 import ExecutionModePill, { ExecutionMode, ExecutionPriority } from '../../../components/ExecutionModePill';
 import ExpectedArtifactsBadge from '../../../components/ExpectedArtifactsBadge';
+import { getApiBaseUrl } from '../../../lib/api-url';
 
 interface AssociatedIntent {
   id: string;
@@ -55,7 +56,7 @@ export default function WorkspaceHeader({
   onExecutionModeClick,
   updatingMode = false,
   onWorkspaceUpdate,
-  apiUrl = 'http://localhost:8000',
+  apiUrl = getApiBaseUrl(),
 }: WorkspaceHeaderProps) {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);

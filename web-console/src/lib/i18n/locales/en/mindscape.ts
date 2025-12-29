@@ -98,4 +98,75 @@ export const mindscapeEn = {
   longTermProject: 'Long-term Project',
   designPrinciple: 'Design Principle',
 
+  // Mind Profile
+  mindProfileCardTitle: 'Mind Profile',
+  mindProfileDirectionTitle: 'Direction',
+  mindProfileActionTitle: 'Action',
+  mindProfileValuesLabel: 'Values',
+  mindProfileWorldviewsLabel: 'Worldviews',
+  mindProfileAestheticsLabel: 'Aesthetics',
+  mindProfileKnowledgeLabel: 'Knowledge',
+  mindProfileStrategyLabel: 'Strategy',
+  mindProfileRoleLabel: 'Role',
+  mindProfileRhythmLabel: 'Rhythm',
+  mindProfileOpenGraphButton: 'Open Graph',
+  mindProfileKnowledgeCount: '{count} items',
+
+  // Graph Lens
+  graphLensLabel: 'Lens',
+  graphLensAll: 'All',
+  graphLensDirection: 'Direction',
+  graphLensAction: 'Action',
+
+  // Graph Node Type
+  graphNodeTypeLabel: 'Type',
+  graphNodeTypeValue: 'Value',
+  graphNodeTypeWorldview: 'Worldview',
+  graphNodeTypeAesthetic: 'Aesthetic',
+  graphNodeTypeKnowledge: 'Knowledge',
+  graphNodeTypeStrategy: 'Strategy',
+  graphNodeTypeRole: 'Role',
+  graphNodeTypeRhythm: 'Rhythm',
+
+  // Graph Node
+  graphNodeDescriptionLabel: 'Description',
+  graphNodeLinkedPlaybooksLabel: 'Linked Playbooks',
+  graphNodeNoLinkedPlaybooks: 'No linked playbooks',
+  graphNodeOpenWorkspaceButton: 'Open Workspace',
+  graphNodeEditButton: 'Edit',
+  graphNodeCreateButton: 'Create',
+  graphNodeDeleteButton: 'Delete',
+  graphNodeDeleteTitle: 'Delete Node',
+  graphNodeDeleteMessage: 'Are you sure you want to delete this node?',
+  graphNodeDeleteConfirm: 'Delete',
+  graphNodeDeleteFailed: 'Failed to delete node',
+  graphNodeCategoryLabel: 'Category',
+  graphNodeLabelLabel: 'Label',
+  graphNodeContentLabel: 'Content',
+  graphNodeIconLabel: 'Icon',
+  graphNodeColorLabel: 'Color',
+  graphNodeSizeLabel: 'Size',
+  graphNodeIsActiveLabel: 'Active',
+  graphNodeConfidenceLabel: 'Confidence',
+
+  // Graph Node Playbook Link
+  graphNodeLinkPlaybookTitle: 'Link Playbook',
+  graphNodePlaybookCodeLabel: 'Playbook Code',
+  graphNodePlaybookCodePlaceholder: 'Enter playbook code',
+  graphNodePlaybookCodeHint: 'The code of the playbook to link to this node',
+  graphNodeAddPlaybookLink: 'Add Playbook Link',
+  graphNodeUnlinkPlaybookConfirm: 'Unlink Playbook',
+  graphNodeUnlinkPlaybookFailed: 'Failed to unlink playbook',
+
+  // Graph Node Workspace
+  graphNodeOpenWorkspaceTitle: 'Open Workspace',
+  graphNodeWorkspaceIdLabel: 'Workspace ID',
+  graphNodeWorkspaceIdPlaceholder: 'Enter workspace ID',
+  graphNodeWorkspaceIdHint: 'The ID of the workspace to open',
+
+  // Common actions
+  link: 'Link',
+  linking: 'Linking...',
+  binding: 'Binding',
+
 } as const satisfies Partial<Record<MessageKey, string>>;

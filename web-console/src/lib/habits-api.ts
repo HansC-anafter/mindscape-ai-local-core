@@ -3,9 +3,9 @@
  * 提供習慣學習相關的 API 調用函數
  */
 
-const API_URL = typeof window !== 'undefined'
-  ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
-  : 'http://localhost:8000';
+import { getApiBaseUrl } from './api-url';
+
+const API_URL = getApiBaseUrl();
 
 export interface HabitCandidate {
   id: string;

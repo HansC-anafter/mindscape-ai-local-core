@@ -8,8 +8,10 @@
  * Backend implementation: backend/app/routes/core/story_thread.py
  */
 
+import { getApiBaseUrl } from './api-url';
+
 // Use local-core backend API (which proxies to Cloud API)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = getApiBaseUrl();
 
 export interface StoryThread {
   thread_id: string;

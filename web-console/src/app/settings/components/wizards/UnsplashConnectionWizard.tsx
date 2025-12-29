@@ -6,6 +6,7 @@ import { t } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 import { useWorkspaceDataOptional } from '../../../../contexts/WorkspaceDataContext';
+import { getApiBaseUrl } from '../../../../lib/api-url';
 
 interface UnsplashConnectionWizardProps {
   onClose: () => void;
@@ -65,7 +66,7 @@ export function UnsplashConnectionWizard({
   const loadWorkspaces = async () => {
     setLoadingWorkspaces(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const ownerUserId = 'default-user'; // TODO: Get from auth context
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`,
@@ -126,7 +127,7 @@ export function UnsplashConnectionWizard({
     if (!workspaceId) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/web-generation/unsplash/config`
       );
@@ -150,7 +151,7 @@ export function UnsplashConnectionWizard({
     setSuccess(null);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/web-generation/unsplash/config`,
         {
@@ -198,7 +199,7 @@ export function UnsplashConnectionWizard({
     setSuccess(null);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/web-generation/unsplash/config`,
         {

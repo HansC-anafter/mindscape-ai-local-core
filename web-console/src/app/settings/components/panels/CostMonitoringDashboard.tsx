@@ -5,6 +5,7 @@ import { t } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
 import { useParams } from 'next/navigation';
+import { getApiBaseUrl } from '../../../../lib/api-url';
 
 interface CostMonitoringData {
   current_usage: number;
@@ -45,7 +46,7 @@ export function CostMonitoringDashboard() {
       setLoading(true);
       setError(null);
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/cost/monitoring?period=${period}`
       );

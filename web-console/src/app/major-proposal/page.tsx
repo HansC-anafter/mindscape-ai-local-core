@@ -4,8 +4,9 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Header from '../../components/Header';
 import { t, useLocale } from '../../lib/i18n';
+import { getApiBaseUrl } from '../../lib/api-url';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = getApiBaseUrl();
 
 interface ProposalTemplate {
   id: string;

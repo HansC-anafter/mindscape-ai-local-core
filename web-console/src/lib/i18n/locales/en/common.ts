@@ -46,6 +46,8 @@ export const commonEn = {
   error: 'Error',
   success: 'Success',
   noData: 'No data',
+  errorLoadingData: 'Failed to load data',
+  errorLoadingGraph: 'Failed to load graph',
   notice: 'Notice',
   hint: 'Hint',
   times: 'times',

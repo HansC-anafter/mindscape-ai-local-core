@@ -15,7 +15,9 @@ import WorkspaceScopePanel from '../../../components/WorkspaceScopePanel';
 import IntegratedSystemStatusCard from '@/components/IntegratedSystemStatusCard';
 import WorkspaceSettingsModal from '../../components/WorkspaceSettingsModal';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: string; executionId: string }) {
   const workspace = useWorkspaceData().workspace;

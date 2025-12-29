@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { t } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
 import { InlineAlert } from './InlineAlert';
+import { getApiBaseUrl } from '../../../lib/api-url';
 
 interface GoogleOAuthConfig {
   client_id: string;
@@ -56,7 +57,7 @@ export function GoogleOAuthSettings() {
       setConfig(data);
 
       // Use default values if empty to ensure buttons are enabled
-      const defaultBackendUrl = 'http://localhost:8000';
+      const defaultBackendUrl = getApiBaseUrl();
       const backendUrl = data.backend_url || defaultBackendUrl;
       const redirectUri = data.redirect_uri || (backendUrl ? `${backendUrl}/api/v1/tools/google-drive/oauth/callback` : '');
 
@@ -205,7 +206,7 @@ export function GoogleOAuthSettings() {
     : '';
 
   // Get the actual redirect URI to copy (use form value or suggested)
-  const redirectUriToCopy = form.redirect_uri || suggestedRedirectUri || 'http://localhost:8000/api/v1/tools/google-drive/oauth/callback';
+  const redirectUriToCopy = form.redirect_uri || suggestedRedirectUri || `${getApiBaseUrl()}/api/v1/tools/google-drive/oauth/callback`;
 
   const handleCopyRedirectURI = async () => {
     if (!redirectUriToCopy) return;
@@ -360,7 +361,7 @@ export function GoogleOAuthSettings() {
             type="url"
             value={form.backend_url}
             onChange={(e) => setForm({ ...form, backend_url: e.target.value })}
-            placeholder="http://localhost:8000"
+            placeholder={getApiBaseUrl()}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -377,7 +378,7 @@ export function GoogleOAuthSettings() {
               type="url"
               value={form.redirect_uri}
               onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
-              placeholder={suggestedRedirectUri || 'http://localhost:8000/api/v1/tools/google-drive/oauth/callback'}
+              placeholder={suggestedRedirectUri || `${getApiBaseUrl()}/api/v1/tools/google-drive/oauth/callback`}
               className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <button

@@ -3,7 +3,9 @@
 import { useState, useCallback } from 'react';
 import { useResourceBindings } from './useResourceBindings';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 export interface DataSourceOverlay {
   access_mode_override?: 'read' | 'write' | 'admin';

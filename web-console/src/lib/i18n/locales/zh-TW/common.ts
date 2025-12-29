@@ -46,6 +46,8 @@ export const commonZhTW = {
   error: '發生錯誤',
   success: '成功',
   noData: '尚無資料',
+  errorLoadingData: '載入資料失敗',
+  errorLoadingGraph: '載入圖譜失敗',
   notice: '注意',
   hint: '提示',
   times: '次',

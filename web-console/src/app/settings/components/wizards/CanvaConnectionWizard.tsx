@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { t } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
+import { getApiBaseUrl } from '../../../../lib/api-url';
 
 interface CanvaConnectionWizardProps {
   onClose: () => void;
@@ -182,7 +183,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
               value={form.redirect_uri}
               onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-              placeholder="http://localhost:8000/api/tools/canva/oauth/callback"
+              placeholder={getApiBaseUrl()}/api/tools/canva/oauth/callback"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {t('canvaRedirectURIDescription') || 'Must match the redirect URI configured in your Canva Developer Portal'}

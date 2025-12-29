@@ -98,4 +98,75 @@ export const mindscapeZhTW = {
   longTermProject: '長期專案',
   designPrinciple: '設計原則',
 
+  // Mind Profile
+  mindProfileCardTitle: '心智檔案',
+  mindProfileDirectionTitle: '方向',
+  mindProfileActionTitle: '行動',
+  mindProfileValuesLabel: '價值觀',
+  mindProfileWorldviewsLabel: '世界觀',
+  mindProfileAestheticsLabel: '美學',
+  mindProfileKnowledgeLabel: '知識',
+  mindProfileStrategyLabel: '策略',
+  mindProfileRoleLabel: '角色',
+  mindProfileRhythmLabel: '節奏',
+  mindProfileOpenGraphButton: '開啟圖譜',
+  mindProfileKnowledgeCount: '{count} 項',
+
+  // Graph Lens
+  graphLensLabel: '視角',
+  graphLensAll: '全部',
+  graphLensDirection: '方向',
+  graphLensAction: '行動',
+
+  // Graph Node Type
+  graphNodeTypeLabel: '類型',
+  graphNodeTypeValue: '價值',
+  graphNodeTypeWorldview: '世界觀',
+  graphNodeTypeAesthetic: '美學',
+  graphNodeTypeKnowledge: '知識',
+  graphNodeTypeStrategy: '策略',
+  graphNodeTypeRole: '角色',
+  graphNodeTypeRhythm: '節奏',
+
+  // Graph Node
+  graphNodeDescriptionLabel: '描述',
+  graphNodeLinkedPlaybooksLabel: '連結的劇本',
+  graphNodeNoLinkedPlaybooks: '無連結的劇本',
+  graphNodeOpenWorkspaceButton: '開啟工作區',
+  graphNodeEditButton: '編輯',
+  graphNodeCreateButton: '建立',
+  graphNodeDeleteButton: '刪除',
+  graphNodeDeleteTitle: '刪除節點',
+  graphNodeDeleteMessage: '確定要刪除此節點嗎？',
+  graphNodeDeleteConfirm: '刪除',
+  graphNodeDeleteFailed: '刪除節點失敗',
+  graphNodeCategoryLabel: '分類',
+  graphNodeLabelLabel: '標籤',
+  graphNodeContentLabel: '內容',
+  graphNodeIconLabel: '圖示',
+  graphNodeColorLabel: '顏色',
+  graphNodeSizeLabel: '大小',
+  graphNodeIsActiveLabel: '啟用',
+  graphNodeConfidenceLabel: '信心度',
+
+  // Graph Node Playbook Link
+  graphNodeLinkPlaybookTitle: '連結劇本',
+  graphNodePlaybookCodeLabel: '劇本代碼',
+  graphNodePlaybookCodePlaceholder: '輸入劇本代碼',
+  graphNodePlaybookCodeHint: '要連結到此節點的劇本代碼',
+  graphNodeAddPlaybookLink: '新增劇本連結',
+  graphNodeUnlinkPlaybookConfirm: '取消連結劇本',
+  graphNodeUnlinkPlaybookFailed: '取消連結劇本失敗',
+
+  // Graph Node Workspace
+  graphNodeOpenWorkspaceTitle: '開啟工作區',
+  graphNodeWorkspaceIdLabel: '工作區 ID',
+  graphNodeWorkspaceIdPlaceholder: '輸入工作區 ID',
+  graphNodeWorkspaceIdHint: '要開啟的工作區 ID',
+
+  // Common actions
+  link: '連結',
+  linking: '連結中...',
+  binding: '綁定',
+
 } as const satisfies Partial<Record<MessageKey, string>>;

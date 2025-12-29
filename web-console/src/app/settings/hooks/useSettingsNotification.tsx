@@ -30,6 +30,7 @@ export function showNotification(type: 'success' | 'error', message: string, onD
     }),
   };
   notifications.push(notification);
+  console.log(`[Notification] ${type}: ${message}`, { id, totalNotifications: notifications.length });
   notifyListeners();
 
   // Auto-dismiss after 5 seconds for success messages
@@ -69,12 +70,18 @@ export function SettingsNotificationContainer() {
   const notifications = useSettingsNotification();
   const container = typeof window !== 'undefined' ? document.getElementById('settings-notifications') : null;
 
-  if (!container || notifications.length === 0) {
+  if (!container) {
+    console.warn('[Notification] Container #settings-notifications not found in DOM');
+    return null;
+  }
+
+  if (notifications.length === 0) {
     return null;
   }
 
   // In header, only show the latest notification to avoid breaking layout
   const latestNotification = notifications[notifications.length - 1];
+  console.log('[Notification] Rendering notification:', { id: latestNotification.id, type: latestNotification.type, message: latestNotification.message });
 
   return createPortal(
     <InlineAlert

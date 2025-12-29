@@ -4,7 +4,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { t } from '../../lib/i18n';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface Message {
   id: string;

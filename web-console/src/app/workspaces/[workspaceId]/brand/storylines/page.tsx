@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface Execution {
   id: string;

@@ -19,6 +19,18 @@ interface Provider {
   config: Record<string, any>;
 }
 
+interface Pack {
+  pack_ref: string;
+  code: string;
+  display_name: string;
+  version: string;
+  description: string;
+  checksum?: string;
+  size?: number;
+  bundle: string;
+  installed?: boolean;
+}
+
 export function CloudExtensionSettings({ activeSection }: CloudExtensionSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -29,6 +41,10 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
   const [testMessages, setTestMessages] = useState<Record<string, string>>({});
   const [cloudFrontendUrl, setCloudFrontendUrl] = useState('');
   const [savingFrontendUrl, setSavingFrontendUrl] = useState(false);
+  const [packs, setPacks] = useState<Record<string, Pack[]>>({});
+  const [loadingPacks, setLoadingPacks] = useState<Record<string, boolean>>({});
+  const [installingPacks, setInstallingPacks] = useState<Record<string, boolean>>({});
+  const [showPacks, setShowPacks] = useState<Record<string, boolean>>({});
 
   // Form state
   const [formData, setFormData] = useState({
@@ -249,6 +265,100 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
     }
   };
 
+  const loadPacks = async (providerId: string) => {
+    setLoadingPacks(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const response = await fetch(`/api/v1/cloud-providers/${providerId}/packs`);
+      if (response.ok) {
+        const data = await response.json();
+        const packsList = data.packs || [];
+
+        // Check installation status for each pack
+        // Note: This is optional - if it fails, packs will still be displayed without installation status
+        try {
+          const installedResponse = await fetch('/api/v1/capability-packs/', {
+            signal: AbortSignal.timeout(5000) // 5 second timeout
+          });
+          if (installedResponse.ok) {
+            const installedPacks = await installedResponse.json();
+            const installedIds = new Set(
+              installedPacks
+                .map((p: any) => p.id || p.code)
+                .filter(Boolean)
+            );
+
+            // Mark packs as installed (check both code and pack_ref)
+            packsList.forEach((pack: Pack) => {
+              const packId = pack.code;
+              const packRefId = pack.pack_ref?.split(':')[1]?.split('@')[0]; // Extract code from pack_ref like "mindscape-ai:yogacoach@1.0.0"
+              pack.installed = installedIds.has(packId) || installedIds.has(packRefId || '');
+            });
+          }
+        } catch (e: any) {
+          // Silently fail - installation status check is optional
+          // Packs will be displayed without installation status if this fails
+          if (e.name !== 'AbortError') {
+            console.debug('Failed to check installed packs (non-critical):', e.message);
+          }
+        }
+
+        setPacks(prev => ({ ...prev, [providerId]: packsList }));
+        setShowPacks(prev => ({ ...prev, [providerId]: true }));
+      } else {
+        const error = await response.json();
+        showNotification('error', error.detail || 'Failed to load packs');
+        setPacks(prev => ({ ...prev, [providerId]: [] }));
+      }
+    } catch (error: any) {
+      console.error('Failed to load packs:', error);
+      showNotification('error', error.message || 'Failed to load packs');
+      setPacks(prev => ({ ...prev, [providerId]: [] }));
+    } finally {
+      setLoadingPacks(prev => ({ ...prev, [providerId]: false }));
+    }
+  };
+
+  const handleInstallPacks = async (providerId: string) => {
+    setInstallingPacks(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const response = await fetch(`/api/v1/cloud-providers/${providerId}/install-default?bundle=default`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
+        showNotification('error', errorData.detail || errorData.message || 'Failed to install packs');
+        return;
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        const installedCount = result.installed?.length || 0;
+        const installedNames = result.installed?.map((p: any) => p.pack_code || p.code).join(', ') || '';
+        const notificationMessage = `✅ 成功安裝 ${installedCount} 個 pack${installedCount > 1 ? 's' : ''}${installedNames ? `: ${installedNames}` : ''}`;
+        console.log('Showing success notification:', notificationMessage);
+        showNotification('success', notificationMessage);
+        // Reload packs to refresh the list and show installed status
+        // Note: loadPacks failure is non-critical, don't block on it
+        try {
+          await loadPacks(providerId);
+        } catch (e) {
+          // Silently fail - notification already shown, pack list will update on next manual refresh
+          console.debug('Failed to reload packs after installation (non-critical):', e);
+        }
+      } else {
+        const errorMsg = result.message || result.detail || 'Failed to install packs';
+        showNotification('error', `❌ 安裝失敗: ${errorMsg}`);
+      }
+    } catch (error: any) {
+      console.error('Failed to install packs:', error);
+      showNotification('error', error.message || 'Failed to install packs');
+    } finally {
+      setInstallingPacks(prev => ({ ...prev, [providerId]: false }));
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
@@ -380,6 +490,95 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
                       }`}
                     >
                       {testMessages[provider.provider_id]}
+                    </div>
+                  )}
+
+                  {/* Available Packs Section */}
+                  {provider.configured && (
+                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          Available Packs
+                        </h4>
+                        {!showPacks[provider.provider_id] ? (
+                          <button
+                            type="button"
+                            onClick={() => loadPacks(provider.provider_id)}
+                            disabled={loadingPacks[provider.provider_id]}
+                            className="px-3 py-1.5 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+                          >
+                            {loadingPacks[provider.provider_id] ? 'Loading...' : 'View Packs'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowPacks(prev => ({ ...prev, [provider.provider_id]: false }))}
+                            className="px-3 py-1.5 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                          >
+                            Hide Packs
+                          </button>
+                        )}
+                      </div>
+
+                      {showPacks[provider.provider_id] && (
+                        <div className="space-y-2">
+                          {loadingPacks[provider.provider_id] ? (
+                            <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
+                              {t('loading') || 'Loading...'}
+                            </div>
+                          ) : packs[provider.provider_id]?.length > 0 ? (
+                            <>
+                              {packs[provider.provider_id].map((pack) => (
+                                <div
+                                  key={pack.pack_ref}
+                                  className={`p-3 rounded border ${
+                                    pack.installed
+                                      ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                                      : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <h5 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                          {pack.display_name}
+                                        </h5>
+                                        {pack.installed && (
+                                          <span className="px-2 py-0.5 text-xs rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                            {t('installed') || '已安裝'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                        {pack.description}
+                                      </p>
+                                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                                        Version: {pack.version} | Size: {pack.size ? `${(pack.size / 1024).toFixed(1)} KB` : 'N/A'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              <div className="pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleInstallPacks(provider.provider_id)}
+                                  disabled={installingPacks[provider.provider_id]}
+                                  className="w-full px-4 py-2 text-sm bg-gray-900 dark:bg-gray-700 text-white rounded-md hover:bg-gray-800 dark:hover:bg-gray-600 disabled:opacity-50"
+                                >
+                                  {installingPacks[provider.provider_id]
+                                    ? 'Installing...'
+                                    : 'Install All Packs'}
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
+                              No packs available
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

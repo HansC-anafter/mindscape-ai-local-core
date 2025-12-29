@@ -15,7 +15,9 @@ export default function DrawRoleCard({ task, backendAvailable, onSceneSelected }
   const [suggestedScene, setSuggestedScene] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  import { getApiBaseUrl } from '../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
   const handleDrawRoleCard = async () => {
     if (!task.trim()) {

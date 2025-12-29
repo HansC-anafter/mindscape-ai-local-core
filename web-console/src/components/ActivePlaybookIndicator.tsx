@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useT } from '@/lib/i18n';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
+import { getApiBaseUrl } from '../lib/api-url';
 
 // Laser scan effect styles
 const laserScanStyle = `
@@ -89,7 +90,7 @@ interface ActivePlaybookIndicatorProps {
 
 export default function ActivePlaybookIndicator({
   workspaceId,
-  apiUrl = 'http://localhost:8000',
+  apiUrl = getApiBaseUrl(),
 }: ActivePlaybookIndicatorProps) {
   const t = useT();
   // Use context data if available to avoid duplicate API calls

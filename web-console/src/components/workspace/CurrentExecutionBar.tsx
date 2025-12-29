@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
 import './CurrentExecutionBar.css';
 import { CostWarningBanner } from './governance/CostWarningBanner';
+import { getApiBaseUrl } from '../../lib/api-url';
 
 export interface CurrentExecution {
   executionId: string;
@@ -30,7 +31,7 @@ export function CurrentExecutionBar({
   onPause,
   onCancel,
   workspaceId,
-  apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  apiUrl = getApiBaseUrl(),
 }: CurrentExecutionBarProps) {
   const [costData, setCostData] = useState<{
     currentUsage: number;

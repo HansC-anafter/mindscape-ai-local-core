@@ -43,7 +43,9 @@ import { DecisionPanel } from '../../../components/workspace/DecisionPanel';
 import { ResizablePanel } from '../../../components/ui/ResizablePanel';
 import { Project } from '@/types/project';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface DataSource {
   local_folder?: string;

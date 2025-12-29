@@ -3,9 +3,9 @@
  * Provides API functions for deploying sandbox projects
  */
 
-const API_URL = typeof window !== 'undefined'
-  ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
-  : 'http://localhost:8000';
+import { getApiBaseUrl } from './api-url';
+
+const API_URL = getApiBaseUrl();
 
 export interface DeployRequest {
   sandbox_id: string;

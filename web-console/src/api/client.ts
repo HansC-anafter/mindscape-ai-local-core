@@ -22,11 +22,11 @@ export class MindscapeAPIClient {
       this.baseUrl =
         process.env.NEXT_PUBLIC_CLOUD_API_URL ||
         process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8000';
+        'http://localhost:8500';  // 新默认 Cloud API 端口
     } else {
       this.baseUrl =
         process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8000';
+        'http://localhost:8200';  // 新默认后端 API 端口
     }
   }
 

@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { settingsApi } from '../utils/settingsApi';
 import type { BackendConfig, ToolConnection, CapabilityPack } from '../types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 export interface SettingsContext {
   currentTab: string;

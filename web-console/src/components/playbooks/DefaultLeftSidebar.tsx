@@ -6,7 +6,9 @@ import TimelinePanel from '../../app/workspaces/components/TimelinePanel';
 import OutcomesPanel from '../../app/workspaces/[workspaceId]/components/OutcomesPanel';
 import BackgroundTasksPanel from '../../app/workspaces/components/BackgroundTasksPanel';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface DefaultLeftSidebarProps {
   workspaceId: string;

@@ -6,7 +6,9 @@ import { t } from '../../../lib/i18n';
 import { useSettingsContext, type SettingsContext } from '../hooks/useSettingsContext';
 import type { SettingsTab } from '../types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface Message {
   id: string;

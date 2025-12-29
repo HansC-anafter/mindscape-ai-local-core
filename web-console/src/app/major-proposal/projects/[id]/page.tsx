@@ -6,7 +6,9 @@ import Link from 'next/link';
 import Header from '../../../../components/Header';
 import { t } from '@/lib/i18n';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface ProposalProject {
   id: string;

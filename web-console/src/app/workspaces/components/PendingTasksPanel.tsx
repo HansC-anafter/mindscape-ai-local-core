@@ -6,6 +6,7 @@ import HelpIcon from '@/components/HelpIcon';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getPlaybookMetadata } from '@/lib/i18n/locales/playbooks';
 import { playbookMetadataZhTW } from '@/lib/i18n/locales/playbooks/metadata/zh-TW';
+import { getApiBaseUrl } from '../../../lib/api-url';
 
 // Component for displaying and editing AI-inferred intent label
 function PlaybookIntentSubtitle({
@@ -208,7 +209,7 @@ interface PendingTasksPanelProps {
 
 export default function PendingTasksPanel({
   workspaceId,
-  apiUrl = 'http://localhost:8000',
+  apiUrl = getApiBaseUrl(),
   onViewArtifact,
   onSwitchToOutcomes,
   workspace: workspaceProp,

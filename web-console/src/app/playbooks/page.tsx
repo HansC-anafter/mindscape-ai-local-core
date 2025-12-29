@@ -10,7 +10,9 @@ import PlaybookDiscoveryChat from '../../components/playbook/PlaybookDiscoveryCh
 import { getPlaybookRegistry } from '../../playbook';
 import ForkPlaybookButton from '../../components/playbooks/ForkPlaybookButton';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface Playbook {
   playbook_code: string;
@@ -82,6 +84,18 @@ export default function PlaybooksPage() {
           if (isMounted) {
             setPlaybooks(validPlaybooks);
             setError(null);
+            // Debug: Log capability_code distribution and sample playbook codes
+            const capabilityCounts: Record<string, number> = {};
+            const samplePlaybookCodes: string[] = [];
+            validPlaybooks.forEach((p: Playbook) => {
+              const cap = p.capability_code || 'none';
+              capabilityCounts[cap] = (capabilityCounts[cap] || 0) + 1;
+              if (samplePlaybookCodes.length < 10) {
+                samplePlaybookCodes.push(p.playbook_code);
+              }
+            });
+            console.log('[PlaybooksPage] Capability code distribution:', capabilityCounts);
+            console.log('[PlaybooksPage] Sample playbook codes:', samplePlaybookCodes);
           }
         } else {
           throw new Error('Failed to load playbooks');
@@ -185,11 +199,68 @@ export default function PlaybooksPage() {
   }, [playbooks, searchTerm]);
 
   // Group playbooks by capability_code
+  // If capability_code is missing, try to infer from playbook_code pattern
   const playbooksByCapability = useMemo(() => {
     const groups: Record<string, Playbook[]> = {};
 
     filteredPlaybooks.forEach(playbook => {
-      const capabilityCode = playbook.capability_code || 'system';
+      // Try to get capability_code from playbook data
+      let capabilityCode = playbook.capability_code;
+
+      // If capability_code is missing, try to infer from playbook_code
+      // Common patterns: web_generation_*, brand_identity_*, ig_*, etc.
+      if (!capabilityCode && playbook.playbook_code) {
+        const playbookCode = playbook.playbook_code.toLowerCase();
+
+        // Check if playbook_code starts with a known capability prefix
+        const knownCapabilities = [
+          'web_generation', 'brand_identity', 'mind_lens', 'obsidian_book',
+          'ig_', 'instagram_', 'facebook_', 'twitter_', 'linkedin_',
+          'content_', 'analytics_', 'automation_', 'coaching_'
+        ];
+
+        for (const cap of knownCapabilities) {
+          if (playbookCode.startsWith(cap)) {
+            // Normalize capability code (remove trailing underscore if present)
+            capabilityCode = cap.replace(/_$/, '');
+            // For IG/Instagram, use 'instagram' as capability
+            if (cap === 'ig_') {
+              capabilityCode = 'instagram';
+            }
+            break;
+          }
+        }
+
+        // If still no match, try to extract capability from first part of playbook_code
+        // e.g., "ig_series_management" -> "ig" -> "instagram"
+        // Special handling for CIS playbooks: "cis_*" -> "brand_identity"
+        if (!capabilityCode) {
+          // Check for CIS playbooks (cis_* prefix)
+          if (playbookCode.startsWith('cis_')) {
+            capabilityCode = 'brand_identity';
+          } else {
+            const firstPart = playbookCode.split('_')[0];
+            const capabilityMap: Record<string, string> = {
+              'ig': 'instagram',
+              'fb': 'facebook',
+              'tw': 'twitter',
+              'li': 'linkedin',
+              'web': 'web_generation',
+              'brand': 'brand_identity',
+              'mind': 'mind_lens',
+              'obsidian': 'obsidian_book',
+              'grant': 'grant_scout',
+            };
+            if (capabilityMap[firstPart]) {
+              capabilityCode = capabilityMap[firstPart];
+            }
+          }
+        }
+      }
+
+      // Default to 'system' if still no capability_code
+      capabilityCode = capabilityCode || 'system';
+
       if (!groups[capabilityCode]) {
         groups[capabilityCode] = [];
       }
@@ -200,16 +271,31 @@ export default function PlaybooksPage() {
       groups['system'] = [];
     }
 
+    // Debug: Log grouping results with sample playbook codes per group
+    const groupDetails = Object.entries(groups).map(([code, playbooks]) => {
+      const samples = playbooks.slice(0, 3).map(p => p.playbook_code).join(', ');
+      return `${code}: ${playbooks.length} (samples: ${samples})`;
+    }).join('; ');
+    console.log('[PlaybooksPage] Playbooks grouped by capability:', groupDetails);
+
     return groups;
   }, [filteredPlaybooks]);
 
   const [selectedCapability, setSelectedCapability] = useState<string>('system');
 
   useEffect(() => {
-    const capabilityCodes = Object.keys(playbooksByCapability);
-    if (capabilityCodes.length > 0 && !capabilityCodes.includes(selectedCapability)) {
-      setSelectedCapability(capabilityCodes[0]);
+    // Get only capabilities that have playbooks
+    const capabilityCodesWithPlaybooks = Object.entries(playbooksByCapability)
+      .filter(([_, playbooks]) => playbooks.length > 0)
+      .map(([code]) => code);
+
+    if (capabilityCodesWithPlaybooks.length > 0) {
+      // If current selection is invalid or empty, switch to first available
+      if (!capabilityCodesWithPlaybooks.includes(selectedCapability)) {
+        setSelectedCapability(capabilityCodesWithPlaybooks[0]);
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbooksByCapability]);
 
   // Extract all unique tags from all playbooks

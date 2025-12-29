@@ -8,8 +8,9 @@ import { WORK_SCENES, WorkScene, getWorkSceneById } from '../../lib/work-scenes'
 import { AI_ROLES, AIRole, getRoleById, getLocalizedRole } from '../../lib/ai-roles';
 import RoleCardGrid from '../../components/agents/RoleCardGrid';
 import RoleFilterSidebar from '../../components/agents/RoleFilterSidebar';
+import { getApiBaseUrl } from '../../lib/api-url';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = getApiBaseUrl();
 
 export default function AgentsPage() {
   const [selectedScene, setSelectedScene] = useState<string | null>(null);

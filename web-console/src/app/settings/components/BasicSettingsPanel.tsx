@@ -17,6 +17,7 @@ import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSetting
 import { ThemePresetSettings } from './panels/ThemePresetSettings';
 import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
 import { UnsplashFingerprintsSettings } from './panels/UnsplashFingerprintsSettings';
+import { PortConfigurationSettings } from './panels/PortConfigurationSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
@@ -213,6 +214,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         return (
           <div className="space-y-6">
             <UnsplashFingerprintsSettings />
+          </div>
+        );
+
+      case 'port-configuration':
+        return (
+          <div className="space-y-6">
+            <PortConfigurationSettings />
           </div>
         );
 

@@ -6,7 +6,9 @@ import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import ProjectsPanel from '../components/ProjectsPanel';
 // Cloud capabilities import removed
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 export default function BrandWorkspacePage() {
   const params = useParams();

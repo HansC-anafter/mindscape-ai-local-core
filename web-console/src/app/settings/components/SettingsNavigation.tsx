@@ -106,6 +106,12 @@ const navigationItems: NavigationItem[] = [
         tab: 'basic',
         section: 'unsplash-fingerprints',
       },
+      {
+        id: 'port-configuration',
+        label: '端口配置',
+        tab: 'basic',
+        section: 'port-configuration',
+      },
     ],
   },
   {

@@ -7,9 +7,12 @@ import OnboardingBanner from '../../components/OnboardingBanner';
 import SelfIntroDialog from '../../components/SelfIntroDialog';
 import TaskCard from '../../components/TaskCard';
 import HabitSuggestionToast from '../../components/HabitSuggestionToast';
+import { MindProfileCard } from '../../components/mindscape/MindProfileCard';
 import { t } from '../../lib/i18n';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from '../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface OnboardingState {
   task1_completed: boolean;
@@ -279,6 +282,13 @@ export default function MindscapePage() {
           onClose={() => setShowSelfIntroDialog(false)}
           onSubmit={handleCompleteSelfIntro}
         />
+
+        {/* Mind Profile Card (only show after onboarding complete) */}
+        {hasState && !isOnboarding && (
+          <div className="mb-8">
+            <MindProfileCard profileId={profileId} />
+          </div>
+        )}
 
         {/* Episode Selection Screen (when user has state) */}
         {hasState && !isOnboarding && (

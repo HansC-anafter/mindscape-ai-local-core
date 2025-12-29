@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useT } from '@/lib/i18n';
+import { getApiBaseUrl } from '../../../lib/api-url';
 
 interface ScriptLine {
   id: string;
@@ -43,7 +44,7 @@ interface VoiceRecordingPanelProps {
 
 export default function VoiceRecordingPanel({
   workspaceId,
-  apiUrl = 'http://localhost:8000',
+  apiUrl = getApiBaseUrl(),
   sessionId: initialSessionId,
 }: VoiceRecordingPanelProps) {
   const t = useT();

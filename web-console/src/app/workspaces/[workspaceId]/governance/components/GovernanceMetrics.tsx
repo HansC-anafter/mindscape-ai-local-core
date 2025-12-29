@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
+import { getApiBaseUrl } from '../../../../../lib/api-url';
 
 interface GovernanceMetricsData {
   period: 'day' | 'month';
@@ -56,7 +57,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
       setLoading(true);
       setError(null);
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/metrics?period=${period}`
       );

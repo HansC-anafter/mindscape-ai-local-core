@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { t } from '../../../lib/i18n';
+import { getApiBaseUrl } from '../../../lib/api-url';
 import { Section } from './Section';
 import { ToolGrid } from './ToolGrid';
 import { ToolCard } from './ToolCard';
@@ -155,7 +156,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
     loadToolsStatus();
     // loadVectorDBHealthStatus is called in useTools hook's useEffect
     // But we also call it here to ensure it's loaded when component mounts
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     fetch(`${apiUrl}/health`)
       .then(res => res.ok ? res.json() : null)
       .then(health => {
@@ -173,7 +174,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
 
   const loadUnsplashStats = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = getApiBaseUrl();
       const ownerUserId = 'default-user'; // TODO: Get from auth context
       const workspacesResponse = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=100`

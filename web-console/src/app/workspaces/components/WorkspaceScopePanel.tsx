@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import StoragePathConfigModal from '@/components/StoragePathConfigModal';
+import { getApiBaseUrl } from '../../../lib/api-url';
 
 interface DataSource {
   local_folder?: string;
@@ -28,7 +29,7 @@ interface WorkspaceScopePanelProps {
 export default function WorkspaceScopePanel({
   dataSources,
   workspaceId,
-  apiUrl = 'http://localhost:8000',
+  apiUrl = getApiBaseUrl(),
   workspace,
 }: WorkspaceScopePanelProps) {
   const [showStorageModal, setShowStorageModal] = useState(false);

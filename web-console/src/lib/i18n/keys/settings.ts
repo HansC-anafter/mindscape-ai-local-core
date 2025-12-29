@@ -206,5 +206,18 @@ export const settingsKeys = {
   unsplashFingerprintsSetupError: true,
   unsplashFingerprintsProgressNote: true,
   unsplashFingerprintsTableNotCreated: true,
+
+  // Theme preset
+  themePreset: true,
+  themePresetDescription: true,
+  themePresetOnlyInLightMode: true,
+
+  // Cloud frontend URL
+  cloudFrontendUrl: true,
+  cloudFrontendUrlDescription: true,
+  cloudFrontendUrlLabel: true,
+  cloudFrontendUrlPlaceholder: true,
+  cloudFrontendUrlSaved: true,
+  failedToSaveCloudFrontendUrl: true,
 } as const;
 

@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import { useResourceBindings } from './useResourceBindings';
+import { getApiBaseUrl } from '../lib/api-url';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = getApiBaseUrl();
 
 export interface ToolOverlay {
   tool_whitelist?: string[];

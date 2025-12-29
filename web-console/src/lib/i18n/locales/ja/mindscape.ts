@@ -97,5 +97,77 @@ export const mindscapeJa = {
   placeholderNotice: 'このページはプレースホルダーページです。完全なマインドスケープ管理機能は今後のバージョンで実装されます。',
   longTermProject: '長期プロジェクト',
   designPrinciple: 'デザイン原則',
+
+  // Mind Profile
+  mindProfileCardTitle: 'マインドプロファイル',
+  mindProfileDirectionTitle: '方向',
+  mindProfileActionTitle: 'アクション',
+  mindProfileValuesLabel: '価値観',
+  mindProfileWorldviewsLabel: '世界観',
+  mindProfileAestheticsLabel: '美学',
+  mindProfileKnowledgeLabel: '知識',
+  mindProfileStrategyLabel: '戦略',
+  mindProfileRoleLabel: '役割',
+  mindProfileRhythmLabel: 'リズム',
+  mindProfileOpenGraphButton: 'グラフを開く',
+  mindProfileKnowledgeCount: '{count} 項目',
+
+  // Graph Lens
+  graphLensLabel: 'レンズ',
+  graphLensAll: 'すべて',
+  graphLensDirection: '方向',
+  graphLensAction: 'アクション',
+
+  // Graph Node Type
+  graphNodeTypeLabel: 'タイプ',
+  graphNodeTypeValue: '価値',
+  graphNodeTypeWorldview: '世界観',
+  graphNodeTypeAesthetic: '美学',
+  graphNodeTypeKnowledge: '知識',
+  graphNodeTypeStrategy: '戦略',
+  graphNodeTypeRole: '役割',
+  graphNodeTypeRhythm: 'リズム',
+
+  // Graph Node
+  graphNodeDescriptionLabel: '説明',
+  graphNodeLinkedPlaybooksLabel: 'リンクされたプレイブック',
+  graphNodeNoLinkedPlaybooks: 'リンクされたプレイブックなし',
+  graphNodeOpenWorkspaceButton: 'ワークスペースを開く',
+  graphNodeEditButton: '編集',
+  graphNodeCreateButton: '作成',
+  graphNodeDeleteButton: '削除',
+  graphNodeDeleteTitle: 'ノードを削除',
+  graphNodeDeleteMessage: 'このノードを削除してもよろしいですか？',
+  graphNodeDeleteConfirm: '削除',
+  graphNodeDeleteFailed: 'ノードの削除に失敗しました',
+  graphNodeCategoryLabel: 'カテゴリ',
+  graphNodeLabelLabel: 'ラベル',
+  graphNodeContentLabel: 'コンテンツ',
+  graphNodeIconLabel: 'アイコン',
+  graphNodeColorLabel: '色',
+  graphNodeSizeLabel: 'サイズ',
+  graphNodeIsActiveLabel: 'アクティブ',
+  graphNodeConfidenceLabel: '信頼度',
+
+  // Graph Node Playbook Link
+  graphNodeLinkPlaybookTitle: 'プレイブックをリンク',
+  graphNodePlaybookCodeLabel: 'プレイブックコード',
+  graphNodePlaybookCodePlaceholder: 'プレイブックコードを入力',
+  graphNodePlaybookCodeHint: 'このノードにリンクするプレイブックのコード',
+  graphNodeAddPlaybookLink: 'プレイブックリンクを追加',
+  graphNodeUnlinkPlaybookConfirm: 'プレイブックのリンクを解除',
+  graphNodeUnlinkPlaybookFailed: 'プレイブックのリンク解除に失敗しました',
+
+  // Graph Node Workspace
+  graphNodeOpenWorkspaceTitle: 'ワークスペースを開く',
+  graphNodeWorkspaceIdLabel: 'ワークスペース ID',
+  graphNodeWorkspaceIdPlaceholder: 'ワークスペース ID を入力',
+  graphNodeWorkspaceIdHint: '開くワークスペースの ID',
+
+  // Common actions
+  link: 'リンク',
+  linking: 'リンク中...',
+  binding: 'バインド',
+
 } as const satisfies Partial<Record<MessageKey, string>>;
 

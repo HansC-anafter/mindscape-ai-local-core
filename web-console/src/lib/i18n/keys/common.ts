@@ -84,6 +84,8 @@ export const commonKeys = {
   error: true,
   success: true,
   noData: true,
+  errorLoadingData: true,
+  errorLoadingGraph: true,
   notice: true,
   hint: true,
   available: true,
