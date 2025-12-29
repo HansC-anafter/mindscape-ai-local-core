@@ -1,0 +1,103 @@
+name: Check Capability Files
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  check-capability-files:
+    runs-on: ubuntu-latest
+    name: Check for protected capability files
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history to check all commits
+      
+      - name: Check for protected files in commits
+        run: |
+          echo "Checking for protected capability files..."
+          
+          # Get the range of commits to check
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${GITHUB_BASE_REF:-origin/master}"
+            HEAD_SHA="${GITHUB_SHA}"
+          fi
+          
+          # Check for feature-specific playbooks
+          SONIC_PLAYBOOKS=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/playbooks/specs/sonic_.*\.json|backend/i18n/playbooks/.*/sonic_.*\.md" || true)
+          YOGA_PLAYBOOKS=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/playbooks/specs/yoga_.*\.json|backend/i18n/playbooks/.*/yoga_.*\.md" || true)
+          
+          # Check for feature-specific models
+          FEATURE_MODELS=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/app/models/sonic_space/|backend/app/models/yogacoach/" || true)
+          
+          # Check for capability files
+          CAPABILITY_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/app/capabilities/|web-console/src/app/capabilities/" || true)
+          
+          # Report errors
+          ERRORS=0
+          
+          if [ -n "$SONIC_PLAYBOOKS" ]; then
+            echo "❌ Error: Sonic Space playbooks detected:"
+            echo "$SONIC_PLAYBOOKS" | sed 's/^/   - /'
+            ERRORS=1
+          fi
+          
+          if [ -n "$YOGA_PLAYBOOKS" ]; then
+            echo "❌ Error: Yoga Coach playbooks detected:"
+            echo "$YOGA_PLAYBOOKS" | sed 's/^/   - /'
+            ERRORS=1
+          fi
+          
+          if [ -n "$FEATURE_MODELS" ]; then
+            echo "❌ Error: Feature-specific models detected:"
+            echo "$FEATURE_MODELS" | sed 's/^/   - /'
+            ERRORS=1
+          fi
+          
+          if [ -n "$CAPABILITY_FILES" ]; then
+            echo "❌ Error: Capability files detected:"
+            echo "$CAPABILITY_FILES" | sed 's/^/   - /'
+            ERRORS=1
+          fi
+          
+          if [ $ERRORS -eq 1 ]; then
+            echo ""
+            echo "These files should be installed via CapabilityInstaller, not committed directly."
+            echo "Please remove them from the commit and install via:"
+            echo "  python -m backend.app.services.capability_installer install <pack-file>"
+            echo ""
+            echo "See: docs/contributor-guide/capability-installer-guard.md"
+            exit 1
+          fi
+          
+          echo "✅ No protected capability files detected"
+      
+      - name: Verify .gitignore patterns
+        run: |
+          echo "Verifying .gitignore includes protection patterns..."
+          
+          if ! grep -q "backend/playbooks/specs/sonic_.*\.json" .gitignore; then
+            echo "⚠️  Warning: .gitignore may be missing Sonic Space playbook patterns"
+          fi
+          
+          if ! grep -q "backend/playbooks/specs/yoga_.*\.json" .gitignore; then
+            echo "⚠️  Warning: .gitignore may be missing Yoga Coach playbook patterns"
+          fi
+          
+          if ! grep -q "backend/app/models/sonic_space/" .gitignore; then
+            echo "⚠️  Warning: .gitignore may be missing Sonic Space model patterns"
+          fi
+          
+          if ! grep -q "backend/app/models/yogacoach/" .gitignore; then
+            echo "⚠️  Warning: .gitignore may be missing Yoga Coach model patterns"
+          fi
+          
+          echo "✅ .gitignore verification complete"
+
