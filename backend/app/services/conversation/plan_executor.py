@@ -758,6 +758,10 @@ class PlanExecutor:
                         resolved_playbook.code, launch_result.get("raw_result")
                     )
 
+                # Track primary execution_id (from first task) for event association
+                if execution_id and primary_execution_id is None:
+                    primary_execution_id = execution_id
+
                 # Phase 2: Update orchestrator registration with actual execution_id
                 if execution_id and multi_agent_orchestrator:
                     # Update orchestrator with execution_id for event recording
