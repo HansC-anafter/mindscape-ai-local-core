@@ -32,6 +32,7 @@ auto_localize: true
 
 entry_agent_type: planner
 icon: 📦
+capability_code: brand_identity
 ---
 
 # 📦 Lens 打包
