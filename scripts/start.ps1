@@ -5,6 +5,21 @@ param(
     [switch]$SkipCheck
 )
 
+# Check execution policy and provide helpful message if blocked
+$executionPolicy = Get-ExecutionPolicy
+if ($executionPolicy -eq "Restricted") {
+    Write-Host "⚠️  PowerShell execution policy is 'Restricted'" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "To run this script, you need to change the execution policy." -ForegroundColor Yellow
+    Write-Host "Run PowerShell as Administrator and execute:" -ForegroundColor Cyan
+    Write-Host "  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Or run this script with bypass:" -ForegroundColor Cyan
+    Write-Host "  powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1" -ForegroundColor White
+    Write-Host ""
+    exit 1
+}
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "=== Mindscape AI Local Core - Start Script ===" -ForegroundColor Cyan
@@ -13,7 +28,7 @@ Write-Host ""
 # Function to check Docker availability
 function Test-DockerAvailable {
     Write-Host "Checking Docker availability..." -ForegroundColor Yellow
-    
+
     # Check if docker command exists
     try {
         $dockerVersion = docker version --format '{{.Server.Version}}' 2>&1
@@ -24,7 +39,7 @@ function Test-DockerAvailable {
     } catch {
         return $false
     }
-    
+
     # Check if Docker daemon is running
     try {
         $dockerInfo = docker info 2>&1
@@ -37,7 +52,7 @@ function Test-DockerAvailable {
         Write-Host "  ✗ Docker daemon is not running" -ForegroundColor Red
         return $false
     }
-    
+
     # Check Docker context (Windows specific)
     try {
         $context = docker context show 2>&1
@@ -49,7 +64,7 @@ function Test-DockerAvailable {
     } catch {
         Write-Host "  ⚠ Could not check Docker context" -ForegroundColor Yellow
     }
-    
+
     # Check Docker Compose
     try {
         $composeVersion = docker compose version 2>&1
@@ -63,14 +78,14 @@ function Test-DockerAvailable {
         Write-Host "  ✗ Docker Compose not available" -ForegroundColor Red
         return $false
     }
-    
+
     return $true
 }
 
 # Check Docker if not skipped
 if (-not $SkipCheck) {
     $dockerAvailable = Test-DockerAvailable
-    
+
     if (-not $dockerAvailable) {
         Write-Host ""
         Write-Host "❌ Docker is not available or not running" -ForegroundColor Red
@@ -91,7 +106,7 @@ if (-not $SkipCheck) {
         Write-Host "After starting Docker Desktop, run this script again:" -ForegroundColor Cyan
         Write-Host "  .\scripts\start.ps1" -ForegroundColor Cyan
         Write-Host ""
-        
+
         # Optional: Ask if user wants to try opening Docker Desktop
         $response = Read-Host "Would you like to try opening Docker Desktop? (Y/N)"
         if ($response -eq "Y" -or $response -eq "y") {
@@ -103,10 +118,10 @@ if (-not $SkipCheck) {
                 Write-Host "  Could not automatically open Docker Desktop. Please start it manually." -ForegroundColor Yellow
             }
         }
-        
+
         exit 1
     }
-    
+
     Write-Host ""
     Write-Host "✅ Docker is ready" -ForegroundColor Green
     Write-Host ""

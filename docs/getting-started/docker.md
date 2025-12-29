@@ -28,6 +28,8 @@ cd mindscape-ai-local-core
 cd mindscape-ai-local-core
 
 # Start all services (script includes Docker health check)
+# If you get an execution policy error, run:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 .\scripts\start.ps1
 ```
 

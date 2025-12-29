@@ -20,6 +20,8 @@ git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
 
 # 2. Start all services (includes Docker health check)
+# If you get an execution policy error, run:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 .\scripts\start.ps1
 ```
 
