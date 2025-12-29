@@ -172,15 +172,77 @@ Write-Host "Starting services..." -ForegroundColor Cyan
 Write-Host ""
 
 # Start services
+Write-Host "Building and starting containers..." -ForegroundColor Cyan
 docker compose up -d
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "❌ Failed to start services" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Check logs with:" -ForegroundColor Yellow
-    Write-Host "  docker compose logs" -ForegroundColor Cyan
+    
+    # Wait a moment for containers to initialize
+    Start-Sleep -Seconds 2
+    
+    # Check which services failed
+    Write-Host "Checking service status..." -ForegroundColor Yellow
+    $failedServices = docker compose ps --format json | ConvertFrom-Json | Where-Object { $_.State -ne "running" -and $_.State -ne "healthy" }
+    
+    if ($failedServices) {
+        Write-Host ""
+        Write-Host "⚠️  The following services failed to start:" -ForegroundColor Yellow
+        foreach ($service in $failedServices) {
+            Write-Host "  - $($service.Service): $($service.State)" -ForegroundColor Red
+        }
+        Write-Host ""
+        
+        # Show logs for failed services
+        Write-Host "Showing logs for failed services..." -ForegroundColor Cyan
+        Write-Host ""
+        foreach ($service in $failedServices) {
+            Write-Host "=== Logs for $($service.Service) ===" -ForegroundColor Yellow
+            docker compose logs --tail=50 $($service.Service)
+            Write-Host ""
+        }
+    } else {
+        # If we can't parse, show all logs
+        Write-Host "Showing recent logs from all services..." -ForegroundColor Cyan
+        Write-Host ""
+        docker compose logs --tail=50
+    }
+    
+    Write-Host ""
+    Write-Host "For more detailed logs, run:" -ForegroundColor Yellow
+    Write-Host "  docker compose logs [service-name]" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "To check service status:" -ForegroundColor Yellow
+    Write-Host "  docker compose ps" -ForegroundColor Cyan
+    Write-Host ""
     exit 1
+}
+
+# Check if any services are unhealthy after starting
+Start-Sleep -Seconds 3
+$unhealthyServices = docker compose ps --format json | ConvertFrom-Json | Where-Object { $_.Health -eq "unhealthy" }
+
+if ($unhealthyServices) {
+    Write-Host ""
+    Write-Host "⚠️  Warning: Some services are unhealthy:" -ForegroundColor Yellow
+    foreach ($service in $unhealthyServices) {
+        Write-Host "  - $($service.Service): $($service.Health)" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "Showing logs for unhealthy services..." -ForegroundColor Cyan
+    Write-Host ""
+    foreach ($service in $unhealthyServices) {
+        Write-Host "=== Logs for $($service.Service) ===" -ForegroundColor Yellow
+        docker compose logs --tail=50 $($service.Service)
+        Write-Host ""
+    }
+    Write-Host ""
+    Write-Host "Services may still be starting. Check again with:" -ForegroundColor Yellow
+    Write-Host "  docker compose ps" -ForegroundColor Cyan
+    Write-Host "  docker compose logs [service-name]" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 Write-Host ""

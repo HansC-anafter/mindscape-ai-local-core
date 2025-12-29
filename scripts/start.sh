@@ -107,15 +107,73 @@ echo "Starting services..."
 echo ""
 
 # Start services
+echo "Building and starting containers..."
 docker compose up -d
 
 if [ $? -ne 0 ]; then
     echo ""
     echo "❌ Failed to start services"
     echo ""
-    echo "Check logs with:"
-    echo "  docker compose logs"
+    
+    # Wait a moment for containers to initialize
+    sleep 2
+    
+    # Check which services failed
+    echo "Checking service status..."
+    FAILED_SERVICES=$(docker compose ps --format json 2>/dev/null | jq -r '.[] | select(.State != "running" and .State != "healthy") | .Service' 2>/dev/null || docker compose ps --format "{{.Service}}\t{{.State}}" | grep -v "running\|healthy" | cut -f1)
+    
+    if [ -n "$FAILED_SERVICES" ]; then
+        echo ""
+        echo "⚠️  The following services failed to start:"
+        docker compose ps --format "table {{.Service}}\t{{.State}}" | grep -v "running\|healthy" || true
+        echo ""
+        
+        # Show logs for failed services
+        echo "Showing logs for failed services..."
+        echo ""
+        for service in $FAILED_SERVICES; do
+            echo "=== Logs for $service ==="
+            docker compose logs --tail=50 "$service" 2>/dev/null || docker compose logs --tail=50
+            echo ""
+        done
+    else
+        # If we can't parse, show all logs
+        echo "Showing recent logs from all services..."
+        echo ""
+        docker compose logs --tail=50
+    fi
+    
+    echo ""
+    echo "For more detailed logs, run:"
+    echo "  docker compose logs [service-name]"
+    echo ""
+    echo "To check service status:"
+    echo "  docker compose ps"
+    echo ""
     exit 1
+fi
+
+# Check if any services are unhealthy after starting
+sleep 3
+UNHEALTHY_SERVICES=$(docker compose ps --format json 2>/dev/null | jq -r '.[] | select(.Health == "unhealthy") | .Service' 2>/dev/null || docker compose ps --format "{{.Service}}\t{{.Health}}" | grep "unhealthy" | cut -f1)
+
+if [ -n "$UNHEALTHY_SERVICES" ]; then
+    echo ""
+    echo "⚠️  Warning: Some services are unhealthy:"
+    docker compose ps --format "table {{.Service}}\t{{.Health}}" | grep "unhealthy" || true
+    echo ""
+    echo "Showing logs for unhealthy services..."
+    echo ""
+    for service in $UNHEALTHY_SERVICES; do
+        echo "=== Logs for $service ==="
+        docker compose logs --tail=50 "$service" 2>/dev/null || docker compose logs --tail=50
+        echo ""
+    done
+    echo ""
+    echo "Services may still be starting. Check again with:"
+    echo "  docker compose ps"
+    echo "  docker compose logs [service-name]"
+    echo ""
 fi
 
 echo ""
