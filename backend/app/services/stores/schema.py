@@ -41,14 +41,19 @@ def _apply_migrations(cursor):
         else:
             raise
 
-    try:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN storyline_tags TEXT")
-        logger.info("Migration: Added storyline_tags column to tasks table")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
-            logger.debug("storyline_tags column already exists in tasks table, skipping")
-        else:
-            raise
+    # Check if tasks table exists before trying to alter it
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+    if cursor.fetchone():
+        try:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN storyline_tags TEXT")
+            logger.info("Migration: Added storyline_tags column to tasks table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                logger.debug("storyline_tags column already exists in tasks table, skipping")
+            else:
+                raise
+    else:
+        logger.debug("tasks table does not exist yet, skipping storyline_tags migration (will be handled when table is created)")
 
     # Migration: Add project_id column to tasks table (2025-12-16)
     column_exists = False
