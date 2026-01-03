@@ -2,6 +2,9 @@
 
 This guide explains how to develop and install capability packs for Mindscape AI Local Core.
 
+> **[IMPORTANT] Portability Contract**
+> All capabilities must comply with the [Capability Portability Contract](./capability-portability-contract.md) to ensure they can run in both Cloud and Local-Core environments. The contract is enforced by CI, and any non-compliant PR will be blocked.
+
 ## Overview
 
 A capability pack is a self-contained bundle that extends Mindscape AI with new functionality. Each pack includes:
