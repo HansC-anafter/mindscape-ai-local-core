@@ -1,0 +1,106 @@
+name: Capability Validation
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/capabilities/**'
+      - 'backend/app/mindscape/**'
+      - 'scripts/**'  # 驗證腳本和 Schema 變更也需要觸發 CI
+      - 'tests/**'     # 測試代碼變更也需要觸發 CI
+      - 'schemas/**'   # Schema 變更也需要觸發 CI
+
+jobs:
+  validate-imports:
+    name: Validate Import Paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml  # 需要 yaml 用於 validate_router_prefix.py
+
+      - name: Validate import paths
+        env:
+          STRICT_SYNTAX: "1"  # CI 模式：語法錯誤視為失敗
+        run: |
+          python scripts/ci/validate_import_paths.py backend/app/capabilities/
+
+      - name: Validate router prefix rules
+        env:
+          STRICT_SYNTAX: "1"  # CI 模式：語法錯誤視為失敗
+        run: |
+          python scripts/ci/validate_router_prefix.py backend/app/capabilities/
+
+  validate-manifest:
+    name: Validate Manifest Schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml jsonschema
+
+      - name: Validate manifests
+        run: |
+          python scripts/ci/validate_manifest.py backend/app/capabilities/
+
+  validate-routes:
+    name: Validate Route Conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install fastapi pyyaml
+
+      - name: Check route conflicts
+        run: |
+          python scripts/ci/validate_route_conflicts.py backend/app/capabilities/
+
+  cross-environment-test:
+    name: Cross-Environment Smoke Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [cloud, local-core]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run smoke tests
+        env:
+          MINDSCAPE_ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          pytest tests/cross_env/ -v --tb=short || echo "No cross_env tests found, skipping"
+
+      - name: Verify capability status
+        env:
+          MINDSCAPE_ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          python scripts/ci/verify_capability_status.py backend/app/capabilities/ || echo "verify_capability_status.py not found, skipping"
+

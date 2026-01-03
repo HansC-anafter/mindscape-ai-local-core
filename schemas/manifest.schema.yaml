@@ -1,0 +1,529 @@
+# Manifest Schema for Capability Packs
+# 
+# 此 schema 定義 capability pack manifest.yaml 的結構要求。
+# 包含 portability 字段（必需）、環境適配宣告
+#
+# 驗證方式：
+#   python scripts/ci/validate_manifest.py capabilities/
+
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Capability Pack Manifest
+description: |
+  Manifest schema for Mindscape capability packs.
+  Includes portability requirements for cross-environment deployment.
+type: object
+
+required:
+  - code
+  - version
+  - portability  # 必需
+
+properties:
+  # ============================================================================
+  # 基本資訊
+  # ============================================================================
+  
+  code:
+    type: string
+    pattern: "^[a-z0-9_]+$"
+    description: "Capability 唯一識別碼 (lowercase, underscores allowed)"
+    examples:
+      - example_capability
+      - data_processor
+      - content_analyzer
+    
+  version:
+    type: string
+    pattern: "^\\d+\\.\\d+\\.\\d+$"
+    description: "語意化版本號 (semver)"
+    examples:
+      - "1.0.0"
+      - "2.1.3"
+    
+  display_name:
+    type: string
+    description: "顯示名稱"
+    examples:
+      - "Example Capability"
+      - "Data Processor"
+    
+  description:
+    type: string
+    description: "能力描述"
+    
+  type:
+    type: string
+    enum: [feature, core, extension]
+    default: feature
+    description: |
+      能力類型：
+      - feature: 功能型能力包
+      - core: 核心能力（系統必需）
+      - extension: 擴展能力
+
+  # ============================================================================
+  # 可移植性宣告（必需）
+  # ============================================================================
+  
+  portability:
+    type: object
+    required:
+      - min_local_core_version
+      - environments
+    description: "可移植性宣告，定義跨環境部署支援"
+    properties:
+      min_local_core_version:
+        type: string
+        pattern: "^\\d+\\.\\d+\\.\\d+$"
+        description: "最低支援的 Local-Core 版本"
+        examples:
+          - "0.9.0"
+          - "1.0.0"
+        
+      environments:
+        type: array
+        items:
+          type: string
+          enum: [cloud, local-core]
+        minItems: 1
+        description: |
+          支援的環境列表。
+          ⚠️ 必須包含 "local-core" 才能通過驗證。
+        examples:
+          - [cloud, local-core]
+          - [local-core]
+        
+      degradation_strategy:
+        type: string
+        enum: [fail-fast, graceful]
+        default: graceful
+        description: |
+          當依賴不可用時的策略：
+          - fail-fast: 立即失敗
+          - graceful: 降級運行
+
+  # ============================================================================
+  # 依賴宣告
+  # ============================================================================
+  
+  dependencies:
+    type: object
+    description: "依賴宣告"
+    properties:
+      required:
+        type: array
+        items:
+          type: string
+        description: "必要依賴 - 缺少時 capability 無法啟動"
+        examples:
+          - [core_llm]
+          - [core_llm, database]
+        
+      optional:
+        type: array
+        items:
+          oneOf:
+            - type: string
+            - type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: "依賴名稱"
+                fallback:
+                  type: string
+                  nullable: true
+                  description: "替代模組路徑，null 表示無替代"
+                degraded_features:
+                  type: array
+                  items:
+                    type: string
+                  description: "缺少此依賴時降級的功能列表"
+        description: |
+          可選依賴 - 缺少時 capability 可以啟動但部分功能不可用。
+          建議使用物件格式宣告 fallback 和 degraded_features。
+        examples:
+          - name: contracts.execution_context
+            fallback: mindscape.shims.execution_context
+            degraded_features:
+              - pipeline_orchestration
+              - async_job_dispatch
+                
+      external_services:
+        type: array
+        items:
+          type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: "外部服務名稱"
+            env_var:
+              type: string
+              description: "配置此服務所需的環境變量"
+            degraded_features:
+              type: array
+              items:
+                type: string
+              description: "缺少此服務時降級的功能列表"
+        description: "外部服務依賴（需要配置 API keys 等）"
+        examples:
+          - name: gcs_storage
+            env_var: GCS_CREDENTIALS
+            degraded_features:
+              - video_upload
+              - asset_storage
+
+  # ============================================================================
+  # Playbook 定義
+  # ============================================================================
+  
+  playbooks:
+    type: array
+    description: "Playbook 列表"
+    items:
+      type: object
+      required:
+        - code
+        - locales
+        - path
+        - spec_path
+      properties:
+        code:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+          description: "Playbook 代碼"
+        display_name:
+          type: string
+          description: "顯示名稱"
+        display_name_zh:
+          type: string
+          description: "中文顯示名稱"
+        locales:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: "支援的語言"
+          examples:
+            - [zh-TW, en]
+        path:
+          type: string
+          pattern: "^playbooks/\\{locale\\}/.*\\.md$"
+          description: "Playbook markdown 文件路徑模板"
+        spec_path:
+          type: string
+          pattern: "^playbooks/specs/.*\\.(json|yaml)$"
+          description: "Playbook spec 文件路徑"
+        description:
+          type: string
+        description_zh:
+          type: string
+        tool_dependencies:
+          type: array
+          items:
+            type: string
+          description: "此 playbook 依賴的 tool 列表"
+        service_dependencies:
+          type: array
+          items:
+            type: string
+          description: "此 playbook 依賴的 service 列表"
+
+  # ============================================================================
+  # Tool 定義
+  # ============================================================================
+  
+  tools:
+    type: array
+    description: "Tool 列表"
+    items:
+      type: object
+      required:
+        - name
+        - backend
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+          description: "Tool 名稱"
+        code:
+          type: string
+          description: "Tool 代碼（可選，默認使用 name）"
+        backend:
+          type: string
+          # 要求：必須使用 mindscape.capabilities.* 格式
+          pattern: "^mindscape\\.capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
+          description: |
+            Backend import 路徑。
+            ⚠️ 必須使用 mindscape.capabilities.* 格式
+            格式: mindscape.capabilities.{capability}.{module}:{function}
+          examples:
+            - "mindscape.capabilities.example_capability.tools.data_processor:process_data"
+        description:
+          type: string
+        input_schema:
+          type: object
+          description: "Tool 輸入 schema (JSON Schema)"
+        used_by_playbooks:
+          type: array
+          items:
+            type: string
+          description: "使用此 tool 的 playbook 列表"
+
+  # ============================================================================
+  # Service 定義
+  # ============================================================================
+  
+  services:
+    type: array
+    description: "Service 列表"
+    items:
+      type: object
+      required:
+        - name
+        - backend
+      properties:
+        name:
+          type: string
+          description: "Service 名稱"
+        path:
+          type: string
+          description: "Service 文件路徑"
+        backend:
+          type: string
+          pattern: "^(mindscape\\.)?capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[A-Z][a-zA-Z0-9_]*$"
+          description: "Backend import 路徑"
+        description:
+          type: string
+
+  # ============================================================================
+  # API 定義
+  # ============================================================================
+  
+  apis:
+    type: array
+    description: "API endpoint 定義"
+    items:
+      type: object
+      required:
+        - code
+        - path
+        - prefix
+      properties:
+        code:
+          type: string
+          description: "API 代碼"
+        path:
+          type: string
+          # 要求：必須在 api/ 目錄下
+          pattern: "^api/.*\\.py$"
+          description: |
+            API 入口文件路徑。
+            ⚠️ 必須使用 api/ 目錄
+          examples:
+            - "api/__init__.py"
+            - "api/main.py"
+        router_export:
+          type: string
+          enum: [router, get_router]
+          default: router
+          description: |
+            Router 導出方式：
+            - router: 直接導出 router 變量
+            - get_router: 導出 get_router() 函數
+        prefix:
+          type: string
+          pattern: "^/[a-z0-9_]+$"
+          description: "API 路由前綴"
+        enabled_by_default:
+          type: boolean
+          default: true
+          description: "是否默認啟用"
+
+  # 向後兼容：capabilities 字段（Deprecated）
+  capabilities:
+    type: array
+    description: "API endpoint 定義（舊字段名，建議使用 apis）"
+    items:
+      type: object
+      required:
+        - code
+        - path
+        - prefix
+      properties:
+        code:
+          type: string
+          description: "API 代碼"
+        path:
+          type: string
+          pattern: "^api/.*\\.py$"
+          description: |
+            API 入口文件路徑。
+            ⚠️ 必須使用 api/ 目錄
+          examples:
+            - "api/__init__.py"
+            - "api/main.py"
+        router_export:
+          type: string
+          enum: [router, get_router]
+          default: router
+          description: |
+            Router 導出方式：
+            - router: 直接導出 router 變量
+            - get_router: 導出 get_router() 函數
+        prefix:
+          type: string
+          pattern: "^/[a-z0-9_]+$"
+          description: "API 路由前綴"
+        enabled_by_default:
+          type: boolean
+          default: true
+          description: "是否默認啟用"
+
+  # ============================================================================
+  # UI 組件
+  # ============================================================================
+  
+  ui_components:
+    type: array
+    description: "前端 UI 組件列表"
+    items:
+      type: object
+      required:
+        - code
+        - path
+      properties:
+        code:
+          type: string
+          description: "組件代碼"
+        path:
+          type: string
+          pattern: "^ui/.*\\.(tsx|jsx)$"
+          description: "組件文件路徑"
+        display_name:
+          type: string
+        props_schema:
+          type: object
+          description: "組件 props schema"
+
+  # ============================================================================
+  # 數據邊界
+  # ============================================================================
+  
+  data_locality_default:
+    type: object
+    description: "默認數據邊界宣告"
+    properties:
+      local_only:
+        type: array
+        items:
+          type: string
+        description: "只能在本地處理的數據類型"
+        examples:
+          - raw_data_files
+          - user_private_data
+      cloud_allowed:
+        type: array
+        items:
+          type: string
+        description: "可以發送到 Cloud 處理的數據類型"
+        examples:
+          - processed_data
+          - analysis_results
+
+  # ============================================================================
+  # 運行時配置
+  # ============================================================================
+  
+  runtime_affinity:
+    type: string
+    enum: [local, semantic, hybrid]
+    default: semantic
+    description: |
+      運行時親和性：
+      - local: 僅本地執行
+      - semantic: 僅 Cloud 執行
+      - hybrid: 混合執行
+    
+  max_expected_runtime_sec:
+    type: number
+    minimum: 0
+    description: "預期最大運行時間（秒）"
+    
+  token_estimate:
+    type: number
+    minimum: 0
+    description: "預估 token 使用量"
+
+  # ============================================================================
+  # Bootstrap 腳本
+  # ============================================================================
+  
+  bootstrap:
+    type: array
+    description: "安裝後執行的 bootstrap 腳本"
+    items:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [python_script, content_vault_init, shell_script]
+        path:
+          type: string
+          description: "腳本路徑"
+        vault_path:
+          type: string
+          description: "Content Vault 路徑（僅 content_vault_init）"
+
+# ============================================================================
+# 範例
+# ============================================================================
+
+examples:
+  - code: example_capability
+    version: "1.0.0"
+    display_name: "Example Capability"
+    type: feature
+    description: "An example capability demonstrating the manifest structure"
+    
+    portability:
+      min_local_core_version: "0.9.0"
+      environments:
+        - cloud
+        - local-core
+      degradation_strategy: graceful
+    
+    dependencies:
+      required:
+        - core_llm
+      optional:
+        - name: contracts.execution_context
+          fallback: mindscape.shims.execution_context
+          degraded_features:
+            - pipeline_orchestration
+      external_services:
+        - name: external_storage
+          env_var: STORAGE_CREDENTIALS
+          degraded_features:
+            - file_upload
+    
+    playbooks:
+      - code: example_playbook
+        locales: [zh-TW, en]
+        path: playbooks/{locale}/example_playbook.md
+        spec_path: playbooks/specs/example_playbook.json
+    
+    tools:
+      - name: data_processor
+        backend: "mindscape.capabilities.example_capability.tools.data_processor:process_data"
+    
+    apis:
+      - code: example_capability
+        path: api/__init__.py
+        router_export: router
+        prefix: /example_capability
+        enabled_by_default: true
+
