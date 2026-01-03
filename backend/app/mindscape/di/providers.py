@@ -14,8 +14,9 @@ Local-Core environment:
 - Use Shim ExecutionContext
 """
 
-from typing import Optional, Callable, Any, Generator
+from typing import Optional, Callable, Any, Generator, AsyncGenerator
 from fastapi import Depends, Header, HTTPException, Request
+from sqlalchemy.orm import Session
 import os
 import logging
 
@@ -188,30 +189,38 @@ class DBSessionProvider:
 
 async def get_db_session(
     tenant_uuid: str = Depends(get_tenant_uuid)
-) -> Generator:
+) -> AsyncGenerator[Session, None]:
     """
     Get database session (auto-adapts to environment).
 
     This function re-detects environment on each request:
-    - Cloud: Use tenant-routed PostgreSQL session
-    - Local-Core: Use local SQLite session
+    - Cloud: Use tenant-routed PostgreSQL session (via cloud capability's database_dependency)
+    - Local-Core: Use local PostgreSQL session
+
+    Architecture Note:
+    - Local-Core should NOT import cloud modules directly
+    - Cloud capabilities should provide their own database_dependency.py that handles cloud-specific logic
+    - This function only handles local-core database sessions
 
     Usage:
         @router.get("/sessions")
         async def list_sessions(db = Depends(get_db_session)):
             ...
     """
-    from mindscape import get_environment
-
-    # Re-detect environment on each request (supports runtime environment changes)
-    env = get_environment(force_reload=True)
-
-    if env == "cloud":
-        from database.tenant_db_router import get_tenant_session
-        return get_tenant_session(tenant_uuid)
-    else:
-        from backend.app.database import get_local_session
-        return get_local_session()
+    # Local-Core: Always use local database session
+    # Cloud capabilities should use their own database_dependency.py (not this function)
+    from backend.app.database import get_db_postgres
+    # get_db_postgres() is a synchronous generator function
+    # We need to wrap it for async context
+    session_gen = get_db_postgres()
+    session = next(session_gen)
+    try:
+        yield session
+    finally:
+        try:
+            next(session_gen, None)  # Complete the generator cleanup
+        except StopIteration:
+            pass
 
 
 # ============================================================================
