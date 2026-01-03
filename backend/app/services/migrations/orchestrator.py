@@ -2,6 +2,8 @@
 
 import logging
 import subprocess
+import os
+import sys
 from typing import List, Dict, Optional
 from pathlib import Path
 from enum import Enum
@@ -101,12 +103,12 @@ class MigrationOrchestrator:
             return {"status": "up_to_date", "migrations_applied": 0}
 
         # Execute migrations using Alembic
-        # Use 'upgrade head' to apply all pending migrations in correct order
+        # Use 'upgrade heads' to apply all pending migrations, including multiple heads
         alembic_config = self.alembic_configs[db_type]
 
         try:
-            # Run alembic upgrade to head (applies all pending migrations)
-            result = self._run_alembic_upgrade(alembic_config, "head")
+            # Run alembic upgrade to heads (applies all pending migrations, handles multiple heads)
+            result = self._run_alembic_upgrade(alembic_config, "heads")
             if result:
                 return {
                     "status": "completed",
@@ -143,31 +145,107 @@ class MigrationOrchestrator:
         """Get current Alembic revision for a database."""
         alembic_config = self.alembic_configs[db_type]
         try:
-            result = subprocess.run(
-                ["alembic", "-c", str(alembic_config), "current"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            # Parse output to get revision
-            # Format: "20251227170000 (head)" or just "20251227170000"
-            output = result.stdout.strip()
-            if output:
-                revision = output.split()[0]
-                return revision
+            # Use Python API instead of command line
+            import sys
+            import site
+            import importlib.util
+            from pathlib import Path
+
+            # Remove /app/backend from path to avoid local alembic directory conflict
+            original_path = sys.path[:]
+            backend_path = str(Path(alembic_config).parent)
+
+            while backend_path in sys.path:
+                sys.path.remove(backend_path)
+
+            # Ensure site-packages is first
+            site_packages = site.getsitepackages()
+            for sp in site_packages:
+                if sp in sys.path:
+                    sys.path.remove(sp)
+                sys.path.insert(0, sp)
+
+            # Also ensure backend is in path for app imports in env.py
+            if backend_path not in sys.path:
+                sys.path.insert(0, backend_path)
+
+            try:
+                spec = importlib.util.find_spec('alembic')
+                if spec and spec.origin and '/app/backend/alembic' not in spec.origin:
+                    from alembic.config import Config
+                    from alembic.script import ScriptDirectory
+
+                    config = Config(str(alembic_config))
+                    script = ScriptDirectory.from_config(config)
+                    current = script.get_current_head()
+
+                    return current
+                else:
+                    raise ImportError(f"Could not find alembic in site-packages")
+            finally:
+                sys.path[:] = original_path
         except Exception as e:
-            logger.error(f"Failed to get current revision: {e}")
-        return None
+            logger.warning(f"Could not get current revision for {db_type}: {e}")
+            return None
 
     def _run_alembic_upgrade(self, alembic_config: Path, revision: str) -> bool:
         """Run Alembic upgrade to a specific revision or 'head'."""
+        backend_dir = alembic_config.parent
+        backend_path = str(backend_dir)
+        config_path = alembic_config.as_posix()
+
+        # Use subprocess with explicit Python path manipulation via environment
+        # This avoids the module import conflict with /app/backend/alembic directory
+        env = os.environ.copy()
+        # Remove /app/backend from PYTHONPATH if present, keep only site-packages
+        pythonpath_parts = env.get('PYTHONPATH', '').split(':') if env.get('PYTHONPATH') else []
+        pythonpath_parts = [p for p in pythonpath_parts if '/app/backend' not in p]
+        # Add backend only for app imports, but after site-packages
+        pythonpath_parts.append(str(backend_dir))
+        env['PYTHONPATH'] = ':'.join(pythonpath_parts)
+
+        # Use a Python script that properly sets up the environment
+        script = f"""
+import sys
+import os
+from pathlib import Path
+
+# Remove /app/backend from path to avoid alembic directory conflict
+backend_path = '{backend_path}'
+while backend_path in sys.path:
+    sys.path.remove(backend_path)
+
+# Ensure site-packages is first
+import site
+site_packages = site.getsitepackages()
+for sp in site_packages:
+    if sp in sys.path:
+        sys.path.remove(sp)
+    sys.path.insert(0, sp)
+
+# Add backend back for app imports
+sys.path.append(backend_path)
+
+# Change to backend directory
+os.chdir(backend_path)
+
+# Now import and execute
+from alembic.config import Config
+from alembic import command
+
+config = Config('{config_path}')
+command.upgrade(config, '{revision}')
+"""
+
         try:
             result = subprocess.run(
-                ["alembic", "-c", str(alembic_config), "upgrade", revision],
+                [sys.executable, "-c", script],
+                cwd=str(backend_dir),
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=300  # 5 minute timeout
+                timeout=300,
+                env=env
             )
             logger.info(f"Migration upgrade to {revision} completed successfully")
             if result.stdout:
@@ -203,7 +281,6 @@ class MigrationOrchestrator:
             backend_dir = Path(__file__).parent.parent.parent.parent
             data_dir = backend_dir.parent / "data"
             return {
-                "sqlite_path": str(data_dir / "mindscape.db")  # 統一使用 mindscape.db
+                "sqlite_path": str(data_dir / "mindscape.db")
             }
         return {}
-
