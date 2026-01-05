@@ -215,7 +215,7 @@ export default function PlaybookDiscoveryChat({
 
       <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
         {/* Suggested Questions Chips */}
-        {messages.length === 1 && suggestedQuestions.length > 0 && (
+        {suggestedQuestions.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {suggestedQuestions.map((question, idx) => (
               <button
