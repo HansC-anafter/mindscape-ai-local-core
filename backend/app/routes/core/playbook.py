@@ -244,7 +244,7 @@ async def list_playbooks(
         # Filter by workspace_id: include both executed and pinned playbooks
         if workspace_id:
             workspace_playbook_codes = set()
-            
+
             # Get playbooks executed in this workspace
             with executions_store.get_connection() as conn:
                 cursor = conn.cursor()
@@ -254,14 +254,14 @@ async def list_playbooks(
                     WHERE workspace_id = ?
                 ''', (workspace_id,))
                 workspace_playbook_codes.update({row[0] for row in cursor.fetchall()})
-            
+
             # Get pinned playbooks for this workspace
             try:
                 pinned_playbooks = pinned_playbooks_store.list_pinned_playbooks(workspace_id)
                 workspace_playbook_codes.update({pb['playbook_code'] for pb in pinned_playbooks})
             except Exception as e:
                 logger.warning(f"Failed to get pinned playbooks for workspace {workspace_id}: {e}")
-            
+
             playbooks = [p for p in playbooks if p.metadata.playbook_code in workspace_playbook_codes]
 
         # Aggregate workspace usage count for all playbooks
@@ -624,6 +624,7 @@ async def get_playbook(
                 "required_tools": playbook.metadata.required_tools,
                 "scope": playbook.metadata.scope,
                 "owner": playbook.metadata.owner,
+                "capability_code": playbook.metadata.capability_code if hasattr(playbook.metadata, 'capability_code') else None,
             },
             "sop_content": playbook.sop_content,
             "user_notes": playbook.user_notes,
