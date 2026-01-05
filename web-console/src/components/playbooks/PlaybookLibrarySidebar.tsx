@@ -49,6 +49,21 @@ export default function PlaybookLibrarySidebar({
   onFilterChange,
   profileId = 'default-user'
 }: PlaybookLibrarySidebarProps) {
+  const sortedPacks = useMemo(() => {
+    if (!playbooksByCapability) return [];
+    
+    return Object.entries(playbooksByCapability)
+      .filter(([_, playbooks]) => playbooks && playbooks.length > 0)
+      .sort(([codeA, playbooksA], [codeB, playbooksB]) => {
+        if (codeA === 'system') return -1;
+        if (codeB === 'system') return 1;
+        return playbooksB.length - playbooksA.length;
+      });
+  }, [playbooksByCapability]);
+
+  const topPacks = useMemo(() => {
+    return sortedPacks.slice(0, 10);
+  }, [sortedPacks]);
   const [locale] = useLocale();
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [tagSearchTerm, setTagSearchTerm] = useState('');
@@ -192,22 +207,45 @@ export default function PlaybookLibrarySidebar({
             onChange={(e) => onCapabilityChange(e.target.value)}
             className="w-full px-2 py-1.5 text-xs border border-default dark:border-gray-600 rounded-md bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-accent dark:focus:ring-blue-500"
           >
-            {playbooksByCapability && Object.entries(playbooksByCapability)
-              .filter(([_, playbooks]) => playbooks && playbooks.length > 0)
-              .map(([capabilityCode, capabilityPlaybooks]) => {
-                const capabilityDisplayName = capabilityCode === 'system'
-                  ? t('systemPlaybooks')
-                  : capabilityCode.split('_').map(word =>
-                      word.charAt(0).toUpperCase() + word.slice(1)
-                    ).join(' ');
-                return (
-                  <option key={capabilityCode} value={capabilityCode}>
-                    {capabilityDisplayName} ({capabilityPlaybooks.length})
-                  </option>
-                );
-              })}
+            {sortedPacks.map(([capabilityCode, capabilityPlaybooks]) => {
+              const capabilityDisplayName = capabilityCode === 'system'
+                ? t('systemPlaybooks')
+                : capabilityCode.split('_').map(word =>
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                  ).join(' ');
+              return (
+                <option key={capabilityCode} value={capabilityCode}>
+                  {capabilityDisplayName} ({capabilityPlaybooks.length})
+                </option>
+              );
+            })}
           </select>
         </div>
+        {topPacks.length > 0 && (
+          <div className="space-y-1 mt-2">
+            {topPacks.map(([capabilityCode, capabilityPlaybooks]) => {
+              const capabilityDisplayName = capabilityCode === 'system'
+                ? t('systemPlaybooks')
+                : capabilityCode.split('_').map(word =>
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                  ).join(' ');
+              const isSelected = selectedCapability === capabilityCode;
+              return (
+                <button
+                  key={capabilityCode}
+                  onClick={() => onCapabilityChange(capabilityCode)}
+                  className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
+                    isSelected
+                      ? 'bg-accent-10 dark:bg-blue-900/20 text-accent dark:text-blue-300'
+                      : 'hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300'
+                  }`}
+                >
+                  {capabilityDisplayName} ({capabilityPlaybooks.length})
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="mb-4">
