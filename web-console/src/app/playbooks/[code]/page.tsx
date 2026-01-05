@@ -78,6 +78,7 @@ export default function PlaybookDetailPage() {
   const router = useRouter();
   const playbookCode = Array.isArray(params?.code) ? params.code[0] : (params?.code as string);
   const onboardingTask = searchParams?.get('onboarding');
+  const workspaceId = searchParams?.get('workspace');
   const [locale] = useLocale();
 
   const [playbook, setPlaybook] = useState<Playbook | null>(null);
@@ -752,6 +753,7 @@ export default function PlaybookDetailPage() {
                     router.push(`/playbooks/${playbookCode}`, { scroll: false });
                   }}
                   currentPlaybookCode={playbookCode}
+                  selectedWorkspace={workspaceId || undefined}
                 />
               </div>
             </div>

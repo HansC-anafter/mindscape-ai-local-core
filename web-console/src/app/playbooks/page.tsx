@@ -618,14 +618,14 @@ export default function PlaybooksPage() {
                                       await loadPlaybooks();
                                     } else {
                                       const errorData = await response.json().catch(() => ({}));
-                                      alert(t('pinOperationFailed', { 
+                                      alert(t('pinOperationFailed', {
                                         action: isPinned ? t('unpin') : t('pin'),
-                                        error: errorData.detail || response.statusText 
+                                        error: errorData.detail || response.statusText
                                       }));
                                     }
                                   } catch (err) {
                                     console.error('Failed to toggle pin:', err);
-                                    alert(t('pinOperationFailed', { 
+                                    alert(t('pinOperationFailed', {
                                       action: isPinned ? t('unpin') : t('pin'),
                                       error: err instanceof Error ? err.message : 'Unknown error'
                                     }));
@@ -686,6 +686,7 @@ export default function PlaybooksPage() {
                     router.push(`/playbooks/${playbookCode}`);
                   }}
                   selectedCapability={selectedCapability}
+                  selectedWorkspace={selectedWorkspaceId}
                 />
               </div>
             </div>
