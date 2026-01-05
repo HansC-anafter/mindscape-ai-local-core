@@ -436,6 +436,9 @@ export default function PlaybooksPage() {
               onTagsChange={setSelectedTags}
               selectedWorkspaceId={selectedWorkspaceId}
               onWorkspaceChange={setSelectedWorkspaceId}
+              selectedCapability={selectedCapability}
+              onCapabilityChange={setSelectedCapability}
+              playbooksByCapability={playbooksByCapability}
               filter={filter || undefined}
               onFilterChange={(newFilter) => setFilter(newFilter)}
               profileId="default-user"
