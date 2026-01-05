@@ -13,6 +13,24 @@ interface Playbook {
   capability_code?: string;
 }
 
+function extractCapabilityCode(playbook: Playbook): string | null {
+  if (playbook.capability_code) {
+    return playbook.capability_code;
+  }
+
+  if (playbook.playbook_code && playbook.playbook_code.includes('.')) {
+    const parts = playbook.playbook_code.split('.');
+    if (parts.length >= 2) {
+      const potentialCapabilityCode = parts[0];
+      if (potentialCapabilityCode.length > 2 && !potentialCapabilityCode.includes(' ')) {
+        return potentialCapabilityCode;
+      }
+    }
+  }
+
+  return null;
+}
+
 interface RelatedPlaybooksSidebarProps {
   currentPlaybook: Playbook;
   allPlaybooks: Playbook[];
@@ -25,21 +43,23 @@ export default function RelatedPlaybooksSidebar({
   recentPlaybooks
 }: RelatedPlaybooksSidebarProps) {
   const samePackPlaybooks = useMemo(() => {
-    if (!currentPlaybook.capability_code) return [];
-    
+    const currentCapabilityCode = extractCapabilityCode(currentPlaybook);
+    if (!currentCapabilityCode) return [];
+
     return allPlaybooks
-      .filter(pb => 
-        pb.playbook_code !== currentPlaybook.playbook_code &&
-        pb.capability_code === currentPlaybook.capability_code
-      )
+      .filter(pb => {
+        if (pb.playbook_code === currentPlaybook.playbook_code) return false;
+        const pbCapabilityCode = extractCapabilityCode(pb);
+        return pbCapabilityCode === currentCapabilityCode;
+      })
       .slice(0, 5);
   }, [currentPlaybook, allPlaybooks]);
 
   const relatedTagsPlaybooks = useMemo(() => {
     if (!currentPlaybook.tags || currentPlaybook.tags.length === 0) return [];
-    
+
     const currentTags = new Set(currentPlaybook.tags);
-    
+
     return allPlaybooks
       .filter(pb => {
         if (pb.playbook_code === currentPlaybook.playbook_code) return false;
