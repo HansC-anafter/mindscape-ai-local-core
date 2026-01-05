@@ -189,8 +189,6 @@ export default function PlaybookDetailPage() {
           icon: p.icon,
           tags: p.tags || [],
           capability_code: p.capability_code
-          description: p.description,
-          icon: p.icon
         })));
       }
     } catch (err) {
