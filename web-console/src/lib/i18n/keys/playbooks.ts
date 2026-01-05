@@ -127,6 +127,8 @@ export const playbooksKeys = {
   createdByMe: true,
   readyToRun: true,
   byWorkspace: true,
+  byPacks: true,
+  systemPlaybooks: true,
   pinnedInWorkspace: true,
   frequentInWorkspace: true,
   missingToolsInWorkspace: true,

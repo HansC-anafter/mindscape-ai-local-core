@@ -200,6 +200,8 @@ export const playbooksEn = {
   createdByMe: 'Created by Me',
   readyToRun: 'Ready to Run',
   byWorkspace: 'By Workspace',
+  byPacks: 'By Packs',
+  systemPlaybooks: 'System Playbooks',
   pinnedInWorkspace: 'Pinned in this workspace',
   frequentInWorkspace: 'Frequent in this workspace',
   missingToolsInWorkspace: 'Missing tools in this workspace',

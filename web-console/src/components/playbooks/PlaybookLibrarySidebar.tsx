@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { WorkspaceSelector } from '../workspace/WorkspaceSelector';
 import { t, useLocale } from '../../lib/i18n';
 
 interface Playbook {
@@ -29,6 +28,9 @@ interface PlaybookLibrarySidebarProps {
   onTagsChange: (tags: string[]) => void;
   selectedWorkspaceId: string | null;
   onWorkspaceChange: (workspaceId: string | null) => void;
+  selectedCapability: string;
+  onCapabilityChange: (capability: string) => void;
+  playbooksByCapability: Record<string, Playbook[]>;
   filter?: string;
   onFilterChange?: (filter: string | null) => void;
   profileId?: string;
@@ -40,6 +42,9 @@ export default function PlaybookLibrarySidebar({
   onTagsChange,
   selectedWorkspaceId,
   onWorkspaceChange,
+  selectedCapability,
+  onCapabilityChange,
+  playbooksByCapability,
   filter,
   onFilterChange,
   profileId = 'default-user'
@@ -180,37 +185,29 @@ export default function PlaybookLibrarySidebar({
       </div>
 
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">{t('byWorkspace')}</h4>
+        <h4 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">{t('byPacks')}</h4>
         <div className="mb-2">
-          <WorkspaceSelector
-            ownerUserId={profileId}
-            value={selectedWorkspaceId || ''}
-            onValueChange={(workspaceId) => {
-              onWorkspaceChange(workspaceId || null);
-            }}
-            showLabel={false}
-            className="w-full"
-          />
+          <select
+            value={selectedCapability}
+            onChange={(e) => onCapabilityChange(e.target.value)}
+            className="w-full px-2 py-1.5 text-xs border border-default dark:border-gray-600 rounded-md bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-accent dark:focus:ring-blue-500"
+          >
+            {Object.entries(playbooksByCapability)
+              .filter(([_, playbooks]) => playbooks.length > 0)
+              .map(([capabilityCode, capabilityPlaybooks]) => {
+                const capabilityDisplayName = capabilityCode === 'system'
+                  ? t('systemPlaybooks')
+                  : capabilityCode.split('_').map(word =>
+                      word.charAt(0).toUpperCase() + word.slice(1)
+                    ).join(' ');
+                return (
+                  <option key={capabilityCode} value={capabilityCode}>
+                    {capabilityDisplayName} ({capabilityPlaybooks.length})
+                  </option>
+                );
+              })}
+          </select>
         </div>
-        {selectedWorkspaceId && (
-          <div className="space-y-1 mt-2">
-            <button
-              className="w-full text-left px-2 py-1.5 text-xs rounded-md hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300"
-            >
-              {t('pinnedInWorkspace')} ({workspacePinnedPlaybookCodes.length})
-            </button>
-            <button
-              className="w-full text-left px-2 py-1.5 text-xs rounded-md hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300"
-            >
-              {t('frequentInWorkspace')} ({workspaceFrequentPlaybookCodes.length})
-            </button>
-            <button
-              className="w-full text-left px-2 py-1.5 text-xs rounded-md hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300"
-            >
-              {t('missingToolsInWorkspace')} (0)
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="mb-4">

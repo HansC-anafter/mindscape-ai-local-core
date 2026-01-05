@@ -200,6 +200,8 @@ export const playbooksZhTW = {
   createdByMe: '我建立的',
   readyToRun: '可直接執行',
   byWorkspace: '依 Workspace',
+  byPacks: '依 Packs',
+  systemPlaybooks: '系統 Playbooks',
   pinnedInWorkspace: '此 workspace 已釘選',
   frequentInWorkspace: '此 workspace 常用',
   missingToolsInWorkspace: '此 workspace 缺工具的',

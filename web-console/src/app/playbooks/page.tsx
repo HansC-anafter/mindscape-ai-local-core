@@ -350,18 +350,6 @@ export default function PlaybooksPage() {
                 <span className="text-tertiary dark:text-gray-500">→</span>
                 <span>{t('playbookStepMembers')}</span>
               </div>
-              {/* Workspace Selector */}
-              <div className="hidden md:flex items-center gap-2">
-                <WorkspaceSelector
-                  ownerUserId="default-user"
-                  value={selectedWorkspaceId || ''}
-                  onValueChange={(workspaceId) => {
-                    setSelectedWorkspaceId(workspaceId || null);
-                  }}
-                  showLabel={false}
-                  className="min-w-[200px]"
-                />
-              </div>
             </div>
 
             {/* Right: Search and Reload */}
@@ -457,35 +445,6 @@ export default function PlaybooksPage() {
                 </div>
               ) : (
                 <>
-                  {/* Horizontal Tabs */}
-                  <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-default dark:border-gray-700 overflow-x-auto">
-                    {Object.entries(playbooksByCapability).map(([capabilityCode, capabilityPlaybooks]) => {
-                      if (capabilityPlaybooks.length === 0) return null;
-
-                      const capabilityDisplayName = capabilityCode === 'system'
-                        ? 'System Playbooks'
-                        : capabilityCode.split('_').map(word =>
-                            word.charAt(0).toUpperCase() + word.slice(1)
-                          ).join(' ');
-
-                      const isSelected = selectedCapability === capabilityCode;
-
-                      return (
-                        <button
-                          key={capabilityCode}
-                          onClick={() => setSelectedCapability(capabilityCode)}
-                          className={`px-4 py-2 text-sm font-medium whitespace-nowrap rounded-t-lg transition-colors border-b-2 ${
-                            isSelected
-                              ? 'text-accent dark:text-blue-400 border-accent dark:border-blue-400 bg-accent-10 dark:bg-blue-900/20'
-                              : 'text-secondary dark:text-gray-400 border-transparent hover:text-primary dark:hover:text-gray-200 hover:border-default dark:hover:border-gray-600'
-                          }`}
-                        >
-                          {capabilityDisplayName} ({capabilityPlaybooks.length})
-                        </button>
-                      );
-                    })}
-                  </div>
-
                   {/* Playbooks Grid for Selected Capability */}
                   <div className="flex-1 overflow-y-auto p-4">
                     {playbooksByCapability[selectedCapability] && playbooksByCapability[selectedCapability].length > 0 ? (
