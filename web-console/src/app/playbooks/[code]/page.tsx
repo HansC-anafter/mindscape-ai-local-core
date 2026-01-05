@@ -154,7 +154,6 @@ export default function PlaybookDetailPage() {
 
   useEffect(() => {
     if (playbookCode) {
-      console.log('[PlaybookPage] useEffect triggered, loading playbook:', playbookCode);
       loadPlaybook();
       loadVariants();
       loadPlaybookList();
@@ -206,11 +205,8 @@ export default function PlaybookDetailPage() {
       const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
       const url = `${apiUrl}/api/v1/playbooks/${playbookCode}?profile_id=default-user&target_language=${targetLanguage}`;
 
-      console.log('[PlaybookPage] Loading playbook from:', url);
-
-      // Create AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       try {
         const response = await fetch(url, {
@@ -221,17 +217,13 @@ export default function PlaybookDetailPage() {
         });
 
         clearTimeout(timeoutId);
-        console.log('[PlaybookPage] Response status:', response.status, response.statusText);
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('[PlaybookPage] Error response:', errorText);
           throw new Error(`Failed to load playbook: ${response.status} ${response.statusText}`);
         }
 
         const data = await response.json();
-        console.log('[PlaybookPage] Playbook loaded:', data.metadata?.name);
-        console.log('[PlaybookPage] Setting playbook data, loading will be set to false');
 
         setPlaybook(data);
         setUserNotes(data.user_notes || '');
@@ -286,7 +278,6 @@ export default function PlaybookDetailPage() {
           }
         }
 
-        console.log('[PlaybookPage] Playbook data set, about to set loading=false');
       } catch (fetchError: any) {
         clearTimeout(timeoutId);
         throw fetchError;

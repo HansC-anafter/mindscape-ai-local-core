@@ -221,5 +221,11 @@ export const playbooksZhTW = {
   samePackPlaybooks: '同 Pack 的其他劇本',
   relatedTagsPlaybooks: '相關標籤推薦',
   noRelatedPlaybooks: '沒有找到相關劇本',
+  suggestedQuestionFindSeo: '找：SEO 健檢',
+  suggestedQuestionRequiredTools: '這個 playbook 需要哪些工具？',
+  suggestedQuestionWorkspaceUsage: '它在哪些 workspace 用過？',
+  suggestedQuestionCapabilityRecommend: '在 {capability} 裡推薦一個最常用的',
+  suggestedQuestionUsageStatus: '這個 playbook 使用狀況怎麼樣？',
+  thinking: '思考中...',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

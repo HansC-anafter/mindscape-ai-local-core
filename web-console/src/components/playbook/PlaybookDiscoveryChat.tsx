@@ -47,27 +47,26 @@ export default function PlaybookDiscoveryChat({
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Generate suggested questions based on context
   const suggestedQuestions = useMemo(() => {
     const baseQuestions = [
-      '找：SEO 健檢',
-      '這個 playbook 需要哪些工具？',
-      '它在哪些 workspace 用過？'
+      t('suggestedQuestionFindSeo'),
+      t('suggestedQuestionRequiredTools'),
+      t('suggestedQuestionWorkspaceUsage')
     ];
 
     if (selectedCapability) {
       const capabilityName = selectedCapability.split('_').map(word =>
         word.charAt(0).toUpperCase() + word.slice(1)
       ).join(' ');
-      baseQuestions.unshift(`在 ${capabilityName} 裡推薦一個最常用的`);
+      baseQuestions.unshift(t('suggestedQuestionCapabilityRecommend', { capability: capabilityName }));
     }
 
     if (currentPlaybookCode) {
-      baseQuestions.unshift(`這個 playbook 使用狀況怎麼樣？`);
+      baseQuestions.unshift(t('suggestedQuestionUsageStatus'));
     }
 
     return baseQuestions.slice(0, 4);
-  }, [selectedCapability, currentPlaybookCode]);
+  }, [selectedCapability, currentPlaybookCode, t]);
 
   useEffect(() => {
     scrollToBottom();
@@ -206,7 +205,7 @@ export default function PlaybookDiscoveryChat({
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
-              <span className="inline-block animate-pulse">思考中...</span>
+              <span className="inline-block animate-pulse">{t('thinking')}</span>
             </div>
           </div>
         )}

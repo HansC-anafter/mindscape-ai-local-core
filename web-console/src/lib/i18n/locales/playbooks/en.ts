@@ -221,5 +221,11 @@ export const playbooksEn = {
   samePackPlaybooks: 'Same Pack Playbooks',
   relatedTagsPlaybooks: 'Related Tags Playbooks',
   noRelatedPlaybooks: 'No related playbooks found',
+  suggestedQuestionFindSeo: 'Find: SEO Health Check',
+  suggestedQuestionRequiredTools: 'What tools does this playbook need?',
+  suggestedQuestionWorkspaceUsage: 'Which workspaces has it been used in?',
+  suggestedQuestionCapabilityRecommend: 'Recommend a most used one in {capability}',
+  suggestedQuestionUsageStatus: 'How is this playbook used?',
+  thinking: 'Thinking...',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

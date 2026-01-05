@@ -51,7 +51,7 @@ export default function PlaybookLibrarySidebar({
 }: PlaybookLibrarySidebarProps) {
   const sortedPacks = useMemo(() => {
     if (!playbooksByCapability) return [];
-    
+
     return Object.entries(playbooksByCapability)
       .filter(([_, playbooks]) => playbooks && playbooks.length > 0)
       .sort(([codeA, playbooksA], [codeB, playbooksB]) => {

@@ -137,17 +137,9 @@ export default function PlaybooksPage() {
 
           setPlaybooks(validPlaybooks);
           setError(null);
-          const capabilityCounts: Record<string, number> = {};
-          const samplePlaybookCodes: string[] = [];
           validPlaybooks.forEach((p: Playbook) => {
-            const cap = extractCapabilityCode(p) || 'none';
-            capabilityCounts[cap] = (capabilityCounts[cap] || 0) + 1;
-            if (samplePlaybookCodes.length < 10) {
-              samplePlaybookCodes.push(p.playbook_code);
-            }
+            extractCapabilityCode(p);
           });
-          console.log('[PlaybooksPage] Capability code distribution:', capabilityCounts);
-          console.log('[PlaybooksPage] Sample playbook codes:', samplePlaybookCodes);
         } else {
           const errorText = await response.text();
           throw new Error(`Failed to load playbooks: ${response.status} ${errorText}`);
@@ -301,13 +293,6 @@ export default function PlaybooksPage() {
     if (!groups['system']) {
       groups['system'] = [];
     }
-
-    // Debug: Log grouping results with sample playbook codes per group
-    const groupDetails = Object.entries(groups).map(([code, playbooks]) => {
-      const samples = playbooks.slice(0, 3).map(p => p.playbook_code).join(', ');
-      return `${code}: ${playbooks.length} (samples: ${samples})`;
-    }).join('; ');
-    console.log('[PlaybooksPage] Playbooks grouped by capability:', groupDetails);
 
     return groups;
   }, [filteredPlaybooks]);

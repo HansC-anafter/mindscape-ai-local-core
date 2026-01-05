@@ -148,5 +148,11 @@ export const playbooksKeys = {
   samePackPlaybooks: true,
   relatedTagsPlaybooks: true,
   noRelatedPlaybooks: true,
+  suggestedQuestionFindSeo: true,
+  suggestedQuestionRequiredTools: true,
+  suggestedQuestionWorkspaceUsage: true,
+  suggestedQuestionCapabilityRecommend: true,
+  suggestedQuestionUsageStatus: true,
+  thinking: true,
 } as const;
 
