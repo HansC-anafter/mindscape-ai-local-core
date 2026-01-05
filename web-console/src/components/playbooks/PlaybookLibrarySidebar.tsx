@@ -159,14 +159,10 @@ export default function PlaybookLibrarySidebar({
             {t('recentUsage')} ({recentPlaybookCodes.length})
           </button>
           <button
-            onClick={() => handleFilterClick('created_by_me')}
+            onClick={() => {}}
             disabled
-            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors opacity-50 cursor-not-allowed ${
-              filter === 'created_by_me'
-                ? 'bg-accent-10 dark:bg-blue-900/20 text-accent dark:text-blue-300'
-                : 'text-primary dark:text-gray-300'
-            }`}
-            title="Not yet implemented"
+            className="w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors opacity-50 cursor-not-allowed text-primary dark:text-gray-300"
+            title={t('notYetImplemented')}
           >
             {t('createdByMe')} (0)
           </button>

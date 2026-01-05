@@ -101,8 +101,8 @@ export default function PlaybookDiscoveryChat({
         body: JSON.stringify({
           query: userMessage.content,
           profile_id: 'default-user',
-          capability_code: currentCapabilityCode || undefined,
-          workspace_id: undefined
+          capability_code: selectedCapability || undefined,
+          workspace_id: selectedWorkspace || undefined
         })
       });
 

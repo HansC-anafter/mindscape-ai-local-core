@@ -600,29 +600,39 @@ export default function PlaybooksPage() {
                                 onClick={async (e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
+                                  const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+                                  const isPinned = playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) || false;
+                                  const method = isPinned ? 'DELETE' : 'POST';
+                                  const url = isPinned
+                                    ? `${apiUrl}/api/v1/workspaces/${selectedWorkspaceId}/pinned-playbooks/${playbook.playbook_code}`
+                                    : `${apiUrl}/api/v1/workspaces/${selectedWorkspaceId}/pinned-playbooks`;
+
                                   try {
-                                    const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-                                    const isPinned = playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) || false;
-                                    const method = isPinned ? 'DELETE' : 'POST';
-                                    const url = isPinned
-                                      ? `${apiUrl}/api/v1/workspaces/${selectedWorkspaceId}/pinned-playbooks/${playbook.playbook_code}`
-                                      : `${apiUrl}/api/v1/workspaces/${selectedWorkspaceId}/pinned-playbooks`;
-                                    
                                     const response = await fetch(url, {
                                       method,
                                       headers: { 'Content-Type': 'application/json' },
                                       body: method === 'POST' ? JSON.stringify({ playbook_code: playbook.playbook_code }) : undefined
                                     });
-                                    
+
                                     if (response.ok) {
                                       await loadPlaybooks();
+                                    } else {
+                                      const errorData = await response.json().catch(() => ({}));
+                                      alert(t('pinOperationFailed', { 
+                                        action: isPinned ? t('unpin') : t('pin'),
+                                        error: errorData.detail || response.statusText 
+                                      }));
                                     }
                                   } catch (err) {
                                     console.error('Failed to toggle pin:', err);
+                                    alert(t('pinOperationFailed', { 
+                                      action: isPinned ? t('unpin') : t('pin'),
+                                      error: err instanceof Error ? err.message : 'Unknown error'
+                                    }));
                                   }
                                 }}
                                 className="ml-2 text-xs px-2 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 border border-default dark:border-gray-600"
-                                title={playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) ? 'Unpin' : 'Pin'}
+                                title={playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) ? t('unpin') : t('pin')}
                               >
                                 {playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) ? t('unpin') : t('pin')}
                               </button>

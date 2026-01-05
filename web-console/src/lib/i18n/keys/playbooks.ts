@@ -140,5 +140,7 @@ export const playbooksKeys = {
   notPinned: true,
   pin: true,
   unpin: true,
+  pinOperationFailed: true,
+  notYetImplemented: true,
 } as const;
 
