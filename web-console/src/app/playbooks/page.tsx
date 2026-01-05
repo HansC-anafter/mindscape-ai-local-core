@@ -350,6 +350,18 @@ export default function PlaybooksPage() {
                 <span className="text-tertiary dark:text-gray-500">→</span>
                 <span>{t('playbookStepMembers')}</span>
               </div>
+              {/* Workspace Selector */}
+              <div className="hidden md:flex items-center gap-2">
+                <WorkspaceSelector
+                  ownerUserId="default-user"
+                  value={selectedWorkspaceId || ''}
+                  onValueChange={(workspaceId) => {
+                    setSelectedWorkspaceId(workspaceId || null);
+                  }}
+                  showLabel={false}
+                  className="min-w-[200px]"
+                />
+              </div>
             </div>
 
             {/* Right: Search and Reload */}
