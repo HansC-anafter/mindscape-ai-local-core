@@ -23,9 +23,17 @@ interface Message {
 
 interface PlaybookDiscoveryChatProps {
   onPlaybookSelect?: (playbookCode: string) => void;
+  selectedCapability?: string;
+  selectedWorkspace?: string;
+  currentPlaybookCode?: string;
 }
 
-export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDiscoveryChatProps) {
+export default function PlaybookDiscoveryChat({
+  onPlaybookSelect,
+  selectedCapability,
+  selectedWorkspace,
+  currentPlaybookCode
+}: PlaybookDiscoveryChatProps) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -38,6 +46,28 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Generate suggested questions based on context
+  const suggestedQuestions = useMemo(() => {
+    const baseQuestions = [
+      '找：SEO 健檢',
+      '這個 playbook 需要哪些工具？',
+      '它在哪些 workspace 用過？'
+    ];
+
+    if (selectedCapability) {
+      const capabilityName = selectedCapability.split('_').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+      baseQuestions.unshift(`在 ${capabilityName} 裡推薦一個最常用的`);
+    }
+
+    if (currentPlaybookCode) {
+      baseQuestions.unshift(`這個 playbook 使用狀況怎麼樣？`);
+    }
+
+    return baseQuestions.slice(0, 4);
+  }, [selectedCapability, currentPlaybookCode]);
 
   useEffect(() => {
     scrollToBottom();
@@ -70,7 +100,9 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
         },
         body: JSON.stringify({
           query: userMessage.content,
-          profile_id: 'default-user'
+          profile_id: 'default-user',
+          capability_code: currentCapabilityCode || undefined,
+          workspace_id: undefined
         })
       });
 
@@ -182,6 +214,81 @@ export default function PlaybookDiscoveryChat({ onPlaybookSelect }: PlaybookDisc
       </div>
 
       <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+        {/* Suggested Questions Chips */}
+        {messages.length === 1 && suggestedQuestions.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {suggestedQuestions.map((question, idx) => (
+              <button
+                key={idx}
+                onClick={async () => {
+                  if (isLoading) return;
+
+                  const userMessage: Message = {
+                    id: Date.now().toString(),
+                    role: 'user',
+                    content: question,
+                    timestamp: new Date()
+                  };
+
+                  setMessages(prev => [...prev, userMessage]);
+                  setIsLoading(true);
+
+                  try {
+                    const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+                    const response = await fetch(`${apiUrl}/api/v1/playbooks/discover`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        query: question,
+                        profile_id: 'default-user'
+                      })
+                    });
+
+                    if (response.ok) {
+                      const data = await response.json();
+                      let content = data.suggestion || t('basedOnYourNeeds');
+
+                      if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
+                        content += '\n\n' + t('recommendedPlaybooks') + '\n';
+                        data.recommended_playbooks.forEach((pb: any, index: number) => {
+                          content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
+                        });
+                      }
+
+                      const assistantMessage: Message = {
+                        id: (Date.now() + 1).toString(),
+                        role: 'assistant',
+                        content: content,
+                        timestamp: new Date(),
+                        recommendedPlaybooks: data.recommended_playbooks || []
+                      };
+                      setMessages(prev => [...prev, assistantMessage]);
+                    } else {
+                      throw new Error('Failed to get suggestion');
+                    }
+                  } catch (err) {
+                    const errorMessage: Message = {
+                      id: (Date.now() + 1).toString(),
+                      role: 'assistant',
+                      content: t('sorryCannotProcess'),
+                      timestamp: new Date()
+                    };
+                    setMessages(prev => [...prev, errorMessage]);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                disabled={isLoading}
+                className="px-3 py-1.5 text-xs bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-full hover:bg-accent-10 dark:hover:bg-blue-900/20 hover:border-accent dark:hover:border-blue-600 transition-colors text-primary dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex gap-2">
           <input
             type="text"

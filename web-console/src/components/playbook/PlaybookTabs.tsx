@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { t, useLocale } from '../../lib/i18n';
+import PlaybookUsageStats from './PlaybookUsageStats';
 
 interface PlaybookTabsProps {
   activeTab: 'info' | 'sop' | 'suggestions' | 'history';
@@ -9,6 +10,7 @@ interface PlaybookTabsProps {
   selectedVersion: 'system' | 'personal';
   playbook: {
     metadata: {
+      playbook_code: string;
       entry_agent_type?: string;
       required_tools: string[];
       version: string;
@@ -209,6 +211,12 @@ export default function PlaybookTabs({
 
         {activeTab === 'history' && (
           <div>
+            {/* Usage Statistics */}
+            <div className="mb-6">
+              <PlaybookUsageStats playbookCode={playbook.metadata.playbook_code} />
+            </div>
+
+            {/* Execution History */}
             {playbook.execution_status ? (
               <div className="space-y-4">
                 {playbook.execution_status.active_executions && playbook.execution_status.active_executions.length > 0 && (

@@ -12,6 +12,7 @@ import PlaybookTabs from '../../../components/playbook/PlaybookTabs';
 import CopyVariantModal from '../../../components/playbook/CopyVariantModal';
 import LLMDrawer from '../../../components/playbook/LLMDrawer';
 import PlaybookDiscoveryChat from '../../../components/playbook/PlaybookDiscoveryChat';
+import PlaybookUsageStats from '../../../components/playbook/PlaybookUsageStats';
 
 import { getApiBaseUrl } from '../../../lib/api-url';
 
@@ -98,6 +99,7 @@ export default function PlaybookDetailPage() {
   const [variants, setVariants] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'info' | 'sop' | 'suggestions' | 'history'>('sop');
   const [selectedVersion, setSelectedVersion] = useState<'system' | 'personal'>('system');
+  const [recentPlaybooks, setRecentPlaybooks] = useState<PlaybookListItem[]>([]);
 
   // Prevent auto-scroll to top on route change
   useEffect(() => {
@@ -121,8 +123,34 @@ export default function PlaybookDetailPage() {
     }
   }, [playbookCode]);
 
+  // Load recent playbooks from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('playbook_recent_views');
+        if (stored) {
+          const recent = JSON.parse(stored) as Array<{playbook_code: string; name: string; description: string; icon?: string; viewed_at: string}>;
+          // Filter out current playbook and limit to 5
+          const filtered = recent
+            .filter(p => p.playbook_code !== playbookCode)
+            .slice(0, 5)
+            .map(p => ({
+              playbook_code: p.playbook_code,
+              name: p.name,
+              description: p.description,
+              icon: p.icon
+            }));
+          setRecentPlaybooks(filtered);
+        }
+      } catch (err) {
+        console.debug('Failed to load recent playbooks from localStorage:', err);
+      }
+    }
+  }, [playbookCode]);
+
   useEffect(() => {
     if (playbookCode) {
+      console.log('[PlaybookPage] useEffect triggered, loading playbook:', playbookCode);
       loadPlaybook();
       loadVariants();
       loadPlaybookList();
@@ -131,14 +159,14 @@ export default function PlaybookDetailPage() {
 
   // Poll for execution status updates every 5 seconds
   useEffect(() => {
-    if (!playbookCode) return;
+    if (!playbookCode || loading) return; // Don't poll while initial loading
 
     const interval = setInterval(() => {
       loadPlaybookStatus();
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [playbookCode, locale]);
+  }, [playbookCode, locale, loading]);
 
   const loadPlaybookList = async () => {
     try {
@@ -166,36 +194,108 @@ export default function PlaybookDetailPage() {
     try {
       if (showLoading) {
         setLoading(true);
+        setError(null);
       }
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
+      const url = `${apiUrl}/api/v1/playbooks/${playbookCode}?profile_id=default-user&target_language=${targetLanguage}`;
 
-      const response = await fetch(
-        `${apiUrl}/api/v1/playbooks/${playbookCode}?profile_id=default-user&target_language=${targetLanguage}`,
-        {
+      console.log('[PlaybookPage] Loading playbook from:', url);
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      try {
+        const response = await fetch(url, {
           headers: {
             'Content-Type': 'application/json',
           },
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+        console.log('[PlaybookPage] Response status:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[PlaybookPage] Error response:', errorText);
+          throw new Error(`Failed to load playbook: ${response.status} ${response.statusText}`);
         }
-      );
 
-      if (!response.ok) {
-        throw new Error('Failed to load playbook');
-      }
+        const data = await response.json();
+        console.log('[PlaybookPage] Playbook loaded:', data.metadata?.name);
+        console.log('[PlaybookPage] Setting playbook data, loading will be set to false');
 
-      const data = await response.json();
-      setPlaybook(data);
-      setUserNotes(data.user_notes || '');
-      setIsFavorite(data.user_meta?.favorite || false);
+        setPlaybook(data);
+        setUserNotes(data.user_notes || '');
+        setIsFavorite(data.user_meta?.favorite || false);
 
-      if (data.version_info?.has_personal_variant && data.version_info?.default_variant) {
-        setSelectedVersion('personal');
-      } else {
-        setSelectedVersion('system');
+        if (data.version_info?.has_personal_variant && data.version_info?.default_variant) {
+          setSelectedVersion('personal');
+        } else {
+          setSelectedVersion('system');
+        }
+
+        // Record to recent views in localStorage
+        if (typeof window !== 'undefined' && data.metadata) {
+          try {
+            const stored = localStorage.getItem('playbook_recent_views');
+            let recent: Array<{playbook_code: string; name: string; description: string; icon?: string; viewed_at: string}> = [];
+
+            if (stored) {
+              recent = JSON.parse(stored);
+            }
+
+            // Remove if already exists
+            recent = recent.filter(p => p.playbook_code !== playbookCode);
+
+            // Add to front
+            recent.unshift({
+              playbook_code: playbookCode,
+              name: data.metadata.name,
+              description: data.metadata.description,
+              icon: data.metadata.icon,
+              viewed_at: new Date().toISOString()
+            });
+
+            // Keep only last 10
+            recent = recent.slice(0, 10);
+
+            localStorage.setItem('playbook_recent_views', JSON.stringify(recent));
+
+            // Update state (excluding current playbook)
+            const filtered = recent
+              .filter(p => p.playbook_code !== playbookCode)
+              .slice(0, 5)
+              .map(p => ({
+                playbook_code: p.playbook_code,
+                name: p.name,
+                description: p.description,
+                icon: p.icon
+              }));
+            setRecentPlaybooks(filtered);
+          } catch (err) {
+            console.debug('Failed to save recent playbook to localStorage:', err);
+          }
+        }
+
+        console.log('[PlaybookPage] Playbook data set, about to set loading=false');
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        throw fetchError;
       }
     } catch (err: any) {
+      console.error('[PlaybookPage] Error loading playbook:', err);
       if (showLoading) {
-        setError(err.message || 'Failed to load playbook');
+        let errorMessage = 'Failed to load playbook';
+        if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+          errorMessage = 'Request timeout. Please check your network connection.';
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+        setError(errorMessage);
+        setLoading(false); // Ensure loading is set to false on error
       }
     } finally {
       if (showLoading) {
@@ -443,6 +543,20 @@ export default function PlaybookDetailPage() {
         <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
             <p className="text-gray-600 dark:text-gray-400">{t('loading')}</p>
+            {error && (
+              <div className="mt-4">
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
+                <button
+                  onClick={() => {
+                    setError(null);
+                    loadPlaybook(true);
+                  }}
+                  className="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                >
+                  重試
+                </button>
+              </div>
+            )}
           </div>
         </main>
       </div>
@@ -525,6 +639,34 @@ export default function PlaybookDetailPage() {
           <div className="col-span-12 lg:col-span-2">
             <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-7rem)] overflow-y-auto p-4 sticky top-[7rem]">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('playbookList')}</h3>
+
+              {/* Recent Views Section */}
+              {recentPlaybooks.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('recentUsage')}</h4>
+                  <div className="space-y-2">
+                    {recentPlaybooks.map((pb) => (
+                      <Link
+                        key={pb.playbook_code}
+                        href={`/playbooks/${pb.playbook_code}`}
+                        scroll={false}
+                        className="block p-2 rounded-lg transition-colors hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent"
+                      >
+                        <div className="flex items-start gap-2">
+                          {pb.icon && <span className="text-sm flex-shrink-0">{pb.icon}</span>}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium truncate text-gray-900 dark:text-gray-100">
+                              {pb.name}
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* All Playbooks List */}
               <div className="space-y-2">
                 {playbookList.map((pb) => (
                   <Link
@@ -609,6 +751,7 @@ export default function PlaybookDetailPage() {
                   onPlaybookSelect={(playbookCode) => {
                     router.push(`/playbooks/${playbookCode}`, { scroll: false });
                   }}
+                  currentPlaybookCode={playbookCode}
                 />
               </div>
             </div>

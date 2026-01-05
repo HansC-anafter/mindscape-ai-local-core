@@ -4,6 +4,7 @@ Handles real-time Playbook execution with LLM conversations and structured workf
 """
 
 import logging
+from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
@@ -82,6 +83,17 @@ async def start_playbook_execution(
         elif final_auto_execute:
             inputs = {"auto_execute": True}
 
+        # Update user_meta use_count when playbook is executed
+        try:
+            from ...services.mindscape_store import MindscapeStore
+            store = MindscapeStore()
+            store.update_user_meta(profile_id, playbook_code, {
+                "increment_use_count": True,
+                "last_used_at": datetime.utcnow().isoformat()
+            })
+        except Exception as e:
+            logger.warning(f"Failed to update user_meta for playbook {playbook_code}: {e}")
+
         # Use unified executor (automatically selects execution mode)
         result = await playbook_executor.execute_playbook_run(
             playbook_code=playbook_code,
@@ -98,10 +110,11 @@ async def start_playbook_execution(
             # For conversation mode, result.result contains PlaybookRunner response
             return result.get("result", result)
         else:
-            # For workflow mode, return workflow result
+            # For workflow mode, return workflow result with execution_id
             return {
                 "execution_mode": result.get("execution_mode"),
                 "playbook_code": result.get("playbook_code"),
+                "execution_id": result.get("execution_id"),
                 **result.get("result", {})
             }
     except ValueError as e:

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
@@ -9,6 +9,8 @@ import { getPlaybookMetadata } from '../../lib/i18n/locales/playbooks';
 import PlaybookDiscoveryChat from '../../components/playbook/PlaybookDiscoveryChat';
 import { getPlaybookRegistry } from '../../playbook';
 import ForkPlaybookButton from '../../components/playbooks/ForkPlaybookButton';
+import { WorkspaceSelector } from '../../components/workspace/WorkspaceSelector';
+import PlaybookLibrarySidebar from '../../components/playbooks/PlaybookLibrarySidebar';
 
 import { getApiBaseUrl } from '../../lib/api-url';
 
@@ -34,6 +36,36 @@ interface Playbook {
   };
   has_personal_variant?: boolean;
   default_variant_name?: string;
+  workspace_usage_count?: number;
+  pinned_workspaces?: Array<{
+    id: string;
+    title: string;
+    pinned_at?: string;
+  }>;
+}
+
+/**
+ * Extract capability_code from playbook
+ * Tries metadata.capability_code first, then extracts from playbook_code if it contains "."
+ * Format: "capability_code.playbook_code" (e.g., "frontier_research.intent_sync")
+ */
+function extractCapabilityCode(playbook: Playbook): string | null {
+  if (playbook.capability_code) {
+    return playbook.capability_code;
+  }
+
+  if (playbook.playbook_code && playbook.playbook_code.includes('.')) {
+    const parts = playbook.playbook_code.split('.');
+    if (parts.length >= 2) {
+      const potentialCapabilityCode = parts[0];
+      // Only use if it's not too short and looks like a capability code
+      if (potentialCapabilityCode.length > 2 && !potentialCapabilityCode.includes(' ')) {
+        return potentialCapabilityCode;
+      }
+    }
+  }
+
+  return null;
 }
 
 export default function PlaybooksPage() {
@@ -46,6 +78,9 @@ export default function PlaybooksPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [supportedTestPlaybooks, setSupportedTestPlaybooks] = useState<Set<string>>(new Set());
   const [creatingWorkspace, setCreatingWorkspace] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSupportedTests = async () => {
@@ -63,61 +98,105 @@ export default function PlaybooksPage() {
     loadSupportedTests();
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadPlaybooks = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+      const tags = selectedTags.join(',');
+      const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
 
-    const loadPlaybooks = async () => {
+      const params = new URLSearchParams({
+        tags: tags || '',
+        target_language: targetLanguage,
+        profile_id: 'default-user'
+      });
+
+      if (selectedWorkspaceId) {
+        params.append('workspace_id', selectedWorkspaceId);
+      }
+
+      if (filter) {
+        params.append('filter', filter);
+      }
+
+      const url = `${apiUrl}/api/v1/playbooks?${params.toString()}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
       try {
-        setLoading(true);
-        const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-        const tags = selectedTags.join(',');
-        const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
-        const url = `${apiUrl}/api/v1/playbooks?tags=${tags}&target_language=${targetLanguage}&profile_id=default-user`;
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
 
-        const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
           const validPlaybooks = Array.isArray(data) ? data.filter(p =>
             p && p.playbook_code && p.name
           ) : [];
 
-          if (isMounted) {
-            setPlaybooks(validPlaybooks);
-            setError(null);
-            // Debug: Log capability_code distribution and sample playbook codes
-            const capabilityCounts: Record<string, number> = {};
-            const samplePlaybookCodes: string[] = [];
-            validPlaybooks.forEach((p: Playbook) => {
-              const cap = p.capability_code || 'none';
-              capabilityCounts[cap] = (capabilityCounts[cap] || 0) + 1;
-              if (samplePlaybookCodes.length < 10) {
-                samplePlaybookCodes.push(p.playbook_code);
-              }
-            });
-            console.log('[PlaybooksPage] Capability code distribution:', capabilityCounts);
-            console.log('[PlaybooksPage] Sample playbook codes:', samplePlaybookCodes);
-          }
+          setPlaybooks(validPlaybooks);
+          setError(null);
+          const capabilityCounts: Record<string, number> = {};
+          const samplePlaybookCodes: string[] = [];
+          validPlaybooks.forEach((p: Playbook) => {
+            const cap = extractCapabilityCode(p) || 'none';
+            capabilityCounts[cap] = (capabilityCounts[cap] || 0) + 1;
+            if (samplePlaybookCodes.length < 10) {
+              samplePlaybookCodes.push(p.playbook_code);
+            }
+          });
+          console.log('[PlaybooksPage] Capability code distribution:', capabilityCounts);
+          console.log('[PlaybooksPage] Sample playbook codes:', samplePlaybookCodes);
         } else {
-          throw new Error('Failed to load playbooks');
+          const errorText = await response.text();
+          throw new Error(`Failed to load playbooks: ${response.status} ${errorText}`);
         }
-      } catch (err: any) {
-        console.error('Failed to load playbooks:', err);
-        if (isMounted) {
-          setError(err.message);
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === 'AbortError') {
+          throw new Error('Request timeout: Playbook loading took too long');
         }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        throw fetchErr;
       }
-    };
+    } catch (err: any) {
+      console.error('Failed to load playbooks:', err);
+      setError(err.message || 'Failed to load playbooks. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedTags, locale, selectedWorkspaceId, filter]);
 
+  useEffect(() => {
     loadPlaybooks();
+  }, [loadPlaybooks]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedTags, locale]);
+  // Sync URL with selectedWorkspaceId
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const workspaceParam = searchParams.get('workspace');
+
+    if (workspaceParam !== selectedWorkspaceId) {
+      if (selectedWorkspaceId) {
+        searchParams.set('workspace', selectedWorkspaceId);
+      } else {
+        searchParams.delete('workspace');
+      }
+      const newUrl = `${window.location.pathname}${searchParams.toString() ? '?' + searchParams.toString() : ''}`;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [selectedWorkspaceId]);
+
+  // Load workspace from URL on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const workspaceParam = searchParams.get('workspace');
+      if (workspaceParam) {
+        setSelectedWorkspaceId(workspaceParam);
+      }
+    }
+  }, []);
 
   const toggleFavorite = async (playbookCode: string, currentFavorite: boolean) => {
     try {
@@ -143,43 +222,49 @@ export default function PlaybooksPage() {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const ownerUserId = 'default-user';
 
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      const workspaceTitle = `${playbook.playbook_code}_${year}${month}${day}_${hours}${minutes}${seconds}`;
+      let targetWorkspaceId = selectedWorkspaceId;
 
-      const response = await fetch(
-        `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: workspaceTitle,
-            description: `Workspace for ${playbook.name}`
-          })
+      if (!targetWorkspaceId) {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        const workspaceTitle = `${playbook.playbook_code}_${year}${month}${day}_${hours}${minutes}${seconds}`;
+
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: workspaceTitle,
+              description: `Workspace for ${playbook.name}`
+            })
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          alert(t('workspaceCreateFailed') + ': ' + (errorData.detail || response.statusText));
+          return;
         }
-      );
 
-      if (response.ok) {
         const newWorkspace = await response.json();
+        targetWorkspaceId = newWorkspace.id;
+      }
 
-        const registry = getPlaybookRegistry();
-        const playbookPackage = registry.get(playbook.playbook_code);
+      const registry = getPlaybookRegistry();
+      const playbookPackage = registry.get(playbook.playbook_code);
 
-        if (playbookPackage?.uiLayout) {
-          router.push(`/workspaces/${newWorkspace.id}/playbook/${playbook.playbook_code}`);
-        } else {
-          router.push(`/workspaces/${newWorkspace.id}`);
-        }
+      if (playbookPackage?.uiLayout) {
+        router.push(`/workspaces/${targetWorkspaceId}/playbook/${playbook.playbook_code}`);
       } else {
-        const errorData = await response.json().catch(() => ({}));
-        alert(t('workspaceCreateFailed') + ': ' + (errorData.detail || response.statusText));
+        router.push(`/workspaces/${targetWorkspaceId}`);
       }
     } catch (err) {
       console.error('Failed to create workspace:', err);
@@ -199,67 +284,13 @@ export default function PlaybooksPage() {
   }, [playbooks, searchTerm]);
 
   // Group playbooks by capability_code
-  // If capability_code is missing, try to infer from playbook_code pattern
+  // Use capability_code from backend, extract from playbook_code if missing
   const playbooksByCapability = useMemo(() => {
     const groups: Record<string, Playbook[]> = {};
 
     filteredPlaybooks.forEach(playbook => {
-      // Try to get capability_code from playbook data
-      let capabilityCode = playbook.capability_code;
-
-      // If capability_code is missing, try to infer from playbook_code
-      // Common patterns: web_generation_*, brand_identity_*, ig_*, etc.
-      if (!capabilityCode && playbook.playbook_code) {
-        const playbookCode = playbook.playbook_code.toLowerCase();
-
-        // Check if playbook_code starts with a known capability prefix
-        const knownCapabilities = [
-          'web_generation', 'brand_identity', 'mind_lens', 'obsidian_book',
-          'ig_', 'instagram_', 'facebook_', 'twitter_', 'linkedin_',
-          'content_', 'analytics_', 'automation_', 'coaching_'
-        ];
-
-        for (const cap of knownCapabilities) {
-          if (playbookCode.startsWith(cap)) {
-            // Normalize capability code (remove trailing underscore if present)
-            capabilityCode = cap.replace(/_$/, '');
-            // For IG/Instagram, use 'instagram' as capability
-            if (cap === 'ig_') {
-              capabilityCode = 'instagram';
-            }
-            break;
-          }
-        }
-
-        // If still no match, try to extract capability from first part of playbook_code
-        // e.g., "ig_series_management" -> "ig" -> "instagram"
-        // Special handling for CIS playbooks: "cis_*" -> "brand_identity"
-        if (!capabilityCode) {
-          // Check for CIS playbooks (cis_* prefix)
-          if (playbookCode.startsWith('cis_')) {
-            capabilityCode = 'brand_identity';
-          } else {
-            const firstPart = playbookCode.split('_')[0];
-            const capabilityMap: Record<string, string> = {
-              'ig': 'instagram',
-              'fb': 'facebook',
-              'tw': 'twitter',
-              'li': 'linkedin',
-              'web': 'web_generation',
-              'brand': 'brand_identity',
-              'mind': 'mind_lens',
-              'obsidian': 'obsidian_book',
-              'grant': 'grant_scout',
-            };
-            if (capabilityMap[firstPart]) {
-              capabilityCode = capabilityMap[firstPart];
-            }
-          }
-        }
-      }
-
-      // Default to 'system' if still no capability_code
-      capabilityCode = capabilityCode || 'system';
+      // Extract capability_code, default to 'system' if not found
+      const capabilityCode = extractCapabilityCode(playbook) || 'system';
 
       if (!groups[capabilityCode]) {
         groups[capabilityCode] = [];
@@ -298,12 +329,6 @@ export default function PlaybooksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbooksByCapability]);
 
-  // Extract all unique tags from all playbooks
-  const allTags = useMemo(() => {
-    return Array.from(
-      new Set(playbooks.flatMap(p => p.tags || []))
-    ).sort();
-  }, [playbooks]);
 
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-950">
@@ -313,21 +338,29 @@ export default function PlaybooksPage() {
       <div className="bg-surface-secondary dark:bg-gray-900 border-b border-default dark:border-gray-800">
         <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
           <div className="flex items-center justify-between gap-6">
-            {/* Left: Title and Workflow */}
+            {/* Left: Title, Workflow, and Workspace Selector */}
             <div className="flex items-center gap-6 flex-shrink-0">
               <h1 className="text-xl font-bold text-primary dark:text-gray-100 whitespace-nowrap">
                 {t('playbooksTitle')}
               </h1>
-              {/* Workflow visualization */}
               <div className="hidden md:flex items-center gap-2 text-xs text-secondary dark:text-gray-400 bg-gradient-to-r from-accent-10 to-surface-secondary dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-2 border border-accent/30 dark:border-blue-800">
-                <span className="text-base">🧠</span>
                 <span>{t('playbookStepMindscape')}</span>
                 <span className="text-tertiary dark:text-gray-500">→</span>
-                <span className="text-base">🔧</span>
                 <span>{t('playbookStepTools')}</span>
                 <span className="text-tertiary dark:text-gray-500">→</span>
-                <span className="text-base">🤖</span>
                 <span>{t('playbookStepMembers')}</span>
+              </div>
+              {/* Workspace Selector */}
+              <div className="hidden md:flex items-center gap-2">
+                <WorkspaceSelector
+                  ownerUserId="default-user"
+                  value={selectedWorkspaceId || ''}
+                  onValueChange={(workspaceId) => {
+                    setSelectedWorkspaceId(workspaceId || null);
+                  }}
+                  showLabel={false}
+                  className="min-w-[200px]"
+                />
               </div>
             </div>
 
@@ -341,12 +374,45 @@ export default function PlaybooksPage() {
                 className="flex-1 px-3 py-1.5 text-sm border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
               />
               <button
-                onClick={() => {
-                  setSelectedTags(prev => [...prev]);
+                onClick={async () => {
+                  if (reloading) return;
+                  try {
+                    setReloading(true);
+                    setError(null);
+                    const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+
+                    const reindexController = new AbortController();
+                    const reindexTimeout = setTimeout(() => reindexController.abort(), 30000);
+
+                    try {
+                      const reindexResponse = await fetch(`${apiUrl}/api/v1/playbooks/reindex`, {
+                        method: 'POST',
+                        signal: reindexController.signal
+                      });
+                      clearTimeout(reindexTimeout);
+
+                      if (!reindexResponse.ok) {
+                        console.warn('Reindex failed, but continuing with reload');
+                      }
+                    } catch (reindexErr: any) {
+                      clearTimeout(reindexTimeout);
+                      if (reindexErr.name !== 'AbortError') {
+                        console.warn('Reindex error, but continuing with reload:', reindexErr);
+                      }
+                    }
+
+                    await loadPlaybooks();
+                  } catch (err) {
+                    console.error('Failed to reload playbooks:', err);
+                    setError('Failed to reload playbooks. Please try again.');
+                  } finally {
+                    setReloading(false);
+                  }
                 }}
-                className="px-3 py-1.5 text-sm bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap"
+                disabled={reloading || loading}
+                className="px-3 py-1.5 text-sm bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {t('reload')}
+                {reloading ? t('reloading') : t('reload')}
               </button>
             </div>
           </div>
@@ -362,35 +428,18 @@ export default function PlaybooksPage() {
       {/* Three Column Layout */}
       <main className="w-full">
         <div className="grid grid-cols-12 gap-0">
-          {/* Left Column: Filter Tags */}
+          {/* Left Column: Playbook Library Sidebar */}
           <div className="col-span-12 lg:col-span-2">
-            <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
-              <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">{t('filterTags')}</h3>
-
-              {/* Tags Filter */}
-              {allTags.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-sm font-medium text-primary dark:text-gray-300 mb-2">{t('tags')}</h4>
-                  {allTags.map(tag => (
-                    <label key={tag} className="flex items-center mb-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedTags.includes(tag)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedTags(prev => [...prev, tag]);
-                          } else {
-                            setSelectedTags(prev => prev.filter(t => t !== tag));
-                          }
-                        }}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-primary dark:text-gray-300">{tag}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
+            <PlaybookLibrarySidebar
+              playbooks={playbooks}
+              selectedTags={selectedTags}
+              onTagsChange={setSelectedTags}
+              selectedWorkspaceId={selectedWorkspaceId}
+              onWorkspaceChange={setSelectedWorkspaceId}
+              filter={filter || undefined}
+              onFilterChange={(newFilter) => setFilter(newFilter)}
+              profileId="default-user"
+            />
           </div>
 
           {/* Middle Column: Playbook Cards */}
@@ -414,7 +463,7 @@ export default function PlaybooksPage() {
                       if (capabilityPlaybooks.length === 0) return null;
 
                       const capabilityDisplayName = capabilityCode === 'system'
-                        ? t('systemPlaybooks') || 'System Playbooks'
+                        ? 'System Playbooks'
                         : capabilityCode.split('_').map(word =>
                             word.charAt(0).toUpperCase() + word.slice(1)
                           ).join(' ');
@@ -488,7 +537,7 @@ export default function PlaybooksPage() {
                           }}
                           className="text-2xl hover:scale-110 transition-transform flex-shrink-0"
                         >
-                          {playbook.user_meta?.favorite ? '⭐' : '☆'}
+                          {playbook.user_meta?.favorite ? t('favorites') : ''}
                         </button>
                       </div>
 
@@ -526,10 +575,66 @@ export default function PlaybooksPage() {
                         </div>
                       )}
 
+                      {(playbook.workspace_usage_count !== undefined && playbook.workspace_usage_count > 0) ||
+                       (playbook.pinned_workspaces && playbook.pinned_workspaces.length > 0) ||
+                       selectedWorkspaceId ? (
+                        <div className="mb-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                          {playbook.workspace_usage_count !== undefined && playbook.workspace_usage_count > 0 && (
+                            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                              {t('usedInWorkspaces', { count: playbook.workspace_usage_count })}
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center justify-between">
+                            {playbook.pinned_workspaces && playbook.pinned_workspaces.length > 0 ? (
+                              <span>
+                                {t('pinnedIn', {
+                                  workspaces: playbook.pinned_workspaces.slice(0, 2).map(ws => ws.title).join(', ') +
+                                  (playbook.pinned_workspaces.length > 2 ? ` +${playbook.pinned_workspaces.length - 2}` : '')
+                                })}
+                              </span>
+                            ) : selectedWorkspaceId ? (
+                              <span className="text-gray-400 dark:text-gray-500">{t('notPinned')}</span>
+                            ) : null}
+                            {selectedWorkspaceId && (
+                              <button
+                                onClick={async (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  try {
+                                    const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+                                    const isPinned = playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) || false;
+                                    const method = isPinned ? 'DELETE' : 'POST';
+                                    const url = isPinned
+                                      ? `${apiUrl}/api/v1/workspaces/${selectedWorkspaceId}/pinned-playbooks/${playbook.playbook_code}`
+                                      : `${apiUrl}/api/v1/workspaces/${selectedWorkspaceId}/pinned-playbooks`;
+                                    
+                                    const response = await fetch(url, {
+                                      method,
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: method === 'POST' ? JSON.stringify({ playbook_code: playbook.playbook_code }) : undefined
+                                    });
+                                    
+                                    if (response.ok) {
+                                      await loadPlaybooks();
+                                    }
+                                  } catch (err) {
+                                    console.error('Failed to toggle pin:', err);
+                                  }
+                                }}
+                                className="ml-2 text-xs px-2 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 border border-default dark:border-gray-600"
+                                title={playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) ? 'Unpin' : 'Pin'}
+                              >
+                                {playbook.pinned_workspaces?.some(ws => ws.id === selectedWorkspaceId) ? t('unpin') : t('pin')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
                       {/* Bottom row: Usage count and action buttons */}
                       <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          👁️ {playbook.user_meta?.use_count || 0} {t('times')}
+                          {playbook.user_meta?.use_count || 0} {t('times')}
                         </span>
                         <div className="flex items-center gap-2">
                           {playbook.scope && playbook.scope !== 'workspace' && (
@@ -570,6 +675,7 @@ export default function PlaybooksPage() {
                   onPlaybookSelect={(playbookCode) => {
                     router.push(`/playbooks/${playbookCode}`);
                   }}
+                  selectedCapability={selectedCapability}
                 />
               </div>
             </div>

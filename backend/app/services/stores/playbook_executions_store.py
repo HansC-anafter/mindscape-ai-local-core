@@ -263,6 +263,100 @@ class PlaybookExecutionsStore(StoreBase):
             logger.info(f"Updated metadata for execution: {execution_id}")
             return True
 
+    def get_playbook_workspace_stats(self, playbook_code: str) -> Dict[str, Any]:
+        """
+        Get usage statistics for a specific playbook across all workspaces
+
+        Args:
+            playbook_code: Playbook code
+
+        Returns:
+            Dictionary with usage statistics:
+            {
+                "playbook_code": str,
+                "total_executions": int,
+                "total_workspaces": int,
+                "workspace_stats": [
+                    {
+                        "workspace_id": str,
+                        "execution_count": int,
+                        "success_count": int,
+                        "failed_count": int,
+                        "running_count": int,
+                        "last_executed_at": str (ISO format) or None
+                    }
+                ]
+            }
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get all executions for this playbook
+            cursor.execute('''
+                SELECT
+                    workspace_id,
+                    status,
+                    created_at,
+                    updated_at
+                FROM playbook_executions
+                WHERE playbook_code = ?
+                ORDER BY created_at DESC
+            ''', (playbook_code,))
+
+            rows = cursor.fetchall()
+
+            # Aggregate statistics by workspace
+            workspace_stats_map: Dict[str, Dict[str, Any]] = {}
+            total_executions = len(rows)
+
+            for row in rows:
+                workspace_id = row[0]
+                status = row[1]
+                created_at = row[2]
+                updated_at = row[3]
+
+                if workspace_id not in workspace_stats_map:
+                    workspace_stats_map[workspace_id] = {
+                        "workspace_id": workspace_id,
+                        "execution_count": 0,
+                        "success_count": 0,
+                        "failed_count": 0,
+                        "running_count": 0,
+                        "last_executed_at": None
+                    }
+
+                stats = workspace_stats_map[workspace_id]
+                stats["execution_count"] += 1
+
+                # Count by status
+                if status in ["completed", "success"]:
+                    stats["success_count"] += 1
+                elif status in ["failed", "error"]:
+                    stats["failed_count"] += 1
+                elif status in ["running", "pending", "initializing"]:
+                    stats["running_count"] += 1
+
+                # Track most recent execution time
+                if created_at:
+                    created_dt = datetime.fromisoformat(created_at)
+                    if stats["last_executed_at"] is None:
+                        stats["last_executed_at"] = created_at
+                    else:
+                        existing_dt = datetime.fromisoformat(stats["last_executed_at"])
+                        if created_dt > existing_dt:
+                            stats["last_executed_at"] = created_at
+
+            # Convert to list and sort by execution count (descending)
+            workspace_stats = list(workspace_stats_map.values())
+            workspace_stats.sort(key=lambda x: x["execution_count"], reverse=True)
+
+            return {
+                "playbook_code": playbook_code,
+                "total_executions": total_executions,
+                "total_workspaces": len(workspace_stats),
+                "workspace_stats": workspace_stats
+            }
+
     def _row_to_execution(self, row: Dict[str, Any]) -> PlaybookExecution:
         """
         Convert database row to PlaybookExecution model

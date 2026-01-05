@@ -15,6 +15,8 @@ from ...services.tool_status_checker import ToolStatusChecker
 from ...services.tool_registry import ToolRegistryService
 from ...services.playbook_tool_checker import PlaybookToolChecker
 from ...services.mindscape_store import MindscapeStore
+from ...services.stores.playbook_executions_store import PlaybookExecutionsStore
+from ...services.stores.workspace_pinned_playbooks_store import WorkspacePinnedPlaybooksStore
 import os
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,8 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 # Initialize services
 mindscape_store = MindscapeStore()
+executions_store = PlaybookExecutionsStore()
+pinned_playbooks_store = WorkspacePinnedPlaybooksStore()
 
 # Initialize Cloud Extension Manager and register providers
 cloud_extension_manager = None
@@ -60,11 +64,15 @@ try:
 
                 new_provider = {
                     "provider_id": "mindscape_official",
-                    "provider_type": "official",
+                    "provider_type": "generic_http",
                     "enabled": True,
                     "config": {
                         "api_url": old_api_url,
-                        "license_key": old_license_key
+                        "name": "Mindscape AI Cloud",
+                        "auth": {
+                            "auth_type": "api_key",
+                            "api_key": old_license_key
+                        }
                     }
                 }
 
@@ -79,7 +87,7 @@ try:
     cloud_extension_manager = CloudExtensionManager.instance()
 
     # Load all providers from system settings (neutral interface - no built-in concept)
-    # All providers (including official cloud) are configured through settings
+    # All providers are configured through settings
     try:
         providers_config = settings_store.get("cloud_providers", default=[])
 
@@ -95,30 +103,18 @@ try:
                 config = provider_config.get("config", {})
 
                 try:
-                    if provider_type == "official":
-                        # Official provider type is deprecated - convert to generic_http
-                        logger.info(f"Converting deprecated 'official' provider '{provider_id}' to generic_http")
-                        provider = GenericHttpProvider(
-                            provider_id=provider_id,
-                            provider_name=config.get("name", "Mindscape AI Cloud"),
-                            api_url=config.get("api_url"),
-                            auth_config={
-                                "auth_type": "bearer",
-                                "token": config.get("license_key")
-                            },
-                            api_path_template=config.get(
-                                "api_path_template",
-                                "/api/v1/playbooks/{capability_code}/{playbook_code}"
-                            ),
-                            pack_download_path=config.get("pack_download_path")
-                        )
-                    elif provider_type == "generic_http":
+                    if provider_type == "generic_http":
                         # Generic HTTP provider
+                        auth_config = config.get("auth", {})
+                        if not auth_config:
+                            logger.warning(f"Provider {provider_id}: Missing 'auth' configuration, skipping")
+                            continue
+
                         provider = GenericHttpProvider(
                             provider_id=provider_id,
                             provider_name=config.get("name", provider_id),
                             api_url=config.get("api_url"),
-                            auth_config=config.get("auth", {}),
+                            auth_config=auth_config,
                             api_path_template=config.get(
                                 "api_path_template",
                                 "/api/v1/playbooks/{capability_code}/{playbook_code}"
@@ -156,7 +152,9 @@ async def list_playbooks(
     scope: str = Query('system', description="system|user|all"),
     onboarding_task: Optional[str] = Query(None, description="Filter by onboarding task"),
     uses_tool: Optional[str] = Query(None, description="Filter playbooks that require this tool (e.g., 'wordpress', 'canva')"),
-    profile_id: str = Query('default-user', description="User profile for personalization")
+    profile_id: str = Query('default-user', description="User profile for personalization"),
+    workspace_id: Optional[str] = Query(None, description="Filter playbooks used in this workspace"),
+    filter: Optional[str] = Query(None, description="Filter type: favorites|recent|created_by_me|ready_to_run")
 ):
     """
     List playbooks with filtering and personalization
@@ -243,14 +241,87 @@ async def list_playbooks(
             playbooks = [p for p in playbooks
                         if uses_tool in (p.metadata.required_tools or [])]
 
+        # Filter by workspace_id: include both executed and pinned playbooks
+        if workspace_id:
+            workspace_playbook_codes = set()
+            
+            # Get playbooks executed in this workspace
+            with executions_store.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT DISTINCT playbook_code
+                    FROM playbook_executions
+                    WHERE workspace_id = ?
+                ''', (workspace_id,))
+                workspace_playbook_codes.update({row[0] for row in cursor.fetchall()})
+            
+            # Get pinned playbooks for this workspace
+            try:
+                pinned_playbooks = pinned_playbooks_store.list_pinned_playbooks(workspace_id)
+                workspace_playbook_codes.update({pb['playbook_code'] for pb in pinned_playbooks})
+            except Exception as e:
+                logger.warning(f"Failed to get pinned playbooks for workspace {workspace_id}: {e}")
+            
+            playbooks = [p for p in playbooks if p.metadata.playbook_code in workspace_playbook_codes]
+
+        # Aggregate workspace usage count for all playbooks
+        playbook_codes = [p.metadata.playbook_code for p in playbooks]
+        workspace_usage_counts = {}
+        if playbook_codes:
+            with executions_store.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ','.join(['?'] * len(playbook_codes))
+                cursor.execute(f'''
+                    SELECT playbook_code, COUNT(DISTINCT workspace_id) as usage_count
+                    FROM playbook_executions
+                    WHERE playbook_code IN ({placeholders})
+                    GROUP BY playbook_code
+                ''', playbook_codes)
+                for row in cursor.fetchall():
+                    workspace_usage_counts[row[0]] = row[1]
+
+        # Query pinned workspaces for all playbooks
+        pinned_workspaces_map = {}
+        if playbook_codes:
+            for playbook_code in playbook_codes:
+                pinned_workspaces = pinned_playbooks_store.get_pinned_workspaces_for_playbook(playbook_code, limit=3)
+                pinned_workspaces_map[playbook_code] = pinned_workspaces
+
+        # Apply filter parameter
+        if filter == 'favorites':
+            # Filter by favorites
+            favorite_codes = mindscape_store.user_playbook_meta.list_favorites(profile_id)
+            playbooks = [p for p in playbooks if p.metadata.playbook_code in favorite_codes]
+        elif filter == 'recent':
+            # Filter by recent usage
+            recent_codes = mindscape_store.user_playbook_meta.list_recent(profile_id, limit=50)
+            playbooks = [p for p in playbooks if p.metadata.playbook_code in recent_codes]
+        elif filter == 'created_by_me':
+            # Filter by created_by_me (not yet implemented - would need owner field in playbook metadata)
+            # For now, skip filtering
+            pass
+        elif filter == 'ready_to_run':
+            # Filter by ready_to_run: all required tools are available
+            tool_registry = ToolRegistryService()
+            available_tools = set(tool_registry.list_tools().keys())
+
+            ready_playbooks = []
+            for playbook in playbooks:
+                required_tools = playbook.metadata.required_tools or []
+                if all(tool in available_tools for tool in required_tools):
+                    ready_playbooks.append(playbook)
+            playbooks = ready_playbooks
+
         results = []
         for playbook in playbooks:
-            user_meta = None
+            # Load user_meta from store
+            user_meta = mindscape_store.get_user_meta(profile_id, playbook.metadata.playbook_code)
             has_personal_variant = False
             default_variant = None
 
-            results.append({
-                "playbook_code": playbook.metadata.playbook_code,
+            playbook_code = playbook.metadata.playbook_code
+            result = {
+                "playbook_code": playbook_code,
                 "version": playbook.metadata.version,
                 "locale": playbook.metadata.locale,
                 "name": playbook.metadata.name,
@@ -267,8 +338,11 @@ async def list_playbooks(
                     "use_count": 0
                 },
                 "has_personal_variant": has_personal_variant,
-                "default_variant_name": default_variant.get("variant_name") if default_variant else None
-            })
+                "default_variant_name": default_variant.get("variant_name") if default_variant else None,
+                "workspace_usage_count": workspace_usage_counts.get(playbook_code, 0),
+                "pinned_workspaces": pinned_workspaces_map.get(playbook_code, [])
+            }
+            results.append(result)
 
         results.sort(key=lambda x: (
             -int(x['user_meta'].get('favorite', False)),
@@ -304,10 +378,13 @@ async def discover_playbook(
 ):
     """
     Discover playbook based on user query using LLM
+    Supports filtering by capability_code and workspace_id for context-aware search
     """
     try:
         query = request.get('query', '')
         profile_id = request.get('profile_id', 'default-user')
+        capability_code = request.get('capability_code')
+        workspace_id = request.get('workspace_id')
 
         if not query:
             return {
@@ -319,6 +396,35 @@ async def discover_playbook(
         all_playbook_metadata = await playbook_service.list_playbooks()
         # Convert to Playbook objects for compatibility
         all_playbooks = [Playbook(metadata=m, sop_content="") for m in all_playbook_metadata]
+
+        # Filter by capability_code if provided
+        if capability_code:
+            all_playbooks = [p for p in all_playbooks if p.metadata.capability_code == capability_code]
+
+        # Filter by workspace_id if provided (include pinned playbooks)
+        if workspace_id:
+            pinned_codes = set()
+            try:
+                pinned_playbooks = pinned_playbooks_store.list_pinned_playbooks(workspace_id)
+                pinned_codes = {pb['playbook_code'] for pb in pinned_playbooks}
+            except Exception as e:
+                logger.warning(f"Failed to get pinned playbooks for workspace {workspace_id}: {e}")
+
+            workspace_execution_codes = set()
+            try:
+                with executions_store.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        SELECT DISTINCT playbook_code
+                        FROM playbook_executions
+                        WHERE workspace_id = ?
+                    ''', (workspace_id,))
+                    workspace_execution_codes = {row[0] for row in cursor.fetchall()}
+            except Exception as e:
+                logger.warning(f"Failed to get execution playbooks for workspace {workspace_id}: {e}")
+
+            workspace_playbook_codes = pinned_codes | workspace_execution_codes
+            all_playbooks = [p for p in all_playbooks if p.metadata.playbook_code in workspace_playbook_codes]
 
         # Simple keyword matching for now (can be enhanced with LLM later)
         query_lower = query.lower()
@@ -540,6 +646,173 @@ async def get_playbook(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{playbook_code}/usage-stats", response_model=Dict[str, Any])
+async def get_playbook_usage_stats(
+    playbook_code: str = Path(..., description="Playbook code")
+):
+    """
+    Get usage statistics for a specific playbook across all workspaces
+
+    Returns statistics including:
+    - Total executions
+    - Total workspaces using this playbook
+    - Per-workspace statistics (execution count, success/failed/running counts, last executed time)
+    """
+    try:
+        stats = executions_store.get_playbook_workspace_stats(playbook_code)
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get usage stats for playbook {playbook_code}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get usage stats: {str(e)}")
+
+
+@router.get("/{playbook_code}/ui-layout", response_model=Dict[str, Any])
+async def get_playbook_ui_layout(
+    playbook_code: str = Path(..., description="Playbook code"),
+    profile_id: str = Query("default-user", description="Profile ID")
+):
+    """
+    Get UI layout configuration for a playbook.
+
+    Returns the UI layout config if the playbook has UI components,
+    otherwise returns 404.
+
+    The UI layout is returned in both snake_case (ui_layout) and camelCase (uiLayout)
+    formats for compatibility.
+    """
+    try:
+        # Remove .en suffix if present
+        base_code = playbook_code.replace('.en', '')
+
+        # Load playbook (optional - UI layout can exist without playbook spec)
+        # This allows UI-only playbooks that only have UI components, no execution spec
+        playbook = await playbook_service.get_playbook(
+            playbook_code=base_code,
+            locale="zh-TW"
+        )
+
+        ui_layout = None
+
+        # Extract capability code (used for both spec and UI directory lookup)
+        capability_code = None
+        if playbook and hasattr(playbook, 'metadata') and hasattr(playbook.metadata, 'capability_code'):
+            capability_code = playbook.metadata.capability_code
+        # Fallback: extract from playbook code (format: {capability_code}_{name})
+        if not capability_code:
+            parts = base_code.split('_')
+            if len(parts) > 1:
+                capability_code = parts[0]
+
+        # Option 1: Check playbook spec for ui_layout field (snake_case - source of truth)
+        # Load playbook.json spec directly
+        from ...services.playbook_loaders.json_loader import PlaybookJsonLoader
+
+        playbook_json = PlaybookJsonLoader.load_playbook_json(
+            playbook_code=base_code,
+            capability_code=capability_code
+        )
+
+        if playbook_json:
+            # Try snake_case first (JSON spec standard)
+            if hasattr(playbook_json, 'ui_layout'):
+                ui_layout = playbook_json.ui_layout
+            elif hasattr(playbook_json, 'uiLayout'):
+                ui_layout = playbook_json.uiLayout
+            # Also check if it's a dict (when loaded as dict)
+            elif isinstance(playbook_json, dict):
+                ui_layout = playbook_json.get('ui_layout') or playbook_json.get('uiLayout')
+            # Try accessing via model_dump if it's a Pydantic model
+            elif hasattr(playbook_json, 'model_dump'):
+                try:
+                    playbook_dict = playbook_json.model_dump()
+                    ui_layout = playbook_dict.get('ui_layout') or playbook_dict.get('uiLayout')
+                except Exception as e:
+                    logger.debug(f"Failed to dump playbook_json model: {e}")
+
+        # Option 2: Check capability pack UI directory
+        if not ui_layout and capability_code:
+            ui_layout = await _load_ui_layout_from_capability(capability_code, base_code)
+
+        # Option 3: If playbook doesn't exist but we have a UI layout file, load it directly
+        # This allows UI-only playbooks (playbooks that only have UI, no execution spec)
+        if not ui_layout:
+            # Try to extract capability code from playbook code
+            parts = base_code.split('_')
+            if len(parts) > 1:
+                potential_capability_code = parts[0]
+                ui_layout = await _load_ui_layout_from_capability(potential_capability_code, base_code)
+
+        if not ui_layout:
+            raise HTTPException(
+                status_code=404,
+                detail=f"UI layout not found for playbook {playbook_code}. Checked: playbook spec, capability UI directory"
+            )
+
+        # Return UI layout with both snake_case and camelCase for compatibility
+        return {
+            "playbook_code": base_code,
+            "ui_layout": ui_layout,   # source of truth (snake_case)
+            "uiLayout": ui_layout,    # backward compatibility (camelCase)
+            "version": playbook.metadata.version if playbook and hasattr(playbook, 'metadata') else "1.0.0"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to load UI layout for {playbook_code}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def _load_ui_layout_from_capability(
+    capability_code: str,
+    playbook_code: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Load UI layout from capability pack.
+
+    Checks for:
+    1. playbook-specific UI layout file: capabilities/{code}/ui/{playbook_code}_layout.json
+    2. capability-level UI layout: capabilities/{code}/ui/layout.json
+
+    Uses correct capability installation path from CapabilityInstaller.
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        # Use correct capability installation path
+        # Capabilities are installed to: backend/app/capabilities/{capability_code}
+        backend_dir = Path(__file__).parent.parent.parent.parent
+        capabilities_dir = backend_dir / "app" / "capabilities"
+        capability_dir = capabilities_dir / capability_code
+
+        if not capability_dir.exists():
+            logger.debug(f"Capability directory not found: {capability_dir}")
+            return None
+
+        # Try playbook-specific layout first
+        ui_dir = capability_dir / "ui"
+        if ui_dir.exists():
+            playbook_layout_path = ui_dir / f"{playbook_code}_layout.json"
+            if playbook_layout_path.exists():
+                with open(playbook_layout_path, 'r', encoding='utf-8') as f:
+                    layout = json.load(f)
+                    logger.info(f"Loaded UI layout from {playbook_layout_path}")
+                    return layout
+
+            # Fallback to capability-level layout
+            capability_layout_path = ui_dir / "layout.json"
+            if capability_layout_path.exists():
+                with open(capability_layout_path, 'r', encoding='utf-8') as f:
+                    layout = json.load(f)
+                    logger.info(f"Loaded UI layout from {capability_layout_path}")
+                    return layout
+
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load UI layout from capability {capability_code}: {e}")
+        return None
+
+
 @router.patch("/{playbook_code}/meta", response_model=Dict[str, Any])
 async def update_playbook_meta(
     playbook_code: str,
@@ -565,7 +838,7 @@ async def update_playbook_meta(
             updates['custom_tags'] = custom_tags
 
         # Update user_meta
-        user_meta = store.update_user_meta(profile_id, playbook_code, updates)
+        user_meta = mindscape_store.update_user_meta(profile_id, playbook_code, updates)
 
         # Update user_notes (in playbooks table)
         if user_notes is not None:
@@ -586,9 +859,30 @@ async def update_playbook_meta(
 async def reindex_playbooks():
     """Re-scan and index all playbooks from file system"""
     try:
-        results = {"message": "Reindex not yet implemented in PlaybookService"}
+        # Invalidate all playbook caches to force reload
+        playbook_service.registry.invalidate_cache()
+
+        # Force reload by clearing the _loaded flag
+        playbook_service.registry._loaded = False
+
+        # Trigger reload by calling list_playbooks
+        await playbook_service.registry._ensure_loaded()
+
+        # Count playbooks by capability
+        all_playbooks = await playbook_service.list_playbooks()
+        capability_counts: Dict[str, int] = {}
+        for playbook in all_playbooks:
+            cap = playbook.capability_code or 'none'
+            capability_counts[cap] = capability_counts.get(cap, 0) + 1
+
+        results = {
+            "message": "Playbooks reindexed successfully",
+            "total_playbooks": len(all_playbooks),
+            "capability_distribution": capability_counts
+        }
         return results
     except Exception as e:
+        logger.error(f"Failed to reindex playbooks: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
