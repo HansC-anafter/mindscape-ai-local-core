@@ -25,8 +25,8 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 # Initialize services
 mindscape_store = MindscapeStore()
-executions_store = PlaybookExecutionsStore()
-pinned_playbooks_store = WorkspacePinnedPlaybooksStore()
+executions_store = PlaybookExecutionsStore(mindscape_store.db_path)
+pinned_playbooks_store = WorkspacePinnedPlaybooksStore(mindscape_store.db_path)
 
 # Initialize Cloud Extension Manager and register providers
 cloud_extension_manager = None

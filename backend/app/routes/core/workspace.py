@@ -22,9 +22,10 @@ import subprocess
 import platform
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Any
-from fastapi import APIRouter, HTTPException, Path as PathParam, Query, Body, File, UploadFile, Form
+from typing import List, Optional, Any, Dict
+from fastapi import APIRouter, HTTPException, Path as PathParam, Query, Body, File, UploadFile, Form, Depends
 from pydantic import ValidationError, BaseModel, Field
+from sqlalchemy.orm import Session
 
 from ...models.workspace import (
     Workspace,
@@ -33,6 +34,18 @@ from ...models.workspace import (
 )
 from ...models.workspace_runtime_profile import WorkspaceRuntimeProfile
 from ...services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
+from ...models.runtime_environment import RuntimeEnvironment
+from ...services.stores.runtime_profile_presets import (
+    get_preset_templates,
+    get_preset_names,
+    create_security_preset,
+    create_agile_preset,
+    create_research_preset
+)
+from ...models.control_knob import ControlProfile
+from ...services.stores.control_profile_store import ControlProfileStore
+from ...services.knob_effect_compiler import KnobEffectCompiler
+from ...services.knob_presets import PRESETS, CORE_KNOBS, SLAVE_KNOBS
 from ...models.mindscape import MindEvent, EventType, EventActor, IntentTagStatus
 from ...services.mindscape_store import MindscapeStore
 from ...services.i18n_service import get_i18n_service
@@ -54,6 +67,11 @@ def get_runtime_profile_store() -> WorkspaceRuntimeProfileStore:
     """Get runtime profile store instance"""
     return WorkspaceRuntimeProfileStore(store.db_path)
 
+# Initialize control profile store
+def get_control_profile_store() -> ControlProfileStore:
+    """Get control profile store instance"""
+    return ControlProfileStore(store.db_path)
+
 
 # ============================================================================
 # Service Imports
@@ -73,12 +91,17 @@ from ...services.workspace_seed_service import WorkspaceSeedService
 async def list_workspaces(
     owner_user_id: str = Query(..., description="Owner user ID"),
     primary_project_id: Optional[str] = Query(None, description="Filter by primary project ID"),
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of workspaces")
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of workspaces"),
+    include_system: bool = Query(False, description="Include system workspaces (validation, testing, etc.)"),
+    group_id: Optional[str] = Query(None, description="Group ID filter (Cloud only, ignored in local-core)")
 ):
     """
     List workspaces for a user
 
     Returns list of workspaces owned by the user, optionally filtered by project.
+    By default, system workspaces (is_system=true) are excluded from the list.
+
+    Note: group_id parameter is accepted for Cloud compatibility but ignored in local-core.
     """
     try:
         workspaces = store.list_workspaces(
@@ -86,6 +109,10 @@ async def list_workspaces(
             primary_project_id=primary_project_id,
             limit=limit
         )
+        # Filter out system workspaces unless explicitly requested
+        if not include_system:
+            workspaces = [ws for ws in workspaces if not getattr(ws, 'is_system', False)]
+        # Note: group_id parameter is ignored in local-core (backward compatibility for Cloud)
         return workspaces
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list workspaces: {str(e)}")
@@ -201,6 +228,7 @@ async def create_workspace(
             id=str(uuid.uuid4()),
             title=request.title,
             description=request.description,
+            is_system=getattr(request, 'is_system', False),
             workspace_type=request.workspace_type if hasattr(request, 'workspace_type') and request.workspace_type else None,
             owner_user_id=owner_user_id,
             primary_project_id=request.primary_project_id,
@@ -219,34 +247,38 @@ async def create_workspace(
 
         created = store.create_workspace(workspace)
 
-        # Auto-register background routine for state sync
-        try:
-            from ...models.workspace import BackgroundRoutine
-            from ...services.stores.background_routines_store import BackgroundRoutinesStore
+        # Auto-register background routine for state sync (skip for system workspaces)
+        # System workspaces are for validation/testing and should not have background routines
+        if not getattr(created, 'is_system', False):
+            try:
+                from ...models.workspace import BackgroundRoutine
+                from ...services.stores.background_routines_store import BackgroundRoutinesStore
 
-            routines_store = BackgroundRoutinesStore(db_path=store.db_path)
+                routines_store = BackgroundRoutinesStore(db_path=store.db_path)
 
-            # Check if state sync routine already exists for this workspace
-            existing = routines_store.get_background_routine_by_playbook(
-                workspace_id=created.id,
-                playbook_code="system_mindscape_state_sync"
-            )
-
-            if not existing:
-                # Create background routine for state sync (runs daily at 2 AM)
-                routine = BackgroundRoutine(
-                    id=str(uuid.uuid4()),
+                # Check if state sync routine already exists for this workspace
+                existing = routines_store.get_background_routine_by_playbook(
                     workspace_id=created.id,
-                    playbook_code="system_mindscape_state_sync",
-                    schedule="0 2 * * *",  # Daily at 2 AM
-                    enabled=True,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    playbook_code="system_mindscape_state_sync"
                 )
-                routines_store.create_background_routine(routine)
-                logger.info(f"Auto-registered state sync background routine for workspace {created.id}")
-        except Exception as e:
-            logger.warning(f"Failed to register state sync background routine: {e}")
+
+                if not existing:
+                    # Create background routine for state sync (runs daily at 2 AM)
+                    routine = BackgroundRoutine(
+                        id=str(uuid.uuid4()),
+                        workspace_id=created.id,
+                        playbook_code="system_mindscape_state_sync",
+                        schedule="0 2 * * *",  # Daily at 2 AM
+                        enabled=True,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    routines_store.create_background_routine(routine)
+                    logger.info(f"Auto-registered state sync background routine for workspace {created.id}")
+            except Exception as e:
+                logger.warning(f"Failed to register state sync background routine: {e}")
+        else:
+            logger.debug(f"Skipping background routine registration for system workspace {created.id}")
 
         event = MindEvent(
             id=str(uuid.uuid4()),
@@ -1425,9 +1457,64 @@ async def analyze_file(
 # Runtime Profile Endpoints
 # ============================================================================
 
-@router.get("/{workspace_id}/runtime-profile", response_model=WorkspaceRuntimeProfile)
+@router.get(
+    "/{workspace_id}/runtime-profile",
+    response_model=WorkspaceRuntimeProfile,
+    summary="Get workspace runtime profile",
+    description="""
+    Get the runtime profile configuration for a workspace.
+
+    The runtime profile defines execution contracts, interaction budgets, output contracts,
+    confirmation policies, and tool policies for the workspace.
+
+    **Returns:**
+    - If a profile exists: Returns the configured runtime profile
+    - If no profile exists: Returns a default profile with standard settings
+
+    **Example Response:**
+    ```json
+    {
+        "default_mode": "execution",
+        "interaction_budget": {
+            "max_questions_per_turn": 0,
+            "assume_defaults": true
+        },
+        "output_contract": {
+            "coding_style": "patch_first",
+            "minimize_explanation": true
+        },
+        "confirmation_policy": {
+            "auto_read": true,
+            "confirm_external_write": true
+        },
+        "tool_policy": {
+            "allowlist": ["code_editor", "file_manager"]
+        }
+    }
+    ```
+    """,
+    tags=["runtime-profile"],
+    responses={
+        200: {
+            "description": "Runtime profile retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "default_mode": "execution",
+                        "interaction_budget": {
+                            "max_questions_per_turn": 0,
+                            "assume_defaults": True
+                        }
+                    }
+                }
+            }
+        },
+        404: {"description": "Workspace not found"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def get_runtime_profile(
-    workspace_id: str = PathParam(..., description="Workspace ID")
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123")
 ):
     """
     Get workspace runtime profile
@@ -1451,12 +1538,75 @@ async def get_runtime_profile(
         raise HTTPException(status_code=500, detail=f"Failed to get runtime profile: {str(e)}")
 
 
-@router.put("/{workspace_id}/runtime-profile", response_model=WorkspaceRuntimeProfile)
+@router.put(
+    "/{workspace_id}/runtime-profile",
+    response_model=WorkspaceRuntimeProfile,
+    summary="Update workspace runtime profile",
+    description="""
+    Update or create the runtime profile configuration for a workspace.
+
+    **Request Body:**
+    The request body should contain a complete `WorkspaceRuntimeProfile` object with all desired settings.
+
+    **Best Practices:**
+    1. Use preset templates for common configurations (see `/runtime-profile/presets`)
+    2. Start with minimal changes and iterate
+    3. Test configuration in a development workspace first
+    4. Document changes using `updated_reason` parameter
+
+    **Example Request (Cursor-style configuration):**
+    ```json
+    {
+        "default_mode": "execution",
+        "interaction_budget": {
+            "max_questions_per_turn": 0,
+            "assume_defaults": true,
+            "require_assumptions_list": true
+        },
+        "output_contract": {
+            "coding_style": "patch_first",
+            "minimize_explanation": true,
+            "show_rationale_level": "brief"
+        },
+        "confirmation_policy": {
+            "auto_read": true,
+            "confirm_external_write": true,
+            "confirmation_format": "list_changes"
+        },
+        "tool_policy": {
+            "allowlist": ["code_editor", "file_manager"]
+        }
+    }
+    ```
+
+    **Note:** Partial updates are not supported. You must provide the complete profile configuration.
+    """,
+    tags=["runtime-profile"],
+    responses={
+        200: {
+            "description": "Runtime profile updated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "default_mode": "execution",
+                        "interaction_budget": {
+                            "max_questions_per_turn": 0,
+                            "assume_defaults": True
+                        }
+                    }
+                }
+            }
+        },
+        404: {"description": "Workspace not found"},
+        400: {"description": "Invalid profile configuration"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def update_runtime_profile(
-    workspace_id: str = PathParam(..., description="Workspace ID"),
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123"),
     profile: WorkspaceRuntimeProfile = Body(..., description="Runtime profile configuration"),
-    updated_by: Optional[str] = Query(None, description="User ID who updated this profile"),
-    updated_reason: Optional[str] = Query(None, description="Reason for update")
+    updated_by: Optional[str] = Query(None, description="User ID who updated this profile", example="user_456"),
+    updated_reason: Optional[str] = Query(None, description="Reason for update", example="Enable Cursor-style execution")
 ):
     """
     Update workspace runtime profile
@@ -1485,9 +1635,28 @@ async def update_runtime_profile(
         raise HTTPException(status_code=500, detail=f"Failed to update runtime profile: {str(e)}")
 
 
-@router.delete("/{workspace_id}/runtime-profile", status_code=204)
+@router.delete(
+    "/{workspace_id}/runtime-profile",
+    status_code=204,
+    summary="Delete workspace runtime profile",
+    description="""
+    Delete the runtime profile configuration for a workspace.
+
+    **Warning:** This will remove all custom runtime profile settings.
+    The workspace will revert to default behavior after deletion.
+
+    **Note:** This operation cannot be undone. Consider backing up the profile
+    configuration before deletion if you may need to restore it later.
+    """,
+    tags=["runtime-profile"],
+    responses={
+        204: {"description": "Runtime profile deleted successfully"},
+        404: {"description": "Runtime profile not found"},
+        500: {"description": "Internal server error"}
+    }
+)
 async def delete_runtime_profile(
-    workspace_id: str = PathParam(..., description="Workspace ID")
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123")
 ):
     """
     Delete workspace runtime profile
@@ -1509,6 +1678,593 @@ async def delete_runtime_profile(
         raise HTTPException(status_code=500, detail=f"Failed to delete runtime profile: {str(e)}")
 
 
+@router.get(
+    "/runtime-profile/presets",
+    summary="Get runtime profile preset templates",
+    description="""
+    Get available runtime profile preset templates.
+
+    Preset templates provide pre-configured runtime profiles for common use cases:
+
+    - **security**: Strict confirmation policies, complete quality gates, conservative tool policies
+    - **agile**: Minimal confirmation, fast execution, relaxed tool policies
+    - **research**: Detailed output, citation requirements, complete decision logs
+
+    **Usage:**
+    1. Get available presets using this endpoint
+    2. Apply a preset using `POST /{workspace_id}/runtime-profile/apply-preset`
+    3. Optionally customize the applied preset using `PUT /{workspace_id}/runtime-profile`
+    """,
+    tags=["runtime-profile"],
+    responses={
+        200: {
+            "description": "List of available preset templates",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "presets": [
+                            {
+                                "name": "security",
+                                "label": "安全模板",
+                                "description": "嚴格確認政策、完整品質關卡、保守工具政策",
+                                "icon": "🛡️"
+                            },
+                            {
+                                "name": "agile",
+                                "label": "敏捷模板",
+                                "description": "最小確認、快速執行、寬鬆工具政策",
+                                "icon": "⚡"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+)
+async def get_runtime_profile_presets():
+    """
+    Get available runtime profile preset templates
+
+    Returns list of available preset template names and their descriptions.
+    """
+    presets = {
+        "security": {
+            "name": "security",
+            "label": "安全模板",
+            "description": "嚴格確認政策、完整品質關卡、保守工具政策",
+            "icon": "🛡️"
+        },
+        "agile": {
+            "name": "agile",
+            "label": "敏捷模板",
+            "description": "最小確認、快速執行、寬鬆工具政策",
+            "icon": "⚡"
+        },
+        "research": {
+            "name": "research",
+            "label": "研究模板",
+            "description": "詳細輸出、引用要求、完整決策日誌",
+            "icon": "🔬"
+        }
+    }
+    return {"presets": list(presets.values())}
+
+
+@router.post(
+    "/{workspace_id}/runtime-profile/apply-preset",
+    response_model=WorkspaceRuntimeProfile,
+    summary="Apply preset template to runtime profile",
+    description="""
+    Apply a preset template to create or update the workspace runtime profile.
+
+    **Available Presets:**
+    - `security`: Strict confirmation policies, complete quality gates, conservative tool policies
+    - `agile`: Minimal confirmation, fast execution, relaxed tool policies
+    - `research`: Detailed output, citation requirements, complete decision logs
+
+    **Example Request:**
+    ```json
+    {
+        "preset_name": "agile"
+    }
+    ```
+
+    **Best Practices:**
+    1. Use presets as a starting point for new workspaces
+    2. Customize the applied preset if needed using `PUT /{workspace_id}/runtime-profile`
+    3. Document why you chose a specific preset using `updated_reason`
+    """,
+    tags=["runtime-profile"],
+    responses={
+        200: {
+            "description": "Preset applied successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "default_mode": "execution",
+                        "interaction_budget": {
+                            "max_questions_per_turn": 0,
+                            "assume_defaults": True
+                        }
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid preset name"},
+        404: {"description": "Workspace not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def apply_runtime_profile_preset(
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123"),
+    preset_name: str = Body(..., embed=True, description="Preset template name (security, agile, research)", example="agile"),
+    updated_by: Optional[str] = Query(None, description="User ID who applied this preset", example="user_456"),
+    updated_reason: Optional[str] = Query(None, description="Reason for applying preset", example="Setting up development workspace")
+):
+    """
+    Apply a preset template to workspace runtime profile
+
+    Creates or updates the runtime profile using a preset template.
+    """
+    try:
+        # Verify workspace exists
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+
+        # Get preset template
+        preset_templates = get_preset_templates()
+        if preset_name not in preset_templates:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid preset name: {preset_name}. Available presets: {', '.join(preset_templates.keys())}"
+            )
+
+        # Create profile from preset
+        preset_func = preset_templates[preset_name]
+        profile = preset_func(workspace_id)
+
+        # Save profile
+        profile_store = get_runtime_profile_store()
+        updated_profile = profile_store.save_runtime_profile(
+            workspace_id=workspace_id,
+            profile=profile,
+            updated_by=updated_by,
+            updated_reason=updated_reason or f"Applied {preset_name} preset template"
+        )
+
+        logger.info(f"Applied {preset_name} preset to workspace {workspace_id}")
+        return updated_profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to apply preset: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to apply preset: {str(e)}")
+
+
+# ============================================================================
+# Control Profile Endpoints
+# ============================================================================
+
+@router.get(
+    "/{workspace_id}/control-profile",
+    response_model=ControlProfile,
+    summary="Get workspace control profile",
+    description="""
+    Get the control profile (knob-based control) configuration for a workspace.
+
+    Control Profile allows users to adjust LLM behavior through intuitive knobs:
+    - Intervention Level: How proactive the AI should be
+    - Convergence: How quickly to converge to decisions
+    - Verbosity: Output density (one-liner to full draft)
+    - Retrieval Radius: Scope of information retrieval
+
+    **Returns:**
+    - If a profile exists: Returns the configured control profile
+    - If no profile exists: Returns default "advisor" preset
+    """,
+    tags=["control-profile"],
+    responses={
+        200: {"description": "Control profile retrieved successfully"},
+        404: {"description": "Workspace not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def get_control_profile(
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123")
+):
+    """Get workspace control profile"""
+    try:
+        # Verify workspace exists
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        profile_store = get_control_profile_store()
+        profile = profile_store.get_or_create_default_profile(workspace_id)
+
+        return profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get control profile: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get control profile: {str(e)}")
+
+
+@router.put(
+    "/{workspace_id}/control-profile",
+    response_model=ControlProfile,
+    summary="Update workspace control profile",
+    description="""
+    Update or create the control profile configuration for a workspace.
+
+    **Request Body:**
+    The request body should contain a complete `ControlProfile` object with knob values.
+
+    **Example Request:**
+    ```json
+    {
+        "id": "custom",
+        "name": "Custom Profile",
+        "knobs": [...],
+        "knob_values": {
+            "intervention_level": 60,
+            "convergence": 50,
+            "verbosity": 70,
+            "retrieval_radius": 50
+        },
+        "preset_id": "advisor"
+    }
+    ```
+    """,
+    tags=["control-profile"],
+    responses={
+        200: {"description": "Control profile updated successfully"},
+        404: {"description": "Workspace not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def update_control_profile(
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123"),
+    profile: ControlProfile = Body(..., description="Control profile configuration"),
+    updated_by: Optional[str] = Query(None, description="User ID who updated this profile")
+):
+    """Update workspace control profile"""
+    try:
+        # Verify workspace exists
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        profile_store = get_control_profile_store()
+        updated_profile = profile_store.save_control_profile(
+            workspace_id=workspace_id,
+            profile=profile,
+            updated_by=updated_by
+        )
+
+        return updated_profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update control profile: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update control profile: {str(e)}")
+
+
+@router.post(
+    "/{workspace_id}/control-profile/compare-preview",
+    summary="Compare preview for control profile",
+    description="""
+    Generate a comparison preview showing output differences between two control profiles.
+
+    This endpoint uses a fast model to generate preview outputs for the same input
+    with different control profile settings, allowing users to see the effect of knob adjustments.
+
+    **Request Body:**
+    ```json
+    {
+        "input_text": "我有這些會議記錄",
+        "left_profile": {...},
+        "right_profile": {...}
+    }
+    ```
+
+    **Returns:**
+    - left_output: Output with left profile
+    - right_output: Output with right profile
+    - diff_summary: Rule-based difference summary
+    - preview_disclaimer: Disclaimer about preview accuracy
+    """,
+    tags=["control-profile"],
+    responses={
+        200: {"description": "Comparison preview generated successfully"},
+        404: {"description": "Workspace not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def compare_preview(
+    workspace_id: str = PathParam(..., description="Workspace ID", example="ws_123"),
+    input_text: str = Body(..., description="User input text for comparison"),
+    left_profile: ControlProfile = Body(..., description="Left profile (usually current)"),
+    right_profile: ControlProfile = Body(..., description="Right profile (usually new/preset)"),
+):
+    """
+    Compare preview: Show output differences between two control profiles
+
+    v2.4: Uses rule-based diff summary (not LLM-generated) for reliability
+    """
+    try:
+        # Verify workspace exists
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        # v2.4: Rule-based difference summary
+        def compute_diff_summary(left: ControlProfile, right: ControlProfile) -> str:
+            """Rule-based diff summary (not LLM-generated)"""
+            diffs = []
+            knob_labels = {
+                "intervention_level": ("更主動", "更旁觀"),
+                "convergence": ("更收斂", "更發散"),
+                "verbosity": ("更詳細", "更簡潔"),
+                "retrieval_radius": ("更廣檢索", "更窄檢索"),
+            }
+
+            for knob_id, (high_label, low_label) in knob_labels.items():
+                left_val = left.knob_values.get(knob_id, 50)
+                right_val = right.knob_values.get(knob_id, 50)
+                delta = right_val - left_val
+
+                if abs(delta) >= 10:  # 只顯示明顯差異
+                    label = high_label if delta > 0 else low_label
+                    diffs.append(f"{label} ({'+' if delta > 0 else ''}{delta})")
+
+            if not diffs:
+                return "設定差異不大"
+            return "右邊：" + "、".join(diffs)
+
+        diff_summary = compute_diff_summary(left_profile, right_profile)
+
+        # Generate preview outputs using compiled profiles
+        # Note: This is a simplified preview - full implementation would call LLM
+        try:
+            from ...services.knob_effect_compiler import KnobEffectCompiler
+            from ...services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
+
+            runtime_profile_store = WorkspaceRuntimeProfileStore(db_path=store.db_path)
+            base_runtime_profile = runtime_profile_store.get_runtime_profile(workspace_id)
+            if not base_runtime_profile:
+                base_runtime_profile = runtime_profile_store.create_default_profile(workspace_id)
+
+            compiler = KnobEffectCompiler(knobs=left_profile.knobs)
+            left_prompt, _, _, _ = compiler.compile(
+                control_profile=left_profile,
+                base_runtime_profile=base_runtime_profile
+            )
+
+            compiler_right = KnobEffectCompiler(knobs=right_profile.knobs)
+            right_prompt, _, _, _ = compiler_right.compile(
+                control_profile=right_profile,
+                base_runtime_profile=base_runtime_profile
+            )
+
+            # For now, return prompt previews (actual LLM generation can be added later)
+            # TODO: 未來可以調用快速 LLM 生成實際輸出對比
+            if left_prompt:
+                left_output = f"提示詞補丁預覽：\n{left_prompt[:300]}{'...' if len(left_prompt) > 300 else ''}\n\n[注意：這是提示詞差異預覽，非實際 LLM 輸出]"
+            else:
+                left_output = "[左邊設定：無提示詞變更]"
+
+            if right_prompt:
+                right_output = f"提示詞補丁預覽：\n{right_prompt[:300]}{'...' if len(right_prompt) > 300 else ''}\n\n[注意：這是提示詞差異預覽，非實際 LLM 輸出]"
+            else:
+                right_output = "[右邊設定：無提示詞變更]"
+
+        except Exception as e:
+            logger.warning(f"Failed to generate preview prompts: {e}", exc_info=True)
+            left_output = "[預覽生成失敗]"
+            right_output = "[預覽生成失敗]"
+
+        return {
+            "left_output": left_output,
+            "right_output": right_output,
+            "diff_summary": diff_summary,
+            "preview_disclaimer": "預覽顯示提示詞差異，實際輸出可能略有不同",
+            "preview_model": "prompt-preview",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate compare preview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate compare preview: {str(e)}")
+
+
+@router.get(
+    "/control-profile/presets",
+    summary="Get control profile preset templates",
+    description="""
+    Get available control profile preset templates.
+
+    Presets provide pre-configured knob values for common use cases:
+    - **observer**: Low intervention, organize only
+    - **advisor**: Medium-high intervention, proactive suggestions
+    - **executor**: High intervention, ready-to-confirm drafts
+    """,
+    tags=["control-profile"],
+    responses={
+        200: {"description": "List of available preset templates"}
+    }
+)
+async def get_control_profile_presets():
+    """Get available control profile preset templates"""
+    presets = [
+        {
+            "id": "observer",
+            "name": "整理模式",
+            "description": "只整理資訊，不主動建議",
+            "icon": "👁️",
+            "knob_values": PRESETS["observer"].knob_values
+        },
+        {
+            "id": "advisor",
+            "name": "提案模式",
+            "description": "主動提出建議和選項",
+            "icon": "💡",
+            "knob_values": PRESETS["advisor"].knob_values
+        },
+        {
+            "id": "executor",
+            "name": "可直接交付",
+            "description": "直接產出可確認的草稿",
+            "icon": "🚀",
+            "knob_values": PRESETS["executor"].knob_values
+        }
+    ]
+    return {"presets": presets}
+
+
+# ============================================================================
+# Runtime Environment Endpoints
+# ============================================================================
+
+@router.get("/{workspace_id}/runtime")
+async def get_workspace_runtime(
+    workspace_id: str = PathParam(..., description="Workspace ID")
+) -> Dict[str, Any]:
+    """
+    Get runtime configuration for a workspace.
+
+    Returns:
+        Dictionary containing:
+        - runtime_id: Current runtime ID
+        - status: Connection status
+        - group_id: Workspace group ID (if exists, for future use)
+        - workspace_role: "dispatch" or "cell" (default: "cell")
+        - group_runtime: Group-level runtime (if exists)
+        - effective_runtime: Effective runtime after priority resolution
+    """
+    try:
+        # Get workspace
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workspace '{workspace_id}' not found"
+            )
+
+        # Get workspace runtime configuration
+        # For now, we'll store it in workspace metadata
+        workspace_runtime_id = None
+        if hasattr(workspace, 'metadata') and workspace.metadata:
+            if isinstance(workspace.metadata, dict):
+                workspace_runtime_id = workspace.metadata.get('runtime_id')
+
+        # Get group runtime (if exists, for future use)
+        group_runtime_id = None
+        # TODO: Implement group-level runtime when WorkspaceGroup is available
+
+        # Determine effective runtime (priority: workspace > group > default)
+        effective_runtime_id = workspace_runtime_id or group_runtime_id or "local-core"
+
+        # Get runtime status
+        runtime_status = "connected"
+        if effective_runtime_id != "local-core":
+            # Check if external runtime exists and is configured
+            # Note: This requires database access, which we'll need to implement
+            # For now, return "not_configured" if not local-core
+            runtime_status = "not_configured"
+            # TODO: Query RuntimeEnvironment table to get actual status
+
+        return {
+            "runtime_id": effective_runtime_id,
+            "status": runtime_status,
+            "group_id": None,  # TODO: Implement when WorkspaceGroup is available
+            "workspace_role": "cell",  # Local-Core default is cell
+            "group_runtime": group_runtime_id,
+            "workspace_runtime": workspace_runtime_id,
+            "effective_runtime": effective_runtime_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get workspace runtime: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to get workspace runtime")
+
+
+@router.put("/{workspace_id}/runtime")
+async def update_workspace_runtime(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    request: Dict[str, Any] = Body(..., description="Runtime update request")
+) -> Dict[str, Any]:
+    """
+    Update runtime configuration for a workspace.
+
+    Args:
+        workspace_id: Workspace ID
+        request: Request body containing runtime_id
+
+    Returns:
+        Updated runtime configuration
+    """
+    try:
+        runtime_id = request.get("runtime_id")
+        if not runtime_id:
+            raise HTTPException(
+                status_code=400,
+                detail="runtime_id is required in request body"
+            )
+
+        # Validate runtime_id
+        if runtime_id != "local-core":
+            # TODO: Check if runtime exists and user has access
+            # This requires database access to RuntimeEnvironment table
+            pass
+
+        # Get workspace
+        workspace = store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workspace '{workspace_id}' not found"
+            )
+
+        # Update workspace runtime
+        # Store in metadata for now (can be moved to dedicated field later)
+        if not hasattr(workspace, 'metadata') or not workspace.metadata:
+            workspace.metadata = {}
+        elif not isinstance(workspace.metadata, dict):
+            workspace.metadata = {}
+
+        workspace.metadata['runtime_id'] = runtime_id
+
+        # Update workspace
+        updated = store.update_workspace(workspace)
+
+        # Get effective runtime
+        effective_runtime_id = runtime_id
+
+        # Get runtime status
+        runtime_status = "connected"
+        if effective_runtime_id != "local-core":
+            runtime_status = "not_configured"
+            # TODO: Query RuntimeEnvironment table to get actual status
+
+        return {
+            "success": True,
+            "runtime_id": effective_runtime_id,
+            "effective_runtime": effective_runtime_id,
+            "status": runtime_status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update workspace runtime: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update workspace runtime")
+
+
 # ============================================================================
 # Mount Sub-Routers
 # ============================================================================
@@ -1518,4 +2274,67 @@ async def delete_runtime_profile(
 # Import and mount workspace governance router
 from . import workspace_governance
 router.include_router(workspace_governance.router)
+
+# Import pinned playbooks store
+from ...services.stores.workspace_pinned_playbooks_store import WorkspacePinnedPlaybooksStore
+from ...services.mindscape_store import MindscapeStore
+_store = MindscapeStore()
+pinned_playbooks_store = WorkspacePinnedPlaybooksStore(_store.db_path)
+
+
+@router.get("/{workspace_id}/pinned-playbooks", response_model=List[Dict[str, Any]])
+async def get_pinned_playbooks(
+    workspace_id: str = PathParam(..., description="Workspace ID")
+):
+    """
+    Get all pinned playbooks for a workspace
+    """
+    try:
+        pinned = pinned_playbooks_store.list_pinned_playbooks(workspace_id)
+        return pinned
+    except Exception as e:
+        logger.error(f"Failed to get pinned playbooks for workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{workspace_id}/pinned-playbooks", response_model=Dict[str, Any], status_code=201)
+async def pin_playbook(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    request: Dict[str, Any] = Body(...)
+):
+    """
+    Pin a playbook to a workspace
+    """
+    try:
+        playbook_code = request.get("playbook_code")
+        if not playbook_code:
+            raise HTTPException(status_code=400, detail="playbook_code is required")
+
+        pinned_by = request.get("pinned_by")
+        result = pinned_playbooks_store.pin_playbook(workspace_id, playbook_code, pinned_by)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to pin playbook {request.get('playbook_code')} to workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{workspace_id}/pinned-playbooks/{playbook_code}", status_code=204)
+async def unpin_playbook(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    playbook_code: str = PathParam(..., description="Playbook code")
+):
+    """
+    Unpin a playbook from a workspace
+    """
+    try:
+        success = pinned_playbooks_store.unpin_playbook(workspace_id, playbook_code)
+        if not success:
+            raise HTTPException(status_code=404, detail="Playbook not pinned in this workspace")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to unpin playbook {playbook_code} from workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
