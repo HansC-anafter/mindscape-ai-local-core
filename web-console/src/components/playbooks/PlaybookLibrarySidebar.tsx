@@ -192,8 +192,8 @@ export default function PlaybookLibrarySidebar({
             onChange={(e) => onCapabilityChange(e.target.value)}
             className="w-full px-2 py-1.5 text-xs border border-default dark:border-gray-600 rounded-md bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-accent dark:focus:ring-blue-500"
           >
-            {Object.entries(playbooksByCapability)
-              .filter(([_, playbooks]) => playbooks.length > 0)
+            {playbooksByCapability && Object.entries(playbooksByCapability)
+              .filter(([_, playbooks]) => playbooks && playbooks.length > 0)
               .map(([capabilityCode, capabilityPlaybooks]) => {
                 const capabilityDisplayName = capabilityCode === 'system'
                   ? t('systemPlaybooks')
