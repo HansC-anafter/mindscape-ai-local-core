@@ -13,6 +13,7 @@ import CopyVariantModal from '../../../components/playbook/CopyVariantModal';
 import LLMDrawer from '../../../components/playbook/LLMDrawer';
 import PlaybookDiscoveryChat from '../../../components/playbook/PlaybookDiscoveryChat';
 import PlaybookUsageStats from '../../../components/playbook/PlaybookUsageStats';
+import RelatedPlaybooksSidebar from '../../../components/playbooks/RelatedPlaybooksSidebar';
 
 import { getApiBaseUrl } from '../../../lib/api-url';
 
@@ -70,6 +71,8 @@ interface PlaybookListItem {
   name: string;
   description: string;
   icon?: string;
+  tags?: string[];
+  capability_code?: string;
 }
 
 export default function PlaybookDetailPage() {
@@ -182,6 +185,10 @@ export default function PlaybookDetailPage() {
         setPlaybookList(data.map((p: any) => ({
           playbook_code: p.playbook_code,
           name: p.name,
+          description: p.description || '',
+          icon: p.icon,
+          tags: p.tags || [],
+          capability_code: p.capability_code
           description: p.description,
           icon: p.icon
         })));
@@ -636,67 +643,22 @@ export default function PlaybookDetailPage() {
       <main className="w-full">
         {/* Three Column Layout */}
         <div className="grid grid-cols-12 gap-0">
-          {/* Left Column: Playbook List */}
+          {/* Left Column: Related Playbooks */}
           <div className="col-span-12 lg:col-span-2">
-            <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-7rem)] overflow-y-auto p-4 sticky top-[7rem]">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('playbookList')}</h3>
-
-              {/* Recent Views Section */}
-              {recentPlaybooks.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('recentUsage')}</h4>
-                  <div className="space-y-2">
-                    {recentPlaybooks.map((pb) => (
-                      <Link
-                        key={pb.playbook_code}
-                        href={`/playbooks/${pb.playbook_code}`}
-                        scroll={false}
-                        className="block p-2 rounded-lg transition-colors hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent"
-                      >
-                        <div className="flex items-start gap-2">
-                          {pb.icon && <span className="text-sm flex-shrink-0">{pb.icon}</span>}
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate text-gray-900 dark:text-gray-100">
-                              {pb.name}
-                            </div>
-                          </div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* All Playbooks List */}
-              <div className="space-y-2">
-                {playbookList.map((pb) => (
-                  <Link
-                    key={pb.playbook_code}
-                    href={`/playbooks/${pb.playbook_code}`}
-                    scroll={false}
-                    className={`block p-3 rounded-lg transition-colors ${
-                      pb.playbook_code === playbookCode
-                        ? 'bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800'
-                        : 'hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-sm font-medium truncate ${
-                          pb.playbook_code === playbookCode ? 'text-accent dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'
-                        }`}>
-                          {pb.name}
-                        </div>
-                        <div className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mt-1">
-                          {pb.description}
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
+            {playbook && (
+              <RelatedPlaybooksSidebar
+                currentPlaybook={{
+                  playbook_code: playbook.metadata.playbook_code,
+                  name: playbook.metadata.name,
+                  description: playbook.metadata.description,
+                  icon: playbook.metadata.icon,
+                  tags: playbook.metadata.tags,
+                  capability_code: playbook.metadata.capability_code
+                }}
+                allPlaybooks={playbookList}
+                recentPlaybooks={recentPlaybooks}
+              />
+            )}
           </div>
 
           {/* Middle Column: Main Content (SOP as default) */}

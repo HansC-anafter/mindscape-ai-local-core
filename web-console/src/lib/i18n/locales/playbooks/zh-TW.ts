@@ -217,5 +217,9 @@ export const playbooksZhTW = {
   unpin: '取消釘選',
   pinOperationFailed: '操作失敗：{action} - {error}',
   notYetImplemented: '尚未實作',
+  relatedPlaybooks: '相關劇本',
+  samePackPlaybooks: '同 Pack 的其他劇本',
+  relatedTagsPlaybooks: '相關標籤推薦',
+  noRelatedPlaybooks: '沒有找到相關劇本',
 } as const satisfies Partial<Record<MessageKey, string>>;
 

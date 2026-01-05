@@ -144,5 +144,9 @@ export const playbooksKeys = {
   unpin: true,
   pinOperationFailed: true,
   notYetImplemented: true,
+  relatedPlaybooks: true,
+  samePackPlaybooks: true,
+  relatedTagsPlaybooks: true,
+  noRelatedPlaybooks: true,
 } as const;
 

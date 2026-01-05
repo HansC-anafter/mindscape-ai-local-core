@@ -217,5 +217,9 @@ export const playbooksEn = {
   unpin: 'Unpin',
   pinOperationFailed: 'Failed to {action}: {error}',
   notYetImplemented: 'Not yet implemented',
+  relatedPlaybooks: 'Related Playbooks',
+  samePackPlaybooks: 'Same Pack Playbooks',
+  relatedTagsPlaybooks: 'Related Tags Playbooks',
+  noRelatedPlaybooks: 'No related playbooks found',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
