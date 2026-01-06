@@ -101,5 +101,11 @@ docker-compose.override.yml
 /web-console/src/app/capabilities/
 /backend/app/capabilities/
 
+# Cloud 特定的模型目录（不应在 local-core 中）
+/backend/app/models/sonic_space/
+/backend/app/models/visual_lens/
+/backend/app/models/walkto_lab/
+/backend/app/models/yogacoach/
+
 # Ignore nested backend/backend/ directory (should not exist)
 /backend/backend/
