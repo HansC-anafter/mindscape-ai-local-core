@@ -105,8 +105,10 @@ class MindscapeProfile(BaseModel):
     )
 
     # Preferences
-    preferences: UserPreferences = Field(default_factory=UserPreferences,
-                                       description="User preferences")
+    preferences: UserPreferences = Field(
+        default_factory=UserPreferences,
+        description="User preferences"
+    )
 
     # External references (for external integration)
     external_ref: Optional[Dict[str, Any]] = Field(

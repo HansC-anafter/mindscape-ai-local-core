@@ -34,6 +34,7 @@ from backend.app.services.stores.mind_lens_store import MindLensStore
 from backend.app.services.stores.lens_composition_store import LensCompositionStore
 from backend.app.services.stores.commands_store import CommandsStore
 from backend.app.services.stores.surface_events_store import SurfaceEventsStore
+from backend.app.services.stores.user_playbook_meta_store import UserPlaybookMetaStore
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +72,44 @@ class MindscapeStore:
         self.lens_compositions = LensCompositionStore(db_path)
         self.commands = CommandsStore(db_path)
         self.surface_events = SurfaceEventsStore(db_path)
+        self.user_playbook_meta = UserPlaybookMetaStore(db_path)
 
         # Initialize database schema
         # Note: Database migrations are managed by Alembic (run: alembic upgrade head)
         self._init_db()
         self.ensure_default_profile()
+
+    def get_user_meta(self, profile_id: str, playbook_code: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user meta for a playbook (delegates to UserPlaybookMetaStore)
+
+        Args:
+            profile_id: User profile ID
+            playbook_code: Playbook code
+
+        Returns:
+            User meta dict or None if not found
+        """
+        return self.user_playbook_meta.get_user_meta(profile_id, playbook_code)
+
+    def update_user_meta(
+        self,
+        profile_id: str,
+        playbook_code: str,
+        updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update user meta for a playbook (delegates to UserPlaybookMetaStore)
+
+        Args:
+            profile_id: User profile ID
+            playbook_code: Playbook code
+            updates: Dict with fields to update
+
+        Returns:
+            Updated user meta dict
+        """
+        return self.user_playbook_meta.update_user_meta(profile_id, playbook_code, updates)
 
     @contextmanager
     def get_connection(self):
@@ -129,7 +163,8 @@ class MindscapeStore:
                 roles=[],
                 domains=[],
                 preferences=UserPreferences(
-                    language='zh-TW',
+                    preferred_ui_language='zh-TW',
+                    preferred_content_language='zh-TW',
                     timezone='Asia/Taipei'
                 ),
                 onboarding_state=None,
