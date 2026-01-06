@@ -220,14 +220,15 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
         if ($response -eq "Y" -or $response -eq "y") {
             Write-Host "Removing existing containers..." -ForegroundColor Cyan
             # Suppress all output including warnings (like missing env vars)
-            $null = docker compose down 2>&1
+            # Use Out-Null to suppress output and filter warnings
+            docker compose down 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" } | Out-Null
             if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) {
                 # Exit code 1 is OK (some containers may not exist)
                 Write-Host "  ⚠ Warning: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
             }
             # Also try to remove individual containers if compose down didn't work
             foreach ($container in $containerList) {
-                $null = docker rm -f $container 2>&1
+                docker rm -f $container 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" } | Out-Null
             }
             Write-Host "  ✓ Containers removed" -ForegroundColor Green
             Write-Host ""
