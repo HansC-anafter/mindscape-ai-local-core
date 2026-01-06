@@ -6,6 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    ffmpeg \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -13,10 +14,16 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy mindscape-playbook-tools wheel (temporary solution)
+# TODO: Replace with PyPI installation: pip install mindscape-playbook-tools>=1.0.0
+COPY mindscape_playbook_tools-*.whl .
 
-# Copy application code
+# Install Python dependencies (including playbook-tools wheel)
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir mindscape_playbook_tools-*.whl
+
+# Copy application code (精确复制，避免 COPY . . 把不需要的文件带进去)
+# .dockerignore 会排除 backend/app/capabilities/ 等 cloud packs
 COPY backend/ ./backend/
 
 # Create data and logs directories

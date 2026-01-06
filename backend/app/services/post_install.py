@@ -199,13 +199,41 @@ class PostInstallHandler:
                     if degraded_features:
                         degraded_features_map[svc_name] = degraded_features
 
+        # Check system tools
+        system_tools = dependencies.get('system_tools', [])
+        missing_system_tools = []
+        for tool_config in system_tools:
+            tool_name = tool_config if isinstance(tool_config, str) else tool_config.get('name', '')
+            if not tool_name:
+                continue
+
+            if not self._is_system_tool_available(tool_name):
+                missing_system_tools.append(tool_name)
+                # Add to degraded features map
+                if isinstance(tool_config, dict):
+                    degraded_features = tool_config.get('degraded_features', [])
+                    install_hint = tool_config.get('install_hint', '')
+                    if degraded_features:
+                        degraded_features_map[tool_name] = degraded_features
+                    # Add install hint to result warnings
+                    if install_hint:
+                        result.add_warning(
+                            f"System tool '{tool_name}' not found. {install_hint}"
+                        )
+                    else:
+                        result.add_warning(
+                            f"System tool '{tool_name}' not found. "
+                            f"Some features may be degraded. "
+                            f"Install with: apt-get install {tool_name} (Linux) or brew install {tool_name} (macOS)"
+                        )
+
         # Register degradation status
-        if missing_required or missing_optional or missing_external:
+        if missing_required or missing_optional or missing_external or missing_system_tools:
             self._register_degradation_status(
                 capability_code,
                 manifest,
                 missing_required,
-                missing_optional + missing_external,
+                missing_optional + missing_external + missing_system_tools,
                 degraded_features_map,
                 result
             )
@@ -223,6 +251,10 @@ class PostInstallHandler:
             if not result.missing_dependencies:
                 result.missing_dependencies = {}
             result.missing_dependencies["external_services"] = missing_external
+        if missing_system_tools:
+            if not result.missing_dependencies:
+                result.missing_dependencies = {}
+            result.missing_dependencies["system_tools"] = missing_system_tools
 
     def _is_dependency_available(self, dep_name: str) -> bool:
         """
@@ -252,6 +284,39 @@ class PostInstallHandler:
     def _is_env_var_set(self, env_var: str) -> bool:
         """Check if environment variable is set"""
         return bool(os.getenv(env_var))
+
+    def _is_system_tool_available(self, tool_name: str) -> bool:
+        """
+        Check if a system tool is available in PATH
+
+        Args:
+            tool_name: System tool name (e.g., 'ffprobe', 'ffmpeg')
+
+        Returns:
+            True if available
+        """
+        try:
+            # Use 'which' command to check if tool exists in PATH
+            result = subprocess.run(
+                ['which', tool_name],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # 'which' command not available or timed out, try alternative method
+            try:
+                # Try to run the tool with --version or --help
+                result = subprocess.run(
+                    [tool_name, '--version'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                return result.returncode == 0
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return False
 
     def _register_degradation_status(
         self,
