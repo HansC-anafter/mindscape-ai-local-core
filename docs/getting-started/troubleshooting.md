@@ -417,7 +417,6 @@ docker compose down -v
 - [Installation Guide](./installation.md)
 - [Platform-Specific Notes](./platform-specific.md)
 - [Docker Deployment Guide](./docker.md)
-- [Git Tracking Issues Documentation](./git-tracking-issues-2026-01-06.md) - Detailed record of ModuleNotFoundError fixes
 - [GitHub Issues](https://github.com/HansC-anafter/mindscape-ai-local-core/issues)
 
 ---
