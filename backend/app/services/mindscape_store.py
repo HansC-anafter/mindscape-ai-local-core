@@ -156,17 +156,19 @@ class MindscapeStore:
         if not profile:
             from backend.app.models.mindscape import UserPreferences
             logger.info("Creating default-user profile...")
+            # Create UserPreferences as dict for Pydantic validation
+            # Pydantic v2 requires dict or properly validated instance
             default_profile = MindscapeProfile(
                 id='default-user',
                 name='Default User',
                 email=None,
                 roles=[],
                 domains=[],
-                preferences=UserPreferences(
-                    preferred_ui_language='zh-TW',
-                    preferred_content_language='zh-TW',
-                    timezone='Asia/Taipei'
-                ),
+                preferences={
+                    'preferred_ui_language': 'zh-TW',
+                    'preferred_content_language': 'zh-TW',
+                    'timezone': 'Asia/Taipei'
+                },
                 onboarding_state=None,
                 self_description=None,
                 created_at=datetime.utcnow(),
