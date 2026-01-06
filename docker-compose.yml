@@ -28,8 +28,8 @@ services:
       # Security
       - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-dev-secret-key-change-in-production}
       # LLM Providers (configure these in .env file)
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback

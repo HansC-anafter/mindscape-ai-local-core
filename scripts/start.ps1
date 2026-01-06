@@ -22,8 +22,76 @@ if ($executionPolicy -eq "Restricted") {
 
 $ErrorActionPreference = "Stop"
 
+# Disable PowerShell 7's native-stderr-to-error behavior for docker commands
+# This prevents warnings from docker compose from being treated as errors
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $global:PSNativeCommandUseErrorActionPreference = $false
+}
+
 Write-Host "=== Mindscape AI Local Core - Start Script ===" -ForegroundColor Cyan
 Write-Host ""
+
+# Set default values for optional environment variables to suppress compose warnings
+if (-not (Test-Path Env:OPENAI_API_KEY)) {
+    $env:OPENAI_API_KEY = ""
+}
+if (-not (Test-Path Env:ANTHROPIC_API_KEY)) {
+    $env:ANTHROPIC_API_KEY = ""
+}
+
+# Helper function to execute docker compose commands with proper error handling
+function Invoke-DockerCompose {
+    param(
+        [string[]]$Arguments,
+        [switch]$SuppressOutput
+    )
+    
+    # Execute docker compose command, redirecting stderr to stdout and filtering warnings
+    $output = docker compose $Arguments 2>&1 | Where-Object {
+        $_ -notmatch "level=warning" -and
+        $_ -notmatch "time=" -and
+        $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+        $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+    }
+    
+    # Capture exit code immediately after command execution
+    $exitCode = $LASTEXITCODE
+    
+    if (-not $SuppressOutput) {
+        # Write output to host
+        $output | ForEach-Object { Write-Host $_ }
+    } else {
+        # Suppress output but still execute to capture exit code
+        $output | Out-Null
+    }
+    
+    return $exitCode
+}
+
+# Helper function to get docker compose ps output as string (for parsing)
+function Get-DockerComposeStatus {
+    param(
+        [switch]$UseFormat
+    )
+    
+    if ($UseFormat) {
+        $output = docker compose ps --format "table {{.Service}}`t{{.State}}`t{{.Health}}" 2>&1 | Where-Object {
+            $_ -notmatch "level=warning" -and
+            $_ -notmatch "time=" -and
+            $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+            $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+        }
+    } else {
+        $output = docker compose ps 2>&1 | Where-Object {
+            $_ -notmatch "level=warning" -and
+            $_ -notmatch "time=" -and
+            $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+            $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+        }
+    }
+    
+    return ($output -join "`n")
+}
 
 # Function to check Docker availability
 function Test-DockerAvailable {
@@ -112,8 +180,26 @@ if (-not $SkipCheck) {
         if ($response -eq "Y" -or $response -eq "y") {
             Write-Host "Attempting to open Docker Desktop..." -ForegroundColor Yellow
             try {
-                Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -ErrorAction SilentlyContinue
-                Write-Host "  Docker Desktop launch attempted. Please wait for it to start, then run this script again." -ForegroundColor Yellow
+                # Try common Docker Desktop installation paths
+                $dockerPaths = @(
+                    "C:\Program Files\Docker\Docker\Docker Desktop.exe",
+                    "${env:ProgramFiles}\Docker\Docker\Docker Desktop.exe",
+                    "${env:ProgramFiles(x86)}\Docker\Docker\Docker Desktop.exe"
+                )
+                
+                $dockerFound = $false
+                foreach ($path in $dockerPaths) {
+                    if (Test-Path $path) {
+                        Start-Process $path -ErrorAction SilentlyContinue
+                        Write-Host "  Docker Desktop launch attempted. Please wait for it to start, then run this script again." -ForegroundColor Yellow
+                        $dockerFound = $true
+                        break
+                    }
+                }
+                
+                if (-not $dockerFound) {
+                    Write-Host "  Could not find Docker Desktop. Please start it manually from Start Menu." -ForegroundColor Yellow
+                }
             } catch {
                 Write-Host "  Could not automatically open Docker Desktop. Please start it manually." -ForegroundColor Yellow
             }
@@ -219,10 +305,9 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
         $response = Read-Host "Would you like to remove them? (Y/N)"
         if ($response -eq "Y" -or $response -eq "y") {
             Write-Host "Removing existing containers..." -ForegroundColor Cyan
-            # Suppress all output including warnings (like missing env vars)
-            # Use Out-Null to suppress output and filter warnings
-            docker compose down 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" } | Out-Null
-            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) {
+            # Use helper function to handle docker compose commands properly
+            $exitCode = Invoke-DockerCompose -Arguments @("down") -SuppressOutput
+            if ($exitCode -ne 0 -and $exitCode -ne 1) {
                 # Exit code 1 is OK (some containers may not exist)
                 Write-Host "  ⚠ Warning: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
             }
@@ -247,9 +332,9 @@ Write-Host ""
 
 # Start services
 Write-Host "Building and starting containers..." -ForegroundColor Cyan
-docker compose up -d
+$exitCode = Invoke-DockerCompose -Arguments @("up", "-d")
 
-if ($LASTEXITCODE -ne 0) {
+if ($exitCode -ne 0) {
     Write-Host ""
     Write-Host "❌ Failed to start services" -ForegroundColor Red
     Write-Host ""
@@ -261,11 +346,11 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Checking service status..." -ForegroundColor Yellow
 
     # Get service status using a more reliable method
-    # Suppress warnings (like missing env vars) and capture only stdout
-    $serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>$null
+    # Use helper function to handle docker compose commands properly
+    $serviceStatus = Get-DockerComposeStatus -UseFormat
     if ($LASTEXITCODE -ne 0) {
         # If command failed, try without format to get basic info
-        $serviceStatus = docker compose ps 2>$null
+        $serviceStatus = Get-DockerComposeStatus
     }
 
     $failedServices = @()
@@ -354,10 +439,10 @@ if ($LASTEXITCODE -ne 0) {
 # Check if any services are unhealthy after starting
 Start-Sleep -Seconds 3
 # Suppress warnings (like missing env vars) and capture only stdout
-$serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>$null
+$serviceStatus = Get-DockerComposeStatus -UseFormat
 if ($LASTEXITCODE -ne 0) {
     # If command failed, try without format to get basic info
-    $serviceStatus = docker compose ps 2>$null
+    $serviceStatus = Get-DockerComposeStatus
 }
 
 $unhealthyServices = @()
