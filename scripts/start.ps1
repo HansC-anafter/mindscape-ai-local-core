@@ -46,16 +46,54 @@ function Invoke-DockerCompose {
         [switch]$SuppressOutput
     )
     
-    # Execute docker compose command, redirecting stderr to stdout and filtering warnings
-    $output = docker compose $Arguments 2>&1 | Where-Object {
-        $_ -notmatch "level=warning" -and
-        $_ -notmatch "time=" -and
-        $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
-        $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
-    }
+    # Temporarily change error action to prevent PowerShell from treating output as errors
+    $oldErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
     
-    # Capture exit code immediately after command execution
-    $exitCode = $LASTEXITCODE
+    # Use try-catch to handle cases where PowerShell treats docker output as errors
+    # This is necessary because even with PSNativeCommandUseErrorActionPreference = false,
+    # some PowerShell versions/configurations may still throw on native command output
+    try {
+        # Execute docker compose command, redirecting stderr to stdout and filtering warnings
+        $output = docker compose $Arguments 2>&1 | Where-Object {
+            $_ -notmatch "level=warning" -and
+            $_ -notmatch "time=" -and
+            $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+            $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+        }
+        
+        # Capture exit code immediately after command execution
+        $exitCode = $LASTEXITCODE
+    } catch {
+        # PowerShell treated some output as an error, but the command may have succeeded
+        # Check the actual exit code to determine if it was a real error
+        $exitCode = $LASTEXITCODE
+        
+        # If exit code is 0, it was a false positive (output treated as error)
+        # If exit code is non-zero, it was a real error
+        if ($exitCode -eq 0) {
+            # False positive - output was treated as error but command succeeded
+            # Try to extract the output from the error record
+            if ($_.Exception.Message) {
+                $output = $_.Exception.Message -split "`n" | Where-Object {
+                    $_ -notmatch "level=warning" -and
+                    $_ -notmatch "time=" -and
+                    $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+                    $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set" -and
+                    $_ -notmatch "CategoryInfo" -and
+                    $_ -notmatch "FullyQualifiedErrorId"
+                }
+            } else {
+                $output = @()
+            }
+        } else {
+            # Real error - rethrow or handle as needed
+            $output = @($_.Exception.Message)
+        }
+    } finally {
+        # Always restore original error action
+        $ErrorActionPreference = $oldErrorAction
+    }
     
     if (-not $SuppressOutput) {
         # Write output to host
@@ -74,20 +112,44 @@ function Get-DockerComposeStatus {
         [switch]$UseFormat
     )
     
-    if ($UseFormat) {
-        $output = docker compose ps --format "table {{.Service}}`t{{.State}}`t{{.Health}}" 2>&1 | Where-Object {
-            $_ -notmatch "level=warning" -and
-            $_ -notmatch "time=" -and
-            $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
-            $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+    # Temporarily change error action to prevent PowerShell from treating output as errors
+    $oldErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    
+    try {
+        if ($UseFormat) {
+            $output = docker compose ps --format "table {{.Service}}`t{{.State}}`t{{.Health}}" 2>&1 | Where-Object {
+                $_ -notmatch "level=warning" -and
+                $_ -notmatch "time=" -and
+                $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+                $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+            }
+        } else {
+            $output = docker compose ps 2>&1 | Where-Object {
+                $_ -notmatch "level=warning" -and
+                $_ -notmatch "time=" -and
+                $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+                $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+            }
         }
-    } else {
-        $output = docker compose ps 2>&1 | Where-Object {
-            $_ -notmatch "level=warning" -and
-            $_ -notmatch "time=" -and
-            $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
-            $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set"
+    } catch {
+        # PowerShell treated output as error, but command may have succeeded
+        # Extract output from error record if available
+        if ($_.Exception.Message) {
+            $output = $_.Exception.Message -split "`n" | Where-Object {
+                $_ -notmatch "level=warning" -and
+                $_ -notmatch "time=" -and
+                $_ -notmatch "The \""OPENAI_API_KEY\"" variable is not set" -and
+                $_ -notmatch "The \""ANTHROPIC_API_KEY\"" variable is not set" -and
+                $_ -notmatch "CategoryInfo" -and
+                $_ -notmatch "FullyQualifiedErrorId"
+            }
+        } else {
+            $output = @()
         }
+    } finally {
+        # Always restore original error action
+        $ErrorActionPreference = $oldErrorAction
     }
     
     return ($output -join "`n")
