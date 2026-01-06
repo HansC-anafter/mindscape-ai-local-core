@@ -275,6 +275,49 @@ Filename too long
 
 ---
 
+### Error: ModuleNotFoundError in Backend
+
+**Error Message**:
+```
+ModuleNotFoundError: No module named 'backend.app.models.runtime_environment'
+ModuleNotFoundError: No module named 'backend.app.services.stores.control_profile_store'
+...
+```
+
+**Cause**:
+This error occurs when files exist in your local development environment but are not tracked by Git. When you clone the repository fresh, these files are missing, causing import errors.
+
+**Why this happens**:
+- **Local development**: Uses volume mount (`./backend:/app/backend:rw`), so even untracked files are accessible
+- **Fresh clone**: Files not in Git are missing, causing `ModuleNotFoundError`
+
+**Solution**:
+
+1. **Ensure you're using the latest code**:
+   ```powershell
+   git pull origin master
+   ```
+
+2. **Rebuild the Docker image**:
+   ```powershell
+   docker compose down
+   docker compose up -d --build
+   ```
+
+3. **If the error persists**, check if you're on the latest commit:
+   ```powershell
+   git log --oneline -5
+   ```
+
+**Prevention**:
+- All core files are now tracked in Git (as of 2026-01-06)
+- If you add new files, ensure they're added to Git immediately
+- See [Git Tracking Issues Documentation](./git-tracking-issues-2026-01-06.md) for details
+
+**Note**: This issue was systematically fixed on 2026-01-06. All 16 core files that were missing have been added to Git tracking.
+
+---
+
 ### Frontend Service Not Starting
 
 **Symptoms**: Frontend container exits or shows unhealthy status
@@ -374,6 +417,7 @@ docker compose down -v
 - [Installation Guide](./installation.md)
 - [Platform-Specific Notes](./platform-specific.md)
 - [Docker Deployment Guide](./docker.md)
+- [Git Tracking Issues Documentation](./git-tracking-issues-2026-01-06.md) - Detailed record of ModuleNotFoundError fixes
 - [GitHub Issues](https://github.com/HansC-anafter/mindscape-ai-local-core/issues)
 
 ---
