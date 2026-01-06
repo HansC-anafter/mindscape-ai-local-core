@@ -131,6 +131,74 @@ if (-not $SkipCheck) {
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 
+# Verify we're in the correct project directory (check for docker-compose.yml)
+if (-not (Test-Path (Join-Path $ProjectRoot "docker-compose.yml"))) {
+    Write-Host ""
+    Write-Host "❌ ERROR: Cannot find docker-compose.yml in project root" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Current project root: $ProjectRoot" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "This script must be run from the mindscape-ai-local-core project directory." -ForegroundColor Yellow
+    Write-Host "Please ensure:" -ForegroundColor Cyan
+    Write-Host "  1. You are in the correct project directory" -ForegroundColor White
+    Write-Host "  2. The project was cloned correctly" -ForegroundColor White
+    Write-Host "  3. You run the script from the project root:" -ForegroundColor White
+    Write-Host "     cd C:\Projects\mindscape-ai-local-core" -ForegroundColor Cyan
+    Write-Host "     .\scripts\start.ps1" -ForegroundColor Cyan
+    Write-Host ""
+    exit 1
+}
+
+# Check if project is in a system directory (Windows)
+$systemPaths = @(
+    "$env:SystemRoot\system32",
+    "$env:SystemRoot\SysWOW64",
+    "$env:ProgramFiles",
+    "$env:ProgramFiles(x86)"
+)
+
+$projectPathLower = $ProjectRoot.ToLower()
+$isInSystemPath = $false
+$matchedSystemPath = ""
+
+foreach ($systemPath in $systemPaths) {
+    if ($systemPath) {
+        $systemPathLower = $systemPath.ToLower()
+        if ($projectPathLower.StartsWith($systemPathLower)) {
+            $isInSystemPath = $true
+            $matchedSystemPath = $systemPath
+            break
+        }
+    }
+}
+
+if ($isInSystemPath) {
+    Write-Host ""
+    Write-Host "❌ ERROR: Project is located in a system directory" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Current location: $ProjectRoot" -ForegroundColor Yellow
+    Write-Host "System path detected: $matchedSystemPath" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "The project should NOT be in a system directory (system32, Program Files, etc.)" -ForegroundColor Yellow
+    Write-Host "System directories require administrator privileges and may cause permission issues." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Solution:" -ForegroundColor Cyan
+    Write-Host "  1. Move the project to a user directory, for example:" -ForegroundColor White
+    Write-Host "     - C:\Users\$env:USERNAME\Documents\mindscape-ai-local-core" -ForegroundColor White
+    Write-Host "     - C:\Projects\mindscape-ai-local-core" -ForegroundColor White
+    Write-Host "     - D:\Projects\mindscape-ai-local-core" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  2. After moving, run the start script again:" -ForegroundColor White
+    Write-Host "     .\scripts\start.ps1" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "To move the project:" -ForegroundColor Cyan
+    Write-Host "  1. Close this PowerShell window" -ForegroundColor White
+    Write-Host "  2. Move the 'mindscape-ai-local-core' folder to a user directory" -ForegroundColor White
+    Write-Host "  3. Open PowerShell in the new location and run the start script" -ForegroundColor White
+    Write-Host ""
+    exit 1
+}
+
 # Change to project root
 Set-Location $ProjectRoot
 
@@ -190,7 +258,7 @@ if ($LASTEXITCODE -ne 0) {
 
     # Check which services failed
     Write-Host "Checking service status..." -ForegroundColor Yellow
-    
+
     # Get service status using a more reliable method
     # Suppress warnings (like missing env vars) and capture only stdout
     $serviceStatus = docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" 2>$null
@@ -198,24 +266,24 @@ if ($LASTEXITCODE -ne 0) {
         # If command failed, try without format to get basic info
         $serviceStatus = docker compose ps 2>$null
     }
-    
+
     $failedServices = @()
-    
+
     # Parse the output line by line (skip header and warning lines)
-    $lines = $serviceStatus -split "`n" | Where-Object { 
-        $_ -match "^\w" -and 
-        $_ -notmatch "SERVICE" -and 
+    $lines = $serviceStatus -split "`n" | Where-Object {
+        $_ -match "^\w" -and
+        $_ -notmatch "SERVICE" -and
         $_ -notmatch "level=warning" -and
         $_ -notmatch "time="
     }
-    
+
     foreach ($line in $lines) {
         # Match table format: SERVICE STATE HEALTH
         if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
             $serviceName = $matches['service']
             $state = $matches['state']
             $health = $matches['health']
-            
+
             # Check if service failed or is unhealthy
             if ($state -ne "running" -or $health -eq "unhealthy") {
                 $failedServices += $serviceName
@@ -237,14 +305,36 @@ if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         foreach ($service in $failedServices) {
             Write-Host "=== Logs for $service ===" -ForegroundColor Yellow
-            docker compose logs --tail=50 $service
+            # Suppress warnings from docker compose (like missing env vars)
+            $logs = docker compose logs --tail=100 $service 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" }
+            Write-Host $logs
+            Write-Host ""
+        }
+
+        # Special handling for backend service
+        if ($failedServices -contains "backend") {
+            Write-Host "=== Backend Service Troubleshooting ===" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "Common causes for backend startup failure:" -ForegroundColor Yellow
+            Write-Host "  1. Database connection issues" -ForegroundColor White
+            Write-Host "  2. Missing or incorrect environment variables" -ForegroundColor White
+            Write-Host "  3. Port 8200 already in use" -ForegroundColor White
+            Write-Host "  4. Health check timeout (service may need more time to start)" -ForegroundColor White
+            Write-Host ""
+            Write-Host "To check backend logs in detail:" -ForegroundColor Cyan
+            Write-Host "  docker compose logs backend" -ForegroundColor White
+            Write-Host ""
+            Write-Host "To check if port 8200 is in use:" -ForegroundColor Cyan
+            Write-Host "  netstat -ano | findstr :8200" -ForegroundColor White
             Write-Host ""
         }
     } else {
         # If we can't parse, show all logs
         Write-Host "Showing recent logs from all services..." -ForegroundColor Cyan
         Write-Host ""
-        docker compose logs --tail=50
+        # Suppress warnings from docker compose
+        $logs = docker compose logs --tail=50 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" }
+        Write-Host $logs
     }
 
     Write-Host ""
@@ -253,6 +343,9 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "To check service status:" -ForegroundColor Yellow
     Write-Host "  docker compose ps" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "💡 Tip: If backend is unhealthy, it may need more time to start." -ForegroundColor Cyan
+    Write-Host "   Wait 1-2 minutes and check again: docker compose ps" -ForegroundColor White
     Write-Host ""
     exit 1
 }
@@ -269,9 +362,9 @@ if ($LASTEXITCODE -ne 0) {
 $unhealthyServices = @()
 
 # Parse the output line by line (skip header and warning lines)
-$lines = $serviceStatus -split "`n" | Where-Object { 
-    $_ -match "^\w" -and 
-    $_ -notmatch "SERVICE" -and 
+$lines = $serviceStatus -split "`n" | Where-Object {
+    $_ -match "^\w" -and
+    $_ -notmatch "SERVICE" -and
     $_ -notmatch "level=warning" -and
     $_ -notmatch "time="
 }
@@ -281,7 +374,7 @@ foreach ($line in $lines) {
     if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
         $serviceName = $matches['service']
         $health = $matches['health']
-        
+
         if ($health -eq "unhealthy") {
             $unhealthyServices += $serviceName
         }

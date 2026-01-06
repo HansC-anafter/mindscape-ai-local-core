@@ -66,6 +66,29 @@ uvicorn app.main:app --reload
 
 ### Windows-Specific Issues
 
+#### Issue: Project in System Directory (Access Denied)
+
+**Error**: `Error response from daemon: mkdir C:\WINDOWS\system32\mindscape-ai-local-core\data: Access is denied.`
+
+**Cause**: The project was cloned into a system directory (e.g., `C:\WINDOWS\system32\`), which requires administrator privileges to create files.
+
+**Solution**:
+1. **Move the project to a user directory**:
+   ```powershell
+   # Recommended locations:
+   # - C:\Users\$env:USERNAME\Documents\mindscape-ai-local-core
+   # - C:\Projects\mindscape-ai-local-core
+   # - D:\Projects\mindscape-ai-local-core
+   ```
+
+2. **After moving, run the start script again**:
+   ```powershell
+   cd C:\Projects\mindscape-ai-local-core
+   .\scripts\start.ps1
+   ```
+
+**Prevention**: The start script now automatically detects and warns if the project is in a system directory. Always clone to a user directory.
+
 #### Issue: PowerShell Execution Policy
 
 **Error**: `cannot be loaded because running scripts is disabled on this system`

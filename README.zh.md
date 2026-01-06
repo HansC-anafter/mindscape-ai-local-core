@@ -171,13 +171,23 @@ Local Core 的重點放在：
 
 **Windows PowerShell:**
 ```powershell
-# 1. 克隆倉庫
+# 1. 導航到用戶目錄（不要在 system32 或 Program Files 目錄下）
+cd C:\Users\$env:USERNAME\Documents
+# 或：cd C:\Projects
+
+# 2. 克隆倉庫（這會創建 mindscape-ai-local-core 資料夾）
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+
+# 3. 進入專案目錄（現在您已經在專案根目錄了）
 cd mindscape-ai-local-core
 
-# 2. 啟動所有服務（包含 Docker 健康檢查）
+# 4. 啟動所有服務（包含 Docker 健康檢查）
+# 如果遇到執行策略錯誤，請執行：
+#   powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 .\scripts\start.ps1
 ```
+
+> **💡 提示**：執行 `cd mindscape-ai-local-core` 後，您已經在專案根目錄了。不要再執行一次 `cd mindscape-ai-local-core`！
 
 **Linux/macOS:**
 ```bash
@@ -209,6 +219,7 @@ docker compose up -d
 - **Docker 部署** – [Docker 部署指南](./docs/getting-started/docker.md)
 - **手動安裝** – [安裝指南](./docs/getting-started/installation.md)
 - **快速開始** – [快速開始指南](./QUICKSTART.md)
+- **故障排除** – [故障排除指南](./docs/getting-started/troubleshooting.md) - 常見問題和解決方案
 
 ### ⚠️ 重要：PostgreSQL 環境變數配置（必須）
 
@@ -267,6 +278,7 @@ docker logs mindscape-ai-local-core-backend | grep -i "postgresql engine"
 - [快速開始](./docs/getting-started/quick-start.md) - 安裝和設置指南
 - [Docker 部署](./docs/getting-started/docker.md) - 使用 Docker Compose 部署
 - [安裝指南](./docs/getting-started/installation.md) - 手動安裝說明
+- [故障排除](./docs/getting-started/troubleshooting.md) - 常見問題和解決方案
 
 ### 核心概念
 - [心智空間算法](./docs/mindscape-algorithm.md) - 核心理念與三層架構

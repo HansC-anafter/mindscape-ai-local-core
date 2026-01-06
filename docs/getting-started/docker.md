@@ -24,21 +24,18 @@ cd mindscape-ai-local-core
 
 **Windows PowerShell:**
 ```powershell
-# Change to project directory
-cd mindscape-ai-local-core
+# Make sure you're in the project directory (if not already)
+# The script will automatically detect and navigate to the correct directory
+.\scripts\start.ps1
 
-# Start all services (script includes Docker health check)
 # If you get an execution policy error, run:
 #   powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
-.\scripts\start.ps1
 ```
 
 **Linux/macOS:**
 ```bash
-# Change to project directory
-cd mindscape-ai-local-core
-
-# Start all services (script includes Docker health check)
+# Make sure you're in the project directory (if not already)
+# The script will automatically detect and navigate to the correct directory
 ./scripts/start.sh
 ```
 

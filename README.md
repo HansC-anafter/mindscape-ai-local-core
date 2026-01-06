@@ -169,15 +169,23 @@ The easiest way to get started is using Docker Compose. **You can start the syst
 
 **Windows PowerShell:**
 ```powershell
-# 1. Clone the repository
+# 1. Navigate to a user directory (NOT system32 or Program Files)
+cd C:\Users\$env:USERNAME\Documents
+# Or: cd C:\Projects
+
+# 2. Clone the repository (this will create mindscape-ai-local-core folder)
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+
+# 3. Enter the project directory (you're now in the project root)
 cd mindscape-ai-local-core
 
-# 2. Start all services (includes Docker health check)
+# 4. Start all services (includes Docker health check)
 # If you get an execution policy error, run:
 #   powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 .\scripts\start.ps1
 ```
+
+> **💡 Note**: After `cd mindscape-ai-local-core`, you're already in the project root. Don't run `cd mindscape-ai-local-core` again!
 
 **Linux/macOS:**
 ```bash
@@ -209,6 +217,7 @@ For detailed instructions, see:
 - **Docker Deployment** – [Docker Deployment Guide](./docs/getting-started/docker.md)
 - **Manual Installation** – [Installation Guide](./docs/getting-started/installation.md)
 - **Quick Start** – [Quick Start Guide](./QUICKSTART.md)
+- **Troubleshooting** – [Troubleshooting Guide](./docs/getting-started/troubleshooting.md) - Common issues and solutions
 
 Once the stack is running:
 
@@ -226,6 +235,7 @@ Once the stack is running:
 - [Quick Start](./docs/getting-started/quick-start.md) - Installation and setup guide
 - [Docker Deployment](./docs/getting-started/docker.md) - Deploy using Docker Compose
 - [Installation Guide](./docs/getting-started/installation.md) - Manual installation instructions
+- [Troubleshooting](./docs/getting-started/troubleshooting.md) - Common issues and solutions
 
 ### Core Concepts
 - [The Mindscape Algorithm](./docs/mindscape-algorithm.md) - Core philosophy and 3-layer architecture
