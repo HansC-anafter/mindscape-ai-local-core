@@ -168,16 +168,25 @@ def validate_routes_against_manifest(
             remote_capabilities_dir = None
 
     if not remote_capabilities_dir or not remote_capabilities_dir.exists():
-        error_msg = (
-            f"Remote capabilities directory not found: {remote_capabilities_dir}. "
-            f"Cannot validate routes. Please set MINDSCAPE_REMOTE_CAPABILITIES_DIR environment variable."
-        )
-        logger.error(error_msg)
         import os
         skip_validation = os.getenv("SKIP_ROUTE_VALIDATION") == "1"
-        if skip_validation:
-            logger.warning("SKIP_ROUTE_VALIDATION=1, skipping route validation")
+        
+        # In local-core, route validation is optional (cloud capabilities not required)
+        # Skip validation if MINDSCAPE_REMOTE_CAPABILITIES_DIR is not set or SKIP_ROUTE_VALIDATION=1
+        if not remote_capabilities_dir or skip_validation:
+            logger.info(
+                "Remote capabilities directory not configured. "
+                "Skipping route validation (this is normal for local-core deployments)."
+            )
             return True, []
+        
+        # Only raise error if directory was explicitly set but doesn't exist
+        error_msg = (
+            f"Remote capabilities directory not found: {remote_capabilities_dir}. "
+            f"Cannot validate routes. Please set MINDSCAPE_REMOTE_CAPABILITIES_DIR environment variable "
+            f"or set SKIP_ROUTE_VALIDATION=1 to skip validation."
+        )
+        logger.error(error_msg)
         raise FileNotFoundError(error_msg)
 
     actual_routes = extract_routes_from_app(app)
