@@ -55,6 +55,9 @@ logs/
 temp/
 tmp/
 
+# Capability pack files (build artifacts)
+*.mindpack
+
 # Test files
 test_data/
 *.test.*
