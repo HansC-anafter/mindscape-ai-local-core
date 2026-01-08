@@ -164,6 +164,10 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(lens.router, tags=["lenses"])
     app.include_router(composition.router, tags=["compositions"])
     app.include_router(surface.router, tags=["surface"])
+    
+    # Dashboard routes
+    from .routes.core.dashboard import router as dashboard_router
+    app.include_router(dashboard_router, tags=["dashboard"])
 
     try:
         from backend.app.capabilities.api_loader import load_capability_apis
