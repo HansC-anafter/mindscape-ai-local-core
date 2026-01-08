@@ -12,9 +12,10 @@ import React, {
 
 // Get API URL - for 'use client' components, always use browser-accessible URL
 // In browser, NEXT_PUBLIC_API_URL points to host's localhost
-import { getApiBaseUrl } from '../lib/api-url';
+import { getApiBaseUrl, getApiUrl as getDynamicApiUrl } from '../lib/api-url';
 
 // This is evaluated at runtime, not module load time
+// Use synchronous version for immediate use, but prefer async version when possible
 const getApiUrl = () => {
   return getApiBaseUrl();
 };
@@ -160,6 +161,7 @@ export function WorkspaceDataProvider({
   const loadingTasksRef = useRef(false);
   const loadingExecutionsRef = useRef(false);
   const mountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load workspace data with timeout
   const loadWorkspace = useCallback(async () => {
@@ -187,12 +189,19 @@ export function WorkspaceDataProvider({
     setIsLoadingWorkspace(true);
     setError(null); // Clear previous errors
 
-    // Create abort controller for timeout
+    // Abort any existing requests first
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
     const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const timeoutId = setTimeout(() => {
-      console.log(`[WorkspaceDataContext:${tabId}] Request timeout after 30s`);
+      console.log(`[WorkspaceDataContext:${tabId}] Request timeout after 15s`);
       controller.abort();
-    }, 30000); // 30 second timeout
+    }, 15000); // 15 second timeout
 
     try {
       console.log(`[WorkspaceDataContext:${tabId}] Starting fetch for workspace ${workspaceId}`);
@@ -200,40 +209,56 @@ export function WorkspaceDataProvider({
 
       // Use a unique request ID to avoid browser request deduplication
       const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const url = `${getApiUrl()}/api/v1/workspaces/${workspaceId}?t=${requestId}`;
+
+      // Directly use base URL to avoid any blocking from getDynamicApiUrl
+      // This ensures the fetch request can be sent immediately
+      const apiUrl = getApiBaseUrl();
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}?t=${requestId}`;
 
       console.log(`[WorkspaceDataContext:${tabId}] Fetch URL: ${url}`);
 
-      // Add a progress check
+      // Monitor request progress
       const progressCheck = setInterval(() => {
         const elapsed = Date.now() - startTime;
+        // Log every 2 seconds after 5 seconds
         if (elapsed > 5000 && elapsed % 2000 < 100) {
-          console.log(`[WorkspaceDataContext:${tabId}] Fetch still pending after ${elapsed}ms...`);
+          console.warn(`[WorkspaceDataContext:${tabId}] Fetch still pending after ${elapsed}ms - URL: ${url}`);
+          // Check if controller is aborted
+          if (controller.signal.aborted) {
+            console.error(`[WorkspaceDataContext:${tabId}] Request was aborted!`);
+          }
         }
       }, 1000);
 
       let response: Response;
       try {
-        response = await fetch(
-          url,
-          {
-            method: 'GET',
-            signal: controller.signal,
-            cache: 'no-store', // Prevent browser caching
-            credentials: 'include',
-            mode: 'cors', // Explicitly set CORS mode
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0',
-            },
-            // Force a new request, don't reuse connections
-            keepalive: false,
-          }
-        );
+        // Configure request timeout protection
+        // Use a shorter timeout to fail fast if there's a network issue
+        // Fetch with minimal config to avoid CORS preflight
+        // Use same-origin mode since frontend and backend are on different ports
+        // Log fetch attempt for debugging
+        console.log(`[WorkspaceDataContext:${tabId}] Attempting fetch to: ${url}`);
+
+        const fetchPromise = fetch(url, {
+          method: 'GET',
+          signal: controller.signal,
+          // Configure fetch for same-origin requests
+          cache: 'no-store',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
+
+        // Execute fetch request
+        response = await fetchPromise;
         clearInterval(progressCheck);
       } catch (fetchErr: any) {
         clearInterval(progressCheck);
+        // If it's a timeout or abort, provide clearer error message
+        if (fetchErr.name === 'AbortError' || fetchErr.message?.includes('timeout')) {
+          throw new Error('Request timeout - backend may be unreachable or slow to respond');
+        }
         throw fetchErr;
       }
 
@@ -305,7 +330,7 @@ export function WorkspaceDataProvider({
     setIsLoadingTasks(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
       const response = await fetch(
@@ -350,7 +375,7 @@ export function WorkspaceDataProvider({
     setIsLoadingExecutions(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
       const response = await fetch(
@@ -386,7 +411,7 @@ export function WorkspaceDataProvider({
     if (!mountedRef.current) return;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
       const response = await fetch(
@@ -470,19 +495,26 @@ export function WorkspaceDataProvider({
     loadingTasksRef.current = false;
     loadingExecutionsRef.current = false;
 
-    // Add a small delay to ensure previous loads are cleared
+    // Track loading state to prevent duplicate loads during hot reload
+    let isCancelled = false;
+
+    // Delay to ensure cleanup completion
     const loadData = async () => {
       // Wait a bit to ensure any previous loads are cleared
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Double-check we're still mounted and not already loading
-      if (!mountedRef.current) {
-        console.log('[WorkspaceDataContext] Skipping initial load - unmounted');
+      if (!mountedRef.current || isCancelled) {
+        console.log('[WorkspaceDataContext] Skipping initial load - unmounted or cancelled');
         return;
       }
 
-      // Don't check loadingWorkspaceRef here - allow concurrent loads from different tabs
-      // Each tab should have its own WorkspaceDataProvider instance
+      // Check if already loading to prevent duplicate loads during hot reload
+      if (loadingWorkspaceRef.current) {
+        console.log('[WorkspaceDataContext] Skipping initial load - already loading');
+        return;
+      }
+
       console.log(`[WorkspaceDataContext] Starting initial load for workspace ${workspaceId}`);
 
       // Skip loading for 'new' workspace (wizard mode)
@@ -539,11 +571,20 @@ export function WorkspaceDataProvider({
     loadData();
 
     return () => {
+      isCancelled = true;
       mountedRef.current = false;
+      // Abort any pending requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       // Clear loading flags on unmount
       loadingWorkspaceRef.current = false;
       loadingTasksRef.current = false;
       loadingExecutionsRef.current = false;
+      setIsLoadingWorkspace(false);
+      setIsLoadingTasks(false);
+      setIsLoadingExecutions(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
