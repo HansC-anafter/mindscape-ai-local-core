@@ -89,6 +89,9 @@ Playbook architecture and workflow execution mechanisms, including identity gove
 #### [Governance Decision & Risk Control Layer](./governance-decision-risk-control-layer.md)
 Multi-layered governance framework for safe and controlled playbook execution, with clear separation between Local-Core universal mechanisms and Cloud-specific extensions.
 
+#### [Mind-Model VC](./mind-model-vc.md)
+Version control for mind models - organizes user-provided clues into reviewable, adjustable, and rollback-able mind state recipes with version history.
+
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
 

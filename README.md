@@ -26,19 +26,25 @@ Both the **Mindscape Graph** (author mode) and **Workspace execution** (runtime 
 
 Instead of "chat in, answer out", Mindscape AI is designed as an **AI-driven visible thinking workflow**:
 
+> **Signal → Intent Governance → Mind-Model VC → Project/Flow → Playbooks → Sandbox → Memory**
+
 1. **Capture your mindscape**
 
    - Turn life themes, long-term projects, and recurring tasks into **intents** and **projects** inside a workspace.
 
-2. **Attach playbooks**
+2. **Version control your mind state**
+
+   - **Mind-Model VC** organizes clues you're willing to provide into reviewable, adjustable, and rollback-able mind state recipes with version history. See [Mind-Model VC Architecture](./docs/core-architecture/mind-model-vc.md) for details.
+
+3. **Attach playbooks**
 
    - Connect each intent/project to reusable **playbooks** (Markdown + YAML) that describe how your AI team should help.
 
-3. **Run, see, and iterate**
+4. **Run, see, and iterate**
 
    - Let the AI team execute the playbooks, see the **execution trace**, intermediate notes, and outputs, then refine together.
 
-This repo contains the local engine that wires these pieces together: workspace state, intents, the playbook runner, AI roles, and tool connections.
+This repo contains the local engine that wires these pieces together: workspace state, intents, mind-model version control, the playbook runner, AI roles, and tool connections.
 
 ---
 
@@ -92,6 +98,7 @@ into their own products or commercial offerings.
 
 * **Mindscape (workspace)** – the mental space you are working in; holds projects, intents, and execution traces.
 * **Intents** – structured "what I want" cards that anchor LLM conversations to your long-term goals.
+* **Mind-Model VC** – version control for mind models; organizes user-provided clues into reviewable, adjustable, and rollback-able mind state recipes with version history. See [Mind-Model VC Architecture](./docs/core-architecture/mind-model-vc.md).
 * **Projects** – containers for related intents and playbooks (e.g., a product launch, a yearly book, a client account).
 * **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces.
 * **Port/Adapter Architecture** – clean separation between core and external integrations, enabling local-first design with optional cloud extensions.
@@ -244,6 +251,7 @@ Once the stack is running:
 - [Architecture Documentation](./docs/core-architecture/README.md) - Complete system architecture, including:
   - Port/Adapter Architecture
   - Memory & Intent Architecture
+  - Mind-Model VC Architecture
   - Execution Context
   - Local/Cloud Boundary
   - Playbooks & Workflows (including identity governance and access control)

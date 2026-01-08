@@ -15,6 +15,8 @@ Event Layer (MindEvent + SurfaceEvent)
     ↓
 Intent Governance Layer
     ↓
+Mind-Model VC Layer (Swatch → Mix → Commit)
+    ↓
 Project Detector + Project / Flow
     ↓
 Playbook Runner (playbook.md + playbook.json)
@@ -30,7 +32,7 @@ Artifacts & Decisions
 
 The **AI-driven visible thinking workflow** can be expressed as:
 
-> **Signal → Intent Governance → Project/Flow → Playbooks → Sandbox → Memory**
+> **Signal → Intent Governance → Mind-Model VC → Project/Flow → Playbooks → Sandbox → Memory**
 
 ### Layer-by-Layer Breakdown
 
@@ -67,6 +69,14 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - **Intent Clustering**: Groups related intents into IntentClusters (Projects)
 - **Intent Steward**: Maintains intent lifecycle and relationships
 - **Memory Integration**: Connects to workspace/project/member memories
+
+#### 4.5. Mind-Model VC Layer
+- **Swatch Collection**: Extracts candidate clues from Events (requires user confirmation)
+- **Mix Drafting**: Generates recipe drafts for time windows (user writes title/description)
+- **Commit Tracking**: Records recipe changes with user-written commit messages
+- **Co-Graph**: Tracks co-occurrence relationships between clues/colors
+- **User Control**: All clues require confirmation; recipes require user-written descriptions
+- See [Mind-Model VC Architecture](./mind-model-vc.md) for details
 
 #### 5. Project Detector + Project / Flow
 - **Project Detector**: LLM-based detection of project-worthy conversations

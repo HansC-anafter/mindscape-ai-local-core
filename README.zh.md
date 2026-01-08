@@ -26,15 +26,21 @@ Mind-Lens 採用**三層疊加**的設計：
 
 Mindscape AI 並不是一個「打一句話 → 回一句話」的 chat app，而是一套 **AI 驅動的思維可視化工作流**：
 
+> **Signal → Intent Governance → Mind-Model VC → Project/Flow → Playbooks → Sandbox → Memory**
+
 1. **收攏你的心智空間**
 
    - 把人生主題、長期專案、反覆出現的工作，變成工作區裡的 **Intent 卡片** 和 **Project**。
 
-2. **為每個 Intent 接上 Playbook**
+2. **版本控管你的心智狀態**
+
+   - **Mind-Model VC** 將你願意提供的線索整理成可回顧、可調整、可回滾的心智狀態配方，並保留版本歷史。詳見 [Mind-Model VC 架構](./docs/core-architecture/mind-model-vc.md)。
+
+3. **為每個 Intent 接上 Playbook**
 
    - 透過可讀又可執行的 **Playbook（Markdown + YAML）**，描述「AI 小隊應該怎麼幫你」。
 
-3. **讓 AI 小隊實際跑起來、看得見過程**
+4. **讓 AI 小隊實際跑起來、看得見過程**
 
    - Playbook 執行時會留下 **Execution Trace**、中間筆記與成果，讓思考與決策過程可回顧、可再利用。
 
@@ -92,6 +98,7 @@ Mindscape AI Cloud 只是其上一種可能的 SaaS 實作；其他開發者同�
 
 * **Mindscape（心智空間 / 工作區）**：你正在運作的心智舞台，放專案、Intent、執行軌跡。
 * **Intent（意圖卡）**：把「我現在想完成什麼」變成可追蹤的卡片，幫 LLM 將對話錨定在你的長期目標上。
+* **Mind-Model VC（心智建模版本控管）**：心智模型的版本控管系統；將使用者提供的線索整理成可回顧、可調整、可回滾的心智狀態配方，並保留版本歷史。詳見 [Mind-Model VC 架構](./docs/core-architecture/mind-model-vc.md)。
 * **Project（專案）**：把相關的 Intent 與 Playbook 收攏在一起，例如一個產品發佈、一整年的寫書計畫、一個客戶帳號。
 * **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。
   Playbook 不只是「可以跑的腳本」，在 local-core 中就已具備基本的歸屬與作用域邊界；在雲端版本會進一步延伸到租戶、團隊等層級，讓不同使用者、專案、租戶之間的 workflow 可以被治理。
@@ -287,6 +294,7 @@ docker logs mindscape-ai-local-core-backend | grep -i "postgresql engine"
 - [架構文檔](./docs/core-architecture/README.md) - 完整系統架構，包括：
   - Port/Adapter 架構
   - 記憶與意圖架構
+  - Mind-Model VC 架構
   - 執行上下文
   - 本地/雲端邊界
   - Playbooks 與工作流（包含身份治理與權限控管）
