@@ -340,6 +340,10 @@ class MindEvent(BaseModel):
         None,
         description="Associated workspace ID (if applicable)"
     )
+    thread_id: Optional[str] = Field(
+        None,
+        description="Associated conversation thread ID (if applicable)"
+    )
 
     # Event classification
     event_type: EventType = Field(..., description="Type of event")

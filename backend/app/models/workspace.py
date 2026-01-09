@@ -377,6 +377,7 @@ class WorkspaceChatRequest(BaseModel):
     )
     stream: bool = Field(default=True, description="Enable streaming response (SSE)")
     project_id: Optional[str] = Field(None, description="Project ID for project context")
+    thread_id: Optional[str] = Field(None, description="Conversation thread ID for conversation threading")
     # CTA trigger fields
     timeline_item_id: Optional[str] = Field(None, description="Timeline item ID for CTA action")
     action: Optional[str] = Field(None, description="Action type: 'add_to_intents' | 'add_to_tasks' | 'publish_to_wordpress' | 'execute_playbook' | 'use_tool' | 'create_intent' | 'start_chat' | 'upload_file'")
@@ -763,6 +764,7 @@ class PlaybookExecution(BaseModel):
     workspace_id: str = Field(..., description="Workspace ID")
     playbook_code: str = Field(..., description="Playbook code")
     intent_instance_id: Optional[str] = Field(None, description="Origin intent instance ID")
+    thread_id: Optional[str] = Field(None, description="Associated conversation thread ID")
     status: str = Field(..., description="Execution status: running/paused/done/failed")
     phase: Optional[str] = Field(None, description="Current phase ID")
     last_checkpoint: Optional[str] = Field(None, description="Last checkpoint data (JSON)")
@@ -871,6 +873,31 @@ class TimelineItem(BaseModel):
 
 # ==================== Artifact Models ====================
 
+class ConversationThread(BaseModel):
+    """
+    Conversation Thread model - represents a conversation thread within a workspace
+
+    Threads allow users to organize conversations into separate streams,
+    similar to ChatGPT's conversation threads or Cursor's "new agent" feature.
+    """
+    id: str = Field(..., description="Unique thread identifier")
+    workspace_id: str = Field(..., description="Workspace ID this thread belongs to")
+    title: str = Field(..., description="Thread title")
+    project_id: Optional[str] = Field(None, description="Optional associated project ID")
+    pinned_scope: Optional[str] = Field(None, description="Optional pinned scope for this thread")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    last_message_at: datetime = Field(default_factory=datetime.utcnow, description="Last message timestamp")
+    message_count: int = Field(default=0, description="Number of messages in this thread")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Extensible metadata")
+    is_default: bool = Field(default=False, description="Whether this is the default thread for the workspace")
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
 class Artifact(BaseModel):
     """
     Artifact model - represents a playbook execution output
@@ -887,6 +914,7 @@ class Artifact(BaseModel):
     )
     task_id: Optional[str] = Field(None, description="Associated task ID")
     execution_id: Optional[str] = Field(None, description="Associated execution ID")
+    thread_id: Optional[str] = Field(None, description="Associated conversation thread ID")
     playbook_code: str = Field(..., description="Source playbook code")
     artifact_type: ArtifactType = Field(..., description="Artifact type")
     title: str = Field(..., description="Artifact title")
@@ -902,6 +930,33 @@ class Artifact(BaseModel):
     )
     primary_action_type: PrimaryActionType = Field(..., description="Primary action type")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class ThreadReference(BaseModel):
+    """
+    ThreadReference model - represents a reference pinned to a conversation thread
+
+    References are external resources (Obsidian notes, Notion pages, WordPress posts,
+    local files, URLs) that are associated with a thread for context and retrieval.
+    """
+    id: str = Field(..., description="Unique reference identifier")
+    workspace_id: str = Field(..., description="Workspace ID")
+    thread_id: str = Field(..., description="Conversation thread ID")
+    source_type: Literal['obsidian', 'notion', 'wordpress', 'local_file', 'url', 'google_drive'] = Field(
+        ..., description="Source connector type"
+    )
+    uri: str = Field(..., description="Real URI (clickable, can navigate back)")
+    title: str = Field(..., description="Reference title")
+    snippet: Optional[str] = Field(None, description="Short summary snippet")
+    reason: Optional[str] = Field(None, description="Reason for pinning (optional)")
+    pinned_by: Literal['user', 'ai'] = Field(default='user', description="Who pinned this reference")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
