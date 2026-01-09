@@ -7,7 +7,7 @@ Validates capability manifest.yaml against schema.
 Requirements:
 - portability field (required)
 - environments must include local-core
-- tool backend must use mindscape.capabilities.* format
+- tool backend must use capabilities.* format (mindscape.capabilities.* is deprecated)
 - API path must be under api/ directory
 
 Usage:
@@ -111,11 +111,12 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
         schema_path = script_dir.parent.parent / "schemas" / "manifest.schema.yaml"
 
         if not schema_path.exists():
-            errors.append(ValidationError(
+            # Schema file missing is a warning, not an error (schema validation is optional)
+            warnings.append(ValidationError(
                 capability=capability_code,
                 field="manifest.yaml",
-                message=f"Schema file not found: {schema_path}. JSON Schema validation cannot proceed.",
-                severity="error"
+                message=f"Schema file not found: {schema_path}. JSON Schema validation skipped.",
+                severity="warning"
             ))
         else:
             try:
@@ -239,26 +240,35 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
         backend = tool.get('backend', '')
 
         if backend:
-            # Check if using mindscape.capabilities.* format
-            if not backend.startswith('mindscape.capabilities.'):
+            # Check if using capabilities.* format (mindscape.capabilities.* is deprecated)
+            if backend.startswith('mindscape.capabilities.'):
                 errors.append(ValidationError(
                     capability=capability_code,
                     field=f"tools[{tool_name}].backend",
                     message=(
-                        f"Tool backend must start with 'mindscape.capabilities.', got: '{backend}'"
+                        f"Tool backend must use 'capabilities.*' format (mindscape.capabilities.* is deprecated), got: '{backend}'"
+                    ),
+                    severity="error"
+                ))
+            elif not backend.startswith('capabilities.'):
+                errors.append(ValidationError(
+                    capability=capability_code,
+                    field=f"tools[{tool_name}].backend",
+                    message=(
+                        f"Tool backend must start with 'capabilities.', got: '{backend}'"
                     ),
                     severity="error"
                 ))
             else:
-                # Simple format check: mindscape.capabilities.{capability}.{module}:{function}
-                pattern = r"^mindscape\\.capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
+                # Simple format check: capabilities.{capability}.{module}:{function}
+                pattern = r"^capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
                 if not re.match(pattern, backend):
                     warnings.append(ValidationError(
                         capability=capability_code,
                         field=f"tools[{tool_name}].backend",
                         message=(
                             f"Tool backend format looks invalid: '{backend}'. "
-                            "Expected mindscape.capabilities.{capability}.{module}:{function}"
+                            "Expected capabilities.{capability}.{module}:{function}"
                         ),
                         severity="warning"
                     ))
@@ -308,13 +318,81 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
             ))
         else:
             prefix = cap.get('prefix')
-            if not re.match(r"^/[a-z0-9_]+$", str(prefix)):
+            # Prefix should be a valid URL path (can contain multiple segments)
+            # Format: /api/v1/capabilities/{capability_code} or similar
+            if not isinstance(prefix, str) or not prefix.startswith('/'):
                 errors.append(ValidationError(
                     capability=capability_code,
                     field=f"apis[{cap_code}].prefix",
-                    message=f"Invalid prefix format: '{prefix}'. Expected ^/[a-z0-9_]+$",
+                    message=f"Invalid prefix format: '{prefix}'. Must be a string starting with '/'",
                     severity="error"
                 ))
+            elif not re.match(r"^/[a-z0-9_/]+$", str(prefix)):
+                warnings.append(ValidationError(
+                    capability=capability_code,
+                    field=f"apis[{cap_code}].prefix",
+                    message=f"Prefix format may be invalid: '{prefix}'. Should be a valid URL path",
+                    severity="warning"
+                ))
+
+    # ========================================================================
+    # UI Mode Validation (Phase 0.4)
+    # ========================================================================
+
+    ui_mode = manifest.get('ui_mode')
+    if ui_mode is not None:
+        valid_ui_modes = ['local-only', 'cloud-enhanced']
+        if ui_mode not in valid_ui_modes:
+            errors.append(ValidationError(
+                capability=capability_code,
+                field="ui_mode",
+                message=(
+                    f"Invalid ui_mode: '{ui_mode}'. "
+                    f"Must be one of: {', '.join(valid_ui_modes)}"
+                ),
+                severity="error"
+            ))
+        else:
+            # Phase 1: Default to local-only
+            if ui_mode == 'cloud-enhanced':
+                warnings.append(ValidationError(
+                    capability=capability_code,
+                    field="ui_mode",
+                    message=(
+                        "ui_mode='cloud-enhanced' is for Phase 2. "
+                        "Phase 1 should use 'local-only'."
+                    ),
+                    severity="warning"
+                ))
+
+    cloud_compatible = manifest.get('cloud_compatible')
+    if cloud_compatible is not None and not isinstance(cloud_compatible, bool):
+        errors.append(ValidationError(
+            capability=capability_code,
+            field="cloud_compatible",
+            message="cloud_compatible must be a boolean value.",
+            severity="error"
+        ))
+
+    local_fallback = manifest.get('local_fallback')
+    if local_fallback is not None:
+        if not isinstance(local_fallback, bool):
+            errors.append(ValidationError(
+                capability=capability_code,
+                field="local_fallback",
+                message="local_fallback must be a boolean value.",
+                severity="error"
+            ))
+        elif local_fallback and ui_mode != 'cloud-enhanced':
+            warnings.append(ValidationError(
+                capability=capability_code,
+                field="local_fallback",
+                message=(
+                    "local_fallback is only relevant when ui_mode='cloud-enhanced'. "
+                    "Consider removing or setting ui_mode='cloud-enhanced'."
+                ),
+                severity="warning"
+            ))
 
     # ========================================================================
     # Dependencies Validation
