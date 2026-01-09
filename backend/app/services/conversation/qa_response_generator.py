@@ -77,7 +77,8 @@ class QAResponseGenerator:
         message: str,
         message_id: str,
         project_id: Optional[str] = None,
-        workspace: Optional[Any] = None
+        workspace: Optional[Any] = None,
+        thread_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate QA response with context
@@ -88,6 +89,7 @@ class QAResponseGenerator:
             message: User message
             message_id: Message/event ID
             project_id: Optional project ID
+            thread_id: Optional thread ID
 
         Returns:
             Dict with assistant response and event
@@ -127,7 +129,9 @@ class QAResponseGenerator:
                 message=message,
                 profile_id=profile_id,
                 workspace=workspace,
-                hours=24
+                thread_id=thread_id,
+                hours=24,
+                side_chain_mode="auto"
             )
             enhanced_prompt = context_builder.build_enhanced_prompt(
                 message=message,

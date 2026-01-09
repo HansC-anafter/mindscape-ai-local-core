@@ -29,6 +29,7 @@ EXECUTION_PLAN_PROMPT = """You are an Execution Planning Agent. Your task is to 
 and create a structured execution plan BEFORE taking any action.
 
 {project_context}
+{context_section}
 
 ## User Request
 {user_request}
@@ -94,6 +95,8 @@ async def generate_execution_plan(
     project_assignment_decision: Optional[Dict[str, Any]] = None,
     tenant_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    planning_context: Optional[str] = None,
+    thread_id: Optional[str] = None,
 ) -> Optional[ExecutionPlan]:
     """
     Generate a structured ExecutionPlan from user request using LLM
@@ -115,6 +118,8 @@ async def generate_execution_plan(
         project_assignment_decision: Optional project assignment decision metadata
         tenant_id: Tenant ID (for multi-tenant)
         user_id: Current user ID
+        planning_context: Optional thread-first planning context
+        thread_id: Optional thread ID for thread-scoped context
 
     Returns:
         ExecutionPlan or None if generation fails
@@ -196,8 +201,16 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
         except Exception as e:
             logger.warning(f"Failed to build project context: {e}")
 
+    context_section = ""
+    if planning_context:
+        context_section = f"""
+## Thread & Workspace Context (Thread-First)
+{planning_context}
+"""
+
     prompt = EXECUTION_PLAN_PROMPT.format(
         project_context=project_context_str,
+        context_section=context_section,
         user_request=user_request,
         execution_mode=execution_mode,
         expected_artifacts=expected_artifacts or ["various"],
@@ -727,4 +740,3 @@ async def record_execution_plan_event(
 
     except Exception as e:
         logger.warning(f"[ExecutionPlanGenerator] Failed to record plan event: {e}")
-

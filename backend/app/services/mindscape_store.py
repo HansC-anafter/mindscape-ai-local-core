@@ -35,6 +35,9 @@ from backend.app.services.stores.lens_composition_store import LensCompositionSt
 from backend.app.services.stores.commands_store import CommandsStore
 from backend.app.services.stores.surface_events_store import SurfaceEventsStore
 from backend.app.services.stores.user_playbook_meta_store import UserPlaybookMetaStore
+from backend.app.services.stores.conversation_threads_store import ConversationThreadsStore
+from backend.app.services.stores.thread_references_store import ThreadReferencesStore
+from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,9 @@ class MindscapeStore:
         self.commands = CommandsStore(db_path)
         self.surface_events = SurfaceEventsStore(db_path)
         self.user_playbook_meta = UserPlaybookMetaStore(db_path)
+        self.conversation_threads = ConversationThreadsStore(db_path)
+        self.thread_references = ThreadReferencesStore(db_path)
+        self.playbook_executions = PlaybookExecutionsStore(db_path)
 
         # Initialize database schema
         # Note: Database migrations are managed by Alembic (run: alembic upgrade head)

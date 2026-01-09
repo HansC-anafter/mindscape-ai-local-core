@@ -404,7 +404,8 @@ class PlanBuilder:
         profile_id: str,
         available_packs: List[str],
         project_id: Optional[str] = None,
-        project_assignment_decision: Optional[Dict[str, Any]] = None
+        project_assignment_decision: Optional[Dict[str, Any]] = None,
+        thread_id: Optional[str] = None
     ) -> List[TaskPlan]:
         """
         Generate execution plan using LLM
@@ -415,6 +416,7 @@ class PlanBuilder:
             workspace_id: Workspace ID
             profile_id: User profile ID
             available_packs: List of available pack IDs
+            thread_id: Optional thread ID for thread-scoped context
 
         Returns:
             List of TaskPlan objects
@@ -502,7 +504,9 @@ class PlanBuilder:
                 profile_id=profile_id,
                 workspace=workspace,
                 target_tokens=workspace_context_budget,
-                mode="planning"
+                mode="planning",
+                thread_id=thread_id,
+                side_chain_mode="auto"
             )
 
             project_context_str = ""
@@ -1061,7 +1065,8 @@ Message analysis hints:
         project_assignment_decision: Optional[Dict[str, Any]] = None,
         effective_playbooks: Optional[List[Dict[str, Any]]] = None,
         available_playbooks: Optional[List[Dict[str, Any]]] = None,  # Keep for backward compatibility
-        routing_decision: Optional[Any] = None  # IntentRoutingDecision
+        routing_decision: Optional[Any] = None,  # IntentRoutingDecision
+        thread_id: Optional[str] = None
     ) -> ExecutionPlan:
         """
         Generate execution plan for message
@@ -1078,6 +1083,7 @@ Message analysis hints:
             use_llm: Whether to use LLM-based planning as primary (default: True, falls back to rule-based if LLM fails)
             effective_playbooks: Pre-resolved effective playbooks (from PlaybookScopeResolver)
             available_playbooks: Available playbooks (deprecated, kept for backward compatibility)
+            thread_id: Optional thread ID for thread-scoped context
 
         Returns:
             ExecutionPlan object with planned tasks
@@ -1114,7 +1120,8 @@ Message analysis hints:
                     profile_id=profile_id,
                     available_packs=available_packs,
                     project_id=project_id,
-                    project_assignment_decision=project_assignment_decision
+                    project_assignment_decision=project_assignment_decision,
+                    thread_id=thread_id
                 )
                 if llm_plans:
                     task_plans.extend(llm_plans)
