@@ -278,6 +278,97 @@ class TasksStore(StoreBase):
             rows = cursor.fetchall()
             return [self._row_to_task(row) for row in rows]
 
+    def list_tasks_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        status: Optional[TaskStatus] = None,
+        limit: Optional[int] = None,
+        exclude_cancelled: bool = False
+    ) -> List[Task]:
+        """
+        List tasks for a specific thread (via mind_events.message_id join)
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            status: Filter by status (optional)
+            limit: Maximum number of tasks to return (optional)
+            exclude_cancelled: Exclude cancelled_by_user and expired tasks (default: False)
+
+        Returns:
+            List of tasks
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = '''
+                SELECT t.*
+                FROM tasks t
+                INNER JOIN mind_events e ON e.id = t.message_id
+                WHERE t.workspace_id = ? AND e.thread_id = ?
+            '''
+            params = [workspace_id, thread_id]
+
+            if status:
+                query += ' AND t.status = ?'
+                params.append(status.value)
+
+            if exclude_cancelled:
+                query += ' AND t.status NOT IN (?, ?)'
+                params.extend([TaskStatus.CANCELLED_BY_USER.value, TaskStatus.EXPIRED.value])
+
+            query += ' ORDER BY t.created_at DESC'
+
+            if limit:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_task(row) for row in rows]
+
+    def list_pending_tasks_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        exclude_cancelled: bool = True
+    ) -> List[Task]:
+        """
+        List pending tasks for a specific thread
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            exclude_cancelled: Exclude cancelled_by_user and expired tasks (default: True)
+
+        Returns:
+            List of pending tasks
+        """
+        return self.list_tasks_by_thread(
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            status=TaskStatus.PENDING,
+            exclude_cancelled=exclude_cancelled
+        )
+
+    def list_running_tasks_by_thread(self, workspace_id: str, thread_id: str) -> List[Task]:
+        """
+        List running tasks for a specific thread
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+
+        Returns:
+            List of running tasks
+        """
+        return self.list_tasks_by_thread(
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            status=TaskStatus.RUNNING
+        )
+
     def list_executions_by_project(
         self,
         workspace_id: str,

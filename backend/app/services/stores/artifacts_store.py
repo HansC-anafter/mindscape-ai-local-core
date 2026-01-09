@@ -31,17 +31,18 @@ class ArtifactsStore(StoreBase):
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO artifacts (
-                    id, workspace_id, intent_id, task_id, execution_id,
+                    id, workspace_id, intent_id, task_id, execution_id, thread_id,
                     playbook_code, artifact_type, title, summary, content,
                     storage_ref, sync_state, primary_action_type, metadata,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 artifact.id,
                 artifact.workspace_id,
                 artifact.intent_id,
                 artifact.task_id,
                 artifact.execution_id,
+                artifact.thread_id,
                 artifact.playbook_code,
                 artifact.artifact_type.value,
                 artifact.title,
@@ -229,6 +230,36 @@ class ArtifactsStore(StoreBase):
             logger.error(f"Failed to delete artifact {artifact_id}: {e}")
             return False
 
+    def get_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        limit: Optional[int] = 100
+    ) -> List[Artifact]:
+        """
+        Get artifacts for a specific conversation thread
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            limit: Maximum number of artifacts to return (default: 100)
+
+        Returns:
+            List of artifacts for the thread, ordered by created_at DESC
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = 'SELECT * FROM artifacts WHERE workspace_id = ? AND thread_id = ? ORDER BY created_at DESC'
+            params = [workspace_id, thread_id]
+
+            if limit:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_artifact(row) for row in rows]
+
     def _row_to_artifact(self, row) -> Artifact:
         """Convert database row to Artifact model"""
         return Artifact(
@@ -237,6 +268,7 @@ class ArtifactsStore(StoreBase):
             intent_id=row['intent_id'] if row['intent_id'] else None,
             task_id=row['task_id'] if row['task_id'] else None,
             execution_id=row['execution_id'] if row['execution_id'] else None,
+            thread_id=row['thread_id'] if row.get('thread_id') else None,
             playbook_code=row['playbook_code'],
             artifact_type=ArtifactType(row['artifact_type']),
             title=row['title'],

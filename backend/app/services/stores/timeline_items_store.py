@@ -104,6 +104,43 @@ class TimelineItemsStore(StoreBase):
             rows = cursor.fetchall()
             return [self._row_to_timeline_item(row) for row in rows]
 
+    def list_timeline_items_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        limit: Optional[int] = None
+    ) -> List[TimelineItem]:
+        """
+        List timeline items for a specific thread (via mind_events.message_id join)
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            limit: Maximum number of items to return (optional)
+
+        Returns:
+            List of timeline items, ordered by created_at DESC
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = '''
+                SELECT ti.*
+                FROM timeline_items ti
+                INNER JOIN mind_events e ON e.id = ti.message_id
+                WHERE ti.workspace_id = ? AND e.thread_id = ?
+                ORDER BY ti.created_at DESC
+            '''
+            params = [workspace_id, thread_id]
+
+            if limit:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_timeline_item(row) for row in rows]
+
     def list_timeline_items_by_message(self, message_id: str) -> List[TimelineItem]:
         """
         List timeline items for a specific message

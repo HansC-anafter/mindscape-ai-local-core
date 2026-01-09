@@ -31,8 +31,8 @@ class EventsStore(StoreBase):
             cursor.execute('''
                 INSERT INTO mind_events (
                     id, timestamp, actor, channel, profile_id, project_id, workspace_id,
-                    event_type, payload, entity_ids, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    thread_id, event_type, payload, entity_ids, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 event.id,
                 self.to_isoformat(event.timestamp),
@@ -41,6 +41,7 @@ class EventsStore(StoreBase):
                 event.profile_id,
                 event.project_id,
                 event.workspace_id,
+                event.thread_id,
                 event.event_type.value,
                 self.serialize_json(event.payload),
                 self.serialize_json(event.entity_ids),
@@ -319,6 +320,120 @@ class EventsStore(StoreBase):
                     continue
             return events
 
+    def get_events_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: int = 100,
+        before_id: Optional[str] = None
+    ) -> List[MindEvent]:
+        """
+        Get all events for a specific conversation thread with optional cursor-based pagination
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            limit: Maximum number of events to return
+            before_id: Optional event ID for cursor-based pagination (load events before this ID)
+
+        Returns:
+            List of MindEvent objects for the thread, ordered by timestamp DESC
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = 'SELECT * FROM mind_events WHERE workspace_id = ? AND thread_id = ?'
+            params = [workspace_id, thread_id]
+
+            if start_time:
+                query += ' AND timestamp >= ?'
+                params.append(self.to_isoformat(start_time))
+
+            if end_time:
+                query += ' AND timestamp <= ?'
+                params.append(self.to_isoformat(end_time))
+
+            if before_id:
+                query += ' AND (timestamp < (SELECT timestamp FROM mind_events WHERE id = ?) OR (timestamp = (SELECT timestamp FROM mind_events WHERE id = ?) AND id < ?))'
+                params.extend([before_id, before_id, before_id])
+
+            query += ' ORDER BY timestamp DESC, id DESC LIMIT ?'
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            # Convert rows to events, with error handling
+            events = []
+            for i, row in enumerate(rows):
+                try:
+                    event = self._row_to_event(row)
+                    events.append(event)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error converting row {i} to event in get_events_by_thread: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    # Skip this row and continue
+                    continue
+            return events
+
+    def count_messages_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        include_execution_chat: bool = False
+    ) -> int:
+        """
+        Count MESSAGE events for a specific conversation thread
+        
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            include_execution_chat: If True, also count EXECUTION_CHAT events (default: False)
+            
+        Returns:
+            Count of MESSAGE events (and optionally EXECUTION_CHAT) in the thread
+            
+        Note:
+            Currently only counts EventType.MESSAGE by default, as "message_count" semantically
+            refers to user/assistant messages. TOOL_CALL and other event types are excluded
+            as they are not user-visible conversation messages.
+            
+            If you need to count all conversation-related events, set include_execution_chat=True
+            or consider using a different metric name (e.g., "conversation_count").
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if include_execution_chat:
+                query = '''
+                    SELECT COUNT(*) 
+                    FROM mind_events 
+                    WHERE workspace_id = ? 
+                      AND thread_id = ? 
+                      AND (event_type = ? OR event_type = ?)
+                '''
+                cursor.execute(query, (
+                    workspace_id, 
+                    thread_id, 
+                    EventType.MESSAGE.value,
+                    EventType.EXECUTION_CHAT.value
+                ))
+            else:
+                query = '''
+                    SELECT COUNT(*) 
+                    FROM mind_events 
+                    WHERE workspace_id = ? 
+                      AND thread_id = ? 
+                      AND event_type = ?
+                '''
+                cursor.execute(query, (workspace_id, thread_id, EventType.MESSAGE.value))
+            result = cursor.fetchone()
+            return result[0] if result else 0
+
     def get_timeline(
         self,
         profile_id: str,
@@ -487,6 +602,7 @@ class EventsStore(StoreBase):
                 profile_id=str(row['profile_id']),
                 project_id=str(row['project_id']) if row['project_id'] else None,
                 workspace_id=str(row['workspace_id']) if row['workspace_id'] else None,
+                thread_id=str(row['thread_id']) if row.get('thread_id') else None,
                 event_type=EventType(row['event_type']),
                 payload=payload,
                 entity_ids=entity_ids,

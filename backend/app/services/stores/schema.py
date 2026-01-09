@@ -114,6 +114,34 @@ def _apply_migrations(cursor):
     else:
         logger.debug("tasks table does not exist yet, skipping project_id migration (will be handled when table is created)")
 
+    # Migration: Add thread_id column to mind_events table (2026-01-08)
+    # Check if mind_events table exists before trying to alter it
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mind_events'")
+    if cursor.fetchone():
+        try:
+            cursor.execute("ALTER TABLE mind_events ADD COLUMN thread_id TEXT")
+            logger.info("Migration: Added thread_id column to mind_events table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                logger.debug("thread_id column already exists in mind_events table, skipping")
+            else:
+                raise
+
+        # Create indexes for thread_id (always try, idempotent)
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_thread ON mind_events(workspace_id, thread_id, timestamp DESC)')
+            logger.info("Migration: Created index idx_mind_events_thread on mind_events")
+        except sqlite3.OperationalError as e:
+            logger.debug(f"Index creation skipped: {e}")
+
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_thread_id ON mind_events(workspace_id, thread_id, timestamp DESC, id DESC)')
+            logger.info("Migration: Created index idx_mind_events_thread_id on mind_events")
+        except sqlite3.OperationalError as e:
+            logger.debug(f"Index creation skipped: {e}")
+    else:
+        logger.debug("mind_events table does not exist yet, skipping thread_id migration (will be handled when table is created)")
+
     logger.info("Database migrations completed")
 
 
@@ -334,6 +362,29 @@ def init_workspaces_schema(cursor):
     _apply_migrations(cursor)
 
 
+def init_conversation_threads_schema(cursor):
+    """Initialize conversation_threads table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversation_threads (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            project_id TEXT,
+            pinned_scope TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_message_at TEXT NOT NULL,
+            message_count INTEGER DEFAULT 0,
+            metadata TEXT,
+            is_default INTEGER DEFAULT 0,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_conversation_threads_workspace ON conversation_threads(workspace_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_conversation_threads_workspace_updated ON conversation_threads(workspace_id, updated_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_conversation_threads_workspace_default ON conversation_threads(workspace_id, is_default)')
+
+
 def init_events_schema(cursor):
     """Initialize mind_events table and indexes"""
     cursor.execute('''
@@ -345,6 +396,7 @@ def init_events_schema(cursor):
             profile_id TEXT NOT NULL,
             project_id TEXT,
             workspace_id TEXT,
+            thread_id TEXT,
             event_type TEXT NOT NULL,
             payload TEXT NOT NULL,
             entity_ids TEXT,
@@ -367,6 +419,11 @@ def init_events_schema(cursor):
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_workspace ON mind_events(workspace_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_workspace_timestamp ON mind_events(workspace_id, timestamp DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_workspace_timestamp_id ON mind_events(workspace_id, timestamp DESC, id DESC)')
+
+    # Check if thread_id column exists before creating thread-related indexes
+    if 'thread_id' in columns:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_thread ON mind_events(workspace_id, thread_id, timestamp DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_mind_events_thread_id ON mind_events(workspace_id, thread_id, timestamp DESC, id DESC)')
 
 
 def init_intent_logs_schema(cursor):
@@ -555,9 +612,49 @@ def init_playbook_executions_schema(cursor):
         # Column already exists, ignore
         pass
 
+    # Migration: Add thread_id column if it doesn't exist (2026-01-09)
+    try:
+        cursor.execute('ALTER TABLE playbook_executions ADD COLUMN thread_id TEXT')
+        logger.info("Migration: Added thread_id column to playbook_executions table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
+        logger.debug("thread_id column already exists in playbook_executions table, skipping")
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_workspace ON playbook_executions(workspace_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_status ON playbook_executions(status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_intent ON playbook_executions(intent_instance_id)')
+
+    # Create index for thread_id (always try, idempotent)
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_playbook_executions_thread ON playbook_executions(workspace_id, thread_id, created_at DESC)')
+        logger.info("Migration: Created index idx_playbook_executions_thread on playbook_executions table")
+    except sqlite3.OperationalError:
+        pass  # Index might already exist or table structure not ready
+
+
+def init_thread_references_schema(cursor):
+    """Initialize thread_references table and indexes"""
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS thread_references (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            uri TEXT NOT NULL,
+            title TEXT NOT NULL,
+            snippet TEXT,
+            reason TEXT,
+            pinned_by TEXT DEFAULT 'user',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            FOREIGN KEY (thread_id) REFERENCES conversation_threads (id)
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_thread_references_thread ON thread_references(workspace_id, thread_id, created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_thread_references_workspace ON thread_references(workspace_id)')
 
 
 def init_task_feedback_schema(cursor):
@@ -708,6 +805,15 @@ def init_artifacts_schema(cursor):
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Migration: Add thread_id column if it doesn't exist (2026-01-09)
+    try:
+        cursor.execute('ALTER TABLE artifacts ADD COLUMN thread_id TEXT')
+        logger.info("Migration: Added thread_id column to artifacts table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
+        logger.debug("thread_id column already exists in artifacts table, skipping")
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_workspace ON artifacts(workspace_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_intent ON artifacts(intent_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id)')
@@ -717,6 +823,13 @@ def init_artifacts_schema(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_workspace_intent ON artifacts(workspace_id, intent_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_execution ON artifacts(source_execution_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_step ON artifacts(source_step_id)')
+
+    # Create index for thread_id (always try, idempotent)
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_artifacts_thread ON artifacts(workspace_id, thread_id, created_at DESC)')
+        logger.info("Migration: Created index idx_artifacts_thread on artifacts table")
+    except sqlite3.OperationalError:
+        pass  # Index might already exist or table structure not ready
 
 
 def init_tool_calls_schema(cursor):
@@ -1001,6 +1114,12 @@ def init_schema(cursor):
     # Tables that depend on Profiles and Workspaces
     init_events_schema(cursor)
     init_intent_logs_schema(cursor)
+
+    # Conversation threads (depend on Workspaces)
+    init_conversation_threads_schema(cursor)
+
+    # Thread references (depend on Workspaces and ConversationThreads)
+    init_thread_references_schema(cursor)
 
     # Tables that depend on Profiles
     init_entities_schema(cursor)

@@ -30,15 +30,16 @@ class PlaybookExecutionsStore(StoreBase):
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO playbook_executions (
-                    id, workspace_id, playbook_code, intent_instance_id,
+                    id, workspace_id, playbook_code, intent_instance_id, thread_id,
                     status, phase, last_checkpoint, progress_log_path,
                     feature_list_path, metadata, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 execution.id,
                 execution.workspace_id,
                 execution.playbook_code,
                 execution.intent_instance_id,
+                execution.thread_id,
                 execution.status,
                 execution.phase,
                 execution.last_checkpoint,
@@ -182,6 +183,36 @@ class PlaybookExecutionsStore(StoreBase):
             for row in cursor.fetchall():
                 executions.append(self._row_to_execution(row))
             return executions
+
+    def get_by_thread(
+        self,
+        workspace_id: str,
+        thread_id: str,
+        limit: Optional[int] = 20
+    ) -> List[PlaybookExecution]:
+        """
+        Get playbook executions for a specific conversation thread
+
+        Args:
+            workspace_id: Workspace ID
+            thread_id: Thread ID
+            limit: Maximum number of executions to return (default: 20)
+
+        Returns:
+            List of executions for the thread, ordered by created_at DESC
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = 'SELECT * FROM playbook_executions WHERE workspace_id = ? AND thread_id = ? ORDER BY created_at DESC'
+            params = [workspace_id, thread_id]
+
+            if limit:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_execution(row) for row in rows]
 
     def update_execution_status(self, execution_id: str, status: str, phase: Optional[str] = None) -> bool:
         """
@@ -372,6 +403,7 @@ class PlaybookExecutionsStore(StoreBase):
             workspace_id=row["workspace_id"],
             playbook_code=row["playbook_code"],
             intent_instance_id=row["intent_instance_id"],
+            thread_id=row.get("thread_id"),
             status=row["status"],
             phase=row["phase"],
             last_checkpoint=row["last_checkpoint"],
