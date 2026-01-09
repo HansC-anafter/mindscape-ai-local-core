@@ -2,8 +2,8 @@
 
 Mind-Model VC (Version Control for Mind Models) organizes "clues you're willing to provide" into reviewable, adjustable, and rollback-able "mind state recipes" with version history.
 
-**Last Updated**: 2026-01-07  
-**Status**: Architecture Design  
+**Last Updated**: 2026-01-07
+**Status**: Architecture Design
 **Version**: v0.1.0
 
 ---
@@ -12,7 +12,7 @@ Mind-Model VC (Version Control for Mind Models) organizes "clues you're willing 
 
 ### Core Position
 
-> **This is a Mind Palette, not a mind diagnosis.**  
+> **This is a Mind Palette, not a mind diagnosis.**
 > **The system does not claim to understand you; it only provides tools for "color mixing" and "version history".**
 
 Key principles:
@@ -201,6 +201,6 @@ Adds optional `current_mix_id` field for referencing current confirmed recipe.
 
 ---
 
-**Last Updated**: 2026-01-07  
-**Maintainer**: Mindscape AI Development Team  
+**Last Updated**: 2026-01-07
+**Maintainer**: Mindscape AI Development Team
 **Status**: Architecture Design
