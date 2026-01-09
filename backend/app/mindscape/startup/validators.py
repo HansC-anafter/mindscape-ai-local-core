@@ -262,7 +262,7 @@ class StartupValidator:
                 strict_mode = os.getenv("MINDSCAPE_STRICT_VALIDATION", "1") == "1"
 
                 for error in checker.errors:
-                    message = f"File {file_path}: {error} - Use 'mindscape.capabilities.*' instead"
+                    message = f"File {file_path}: {error} - Use 'capabilities.*' instead (mindscape.capabilities.* is deprecated)"
 
                     if strict_mode:
                         # 生產環境嚴格模式：違規視為錯誤，會阻擋啟動

@@ -252,14 +252,14 @@ properties:
           description: "Tool 代碼（可選，默認使用 name）"
         backend:
           type: string
-          # 要求：必須使用 mindscape.capabilities.* 格式
-          pattern: "^mindscape\\.capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
+          # 要求：必須使用 capabilities.* 格式（mindscape.capabilities.* 已棄用）
+          pattern: "^capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
           description: |
             Backend import 路徑。
-            ⚠️ 必須使用 mindscape.capabilities.* 格式
-            格式: mindscape.capabilities.{capability}.{module}:{function}
+            ⚠️ 必須使用 capabilities.* 格式（mindscape.capabilities.* 已棄用）
+            格式: capabilities.{capability}.{module}:{function}
           examples:
-            - "mindscape.capabilities.example_capability.tools.data_processor:process_data"
+            - "capabilities.example_capability.tools.data_processor:process_data"
         description:
           type: string
         input_schema:
@@ -518,7 +518,7 @@ examples:
     
     tools:
       - name: data_processor
-        backend: "mindscape.capabilities.example_capability.tools.data_processor:process_data"
+        backend: "capabilities.example_capability.tools.data_processor:process_data"
     
     apis:
       - code: example_capability
