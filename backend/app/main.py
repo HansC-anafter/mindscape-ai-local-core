@@ -31,6 +31,7 @@ from .routes.core.chapters import router as chapters_router
 from .routes.core.artifacts import router as artifacts_router
 from .routes.core.resources import router as resources_router
 from .routes.core.system_settings import router as system_settings_router
+from .routes.core.settings_extensions import router as settings_extensions_router
 from .routes.core.data_sources import router as data_sources_router
 from .routes.core.workspace_resource_bindings import router as workspace_resource_bindings_router
 from .routes.core.cloud_providers import router as cloud_providers_router
@@ -72,19 +73,19 @@ app = FastAPI(
 
 # CORS middleware - MUST be first middleware (before TrustedHostMiddleware)
 # This ensures CORS headers are added to all responses, including error responses
-# 动态获取 CORS 允许的源（从端口配置服务读取）
+# Dynamically get CORS allowed origins from port config service
 def get_cors_origins():
-    """从端口配置服务获取 CORS 允许的源"""
+    """Get CORS allowed origins from port config service"""
     try:
         from .services.port_config_service import port_config_service
         import os
 
-        # 获取当前作用域（从环境变量或配置）
+        # Get current scope from environment variables or config
         current_cluster = os.getenv('CLUSTER_NAME')
         current_env = os.getenv('ENVIRONMENT')
         current_site = os.getenv('SITE_NAME')
 
-        # 获取前端 URL（自动从配置读取主机名和端口）
+        # Get frontend URL (automatically read hostname and port from config)
         frontend_url = port_config_service.get_service_url(
             'frontend',
             cluster=current_cluster,
@@ -98,14 +99,14 @@ def get_cors_origins():
         )
         host_config = port_config_service.get_host_config()
 
-        # 构建 CORS 允许的源（自动从配置读取主机名）
+        # Build CORS allowed origins (automatically read hostname from config)
         allow_origins = [frontend_url]
 
-        # 如果前端主机名不是 localhost，也添加 127.0.0.1 变体
+        # If frontend hostname is not localhost, also add 127.0.0.1 variant
         if 'localhost' in frontend_url:
             allow_origins.append(frontend_url.replace('localhost', '127.0.0.1'))
 
-        # 添加 Cloud API（如果配置了）
+        # Add Cloud API if configured
         if port_config.cloud_api and host_config.cloud_api_host:
             cloud_api_url = port_config_service.get_service_url(
                 'cloud_api',
@@ -117,18 +118,18 @@ def get_cors_origins():
             if 'localhost' in cloud_api_url:
                 allow_origins.append(cloud_api_url.replace('localhost', '127.0.0.1'))
 
-        # 添加 CORS 配置中的其他源（如果配置了）
+        # Add other origins from CORS config if configured
         if host_config.cors_origins:
             allow_origins.extend(host_config.cors_origins)
 
         return allow_origins
     except Exception as e:
-        logger.warning(f"无法从端口配置服务获取 CORS 源，使用默认值: {e}")
-        # 回退到默认值（向后兼容）
+        logger.warning(f"Failed to get CORS origins from port config service, using defaults: {e}")
+        # Fallback to default values (backward compatibility)
         return [
-            "http://localhost:8300",  # 新默认前端端口
+            "http://localhost:8300",  # New default frontend port
             "http://127.0.0.1:8300",
-            "http://localhost:3000",  # 保留旧端口以兼容
+            "http://localhost:3000",  # Keep old port for compatibility
             "http://127.0.0.1:3000",
             "http://localhost:3001",
             "http://127.0.0.1:3001",
@@ -157,6 +158,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(playbook_execution.router, tags=["playbook"])
     app.include_router(config.router, tags=["config"])
     app.include_router(system_settings_router, tags=["system"])
+    app.include_router(settings_extensions_router)
     app.include_router(tools.router, tags=["tools"])
     app.include_router(sandbox.router, tags=["sandboxes"])
     app.include_router(deployment.router, tags=["deployment"])
@@ -164,7 +166,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(lens.router, tags=["lenses"])
     app.include_router(composition.router, tags=["compositions"])
     app.include_router(surface.router, tags=["surface"])
-    
+
     # Dashboard routes
     from .routes.core.dashboard import router as dashboard_router
     app.include_router(dashboard_router, tags=["dashboard"])
@@ -272,6 +274,27 @@ except Exception as e:
 @app.on_event("startup")
 async def startup_event():
     """Initialize database tables and background tasks on startup"""
+
+    # Register playbook handlers
+    try:
+        from backend.app.routes.core.playbook.handlers import register_playbook_handlers
+        await register_playbook_handlers(app)
+        logger.info("Playbook handlers registered successfully")
+    except Exception as e:
+        logger.warning(f"Failed to register playbook handlers: {e}", exc_info=True)
+    # Initialize Cloud Connector (if enabled)
+    cloud_connector_enabled = os.getenv("CLOUD_CONNECTOR_ENABLED", "false").lower() == "true"
+    if cloud_connector_enabled:
+        try:
+            from backend.app.services.cloud_connector import CloudConnector
+
+            connector = CloudConnector()
+            app.state.cloud_connector = connector
+            asyncio.create_task(connector.connect())
+            logger.info("Cloud Connector initialized and connecting...")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Cloud Connector: {e}", exc_info=True)
+
     # Run database migrations using unified migration orchestrator
     logger.info("Running database migrations...")
     try:
@@ -336,8 +359,130 @@ async def startup_event():
         try:
             init_mindscape_tables()
             logger.info("Mindscape tables initialized via init_db.py fallback")
-        except Exception as e:
-            logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e}")
+        except Exception as e2:
+            logger.warning(f"Failed to initialize mindscape tables (will retry on first use): {e2}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    # Disconnect Cloud Connector if initialized
+    if hasattr(app.state, "cloud_connector"):
+        connector = app.state.cloud_connector
+        if connector:
+            try:
+                await connector.disconnect()
+                logger.info("Cloud Connector disconnected")
+            except Exception as e:
+                logger.warning(f"Error disconnecting Cloud Connector: {e}")
+
+
+def register_core_routes(app: FastAPI) -> None:
+    """Register kernel routes"""
+    app.include_router(workspace.router, tags=["workspace"])
+    app.include_router(playbook.router, tags=["playbook"])
+    app.include_router(playbook_execution.router, tags=["playbook"])
+    app.include_router(config.router, tags=["config"])
+    app.include_router(system_settings_router, tags=["system"])
+    app.include_router(settings_extensions_router)
+    app.include_router(tools.router, tags=["tools"])
+    app.include_router(sandbox.router, tags=["sandboxes"])
+    app.include_router(deployment.router, tags=["deployment"])
+    app.include_router(data_sources_router, tags=["data-sources"])
+    app.include_router(lens.router, tags=["lenses"])
+    app.include_router(composition.router, tags=["compositions"])
+    app.include_router(surface.router, tags=["surface"])
+
+    # Dashboard routes
+    from .routes.core.dashboard import router as dashboard_router
+    app.include_router(dashboard_router, tags=["dashboard"])
+
+    try:
+        from backend.app.capabilities.api_loader import load_capability_apis
+        import os
+        allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
+        if allowlist_env:
+            allowlist = [cap.strip() for cap in allowlist_env.split(",")]
+        else:
+            allowlist = None
+
+        load_capability_apis(app, allowlist=allowlist)
+        logger.info("Capability APIs loaded")
+    except Exception as e:
+        logger.warning(f"Failed to load capability APIs: {e}", exc_info=True)
+
+    app.include_router(cloud_providers_router, tags=["cloud-providers"])
+    app.include_router(cloud_sync.router, tags=["cloud-sync"])
+    app.include_router(graph_router, tags=["graph"])
+    app.include_router(lens_unified_router, tags=["lens-unified"])
+
+    # Story Thread proxy routes (optional - requires Cloud API configuration)
+    try:
+        from .routes.core.story_thread import router as story_thread_router
+        app.include_router(story_thread_router, tags=["story-threads"])
+        logger.info("Story Thread proxy routes registered")
+    except Exception as e:
+        logger.debug(f"Story Thread proxy routes not registered: {e}")
+
+    # Cloud navigation proxy routes (optional - requires Cloud frontend configuration)
+    try:
+        from .routes.core.cloud_navigation import router as cloud_navigation_router
+        app.include_router(cloud_navigation_router, tags=["cloud-navigation"])
+        logger.info("Cloud navigation proxy routes registered")
+    except Exception as e:
+        logger.debug(f"Cloud navigation proxy routes not registered: {e}")
+
+    app.include_router(blueprint.router, tags=["blueprints"])
+    app.include_router(unsplash_fingerprints_router)
+
+    # Generic resource routes (neutral interface)
+    app.include_router(resources_router, tags=["resources"])
+
+    # Legacy specific routes (kept for backward compatibility, will be deprecated)
+    app.include_router(intents_router, tags=["intents"])
+    app.include_router(chapters_router, tags=["chapters"])
+    app.include_router(artifacts_router, tags=["artifacts"])
+
+    # Content Vault indexing routes
+    from .routes.core.content_vault_index import router as content_vault_index_router
+    app.include_router(content_vault_index_router, tags=["content-vault"])
+
+    # Decision cards routes
+    from backend.app.routes.core import decision_cards as decision_cards_router
+    app.include_router(decision_cards_router.router, tags=["decision-cards"])
+
+def register_core_primitives(app: FastAPI) -> None:
+    """Register core primitives"""
+    app.include_router(vector_db.router, tags=["vector-db"])
+    app.include_router(vector_search.router, tags=["vector-search"])
+    app.include_router(capability_packs.router, tags=["capability-packs"])
+    app.include_router(capability_suites.router, tags=["capability-suites"])
+    # Lazy import capability_installation to avoid startup issues
+    try:
+        from .routes.core import capability_installation
+        app.include_router(capability_installation.router, tags=["capability-installation"])
+    except Exception as e:
+        logger.warning(f"Failed to load capability_installation router: {e}")
+
+register_core_routes(app)
+register_core_primitives(app)
+# Pack loading failures are logged but do not prevent app startup
+try:
+    load_and_register_packs(app)
+except Exception as e:
+    logger.warning(f"Failed to load some feature packs during startup: {e}. App will continue to start.")
+    # Continue startup - core functionality should still work
+
+# Manually register mindscape routes (if not loaded via pack registry)
+try:
+    from backend.features.mindscape.routes import router as mindscape_router
+    app.include_router(mindscape_router, prefix="/api/v1/mindscape", tags=["mindscape"])
+    logger.info("Registered mindscape routes manually")
+except Exception as e:
+    logger.warning(f"Failed to register mindscape routes: {e}", exc_info=True)
+
+# Workspace feature routes are loaded via pack registry
+# See backend/packs/workspace-pack.yaml and backend/features/workspace/
 
 
     logger.info("Validating routes against manifest declarations...")
@@ -450,13 +595,7 @@ async def startup_event():
     # IG Post and IG + Obsidian tools are registered automatically via ToolListService
     # when needed (see tool_list_service.py _get_builtin_tools method)
 
-    # Register playbook handlers
-    try:
-        from backend.app.routes.core.playbook.handlers import register_playbook_handlers
-        await register_playbook_handlers(app)
-        logger.info("Playbook handlers registered successfully")
-    except Exception as e:
-        logger.warning(f"Failed to register playbook handlers: {e}", exc_info=True)
+    # Register playbook handlers (moved to startup_event)
 
     try:
         from backend.app.capabilities.habit_learning.services.habit_proposal_worker import HabitProposalWorker
@@ -728,7 +867,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     print(f"ERROR: Unhandled exception: {str(exc)}", file=sys.stderr)
     print(full_traceback, file=sys.stderr)
     origin = request.headers.get("origin", "*")
-    # Validate origin against allowed origins (从端口配置服务获取)
+    # Validate origin against allowed origins (from port config service)
     try:
         from .services.port_config_service import port_config_service
         import os
@@ -751,7 +890,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         if host_config.cors_origins:
             allowed_origins.extend(host_config.cors_origins)
     except Exception as e:
-        logger.warning(f"无法从端口配置服务获取允许的源，使用默认值: {e}")
+        logger.warning(f"Failed to get allowed origins from port config service, using defaults: {e}")
         allowed_origins = [
             "http://localhost:8300",
             "http://127.0.0.1:8300",

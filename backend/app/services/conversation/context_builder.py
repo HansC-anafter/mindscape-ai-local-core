@@ -65,7 +65,9 @@ class ContextBuilder:
         profile_id: Optional[str] = None,
         workspace: Optional[Any] = None,
         project_id: Optional[str] = None,
-        hours: int = 24
+        thread_id: Optional[str] = None,
+        hours: int = 24,
+        side_chain_mode: str = "off"
     ) -> str:
         """
         Build context string for QA mode LLM prompts
@@ -76,7 +78,9 @@ class ContextBuilder:
             profile_id: Optional profile ID for retrieving intents
             workspace: Optional workspace object for metadata
             project_id: Optional project ID for project-specific context
+            thread_id: Optional thread ID for thread-specific references (P0-9)
             hours: Hours to look back for context (default 24)
+            side_chain_mode: Side-chain policy ("off", "auto", "force")
 
         Returns:
             Context string to inject into LLM prompt
@@ -167,8 +171,12 @@ class ContextBuilder:
                 from ...models.workspace import TaskStatus
                 tasks_store = TasksStore(self.store.db_path)
 
-                pending_tasks = tasks_store.list_pending_tasks(workspace_id)
-                running_tasks = tasks_store.list_running_tasks(workspace_id)
+                if thread_id:
+                    pending_tasks = tasks_store.list_pending_tasks_by_thread(workspace_id, thread_id)
+                    running_tasks = tasks_store.list_running_tasks_by_thread(workspace_id, thread_id)
+                else:
+                    pending_tasks = tasks_store.list_pending_tasks(workspace_id)
+                    running_tasks = tasks_store.list_running_tasks(workspace_id)
 
                 if pending_tasks or running_tasks:
                     context_parts.append("\n## Current Tasks:")
@@ -252,10 +260,17 @@ class ContextBuilder:
 
         try:
             if self.timeline_items_store:
-                recent_timeline_items = self.timeline_items_store.list_timeline_items_by_workspace(
-                    workspace_id=workspace_id,
-                    limit=30
-                )
+                if thread_id:
+                    recent_timeline_items = self.timeline_items_store.list_timeline_items_by_thread(
+                        workspace_id=workspace_id,
+                        thread_id=thread_id,
+                        limit=30
+                    )
+                else:
+                    recent_timeline_items = self.timeline_items_store.list_timeline_items_by_workspace(
+                        workspace_id=workspace_id,
+                        limit=30
+                    )
                 if recent_timeline_items:
                     context_parts.append("\n## Recent Timeline Activity:")
                     for item in recent_timeline_items[:30]:
@@ -268,6 +283,52 @@ class ContextBuilder:
         except Exception as e:
             logger.error(f"Failed to get timeline context: {e}", exc_info=True)
 
+        # Add thread references context (P0-9: LLM context integration)
+        # Position: After Recent Timeline, before Recent Conversation
+        try:
+            if thread_id and self.store:
+                # Get thread references with token budget consideration
+                thread_references = self.store.thread_references.get_by_thread(
+                    workspace_id=workspace_id,
+                    thread_id=thread_id,
+                    limit=20
+                )
+                if thread_references:
+                    # Format references and estimate tokens
+                    ref_lines = []
+                    ref_tokens = 0
+                    max_ref_tokens = 500  # Token budget for references (adjustable)
+                    
+                    for ref in thread_references:
+                        ref_info = f"- [{ref.title}]({ref.uri})"
+                        if ref.source_type:
+                            ref_info += f" ({ref.source_type})"
+                        snippet_text = ""
+                        if ref.snippet:
+                            snippet_text = f": {ref.snippet[:200]}"
+                        if ref.reason:
+                            snippet_text += f" [Reason: {ref.reason}]"
+                        
+                        # Estimate tokens for this reference
+                        ref_line = ref_info + snippet_text
+                        line_tokens = self.estimate_token_count(ref_line, self.model_name) or len(ref_line.split()) * 2
+                        
+                        # Check if adding this reference would exceed budget
+                        if ref_tokens + line_tokens > max_ref_tokens:
+                            logger.info(f"Thread references token budget reached ({ref_tokens}/{max_ref_tokens}), truncating at {len(ref_lines)} references")
+                            break
+                        
+                        ref_lines.append(ref_line)
+                        ref_tokens += line_tokens
+                    
+                    if ref_lines:
+                        context_parts.append("\n## Thread References (Pinned Resources):")
+                        context_parts.extend(ref_lines)
+                        logger.info(f"Injected {len(ref_lines)} thread references into QA context (estimated {ref_tokens} tokens)")
+        except Exception as e:
+            logger.warning(f"Failed to get thread references context: {e}", exc_info=True)
+
+        thread_context_count = 0
         try:
             if self.store:
                 max_events = self.preset["MAX_EVENTS_FOR_QUERY"]
@@ -279,7 +340,8 @@ class ContextBuilder:
                     workspace_id=workspace_id,
                     max_events=max_events,
                     max_messages=max_messages,
-                    max_chars=max_chars
+                    max_chars=max_chars,
+                    thread_id=thread_id
                 )
 
                 # Add summary if available
@@ -292,9 +354,25 @@ class ContextBuilder:
                 if conversation_context:
                     context_parts.append("\n## Recent Conversation:")
                     context_parts.extend(conversation_context)
+                    thread_context_count = len(conversation_context)
                     logger.info(f"Injected {len(conversation_context)} conversation messages into QA context (preset: max_messages={max_messages}, max_chars={max_chars})")
         except Exception as e:
             logger.error(f"Failed to get conversation context: {e}", exc_info=True)
+
+        # Optional workspace side-chain (reference only)
+        try:
+            if self._should_include_side_chain(
+                side_chain_mode=side_chain_mode,
+                thread_id=thread_id,
+                message=message,
+                thread_context_count=thread_context_count
+            ):
+                side_chain_parts = self._build_workspace_side_chain_context(workspace_id=workspace_id)
+                if side_chain_parts:
+                    context_parts.extend(side_chain_parts)
+                    logger.info("Injected workspace side-chain into QA context")
+        except Exception as e:
+            logger.warning(f"Failed to build workspace side-chain context: {e}", exc_info=True)
 
         # Add long-term memory context (RAG)
         try:
@@ -313,12 +391,119 @@ class ContextBuilder:
         # Join all context parts and return
         return "\n".join(context_parts) if context_parts else ""
 
+    def _should_include_side_chain(
+        self,
+        side_chain_mode: str,
+        thread_id: Optional[str],
+        message: Optional[str],
+        thread_context_count: int
+    ) -> bool:
+        if side_chain_mode == "off" or not thread_id:
+            return False
+
+        if side_chain_mode == "force":
+            return True
+
+        message_text = message or ""
+        message_lower = message_text.lower()
+
+        en_triggers = [
+            "other thread",
+            "another thread",
+            "previous thread",
+            "earlier thread",
+            "across threads",
+            "cross-thread",
+            "whole workspace",
+            "entire workspace"
+        ]
+        zh_triggers = [
+            "另一個",
+            "另一條",
+            "上一個",
+            "前一個",
+            "其他對話",
+            "跨 thread",
+            "跨對話",
+            "整個工作區",
+            "同一個工作區"
+        ]
+
+        if any(trigger in message_lower for trigger in en_triggers):
+            return True
+        if any(trigger in message_text for trigger in zh_triggers):
+            return True
+
+        return thread_context_count < 2
+
+    def _build_workspace_side_chain_context(
+        self,
+        workspace_id: str,
+        task_limit: int = 5,
+        timeline_limit: int = 5
+    ) -> List[str]:
+        side_chain_parts = []
+        task_lines = []
+        timeline_lines = []
+
+        if self.store:
+            try:
+                from backend.app.services.stores.tasks_store import TasksStore
+                tasks_store = TasksStore(self.store.db_path)
+
+                running_tasks = tasks_store.list_running_tasks(workspace_id)
+                pending_tasks = tasks_store.list_pending_tasks(workspace_id)
+
+                for task in (running_tasks + pending_tasks)[:task_limit]:
+                    task_status = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                    task_info = f"- {task.pack_id} ({task_status})"
+                    if task.task_type:
+                        task_info += f": {task.task_type}"
+                    task_lines.append(task_info)
+            except Exception as e:
+                logger.warning(f"Failed to build workspace side-chain tasks: {e}")
+
+        if self.timeline_items_store:
+            try:
+                recent_timeline_items = self.timeline_items_store.list_timeline_items_by_workspace(
+                    workspace_id=workspace_id,
+                    limit=timeline_limit
+                )
+                for item in recent_timeline_items[:timeline_limit]:
+                    item_type = item.type.value if hasattr(item.type, 'value') else str(item.type)
+                    item_info = f"- {item_type}: {item.title}"
+                    if item.summary:
+                        item_info += f" - {item.summary[:120]}"
+                    timeline_lines.append(item_info)
+            except Exception as e:
+                logger.warning(f"Failed to build workspace side-chain timeline: {e}")
+
+        if not task_lines and not timeline_lines:
+            return []
+
+        side_chain_parts.append("\n## Workspace Side-Chain (Reference Only):")
+        side_chain_parts.append(
+            "Workspace-wide snapshot (may include other threads and legacy events). "
+            "Use only when the user explicitly references other threads or when thread context is insufficient."
+        )
+
+        if task_lines:
+            side_chain_parts.append("\nCross-Thread Tasks Snapshot:")
+            side_chain_parts.extend(task_lines)
+
+        if timeline_lines:
+            side_chain_parts.append("\nCross-Thread Timeline Snapshot:")
+            side_chain_parts.extend(timeline_lines)
+
+        return side_chain_parts
+
     async def _get_conversation_history_with_summary(
         self,
         workspace_id: str,
         max_events: int,
         max_messages: int,
-        max_chars: int
+        max_chars: int,
+        thread_id: Optional[str] = None
     ) -> Tuple[List[str], Optional[str]]:
         """
         Get conversation history with sliding window and summary support
@@ -327,10 +512,17 @@ class ContextBuilder:
             Tuple of (recent_messages, summary_text)
         """
         try:
-            recent_events = self.store.get_events_by_workspace(
-                workspace_id=workspace_id,
-                limit=max_events
-            )
+            if thread_id:
+                recent_events = self.store.events.get_events_by_thread(
+                    workspace_id=workspace_id,
+                    thread_id=thread_id,
+                    limit=max_events
+                )
+            else:
+                recent_events = self.store.get_events_by_workspace(
+                    workspace_id=workspace_id,
+                    limit=max_events
+                )
 
             # Separate message events and summary events
             message_events = []
@@ -1013,7 +1205,9 @@ Please generate the summary in English, keep it within 300 words."""
         message: str,
         profile_id: Optional[str] = None,
         workspace: Optional[Any] = None,
-        hours: int = 24
+        thread_id: Optional[str] = None,
+        hours: int = 24,
+        side_chain_mode: str = "off"
     ) -> Tuple[str, int]:
         """
         Build context string and return token count
@@ -1026,7 +1220,9 @@ Please generate the summary in English, keep it within 300 words."""
             message=message,
             profile_id=profile_id,
             workspace=workspace,
-            hours=hours
+            thread_id=thread_id,
+            hours=hours,
+            side_chain_mode=side_chain_mode
         )
         enhanced_prompt = self.build_enhanced_prompt(message=message, context=context)
         token_count = self.estimate_token_count(enhanced_prompt, self.model_name)
@@ -1039,7 +1235,9 @@ Please generate the summary in English, keep it within 300 words."""
         profile_id: Optional[str] = None,
         workspace: Optional[Any] = None,
         target_tokens: Optional[int] = None,
-        mode: str = "planning"
+        mode: str = "planning",
+        thread_id: Optional[str] = None,
+        side_chain_mode: str = "off"
     ) -> str:
         """
         Build structured context specifically for planning tasks
@@ -1051,6 +1249,8 @@ Please generate the summary in English, keep it within 300 words."""
             workspace: Optional workspace object for metadata
             target_tokens: Target token budget for the context (if None, uses default preset)
             mode: Context mode ("planning" or "qa")
+            thread_id: Optional thread ID for thread-scoped context
+            side_chain_mode: Side-chain policy ("off", "auto", "force")
 
         Returns:
             Structured context string optimized for planning tasks
@@ -1111,13 +1311,15 @@ Please generate the summary in English, keep it within 300 words."""
         max_messages = self.preset["MAX_HISTORY_MESSAGES"]
         max_chars = self.preset["MAX_MESSAGE_CHARS"]
 
+        thread_context_count = 0
         try:
             if self.store:
                 conversation_context, summary_context = await self._get_conversation_history_with_summary(
                     workspace_id=workspace_id,
                     max_events=max_events,
                     max_messages=max_messages,
-                    max_chars=max_chars
+                    max_chars=max_chars,
+                    thread_id=thread_id
                 )
 
                 if summary_context:
@@ -1136,6 +1338,7 @@ Please generate the summary in English, keep it within 300 words."""
                         else:
                             break
                     context_parts.extend(messages_to_include)
+                    thread_context_count = len(messages_to_include)
                     logger.info(f"Included {len(messages_to_include)} recent messages ({current_tokens} tokens) for planning context")
         except Exception as e:
             logger.error(f"Failed to get conversation context: {e}", exc_info=True)
@@ -1147,8 +1350,12 @@ Please generate the summary in English, keep it within 300 words."""
                 from ...models.workspace import TaskStatus
                 tasks_store = TasksStore(self.store.db_path)
 
-                running_tasks = tasks_store.list_running_tasks(workspace_id)
-                pending_tasks = tasks_store.list_pending_tasks(workspace_id)
+                if thread_id:
+                    running_tasks = tasks_store.list_running_tasks_by_thread(workspace_id, thread_id)
+                    pending_tasks = tasks_store.list_pending_tasks_by_thread(workspace_id, thread_id)
+                else:
+                    running_tasks = tasks_store.list_running_tasks(workspace_id)
+                    pending_tasks = tasks_store.list_pending_tasks(workspace_id)
 
                 packs_state = {}
                 for task in (running_tasks + pending_tasks)[:10]:
@@ -1171,10 +1378,17 @@ Please generate the summary in English, keep it within 300 words."""
         timeline_summary = []
         try:
             if self.timeline_items_store:
-                recent_timeline_items = self.timeline_items_store.list_timeline_items_by_workspace(
-                    workspace_id=workspace_id,
-                    limit=10
-                )
+                if thread_id:
+                    recent_timeline_items = self.timeline_items_store.list_timeline_items_by_thread(
+                        workspace_id=workspace_id,
+                        thread_id=thread_id,
+                        limit=10
+                    )
+                else:
+                    recent_timeline_items = self.timeline_items_store.list_timeline_items_by_workspace(
+                        workspace_id=workspace_id,
+                        limit=10
+                    )
                 if recent_timeline_items:
                     for item in recent_timeline_items[:5]:
                         item_type = item.type.value if hasattr(item.type, 'value') else str(item.type)
@@ -1187,6 +1401,20 @@ Please generate the summary in English, keep it within 300 words."""
                         context_parts.extend(timeline_summary)
         except Exception as e:
             logger.warning(f"Failed to get timeline context: {e}")
+
+        try:
+            if self._should_include_side_chain(
+                side_chain_mode=side_chain_mode,
+                thread_id=thread_id,
+                message=message,
+                thread_context_count=thread_context_count
+            ):
+                side_chain_parts = self._build_workspace_side_chain_context(workspace_id=workspace_id)
+                if side_chain_parts:
+                    context_parts.extend(side_chain_parts)
+                    logger.info("Injected workspace side-chain into planning context")
+        except Exception as e:
+            logger.warning(f"Failed to build workspace side-chain for planning context: {e}")
 
         planning_context = "\n".join(context_parts) if context_parts else ""
 
