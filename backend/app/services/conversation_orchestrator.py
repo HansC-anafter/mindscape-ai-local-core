@@ -218,7 +218,8 @@ class ConversationOrchestrator:
         files: List[str],
         mode: str,
         project_id: Optional[str] = None,
-        workspace: Optional[Any] = None
+        workspace: Optional[Any] = None,
+        thread_id: Optional[str] = None  # 🆕 Conversation thread ID
     ) -> Dict[str, Any]:
         """
         Route message through existing pipeline and sync derived data
@@ -238,6 +239,12 @@ class ConversationOrchestrator:
             # Get workspace if not provided
             if not workspace:
                 workspace = self.store.get_workspace(workspace_id)
+
+            # 🆕 Get or create default thread if thread_id not provided
+            if not thread_id:
+                # Import here to avoid circular dependency
+                from backend.features.workspace.chat.streaming.generator import _get_or_create_default_thread
+                thread_id = _get_or_create_default_thread(workspace_id, self.store)
 
             # If no project_id, check if we need to create a Project
             logger.info(f"Project detection check: project_id={project_id}, workspace={workspace.id if workspace else None}")
@@ -392,6 +399,7 @@ class ConversationOrchestrator:
                 profile_id=profile_id,
                 project_id=project_id,
                 workspace_id=workspace_id,
+                thread_id=thread_id,  # 🆕
                 event_type=EventType.MESSAGE,
                 payload={
                     "message": message,
@@ -404,7 +412,23 @@ class ConversationOrchestrator:
                 }
             )
             self.store.create_event(user_event)
-            logger.info(f"Created user event: {user_event.id}, files: {len(files)}, file_document_ids: {len(file_document_ids)}")
+            logger.info(f"Created user event: {user_event.id}, files: {len(files)}, file_document_ids: {len(file_document_ids)}, thread_id={thread_id}")
+            
+            # 🆕 更新 thread 統計信息
+            if thread_id:
+                try:
+                    # 使用 COUNT 查詢準確計算消息數量（不依賴 limit）
+                    message_count = self.store.events.count_messages_by_thread(
+                        workspace_id=workspace_id,
+                        thread_id=thread_id
+                    )
+                    self.store.conversation_threads.update_thread(
+                        thread_id=thread_id,
+                        last_message_at=datetime.utcnow(),
+                        message_count=message_count
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update thread statistics: {e}")
 
             # Optional: LLM-based intent extraction (pre-pipeline)
             # This runs before rule-based IntentPipeline to provide early intent hints
@@ -526,6 +550,7 @@ Project ID: {project.id}
                             profile_id=profile_id,
                             project_id=project_id,
                             workspace_id=workspace_id,
+                            thread_id=thread_id,  # 🆕
                             event_type=EventType.MESSAGE,
                             payload={
                                 "message": assistant_response,
@@ -540,6 +565,22 @@ Project ID: {project.id}
                             }
                         )
                         self.store.create_event(assistant_event)
+                        
+                        # Update thread statistics
+                        if thread_id:
+                            try:
+                                # 使用 COUNT 查詢準確計算消息數量（不依賴 limit）
+                                message_count = self.store.events.count_messages_by_thread(
+                                    workspace_id=workspace_id,
+                                    thread_id=thread_id
+                                )
+                                self.store.conversation_threads.update_thread(
+                                    thread_id=thread_id,
+                                    last_message_at=datetime.utcnow(),
+                                    message_count=message_count
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to update thread statistics: {e}")
 
                         from backend.app.services.stores.tasks_store import TasksStore
                         tasks_store = TasksStore(db_path=self.store.db_path)
@@ -564,7 +605,8 @@ Project ID: {project.id}
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 message_id=user_event.id,
-                use_llm=True  # Priority: LLM-based analysis, fallback to rule-based
+                use_llm=True,  # Priority: LLM-based analysis, fallback to rule-based
+                thread_id=thread_id
             )
             logger.info(f"ConversationOrchestrator: Generated execution plan with {len(execution_plan.tasks)} tasks")
             import sys
@@ -649,6 +691,7 @@ Project ID: {project.id}
                         channel="local_workspace",
                         profile_id=profile_id,
                         workspace_id=workspace_id,
+                        thread_id=thread_id,  # 🆕
                         event_type=EventType.MESSAGE,
                         payload={
                             "message": assistant_response
@@ -672,7 +715,8 @@ Project ID: {project.id}
                         message=message,
                         message_id=user_event.id,
                         project_id=project_id,
-                        workspace=workspace
+                        workspace=workspace,
+                        thread_id=thread_id
                     )
                     assistant_response = qa_result.get("response")
                     assistant_event = qa_result.get("event")

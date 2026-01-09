@@ -298,6 +298,10 @@ async def create_workspace(
         locale = created.default_locale if hasattr(created, 'default_locale') and created.default_locale else default_locale
         welcome_message, suggestions = await WorkspaceWelcomeService.generate_welcome_message(created, owner_user_id, store, locale=locale)
         if welcome_message:
+            # 🆕 Get or create default thread for welcome message
+            from backend.features.workspace.chat.streaming.generator import _get_or_create_default_thread
+            default_thread_id = _get_or_create_default_thread(created.id, store)
+            
             welcome_event = MindEvent(
                 id=str(uuid.uuid4()),
                 timestamp=datetime.utcnow(),
@@ -306,6 +310,7 @@ async def create_workspace(
                 profile_id=owner_user_id,
                 project_id=request.primary_project_id,
                 workspace_id=created.id,
+                thread_id=default_thread_id,  # 🆕
                 event_type=EventType.MESSAGE,
                 payload={
                     "message": welcome_message,
@@ -316,6 +321,21 @@ async def create_workspace(
                 metadata={"is_cold_start": True}
             )
             store.create_event(welcome_event)
+            
+            # 🆕 Update thread statistics
+            try:
+                # Use COUNT query to accurately calculate message count
+                message_count = store.events.count_messages_by_thread(
+                    workspace_id=created.id,
+                    thread_id=default_thread_id
+                )
+                store.conversation_threads.update_thread(
+                    thread_id=default_thread_id,
+                    last_message_at=datetime.utcnow(),
+                    message_count=message_count
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update thread statistics for welcome message: {e}")
 
         return created
     except ValidationError as e:
@@ -2016,13 +2036,13 @@ async def compare_preview(
                 right_val = right.knob_values.get(knob_id, 50)
                 delta = right_val - left_val
 
-                if abs(delta) >= 10:  # 只顯示明顯差異
+                if abs(delta) >= 10:  # Only show significant differences
                     label = high_label if delta > 0 else low_label
                     diffs.append(f"{label} ({'+' if delta > 0 else ''}{delta})")
 
             if not diffs:
-                return "設定差異不大"
-            return "右邊：" + "、".join(diffs)
+                return "Settings difference is minimal"
+            return "Right side: " + ", ".join(diffs)
 
         diff_summary = compute_diff_summary(left_profile, right_profile)
 
@@ -2050,7 +2070,7 @@ async def compare_preview(
             )
 
             # For now, return prompt previews (actual LLM generation can be added later)
-            # TODO: 未來可以調用快速 LLM 生成實際輸出對比
+            # TODO: Future enhancement: call fast LLM to generate actual output comparison
             if left_prompt:
                 left_output = f"提示詞補丁預覽：\n{left_prompt[:300]}{'...' if len(left_prompt) > 300 else ''}\n\n[注意：這是提示詞差異預覽，非實際 LLM 輸出]"
             else:
