@@ -181,9 +181,8 @@ class CapabilityInstaller:
             (is_valid, errors, warnings)
         """
         # Use local validation script (consistent with CI/startup validation)
-        # Calculate local validation script path
-        local_core_root = Path(__file__).parent.parent.parent.parent.parent
-        validate_script = local_core_root / "scripts" / "ci" / "validate_manifest.py"
+        # Use self.local_core_root which is already set during initialization
+        validate_script = self.local_core_root / "scripts" / "ci" / "validate_manifest.py"
 
         if not validate_script.exists():
             # Validation script not found is a critical issue, treat as error
@@ -196,7 +195,7 @@ class CapabilityInstaller:
             # validate_manifest.py accepts capability directory path as argument
             result = subprocess.run(
                 [sys.executable, str(validate_script), str(cap_dir)],
-                cwd=str(local_core_root),
+                cwd=str(self.local_core_root),
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -303,6 +302,21 @@ class CapabilityInstaller:
             # 9.5. Install root-level Python files (e.g., models.py)
             self._install_root_files(cap_dir, capability_code, result)
 
+            # 9.6. Reload capability registry to include newly installed tools
+            try:
+                from backend.app.capabilities.registry import get_registry
+                registry = get_registry()
+                # Force reload by clearing cache and reloading the capability
+                if hasattr(registry, '_capabilities_cache'):
+                    registry._capabilities_cache.clear()
+                if hasattr(registry, '_tools_cache'):
+                    registry._tools_cache.clear()
+                # Reload the specific capability
+                registry._load_capability(capability_code, self.capabilities_dir / capability_code)
+                logger.debug(f"Reloaded capability registry for {capability_code}")
+            except Exception as e:
+                logger.warning(f"Failed to reload capability registry: {e}")
+
             # 10. Check dependencies and generate summary
             self._check_dependencies(manifest, result)
 
@@ -378,7 +392,7 @@ class CapabilityInstaller:
                     cwd=str(self.local_core_root),
                     capture_output=True,
                     text=True,
-                    timeout=5,  # Structure validation should complete in 1 second, 5 second buffer
+                    timeout=30,  # Structure validation timeout (increased for reliability)
                     env={
                         **dict(__import__('os').environ),
                         "LLM_MOCK": "false",  # Skip execution test, no mock needed
@@ -416,8 +430,18 @@ class CapabilityInstaller:
                                         structure_valid = True
                                         break
                             else:
-                                # 沒找到這個 playbook，視為通過（可能是其他問題）
-                                structure_valid = True
+                                # 沒找到這個 playbook 的驗證結果，檢查 summary
+                                if summary.get("failed", 0) > 0:
+                                    structure_valid = False
+                                    error_msg = f"Playbook validation failed (summary: {summary})"
+                                    validation_results["failed"].append({
+                                        "playbook": playbook_code,
+                                        "error": error_msg
+                                    })
+                                    logger.error(f"Playbook {playbook_code} structure validation failed: {error_msg}")
+                                else:
+                                    # Summary 顯示通過，視為通過
+                                    structure_valid = True
                         else:
                             # 沒有 JSON 輸出，視為通過
                             structure_valid = True
@@ -426,7 +450,13 @@ class CapabilityInstaller:
                         structure_valid = True
                         logger.debug(f"Playbook {playbook_code} structure validation passed (JSON parse error ignored: {e})")
                 else:
+                    # Return code != 0, validation failed
                     structure_valid = False
+                    # Log the actual output for debugging
+                    output = (process.stdout or "").strip()
+                    stderr_output = (process.stderr or "").strip()
+                    logger.debug(f"Playbook {playbook_code} validation script returned non-zero: stdout={output[:200]}, stderr={stderr_output[:200]}")
+                
                 if not structure_valid:
                     # Parse error from output (只取 JSON 部分)
                     try:
@@ -1052,7 +1082,25 @@ class CapabilityInstaller:
                             import importlib
                             import inspect
 
+                            # Try to get backend from registry first
                             backend_path = get_tool_backend(cap, tool_name)
+                            
+                            # If not found in registry, try to get from manifest directly
+                            if backend_path is None:
+                                try:
+                                    manifest_path = self.capabilities_dir / cap / "manifest.yaml"
+                                    if manifest_path.exists():
+                                        import yaml
+                                        with open(manifest_path, 'r', encoding='utf-8') as f:
+                                            cap_manifest = yaml.safe_load(f)
+                                        tools = cap_manifest.get('tools', [])
+                                        for tool_def in tools:
+                                            if tool_def.get('code') == tool_name or tool_def.get('name') == tool_name:
+                                                backend_path = tool_def.get('backend')
+                                                break
+                                except Exception as e:
+                                    logger.debug(f"Failed to read backend from manifest: {e}")
+                            
                             if backend_path is None:
                                 errors.append(
                                     f"Step '{step_id}': Tool '{tool_slot}' backend not found"
@@ -1515,10 +1563,6 @@ class CapabilityInstaller:
             manifest: Parsed manifest dict
             result: Result dict to update
         """
-        ui_components = manifest.get("ui_components", [])
-        if not ui_components:
-            return
-
         # Target directory: web-console/src/app/capabilities/{capability_code}/components
         frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
         target_cap_dir = frontend_dir / capability_code / "components"
@@ -1527,19 +1571,29 @@ class CapabilityInstaller:
         installed_components = []
 
         # Install entire ui/ directory if it exists (to include all dependencies)
+        # This should happen regardless of ui_components field in manifest
         source_ui_dir = cap_dir / "ui"
         if source_ui_dir.exists() and source_ui_dir.is_dir():
             # Copy all files from ui/ directory (always overwrite to ensure latest version)
             for file_path in source_ui_dir.rglob("*"):
                 if file_path.is_file():
                     relative_path = file_path.relative_to(source_ui_dir)
-                    target_path = target_cap_dir / relative_path.name
-                    # Create subdirectories if needed
+                    # Flatten structure: ui/components/Component.tsx -> components/Component.tsx
+                    # Remove 'components/' prefix if present to avoid components/components/
+                    path_parts = relative_path.parts
+                    if len(path_parts) > 1 and path_parts[0] == 'components':
+                        # Skip the 'components' directory level
+                        target_relative = Path(*path_parts[1:])
+                    else:
+                        target_relative = relative_path
+                    target_path = target_cap_dir / target_relative
                     target_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(file_path, target_path)
-                    logger.debug(f"Installed UI file: {relative_path.name}")
+                    logger.debug(f"Installed UI file: {relative_path} -> {target_relative}")
+                    installed_components.append(str(target_relative))
 
         # Also install individual components specified in manifest
+        ui_components = manifest.get("ui_components", [])
         for component_def in ui_components:
             component_code = component_def.get("code")
             component_path = component_def.get("path")
@@ -1567,7 +1621,8 @@ class CapabilityInstaller:
             logger.debug(f"Installed UI component: {component_code}")
 
         if installed_components:
-            result["installed"]["ui_components"] = installed_components
+            result.setdefault("installed", {}).setdefault("ui_components", []).extend(installed_components)
+            logger.info(f"Installed {len(installed_components)} UI files for {capability_code}")
 
     def _install_manifest(
         self,
