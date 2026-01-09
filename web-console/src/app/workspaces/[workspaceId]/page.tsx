@@ -15,6 +15,7 @@ import LeftSidebarTabs from './components/LeftSidebarTabs';
 import ProjectCard from './components/ProjectCard';
 import ProjectSubTabs from './components/ProjectSubTabs';
 import OutcomesPanel, { Artifact } from './components/OutcomesPanel';
+import ConversationsList from './components/ConversationsList';
 import OutcomeDetailModal from '../components/OutcomeDetailModal';
 import BackgroundTasksPanel from '../components/BackgroundTasksPanel';
 import { ThinkingPanel } from '../../../components/workspace/ThinkingPanel';
@@ -42,6 +43,7 @@ import { ArtifactsSummary } from '../../../components/workspace/ArtifactsSummary
 import { DecisionPanel } from '../../../components/workspace/DecisionPanel';
 import { ResizablePanel } from '../../../components/ui/ResizablePanel';
 import { Project } from '@/types/project';
+import { ThreadBundlePanel } from '../../../components/workspace/ThreadBundlePanel';
 
 import { getApiBaseUrl } from '../../../lib/api-url';
 
@@ -119,6 +121,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);  // 🆕 Current conversation thread
+  const [isBundleOpen, setIsBundleOpen] = useState(false);  // 🆕 Bundle panel state
 
   // Execution state from hook (SSE-driven)
   const executionState = useExecutionState(workspaceId, API_URL);
@@ -393,17 +397,35 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
       <div className="flex flex-col h-[calc(100vh-48px)]">
         {/* Train Header - Progress Bar with Workspace Name */}
         {workspace && (
-          <TrainHeader
-            workspaceName={workspace.title}
-            steps={executionState.trainSteps}
-            progress={executionState.overallProgress}
-            isExecuting={executionState.isExecuting}
-            workspaceId={workspaceId}
-            onWorkspaceNameEdit={() => {
-              setEditedName(workspace.title);
-              setIsEditingName(true);
-            }}
-          />
+          <div className="relative">
+            <TrainHeader
+              workspaceName={workspace.title}
+              steps={executionState.trainSteps}
+              progress={executionState.overallProgress}
+              isExecuting={executionState.isExecuting}
+              workspaceId={workspaceId}
+              onWorkspaceNameEdit={() => {
+                setEditedName(workspace.title);
+                setIsEditingName(true);
+              }}
+            />
+            {/* Bundle Button - Right side of header */}
+            {selectedThreadId && (
+              <button
+                onClick={() => setIsBundleOpen(true)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg
+                           hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors z-20
+                           flex items-center gap-1.5"
+                title="開啟成果包"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                <span>Bundle</span>
+              </button>
+            )}
+          </div>
         )}
 
         <div className="flex flex-1 overflow-hidden">
@@ -416,6 +438,16 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
+                    {/* Conversations List - Top Section */}
+                    <div className="flex-shrink-0 border-b dark:border-gray-700" style={{ height: '250px', minHeight: '250px', maxHeight: '250px' }}>
+                      <ConversationsList
+                        workspaceId={workspaceId}
+                        apiUrl={API_URL}
+                        selectedThreadId={selectedThreadId}
+                        onThreadSelect={setSelectedThreadId}
+                      />
+                    </div>
+
                     {projects.length > 0 && (
                       <ProjectSubTabs
                         projects={projects}
@@ -590,6 +622,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 workspaceId={workspaceId}
                 apiUrl={API_URL}
                 projectId={currentProject?.id}  // Pass current project ID
+                threadId={selectedThreadId}  // 🆕 Pass current thread ID
                 onFileAnalyzed={() => {
                   // Refresh workbench when file is analyzed
                   setWorkbenchRefreshTrigger(prev => prev + 1);
@@ -820,6 +853,15 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
         onUpdate={() => {
           contextData.refreshWorkspace();
         }}
+      />
+
+      {/* Thread Bundle Panel */}
+      <ThreadBundlePanel
+        threadId={selectedThreadId}
+        workspaceId={workspaceId}
+        isOpen={isBundleOpen}
+        onClose={() => setIsBundleOpen(false)}
+        apiUrl={API_URL}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { ChatMessage } from './useChatEvents';
 
 interface SendMessageOptions {
@@ -13,13 +13,33 @@ interface SendMessageOptions {
   mode?: string;
   stream?: boolean;
   project_id?: string;  // Current project ID
+  thread_id?: string | null;  // 🆕 Conversation thread ID
   onChunk?: (chunk: string) => void;
   onComplete?: (fullText: string, contextTokens?: number) => void;
 }
 
-export function useSendMessage(workspaceId: string, apiUrl: string = '', projectId?: string) {
+export function useSendMessage(
+  workspaceId: string,
+  apiUrl: string = '',
+  projectId?: string,
+  threadId?: string | null  // 🆕 Current thread ID
+) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Track current threadId for stream validation
+  const currentThreadIdRef = useRef<string | null>(threadId || null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Update current threadId ref when threadId changes
+  useEffect(() => {
+    currentThreadIdRef.current = threadId || null;
+    // Abort any ongoing stream when threadId changes
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, [threadId]);
 
   const sendMessage = useCallback(async (
     options: SendMessageOptions,
@@ -36,12 +56,15 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
       mode = 'auto',
       stream = false,
       project_id,
+      thread_id,  // 🆕 從 options 獲取（優先級高於 hook 參數）
       onChunk,
       onComplete
     } = options;
 
     // Use project_id from options, fallback to hook parameter
     const finalProjectId = project_id || projectId;
+    // Use thread_id from options, fallback to hook parameter
+    const finalThreadId = thread_id !== undefined ? thread_id : threadId;  // 🆕
 
     // Debug logging
     console.log('[useSendMessage] Sending message:', {
@@ -63,6 +86,15 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
     try {
       // Handle streaming requests
       if (stream) {
+        // Abort previous stream if exists
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+
+        // Create new AbortController for this request
+        abortControllerRef.current = new AbortController();
+        const targetThreadId = finalThreadId;
+
         const response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/chat`,
           {
@@ -79,8 +111,10 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
               confirm,
               mode,
               stream: true,
-              project_id: finalProjectId  // Pass project_id to API
-            })
+              project_id: finalProjectId,  // Pass project_id to API
+              thread_id: finalThreadId  // 🆕 Pass thread_id to API
+            }),
+            signal: abortControllerRef.current.signal  // Add abort signal
           }
         );
 
@@ -103,6 +137,13 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
           const { done, value } = await reader.read();
           if (done) break;
 
+          // Check if threadId has changed (stream validation)
+          if (currentThreadIdRef.current !== targetThreadId) {
+            console.log('[useSendMessage] Thread switched, aborting stream');
+            abortControllerRef.current?.abort();
+            return { streamed: true, fullText, aborted: true };
+          }
+
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
           buffer = lines.pop() || ''; // Keep incomplete line in buffer
@@ -111,6 +152,13 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6));
+
+                // Validate threadId before processing chunk
+                if (currentThreadIdRef.current !== targetThreadId) {
+                  console.log('[useSendMessage] Discarding chunk for old thread');
+                  continue;
+                }
+
                 if (data.type === 'chunk' && data.content) {
                   fullText += data.content;
                   if (onChunk) {
@@ -359,6 +407,8 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
           }
         }
 
+        // Clear abort controller on successful completion
+        abortControllerRef.current = null;
         setIsLoading(false);
         return { streamed: true, fullText };
       } else {
@@ -378,7 +428,8 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
               timeline_item_id,
               confirm,
               mode,
-              project_id: finalProjectId  // Pass project_id to API
+              project_id: finalProjectId,  // Pass project_id to API
+              thread_id: finalThreadId  // 🆕 Pass thread_id to API
             })
           }
         );
@@ -400,6 +451,14 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
         return data;
       }
     } catch (err: any) {
+      // Handle AbortError gracefully (thread switch)
+      if (err.name === 'AbortError') {
+        console.log('[useSendMessage] Request aborted due to thread switch');
+        setIsLoading(false);
+        abortControllerRef.current = null;
+        return { streamed: true, aborted: true };
+      }
+
       const errorMessage = err.message || 'Failed to send message';
       setError(errorMessage);
       console.error('Chat error:', err);
@@ -409,9 +468,10 @@ export function useSendMessage(workspaceId: string, apiUrl: string = '', project
       }
 
       setIsLoading(false);
+      abortControllerRef.current = null;
       throw err;
     }
-  }, [workspaceId, apiUrl, projectId]);
+  }, [workspaceId, apiUrl, projectId, threadId]);  // 🆕 添加 threadId 到依賴
 
   return {
     sendMessage,

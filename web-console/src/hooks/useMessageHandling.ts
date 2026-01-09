@@ -14,6 +14,7 @@ import { t } from '@/lib/i18n';
 
 interface UseMessageHandlingOptions {
   projectId?: string;
+  threadId?: string | null;  // 🆕 Conversation thread ID
   onFileAnalyzed?: () => void;
   onMessageSent?: (message: ChatMessage) => void;
   onError?: (error: Error) => void;
@@ -41,7 +42,8 @@ export function useMessageHandling(
   const { sendMessage, isLoading: sendLoading, error: sendError } = useSendMessage(
     workspaceId,
     apiUrl,
-    options?.projectId
+    options?.projectId,
+    options?.threadId  // 🆕 傳遞 threadId
   );
 
   const {

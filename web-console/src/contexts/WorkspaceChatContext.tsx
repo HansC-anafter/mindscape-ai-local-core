@@ -11,6 +11,7 @@ export interface WorkspaceChatProviderProps {
   children: ReactNode;
   workspaceId: string;
   apiUrl?: string;
+  threadId?: string | null;  // 🆕 Current conversation thread ID
 }
 
 /**
@@ -28,9 +29,10 @@ export function WorkspaceChatProvider({
   children,
   workspaceId,
   apiUrl = '',
+  threadId,  // 🆕
 }: WorkspaceChatProviderProps) {
   return (
-    <MessagesProvider workspaceId={workspaceId} apiUrl={apiUrl}>
+    <MessagesProvider workspaceId={workspaceId} apiUrl={apiUrl} threadId={threadId}>
       <UIStateProvider>
         <ScrollStateProvider>
           <WorkspaceMetadataProvider>

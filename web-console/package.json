@@ -11,6 +11,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@mindscape-ai/hooks": "^0.1.0-beta",
+    "@mindscape-ai/shell": "^0.1.0-beta",
+    "@mindscape-ai/ui": "^0.1.0-beta",
     "@react-sigma/core": "^5.0.6",
     "@react-sigma/layout-forceatlas2": "^5.0.6",
     "@react-three/drei": "^9.92.0",

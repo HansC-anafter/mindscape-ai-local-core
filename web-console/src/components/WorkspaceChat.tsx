@@ -49,6 +49,7 @@ interface WorkspaceChatProps {
   executionMode?: ExecutionMode;
   expectedArtifacts?: string[];
   projectId?: string;  // Current project ID (if user is in a project context)
+  threadId?: string | null;  // 🆕 Current conversation thread ID
 }
 
 function WorkspaceChatContent({
@@ -57,7 +58,8 @@ function WorkspaceChatContent({
   onFileAnalyzed,
   executionMode,
   expectedArtifacts,
-  projectId
+  projectId,
+  threadId  // 🆕
 }: WorkspaceChatProps) {
   // Use Context for state management
   const {
@@ -130,6 +132,7 @@ function WorkspaceChatContent({
   // Use new Hooks for message handling, workspace data, and textarea auto-resize
   const messageHandling = useMessageHandling(workspaceId, apiUrl, {
     projectId,
+    threadId,  // 🆕 傳遞 threadId
     onFileAnalyzed,
   });
   const {
@@ -141,7 +144,7 @@ function WorkspaceChatContent({
   } = messageHandling;
 
   // Get sendMessage from useSendMessage for suggestion execution
-  const { sendMessage } = useSendMessage(workspaceId, apiUrl, projectId);
+  const { sendMessage } = useSendMessage(workspaceId, apiUrl, projectId, threadId);  // 🆕 傳遞 threadId
 
   const handleExecuteSuggestion = async (suggestion: Suggestion) => {
     try {
@@ -572,7 +575,11 @@ function WorkspaceChatContent({
 
 export default function WorkspaceChat(props: WorkspaceChatProps) {
   return (
-    <WorkspaceChatProvider workspaceId={props.workspaceId} apiUrl={props.apiUrl || ''}>
+    <WorkspaceChatProvider 
+      workspaceId={props.workspaceId} 
+      apiUrl={props.apiUrl || ''}
+      threadId={props.threadId}  // 🆕 傳遞 threadId
+    >
       <WorkspaceChatContent {...props} />
     </WorkspaceChatProvider>
   );

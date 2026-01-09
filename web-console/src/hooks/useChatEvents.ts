@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface ProjectAssignment {
   project_id?: string;
@@ -41,7 +41,19 @@ export interface ChatMessage {
   project_assignment?: ProjectAssignment;
 }
 
-export function useChatEvents(workspaceId: string, apiUrl: string = '') {
+export interface UseChatEventsOptions {
+  threadId?: string | null;
+  projectId?: string | null;
+  enabled?: boolean;
+}
+
+export function useChatEvents(
+  workspaceId: string,
+  apiUrl: string = '',
+  options?: UseChatEventsOptions
+) {
+  const { threadId, projectId, enabled = true } = options || {};
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +63,27 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
   const [loadingMore, setLoadingMore] = useState(false);
   const [autoLoadAttempted, setAutoLoadAttempted] = useState(false);
 
+  // AbortController for canceling requests on thread switch
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const loadEvents = useCallback(async (beforeId?: string, append: boolean = false) => {
+    if (!enabled) {
+      return;
+    }
+
+    // Prevent duplicate requests
+    if (!append && loading) {
+      return;
+    }
+
+    // Abort previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController();
+
     try {
       if (append) {
         setLoadingMore(true);
@@ -66,8 +98,16 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
       if (beforeId) {
         url.searchParams.set('before_id', beforeId);
       }
+      // 🆕 添加 thread_id 過濾（如果提供）
+      // 注意：如果 threadId 為 null/undefined，後端會返回所有事件（向後兼容）
+      // 但實際上後端會自動使用 default thread，所以這裡可以選擇性地傳遞
+      if (threadId) {
+        url.searchParams.set('thread_id', threadId);
+      }
 
-      const eventsResponse = await fetch(url.toString());
+      const eventsResponse = await fetch(url.toString(), {
+        signal: abortControllerRef.current.signal
+      });
 
       if (!eventsResponse.ok) {
         const errorText = await eventsResponse.text().catch(() => 'Unknown error');
@@ -168,13 +208,37 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
         }
       }
     } catch (err: any) {
+      // Handle AbortError gracefully (thread switch)
+      if (err.name === 'AbortError') {
+        console.log('[useChatEvents] Request aborted due to thread switch');
+        return;
+      }
       console.error('Failed to load chat history:', err);
       setError(err.message || 'Failed to load chat history');
     } finally {
       setLoading(false);
       setLoadingMore(false);
+      abortControllerRef.current = null;
     }
-  }, [workspaceId, apiUrl]);
+  }, [workspaceId, apiUrl, threadId, enabled, loading]);
+
+  // Load events when threadId or enabled changes
+  // Note: If threadId is null/undefined, backend will use default thread
+  useEffect(() => {
+    if (enabled && threadId !== undefined) {
+      loadEvents();
+    }
+  }, [threadId, enabled, loadEvents]);
+
+  // Cleanup: abort ongoing requests when component unmounts or threadId changes
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, [threadId]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || messages.length === 0) return;
@@ -186,7 +250,6 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
   // Auto-load more messages once after initial load if hasMore is true
   useEffect(() => {
     if (hasMore && !loading && !loadingMore && messages.length > 0 && !autoLoadAttempted) {
-      // Auto-load more messages once to get more history
       setAutoLoadAttempted(true);
       const timer = setTimeout(() => {
         loadMore();
@@ -194,10 +257,6 @@ export function useChatEvents(workspaceId: string, apiUrl: string = '') {
       return () => clearTimeout(timer);
     }
   }, [hasMore, loading, loadingMore, messages.length, autoLoadAttempted, loadMore]);
-
-  useEffect(() => {
-    loadEvents();
-  }, [loadEvents]);
 
   return {
     messages,

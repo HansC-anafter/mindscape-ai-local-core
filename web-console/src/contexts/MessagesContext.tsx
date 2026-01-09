@@ -33,12 +33,18 @@ interface MessagesProviderProps {
   children: ReactNode;
   workspaceId: string;
   apiUrl?: string;
+  threadId?: string | null;  // 🆕 Current thread ID
 }
 
 const MessagesContext = createContext<MessagesState | null>(null);
 
-export function MessagesProvider({ children, workspaceId, apiUrl = '' }: MessagesProviderProps) {
-  const chatEvents = useChatEvents(workspaceId, apiUrl);
+export function MessagesProvider({ 
+  children, 
+  workspaceId, 
+  apiUrl = '',
+  threadId  // 🆕
+}: MessagesProviderProps) {
+  const chatEvents = useChatEvents(workspaceId, apiUrl, { threadId });  // 🆕 傳遞 threadId
   const executionStateHook = useExecutionState(workspaceId, apiUrl);
   const currentExecutionHook = useCurrentExecution(workspaceId, apiUrl);
 
