@@ -31,6 +31,45 @@ from ..utils.token_management import truncate_context_if_needed, estimate_token_
 logger = logging.getLogger(__name__)
 
 
+def _get_or_create_default_thread(workspace_id: str, store) -> str:
+    """
+    Get or create default thread for a workspace
+
+    Args:
+        workspace_id: Workspace ID
+        store: MindscapeStore instance
+
+    Returns:
+        Thread ID (default thread)
+    """
+    # Try to get existing default thread
+    default_thread = store.conversation_threads.get_default_thread(workspace_id)
+    if default_thread:
+        return default_thread.id
+
+    # Create default thread if it doesn't exist
+    import uuid
+    from backend.app.models.workspace import ConversationThread
+
+    thread_id = str(uuid.uuid4())
+    default_thread = ConversationThread(
+        id=thread_id,
+        workspace_id=workspace_id,
+        title="預設對話",
+        project_id=None,
+        pinned_scope=None,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+        last_message_at=datetime.utcnow(),
+        message_count=0,
+        metadata={},
+        is_default=True
+    )
+    store.conversation_threads.create_thread(default_thread)
+    logger.info(f"Created default thread {thread_id} for workspace {workspace_id}")
+    return thread_id
+
+
 def _smart_truncate_message(message: str, max_length: int = 60) -> str:
     """
     Truncate message intelligently at sentence boundary
@@ -106,6 +145,12 @@ async def generate_streaming_response(
         if project_id:
             logger.info(f"Streaming path: Using project: {project_id}")
 
+        # Get or create thread_id
+        thread_id = request.thread_id
+        if not thread_id:
+            thread_id = _get_or_create_default_thread(workspace_id, orchestrator.store)
+        logger.info(f"Streaming path: Using thread_id: {thread_id}")
+
         # Create user event first
         user_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -115,14 +160,34 @@ async def generate_streaming_response(
             profile_id=profile_id,
             project_id=project_id,
             workspace_id=workspace_id,
+            thread_id=thread_id,
             event_type=EventType.MESSAGE,
             payload={"message": request.message, "files": request.files, "mode": request.mode},
             entity_ids=[],
             metadata={}
         )
         orchestrator.store.create_event(user_event)
-        logger.info(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}")
-        print(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}", file=sys.stderr)
+        logger.info(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}, thread_id={thread_id}")
+        print(f"WorkspaceChat: Created user_event {user_event.id} in streaming path with project_id={project_id}, thread_id={thread_id}", file=sys.stderr)
+
+        # Update thread statistics
+        if thread_id:
+            try:
+                thread = orchestrator.store.conversation_threads.get_thread(thread_id)
+                if thread:
+                    # Use COUNT query to accurately calculate message count (not dependent on limit)
+                    message_count = orchestrator.store.events.count_messages_by_thread(
+                        workspace_id=workspace_id,
+                        thread_id=thread_id
+                    )
+
+                    orchestrator.store.conversation_threads.update_thread(
+                        thread_id=thread_id,
+                        last_message_at=datetime.utcnow(),
+                        message_count=message_count
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to update thread statistics: {e}")
 
         # Load runtime profile and get resolved execution mode
         runtime_profile_store = WorkspaceRuntimeProfileStore(db_path=orchestrator.store.db_path)
@@ -272,6 +337,7 @@ Keep it concise and friendly. Respond in {locale}."""
             store=orchestrator.store,
             timeline_items_store=timeline_items_store,
             model_name=model_name,
+            thread_id=thread_id,
             hours=24
         )
 
@@ -315,6 +381,7 @@ Keep it concise and friendly. Respond in {locale}."""
                         message_id=user_event.id,
                         profile_id=profile_id,
                         project_id=project_id,
+                        thread_id=thread_id,
                         execution_mode=execution_mode,
                         expected_artifacts=expected_artifacts,
                         available_playbooks=available_playbooks,
@@ -555,6 +622,7 @@ Keep it concise and friendly. Respond in {locale}."""
                 profile_id=profile_id,
                 project_id=workspace.primary_project_id,
                 workspace_id=workspace_id,
+                thread_id=thread_id,
                 workspace=workspace,
                 message=request.message,
                 profile=profile,
@@ -576,4 +644,3 @@ Keep it concise and friendly. Respond in {locale}."""
     except Exception as e:
         logger.error(f"Streaming error: {str(e)}", exc_info=True)
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-

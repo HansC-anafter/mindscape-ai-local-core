@@ -102,6 +102,12 @@ async def workspace_chat(
             )
 
         # Non-streaming mode (existing logic)
+        # Get or create default thread if thread_id not provided
+        thread_id = request.thread_id
+        if not thread_id:
+            from backend.features.workspace.chat.streaming.generator import _get_or_create_default_thread
+            thread_id = _get_or_create_default_thread(workspace_id, orchestrator.store)
+        
         result = await orchestrator.route_message(
             workspace_id=workspace_id,
             profile_id=profile_id,
@@ -109,7 +115,8 @@ async def workspace_chat(
             files=request.files,
             mode=request.mode,
             project_id=workspace.primary_project_id,
-            workspace=workspace
+            workspace=workspace,
+            thread_id=thread_id  # 🆕
         )
 
         # Ensure workspace_id is included in result

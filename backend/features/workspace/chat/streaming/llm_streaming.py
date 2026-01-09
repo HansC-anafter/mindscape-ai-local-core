@@ -137,6 +137,7 @@ def create_assistant_event(
     profile_id: str,
     project_id: str,
     workspace_id: str,
+    thread_id: Optional[str],
     store: MindscapeStore
 ) -> MindEvent:
     """
@@ -148,6 +149,7 @@ def create_assistant_event(
         profile_id: Profile ID
         project_id: Project ID
         workspace_id: Workspace ID
+        thread_id: Thread ID (optional)
         store: MindscapeStore instance
 
     Returns:
@@ -161,13 +163,37 @@ def create_assistant_event(
         profile_id=profile_id,
         project_id=project_id,
         workspace_id=workspace_id,
+        thread_id=thread_id,
         event_type=EventType.MESSAGE,
         payload={"message": full_text, "response_to": user_event_id},
         entity_ids=[],
         metadata={}
     )
     store.create_event(assistant_event)
-    logger.info(f"[LLMStreaming] Created assistant event {assistant_event.id}, message length: {len(full_text)} chars")
+    logger.info(f"[LLMStreaming] Created assistant event {assistant_event.id}, message length: {len(full_text)} chars, thread_id={thread_id}")
+    
+    # Update thread statistics
+    if thread_id:
+        try:
+            from datetime import datetime
+            thread = store.conversation_threads.get_thread(thread_id)
+            if thread:
+                # Use COUNT query to accurately calculate message count (not dependent on limit)
+                message_count = store.events.count_messages_by_thread(
+                    workspace_id=workspace_id,
+                    thread_id=thread_id
+                )
+                
+                store.conversation_threads.update_thread(
+                    thread_id=thread_id,
+                    last_message_at=datetime.utcnow(),
+                    message_count=message_count
+                )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to update thread statistics: {e}")
+    
     return assistant_event
 
 
@@ -290,6 +316,7 @@ async def stream_llm_response(
     profile_id: str,
     project_id: str,
     workspace_id: str,
+    thread_id: Optional[str],
     workspace: Workspace,
     message: str,
     profile: Optional[Any],
@@ -340,7 +367,7 @@ async def stream_llm_response(
 
         # Create assistant event
         assistant_event = create_assistant_event(
-            full_text, user_event_id, profile_id, project_id, workspace_id, store
+            full_text, user_event_id, profile_id, project_id, workspace_id, thread_id, store
         )
 
         # Handle hybrid mode
@@ -380,7 +407,7 @@ async def stream_llm_response(
 
         # Create assistant event
         assistant_event = create_assistant_event(
-            full_text, user_event_id, profile_id, project_id, workspace_id, store
+            full_text, user_event_id, profile_id, project_id, workspace_id, thread_id, store
         )
 
         # Handle hybrid mode

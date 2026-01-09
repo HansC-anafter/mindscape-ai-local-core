@@ -22,6 +22,7 @@ async def build_streaming_context(
     store: MindscapeStore,
     timeline_items_store: TimelineItemsStore,
     model_name: Optional[str] = None,
+    thread_id: Optional[str] = None,
     hours: int = 24
 ) -> Optional[str]:
     """
@@ -51,7 +52,9 @@ async def build_streaming_context(
         message=message,
         profile_id=profile_id,
         workspace=workspace,
-        hours=hours
+        thread_id=thread_id,
+        hours=hours,
+        side_chain_mode="auto"
     )
 
     if context is not None:
@@ -166,4 +169,3 @@ async def load_available_playbooks(
 
     logger.info(f"Found {len(available_playbooks)} total playbooks for workspace context")
     return available_playbooks
-

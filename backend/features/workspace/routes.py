@@ -13,6 +13,7 @@ from .executions import router as executions_router
 from .artifacts import router as artifacts_router
 from .projects import router as projects_router
 from .flows.routes import router as flows_router
+from .threads import router as threads_router
 
 router = APIRouter()
 
@@ -23,4 +24,5 @@ router.include_router(executions_router)
 router.include_router(artifacts_router)
 router.include_router(projects_router)
 router.include_router(flows_router)
+router.include_router(threads_router)
 

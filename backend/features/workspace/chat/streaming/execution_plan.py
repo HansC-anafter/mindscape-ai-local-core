@@ -12,6 +12,7 @@ from backend.app.services.execution_plan_generator import (
     record_execution_plan_event
 )
 from backend.app.services.agent_runner import LLMProviderManager
+from backend.app.services.conversation.context_builder import ContextBuilder
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 from backend.app.shared.i18n_loader import get_locale_from_context, load_i18n_string
 
@@ -30,6 +31,7 @@ async def generate_and_execute_plan(
     model_name: str,
     llm_provider_manager: LLMProviderManager,
     orchestrator: ConversationOrchestrator,
+    thread_id: Optional[str] = None,
     files: Optional[list] = None
 ) -> Optional[Any]:
     """
@@ -47,6 +49,7 @@ async def generate_and_execute_plan(
         model_name: Model name
         llm_provider_manager: LLM provider manager
         orchestrator: Conversation orchestrator
+        thread_id: Optional thread ID for thread-scoped context
         files: Optional file list
 
     Returns:
@@ -105,6 +108,32 @@ async def generate_and_execute_plan(
         except Exception as e:
             logger.warning(f"[ExecutionPlan] Failed to resolve effective playbooks: {e}, falling back to available_playbooks")
 
+        planning_context = ""
+        try:
+            workspace = None
+            try:
+                workspace = orchestrator.store.get_workspace(workspace_id)
+            except Exception:
+                pass
+
+            context_builder = ContextBuilder(
+                store=orchestrator.store,
+                timeline_items_store=orchestrator.timeline_items_store,
+                model_name=model_name
+            )
+            planning_context = await context_builder.build_planning_context(
+                workspace_id=workspace_id,
+                message=user_request,
+                profile_id=profile_id,
+                workspace=workspace,
+                target_tokens=1200,
+                mode="planning",
+                thread_id=thread_id,
+                side_chain_mode="auto"
+            )
+        except Exception as e:
+            logger.warning(f"[ExecutionPlan] Failed to build planning context: {e}")
+
         logger.info(f"[ExecutionPlan] Calling generate_execution_plan with model={model_name}, provider={provider_name}")
         print(f"[ExecutionPlan] Calling generate_execution_plan with model={model_name}, provider={provider_name}", file=sys.stderr)
         execution_plan = await generate_execution_plan(
@@ -120,7 +149,9 @@ async def generate_and_execute_plan(
             project_id=project_id,
             project_assignment_decision=None,
             tenant_id=None,
-            user_id=profile_id
+            user_id=profile_id,
+            planning_context=planning_context,
+            thread_id=thread_id
         )
 
         if not execution_plan:
@@ -355,4 +386,3 @@ async def execute_plan_and_send_events(
         }
         yield f"data: {json.dumps(pipeline_stage_event)}\n\n"
         logger.info(f"[PipelineStage] Sent execution_error stage event, run_id={run_id}")
-

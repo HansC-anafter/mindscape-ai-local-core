@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 @router.get("/{workspace_id}/events", response_model=EventsListResponse)
 async def get_workspace_events(
     workspace_id: str = Path(..., description="Workspace ID"),
+    thread_id: Optional[str] = Query(None, description="Filter by conversation thread ID"),
     start_time: Optional[str] = Query(None, description="Start time filter (ISO format)"),
     end_time: Optional[str] = Query(None, description="End time filter (ISO format)"),
     event_types: Optional[str] = Query(None, description="Comma-separated event types"),
@@ -46,18 +47,33 @@ async def get_workspace_events(
 
     Supports cursor-based pagination using before_id parameter for efficient loading
     of older messages when scrolling up in chat.
+
+    If thread_id is provided, only returns events for that conversation thread.
+    If thread_id is not provided, returns all events (backward compatible).
     """
     try:
         start_dt = datetime.fromisoformat(start_time) if start_time else None
         end_dt = datetime.fromisoformat(end_time) if end_time else None
 
-        recent_events = store.get_events_by_workspace(
-            workspace_id=workspace_id,
-            start_time=start_dt,
-            end_time=end_dt,
-            limit=limit,
-            before_id=before_id
-        )
+        if thread_id:
+            # Filter by thread_id
+            recent_events = store.events.get_events_by_thread(
+                workspace_id=workspace_id,
+                thread_id=thread_id,
+                start_time=start_dt,
+                end_time=end_dt,
+                limit=limit,
+                before_id=before_id
+            )
+        else:
+            # Backward compatible: get all events
+            recent_events = store.get_events_by_workspace(
+                workspace_id=workspace_id,
+                start_time=start_dt,
+                end_time=end_dt,
+                limit=limit,
+                before_id=before_id
+            )
 
         # Check if workspace has welcome message (cold start check)
         # Only check if no before_id (initial load) and no event_types filter
@@ -83,6 +99,10 @@ async def get_workspace_events(
                     )
 
                     if welcome_message:
+                        # 🆕 Get or create default thread for welcome message
+                        from backend.features.workspace.chat.streaming.generator import _get_or_create_default_thread
+                        default_thread_id = _get_or_create_default_thread(workspace_id, store)
+
                         welcome_event = MindEvent(
                             id=str(uuid.uuid4()),
                             timestamp=datetime.utcnow(),
@@ -91,6 +111,7 @@ async def get_workspace_events(
                             profile_id=workspace.owner_user_id,
                             project_id=workspace.primary_project_id,
                             workspace_id=workspace_id,
+                            thread_id=default_thread_id,  # 🆕
                             event_type=EventType.MESSAGE,
                             payload={
                                 "message": welcome_message,
@@ -101,6 +122,21 @@ async def get_workspace_events(
                             metadata={"is_cold_start": True}
                         )
                         store.create_event(welcome_event)
+
+                        # 🆕 Update thread statistics
+                        try:
+                            # Use COUNT query to accurately calculate message count
+                            message_count = store.events.count_messages_by_thread(
+                                workspace_id=workspace_id,
+                                thread_id=default_thread_id
+                            )
+                            store.conversation_threads.update_thread(
+                                thread_id=default_thread_id,
+                                last_message_at=datetime.utcnow(),
+                                message_count=message_count
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to update thread statistics for welcome message: {e}")
 
                         # Reload events to include the new welcome message
                         recent_events = store.get_events_by_workspace(
@@ -135,6 +171,7 @@ async def get_workspace_events(
                 'profile_id': event.profile_id,
                 'project_id': event.project_id,
                 'workspace_id': event.workspace_id,
+                'thread_id': event.thread_id,
                 'event_type': event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
                 'payload': payload,
                 'entity_ids': entity_ids,
