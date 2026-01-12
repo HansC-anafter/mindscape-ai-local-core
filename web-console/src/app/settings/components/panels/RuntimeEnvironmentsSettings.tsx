@@ -9,7 +9,23 @@ import { ExternalSettingsEmbed } from './ExternalSettingsEmbed';
 import { AddRuntimeModal } from './AddRuntimeModal';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { BaseModal } from '../../../../components/BaseModal';
-import { getApiUrl } from '../../../../lib/api-url';
+import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../../lib/capability-path';
+// Use require.context to load capability components (webpack feature)
+// @ts-ignore - require.context is a webpack feature, not standard TypeScript
+// Use 'sync' mode instead of 'lazy' to avoid webpack pp/src path bug
+const rawCapabilityComponentsContext = require.context('../../../capabilities', true, /\.tsx$/, 'sync');
+const capabilityComponentKeys = new Set<string>(
+  typeof rawCapabilityComponentsContext.keys === 'function'
+    ? rawCapabilityComponentsContext.keys()
+    : []
+);
+const capabilityComponentsContext = ((key: string) => {
+  const normalizedKey = normalizeCapabilityContextKey(key);
+  const resolvedKey = normalizedKey && capabilityComponentKeys.has(normalizedKey)
+    ? normalizedKey
+    : key;
+  return rawCapabilityComponentsContext(resolvedKey);
+}) as typeof rawCapabilityComponentsContext;
 
 interface RuntimeEnvironment {
   id: string;
@@ -69,20 +85,23 @@ export function RuntimeEnvironmentsSettings() {
   };
 
   const loadExtensionComponent = (panel: SettingsPanel) => {
-    // Convert @/app/capabilities/... to relative path
-    const importPath = panel.importPath.replace('@/app/capabilities/', '../../../capabilities/');
-    console.log('[Site-Hub Debug] Loading component from path:', importPath, 'for panel', panel.componentCode);
-    return lazy(() =>
-      import(/* @vite-ignore */ importPath)
-        .then(module => {
-          console.log('[Site-Hub Debug] Component loaded successfully:', panel.componentCode, 'from', importPath);
-          return { default: module[panel.export || 'default'] };
-        })
-        .catch((error) => {
-          console.error('[Site-Hub Debug] Failed to load component:', panel.componentCode, 'from', importPath, error);
-          return { default: () => null };
-        })
-    );
+    const rawContextKey = convertImportPathToContextKey(panel.importPath);
+    const contextKey = normalizeCapabilityContextKey(rawContextKey);
+
+    return lazy(async () => {
+      if (!contextKey || !capabilityComponentKeys.has(contextKey)) {
+        return { default: () => null };
+      }
+
+      try {
+        const moduleLoader = capabilityComponentsContext(contextKey);
+        const module = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
+        return { default: module[panel.export || 'default'] || module.default };
+      } catch (error) {
+        console.error('[Site-Hub Debug] Failed to load component:', panel.componentCode, 'from', contextKey, error);
+        return { default: () => null };
+      }
+    });
   };
 
   const getRuntimeCodes = () => {
@@ -282,4 +301,3 @@ export function RuntimeEnvironmentsSettings() {
     </div>
   );
 }
-

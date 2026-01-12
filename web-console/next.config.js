@@ -2,15 +2,12 @@ const path = require('path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false, // Disabled to prevent double-render abort issues
+  reactStrictMode: false,
   output: 'standalone',
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   },
   async rewrites() {
-    // rewrites() runs on the Next.js server (inside Docker container)
-    // Use BACKEND_URL (Docker internal hostname) for server-side proxying
-    // NEXT_PUBLIC_BACKEND_URL is for client-side code (browser), not for server-side rewrites
     const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8200';
     return [
       {
@@ -20,23 +17,33 @@ const nextConfig = {
     ];
   },
   webpack: (config) => {
-    // Add path alias resolution for @/* to ./src/*
-    // CRITICAL: This allows webpack to resolve @/ aliases in dynamic imports at build time
-    // Webpack needs to statically analyze dynamic import paths to create proper chunks
+    const corePackagePath = path.resolve(__dirname, '../packages/core/src');
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
       '@': path.resolve(__dirname, 'src'),
+      '@mindscape-ai/core': path.resolve(__dirname, '../packages/core/src/index.ts'),
+      '@mindscape-ai/core/api': path.resolve(corePackagePath, 'api/index.ts'),
+      '@mindscape-ai/core/contexts': path.resolve(corePackagePath, 'contexts/index.ts'),
     };
     config.resolve.symlinks = false;
+    config.resolve.extensions = [
+      ...(config.resolve.extensions || []),
+      '.ts',
+      '.tsx',
+    ];
+    config.resolve.modules = [
+      ...(config.resolve.modules || []),
+      path.resolve(__dirname, 'packages'),
+      path.resolve(__dirname, 'src'),
+      'node_modules',
+    ];
 
-    // Ensure webpack can handle dynamic imports with aliases
-    // This tells webpack to include all files matching the pattern in the build
     config.module = config.module || {};
     config.module.rules = config.module.rules || [];
+    config.plugins = config.plugins || [];
 
     return config;
   },
-  // Disable RSC prefetching for client components to avoid 404 errors
   experimental: {
     serverActions: {
       bodySizeLimit: '2mb',

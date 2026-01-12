@@ -2,12 +2,26 @@
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { getApiUrl } from '../../../lib/api-url';
+import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../lib/capability-path';
 import { BaseModal } from '@/components/BaseModal';
 
 // Use require.context to load capability components (webpack feature)
 // @ts-ignore - require.context is a webpack feature, not standard TypeScript
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const capabilityComponentsContext = require.context('../../capabilities', true, /\.tsx$/, 'lazy');
+// Use 'sync' mode instead of 'lazy' to avoid webpack pp/src path bug
+const rawCapabilityComponentsContext = require.context('../../capabilities', true, /\.tsx$/, 'sync');
+const capabilityComponentKeys = new Set<string>(
+  typeof rawCapabilityComponentsContext.keys === 'function'
+    ? rawCapabilityComponentsContext.keys()
+    : []
+);
+const capabilityComponentsContext = ((key: string) => {
+  const normalizedKey = normalizeCapabilityContextKey(key);
+  const resolvedKey = normalizedKey && capabilityComponentKeys.has(normalizedKey)
+    ? normalizedKey
+    : key;
+  return rawCapabilityComponentsContext(resolvedKey);
+}) as typeof rawCapabilityComponentsContext;
 
 interface SettingsPanel {
   capability_code: string;
@@ -97,24 +111,24 @@ export default function RuntimeEnginesConfigModal({
   };
 
   const loadExtensionComponent = (panel: SettingsPanel) => {
-    // Convert @/app/capabilities/... to require.context key
-    // @/app/capabilities/site_hub_integration/components/SiteHubChannelBindingPanel
-    // -> ./site_hub_integration/components/SiteHubChannelBindingPanel.tsx
-    const convertImportPathToContextKey = (importPath: string): string | null => {
-      if (!importPath.startsWith('@/app/capabilities/')) {
-        return null;
-      }
-      const relativePath = importPath.replace('@/app/capabilities/', './');
-      return `${relativePath}.tsx`;
-    };
-
-    const contextKey = convertImportPathToContextKey(panel.import_path);
+    const rawContextKey = convertImportPathToContextKey(panel.import_path);
+    const contextKey = normalizeCapabilityContextKey(rawContextKey);
 
     if (!contextKey) {
       return lazy(() => Promise.resolve({
         default: () => (
           <div className="text-sm text-red-500 p-4">
             Invalid import path: {panel.import_path}
+          </div>
+        )
+      }));
+    }
+    if (!capabilityComponentKeys.has(contextKey)) {
+      return lazy(() => Promise.resolve({
+        default: () => (
+          <div className="text-sm text-red-500 p-4">
+            Component not found in bundle: {contextKey}<br />
+            Original: {panel.import_path}
           </div>
         )
       }));
@@ -145,9 +159,9 @@ export default function RuntimeEnginesConfigModal({
         return {
           default: () => (
             <div className="text-sm text-red-500 p-4">
-              Failed to load component: {panel.component_code}<br/>
-              Context Key: {contextKey}<br/>
-              Original: {panel.import_path}<br/>
+              Failed to load component: {panel.component_code}<br />
+              Context Key: {contextKey}<br />
+              Original: {panel.import_path}<br />
               Error: {error instanceof Error ? error.message : String(error)}
             </div>
           )
@@ -243,4 +257,3 @@ export default function RuntimeEnginesConfigModal({
     </BaseModal>
   );
 }
-

@@ -2,6 +2,24 @@
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { getApiUrl } from '../../../../lib/api-url';
+import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../../lib/capability-path';
+
+// Use require.context to load capability components (webpack feature)
+// @ts-ignore - require.context is a webpack feature, not standard TypeScript
+// Use 'sync' mode instead of 'lazy' to avoid webpack pp/src path bug
+const rawCapabilityComponentsContext = require.context('../../../capabilities', true, /\.tsx$/, 'sync');
+const capabilityComponentKeys = new Set<string>(
+  typeof rawCapabilityComponentsContext.keys === 'function'
+    ? rawCapabilityComponentsContext.keys()
+    : []
+);
+const capabilityComponentsContext = ((key: string) => {
+  const normalizedKey = normalizeCapabilityContextKey(key);
+  const resolvedKey = normalizedKey && capabilityComponentKeys.has(normalizedKey)
+    ? normalizedKey
+    : key;
+  return rawCapabilityComponentsContext(resolvedKey);
+}) as typeof rawCapabilityComponentsContext;
 
 interface SettingsPanel {
   capability_code: string;
@@ -90,20 +108,25 @@ export default function RuntimeEnginesPanel({
   };
 
   const loadExtensionComponent = (panel: SettingsPanel) => {
-    const importPath = panel.import_path.replace('@/app/capabilities/', '../../../capabilities/');
-    return lazy(() =>
-      import(/* @vite-ignore */ importPath)
-        .then(module => {
-          return { default: module[panel.export || 'default'] };
-        })
-        .catch((error) => {
-          // Only log errors in development, and suppress expected module not found errors
-          if (process.env.NODE_ENV === 'development' && !error.message?.includes('Failed to fetch dynamically imported module')) {
-            console.debug(`Failed to load component ${panel.component_code} from ${importPath}:`, error.message);
-          }
-          return { default: () => null };
-        })
-    );
+    const rawContextKey = convertImportPathToContextKey(panel.import_path);
+    const contextKey = normalizeCapabilityContextKey(rawContextKey);
+
+    return lazy(async () => {
+      if (!contextKey || !capabilityComponentKeys.has(contextKey)) {
+        return { default: () => null };
+      }
+
+      try {
+        const moduleLoader = capabilityComponentsContext(contextKey);
+        const module = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
+        return { default: module[panel.export || 'default'] || module.default };
+      } catch (error) {
+        if (process.env.NODE_ENV === 'development') {
+          console.debug(`Failed to load component ${panel.component_code} from ${contextKey}:`, error);
+        }
+        return { default: () => null };
+      }
+    });
   };
 
   const getRuntimeCodes = () => {
@@ -175,4 +198,3 @@ export default function RuntimeEnginesPanel({
     </div>
   );
 }
-
