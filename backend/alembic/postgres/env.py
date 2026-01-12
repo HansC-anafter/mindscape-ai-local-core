@@ -24,28 +24,61 @@ if config.config_file_name is not None:
 
 # ===== PostgreSQL ORM Models =====
 # Import PostgreSQL Base and models
-# 注意：需確認執行環境的 PYTHONPATH 能找到 app.database，避免後續匯入問題
 from app.database import Base
-from app.models.sonic_space.sonic_space import (
-    SonicAudioAsset,
-    SonicLicenseCard,
-    SonicSegment,
-    SonicEmbedding,
-    SonicIntentCard,
-    SonicCandidateSet,
-    SonicDecisionTrace,
-    SonicBookmark,
-    SonicSoundKit,
-    SonicSoundKitItem,
-    SonicPerceptualAxes,
-    SonicExportAudit,
-)
-# 其他 PostgreSQL models（如 mindscape_personal 等，待 init_db.py 轉為遷移後加入）
+
+# Dynamically discover and import capability models
+# Core principle: no hardcoded capability module names, fully dynamic discovery
+import importlib
+import logging
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+def _discover_and_import_capability_models():
+    """
+    Dynamically discover and import all capability module models.
+
+    Scans all subdirectories under app/models and attempts to import model files.
+    Silently skips if import fails (module may not exist or be installed).
+    """
+    models_dir = backend_dir / "app" / "models"
+    if not models_dir.exists():
+        return
+
+    for model_subdir in models_dir.iterdir():
+        if not model_subdir.is_dir():
+            continue
+
+        if model_subdir.name.startswith('_'):
+            continue
+
+        try:
+            module_name = f"app.models.{model_subdir.name}"
+            try:
+                importlib.import_module(module_name)
+            except ImportError:
+                pass
+
+            for py_file in model_subdir.glob("*.py"):
+                if py_file.name == "__init__.py":
+                    continue
+
+                module_path = f"{module_name}.{py_file.stem}"
+                try:
+                    importlib.import_module(module_path)
+                    logger.debug(f"Successfully imported capability model: {module_path}")
+                except ImportError as e:
+                    logger.debug(f"Skipped optional capability model {module_path}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error importing capability model {module_path}: {e}")
+        except Exception as e:
+            logger.debug(f"Skipped capability model directory {model_subdir.name}: {e}")
+
+_discover_and_import_capability_models()
 
 target_metadata = Base.metadata
 
 # ===== Use PostgreSQL URL =====
-# 注意：移除 SQLite fallback，PostgreSQL 為必需
 from app.database.config import get_postgres_url
 try:
     postgres_url = get_postgres_url()

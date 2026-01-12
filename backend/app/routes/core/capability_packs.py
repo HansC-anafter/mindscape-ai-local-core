@@ -228,7 +228,7 @@ async def list_packs():
 
             installed_info = installed_metadata.get(pack_id, {})
 
-            # 处理 tools 字段：如果是字典列表，提取工具名称
+            # Handle tools field: if it's a list of dicts, extract tool names
             tools_raw = pack_meta.get('tools', [])
             tools_list = []
             if isinstance(tools_raw, list):
@@ -236,7 +236,7 @@ async def list_packs():
                     if isinstance(tool, str):
                         tools_list.append(tool)
                     elif isinstance(tool, dict):
-                        # 从字典中提取工具名称
+                        # Extract tool name from dict
                         tool_name = tool.get('name') or tool.get('id') or tool.get('tool')
                         if tool_name:
                             tools_list.append(tool_name)
@@ -411,7 +411,7 @@ async def get_capability_ui_components(capability_code: str):
     Frontend uses this to dynamically load UI components.
 
     Boundary: This API only reads manifest metadata, does not serve component code.
-    Component code must be installed via CapabilityInstaller, not hardcoded.
+    Component code must be installed via RuntimeAssetsInstaller, not hardcoded.
     """
     try:
         # Get all packs
@@ -434,19 +434,30 @@ async def get_capability_ui_components(capability_code: str):
         # Format response with component metadata
         formatted_components = []
         for component in ui_components:
-            # Component file should be at: web-console/src/app/capabilities/{capability_code}/components/{filename}
-            # Remove .tsx/.ts extension for dynamic import
-            component_filename = Path(component.get("path", "")).name
+            # Component path from manifest (e.g., "ui/pages/ChapterStudioPage.tsx" or "ui/components/WorkbenchLayout.tsx")
+            component_path = component.get("path", "")
+            component_filename = Path(component_path).name
             component_name = component_filename.replace('.tsx', '').replace('.ts', '')
+
+            # Extract subdirectory from path (e.g., "pages" from "ui/pages/ChapterStudioPage.tsx")
+            # Path structure: ui/{subdirectory}/{filename}
+            path_parts = component_path.split('/')
+            subdirectory = 'components'  # default
+            if len(path_parts) >= 3 and path_parts[0] == 'ui':
+                # Extract subdirectory (e.g., "pages", "components")
+                subdirectory = path_parts[1]
+
+            # Build import path based on actual file structure
+            import_path = f'@/app/capabilities/{capability_code}/{subdirectory}/{component_name}'
 
             formatted_components.append({
                 'code': component.get('code'),
-                'path': component.get('path'),
+                'path': component_path,
                 'description': component.get('description', ''),
                 'export': component.get('export', 'default'),
                 'artifact_types': component.get('artifact_types', []),
                 'playbook_codes': component.get('playbook_codes', []),
-                'import_path': f'@/app/capabilities/{capability_code}/components/{component_name}'
+                'import_path': import_path
             })
 
         return formatted_components
@@ -488,14 +499,20 @@ async def install_from_file(
         app_dir = current_file.parent.parent
         backend_dir = app_dir.parent
 
-        # Resolve workspace root directory for CapabilityInstaller
+        # Resolve workspace root directory
         local_core_root = current_file.parent.parent.parent.parent.parent
 
         backend_dir_str = str(backend_dir)
         if backend_dir_str not in sys.path:
             sys.path.insert(0, backend_dir_str)
 
-        from app.services.capability_installer import CapabilityInstaller
+        # Import new modular installers
+        from app.services.mindpack_extractor import MindpackExtractor
+        from app.services.manifest_validator import ManifestValidator
+        from app.services.playbook_installer import PlaybookInstaller
+        from app.services.runtime_assets_installer import RuntimeAssetsInstaller
+        from app.services.post_install import PostInstallHandler
+        from app.services.install_result import InstallResult
 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mindpack') as tmp_file:
             content = await file.read()
@@ -503,30 +520,109 @@ async def install_from_file(
             tmp_path = Path(tmp_file.name)
 
         try:
-            allow_overwrite_bool = allow_overwrite.lower() in ('true', '1', 'yes', 'on')
-            installer = CapabilityInstaller(local_core_root=local_core_root)
-            success, install_result = installer.install_from_mindpack(tmp_path, validate=True)
+            # Initialize installers
+            capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+            specs_dir = local_core_root / "backend" / "playbooks" / "specs"
+            i18n_base_dir = local_core_root / "backend" / "i18n" / "playbooks"
 
-            # Convert result format to match expected format
-            if not success:
-                error_msg = install_result.get('errors', ['Installation failed'])
-                if isinstance(error_msg, list) and error_msg:
-                    error_msg = error_msg[0]
-                elif not isinstance(error_msg, str):
-                    error_msg = 'Installation failed'
-                result = {'success': False, 'error': error_msg}
+            # 1. Extract mindpack
+            extractor = MindpackExtractor(local_core_root)
+            extract_success, temp_dir, capability_code, cap_dir = extractor.extract(tmp_path)
+
+            if not extract_success or not capability_code or not cap_dir:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to extract mindpack file or capability code not found"
+                )
+
+            # 2. Load and validate manifest
+            manifest_path = cap_dir / "manifest.yaml"
+            if not manifest_path.exists():
+                raise HTTPException(
+                    status_code=400,
+                    detail="manifest.yaml not found in mindpack"
+                )
+
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest = yaml.safe_load(f)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse manifest: {e}"
+                )
+
+            # Validate manifest
+            validator = ManifestValidator(local_core_root)
+            skip_validation = os.getenv("MINDSCAPE_SKIP_VALIDATION", "0") == "1"
+            is_valid, validation_errors, validation_warnings = validator.validate(
+                manifest_path, cap_dir, skip_validation=skip_validation
+            )
+
+            if not is_valid and not skip_validation:
+                error_msg = f"Manifest validation failed: {validation_errors}"
+                logger.error(error_msg)
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_msg
+                )
+
+            # 3. Initialize install result
+            result = InstallResult(capability_code=capability_code)
+            result.warnings.extend(validation_warnings)
+
+            # 4. Install playbooks
+            playbook_installer = PlaybookInstaller()
+            playbook_installer.capabilities_dir = capabilities_dir
+            playbook_installer.specs_dir = specs_dir
+            playbook_installer.i18n_base_dir = i18n_base_dir
+            playbook_installer.local_core_root = local_core_root
+            playbook_installer._install_playbooks(cap_dir, capability_code, manifest, result)
+
+            # 5. Install runtime assets
+            runtime_installer = RuntimeAssetsInstaller(
+                local_core_root=local_core_root,
+                capabilities_dir=capabilities_dir
+            )
+            runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
+
+            # 6. Run post-install hooks
+            post_install_handler = PostInstallHandler(
+                local_core_root=local_core_root,
+                capabilities_dir=capabilities_dir,
+                specs_dir=specs_dir,
+                validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call
+            )
+            post_install_handler.run_all(cap_dir, capability_code, manifest, result)
+
+            # 7. Reload capability registry
+            try:
+                from app.capabilities.registry import get_registry
+                registry = get_registry()
+                if hasattr(registry, '_capabilities_cache'):
+                    registry._capabilities_cache.clear()
+                if hasattr(registry, '_tools_cache'):
+                    registry._tools_cache.clear()
+                logger.info(f"Reloaded capability registry for {capability_code}")
+            except Exception as e:
+                logger.warning(f"Failed to reload capability registry: {e}")
+                result.add_warning(f"Failed to reload capability registry: {e}")
+
+            # Convert result format
+            if result.has_errors():
+                error_msg = result.errors[0] if result.errors else 'Installation failed'
+                result_dict = {'success': False, 'error': error_msg}
             else:
-                capability_code = install_result.get('capability_code', 'grant_scout')
                 correct_backend_dir = local_core_root / 'backend'
-                result = {
+                result_dict = {
                     'success': True,
                     'capability_id': capability_code,
-                    'version': '1.0.0',
+                    'version': manifest.get('version', '1.0.0'),
                     'target_dir': str(correct_backend_dir / 'app' / 'capabilities' / capability_code)
                 }
 
-            if not result.get('success'):
-                error_msg = result.get('error', 'Installation failed')
+            if not result_dict.get('success'):
+                error_msg = result_dict.get('error', 'Installation failed')
                 logger.error(f"Installation failed: {error_msg}")
                 raise HTTPException(
                     status_code=400,
@@ -534,21 +630,21 @@ async def install_from_file(
                 )
 
             # Register in installed_packs table
-            capability_id = result.get('capability_id')
+            capability_id = result_dict.get('capability_id')
             if capability_id:
                 try:
                     # Read manifest for metadata
-                    target_dir = Path(result.get('target_dir'))
+                    target_dir = Path(result_dict.get('target_dir'))
                     manifest_path = target_dir / "manifest.yaml"
 
                     pack_metadata = {}
                     if manifest_path.exists():
                         with open(manifest_path, 'r', encoding='utf-8') as f:
-                            manifest = yaml.safe_load(f)
+                            installed_manifest = yaml.safe_load(f)
                             pack_metadata = {
-                                'side_effect_level': manifest.get('side_effect_level'),
+                                'side_effect_level': installed_manifest.get('side_effect_level'),
                                 'installed_from_file': True,
-                                'version': result.get('version')
+                                'version': result_dict.get('version')
                             }
 
                     with get_connection() as conn:
@@ -568,14 +664,21 @@ async def install_from_file(
             return {
                 "success": True,
                 "capability_id": capability_id,
-                "version": result.get('version'),
-                "message": f"Successfully installed {capability_id} v{result.get('version')}",
-                "warnings": result.get('warnings', [])
+                "version": result_dict.get('version'),
+                "message": f"Successfully installed {capability_id} v{result_dict.get('version')}",
+                "warnings": result.warnings
             }
 
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
+            # Clean up temporary extraction directory
+            if 'temp_dir' in locals() and temp_dir and temp_dir.exists():
+                import shutil
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp directory {temp_dir}: {e}")
 
     except HTTPException:
         raise
@@ -620,7 +723,7 @@ async def install_from_cloud(
     2. Get download link from provider
     3. Download pack file
     4. Verify checksum (if enabled)
-    5. Install using CapabilityInstaller
+    5. Install using new modular installers
     """
     try:
         import sys
@@ -636,7 +739,13 @@ async def install_from_cloud(
         if backend_dir_str not in sys.path:
             sys.path.insert(0, backend_dir_str)
 
-        from app.services.capability_installer import CapabilityInstaller
+        # Import new modular installers
+        from app.services.mindpack_extractor import MindpackExtractor
+        from app.services.manifest_validator import ManifestValidator
+        from app.services.playbook_installer import PlaybookInstaller
+        from app.services.runtime_assets_installer import RuntimeAssetsInstaller
+        from app.services.post_install import PostInstallHandler
+        from app.services.install_result import InstallResult
         from app.services.cloud_extension_manager import CloudExtensionManager
         from app.services.pack_download_service import get_pack_download_service
         from app.services.system_settings_store import SystemSettingsStore
@@ -687,24 +796,102 @@ async def install_from_cloud(
             )
 
         try:
-            # Install pack using CapabilityInstaller
-            installer = CapabilityInstaller(local_core_root=local_core_root)
-            install_success, install_result = installer.install_from_mindpack(
-                pack_file, validate=True
+            # Initialize installers
+            capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+            specs_dir = local_core_root / "backend" / "playbooks" / "specs"
+            i18n_base_dir = local_core_root / "backend" / "i18n" / "playbooks"
+
+            # 1. Extract mindpack
+            extractor = MindpackExtractor(local_core_root)
+            extract_success, temp_dir, capability_code, cap_dir = extractor.extract(pack_file)
+
+            if not extract_success or not capability_code or not cap_dir:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to extract mindpack file or capability code not found"
+                )
+
+            # 2. Load and validate manifest
+            manifest_path = cap_dir / "manifest.yaml"
+            if not manifest_path.exists():
+                raise HTTPException(
+                    status_code=400,
+                    detail="manifest.yaml not found in mindpack"
+                )
+
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest = yaml.safe_load(f)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse manifest: {e}"
+                )
+
+            # Validate manifest
+            validator = ManifestValidator(local_core_root)
+            skip_validation = os.getenv("MINDSCAPE_SKIP_VALIDATION", "0") == "1"
+            is_valid, validation_errors, validation_warnings = validator.validate(
+                manifest_path, cap_dir, skip_validation=skip_validation
             )
 
-            if not install_success:
-                error_msg = install_result.get('errors', ['Installation failed'])
-                if isinstance(error_msg, list) and error_msg:
-                    error_msg = error_msg[0]
-                elif not isinstance(error_msg, str):
-                    error_msg = 'Installation failed'
+            if not is_valid and not skip_validation:
+                error_msg = f"Manifest validation failed: {validation_errors}"
+                logger.error(error_msg)
                 raise HTTPException(
                     status_code=400,
                     detail=error_msg
                 )
 
-            capability_code = install_result.get('capability_code')
+            # 3. Initialize install result
+            result = InstallResult(capability_code=capability_code)
+            result.warnings.extend(validation_warnings)
+
+            # 4. Install playbooks
+            playbook_installer = PlaybookInstaller()
+            playbook_installer.capabilities_dir = capabilities_dir
+            playbook_installer.specs_dir = specs_dir
+            playbook_installer.i18n_base_dir = i18n_base_dir
+            playbook_installer.local_core_root = local_core_root
+            playbook_installer._install_playbooks(cap_dir, capability_code, manifest, result)
+
+            # 5. Install runtime assets
+            runtime_installer = RuntimeAssetsInstaller(
+                local_core_root=local_core_root,
+                capabilities_dir=capabilities_dir
+            )
+            runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
+
+            # 6. Run post-install hooks
+            post_install_handler = PostInstallHandler(
+                local_core_root=local_core_root,
+                capabilities_dir=capabilities_dir,
+                specs_dir=specs_dir,
+                validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call
+            )
+            post_install_handler.run_all(cap_dir, capability_code, manifest, result)
+
+            # 7. Reload capability registry
+            try:
+                from app.capabilities.registry import get_registry
+                registry = get_registry()
+                if hasattr(registry, '_capabilities_cache'):
+                    registry._capabilities_cache.clear()
+                if hasattr(registry, '_tools_cache'):
+                    registry._tools_cache.clear()
+                logger.info(f"Reloaded capability registry for {capability_code}")
+            except Exception as e:
+                logger.warning(f"Failed to reload capability registry: {e}")
+                result.add_warning(f"Failed to reload capability registry: {e}")
+
+            # Check for errors
+            if result.has_errors():
+                error_msg = result.errors[0] if result.errors else 'Installation failed'
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_msg
+                )
+
             correct_backend_dir = local_core_root / 'backend'
 
             # Register in installed_packs table
@@ -717,15 +904,15 @@ async def install_from_cloud(
                         'installed_from_cloud': True,
                         'provider_id': request.provider_id,
                         'pack_ref': request.pack_ref,
-                        'version': install_result.get('version', '1.0.0')
+                        'version': manifest.get('version', '1.0.0')
                     }
 
                     if manifest_path.exists():
                         with open(manifest_path, 'r', encoding='utf-8') as f:
-                            manifest = yaml.safe_load(f)
+                            installed_manifest = yaml.safe_load(f)
                             pack_metadata.update({
-                                'side_effect_level': manifest.get('side_effect_level'),
-                                'version': manifest.get('version', pack_metadata['version'])
+                                'side_effect_level': installed_manifest.get('side_effect_level'),
+                                'version': installed_manifest.get('version', pack_metadata['version'])
                             })
 
                     with get_connection() as conn:
@@ -747,7 +934,7 @@ async def install_from_cloud(
                 "capability_id": capability_code,
                 "version": pack_metadata.get('version', '1.0.0'),
                 "message": f"Successfully installed {capability_code} from {request.provider_id}",
-                "warnings": install_result.get('warnings', []),
+                "warnings": result.warnings,
                 "provider_id": request.provider_id,
                 "pack_ref": request.pack_ref
             }
@@ -759,6 +946,13 @@ async def install_from_cloud(
                     pack_file.unlink()
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary pack file: {e}")
+            # Clean up temporary extraction directory
+            if 'temp_dir' in locals() and temp_dir and temp_dir.exists():
+                import shutil
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp directory {temp_dir}: {e}")
 
     except HTTPException:
         raise

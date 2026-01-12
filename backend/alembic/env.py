@@ -22,30 +22,63 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# ===== PostgreSQL ORM Models (Sonic Space) =====
+# ===== PostgreSQL ORM Models =====
 # Import PostgreSQL Base and models
 from app.database import Base
-from app.models.sonic_space.sonic_space import (
-    SonicAudioAsset,
-    SonicLicenseCard,
-    SonicSegment,
-    SonicEmbedding,
-    SonicIntentCard,
-    SonicCandidateSet,
-    SonicDecisionTrace,
-    SonicBookmark,
-    SonicSoundKit,
-    SonicSoundKitItem,
-    SonicPerceptualAxes,
-    SonicExportAudit,
-)
 
-# Set target_metadata for PostgreSQL models
+# Dynamically discover and import capability models
+# Core principle: no hardcoded capability module names, fully dynamic discovery
+import importlib
+import logging
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+def _discover_and_import_capability_models():
+    """
+    Dynamically discover and import all capability module models.
+
+    Scans all subdirectories under app/models and attempts to import model files.
+    Silently skips if import fails (module may not exist or be installed).
+    """
+    models_dir = backend_dir / "app" / "models"
+    if not models_dir.exists():
+        return
+
+    for model_subdir in models_dir.iterdir():
+        if not model_subdir.is_dir():
+            continue
+
+        if model_subdir.name.startswith('_'):
+            continue
+
+        try:
+            module_name = f"app.models.{model_subdir.name}"
+            try:
+                importlib.import_module(module_name)
+            except ImportError:
+                pass
+
+            for py_file in model_subdir.glob("*.py"):
+                if py_file.name == "__init__.py":
+                    continue
+
+                module_path = f"{module_name}.{py_file.stem}"
+                try:
+                    importlib.import_module(module_path)
+                    logger.debug(f"Successfully imported capability model: {module_path}")
+                except ImportError as e:
+                    logger.debug(f"Skipped optional capability model {module_path}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error importing capability model {module_path}: {e}")
+        except Exception as e:
+            logger.debug(f"Skipped capability model directory {model_subdir.name}: {e}")
+
+_discover_and_import_capability_models()
+
 target_metadata = Base.metadata
 
 # ===== Use PostgreSQL URL =====
-# Alembic manages PostgreSQL models (Sonic Space)
-# SQLite stores are managed separately via StoreBase
 from app.database.config import get_postgres_url
 try:
     postgres_url = get_postgres_url()
@@ -53,8 +86,7 @@ try:
     print(f"Alembic using PostgreSQL: {postgres_url.split('@')[-1] if '@' in postgres_url else postgres_url}")
 except Exception as e:
     print(f"Warning: Failed to get PostgreSQL URL: {e}")
-    print("Alembic will use default SQLite configuration (won't work for Sonic Space)")
-    # Fallback to SQLite (for backward compatibility, but won't work for Sonic Space)
+    print("Alembic will use default SQLite configuration")
     data_dir = Path(backend_dir.parent / "data")
     data_dir.mkdir(parents=True, exist_ok=True)
     db_path = data_dir / "mindscape.db"
