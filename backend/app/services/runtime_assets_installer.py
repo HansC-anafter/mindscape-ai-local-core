@@ -60,6 +60,9 @@ class RuntimeAssetsInstaller:
         # 2. Install services
         self.install_services(cap_dir, capability_code, result)
 
+        # 2b. Install jobs directory
+        self.install_jobs(cap_dir, capability_code, result)
+
         # 3. Install API endpoints
         self.install_api_endpoints(cap_dir, capability_code, result)
 
@@ -136,6 +139,37 @@ class RuntimeAssetsInstaller:
             service_name = service_file.stem
             result.add_installed("services", service_name)
             logger.debug(f"Installed service: {service_name}")
+
+    def install_jobs(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: InstallResult
+    ):
+        """Install capability jobs directory"""
+        jobs_dir = cap_dir / "jobs"
+        if not jobs_dir.exists():
+            return
+
+        target_jobs_dir = self.capabilities_dir / capability_code / "jobs"
+        target_jobs_dir.mkdir(parents=True, exist_ok=True)
+
+        for job_file in jobs_dir.glob("*.py"):
+            target_job = target_jobs_dir / job_file.name
+            shutil.copy2(job_file, target_job)
+            job_name = job_file.stem
+            if not job_name.startswith("__"):
+                result.add_installed("jobs", job_name)
+            logger.debug(f"Installed job: {job_file.name}")
+
+        for item in jobs_dir.iterdir():
+            if item.is_dir() and not item.name.startswith("__"):
+                target_subdir = target_jobs_dir / item.name
+                if target_subdir.exists():
+                    shutil.rmtree(target_subdir)
+                shutil.copytree(item, target_subdir)
+                logger.debug(f"Installed jobs subdirectory: {item.name}")
+                result.add_installed("jobs_dirs", item.name)
 
     def install_api_endpoints(
         self,
@@ -376,7 +410,7 @@ class RuntimeAssetsInstaller:
         capability_code: str,
         result: InstallResult
     ):
-        """Execute database migrations using Alembic via MigrationOrchestrator"""
+        """Execute database migrations for a specific capability only"""
         alembic_config = self.local_core_root / "backend" / "alembic.postgres.ini"
         if not alembic_config.exists():
             logger.warning(f"Alembic config not found: {alembic_config}, skipping migration execution")
@@ -386,7 +420,55 @@ class RuntimeAssetsInstaller:
         try:
             logger.info(f"Executing database migrations for {capability_code}...")
 
-            # Use MigrationOrchestrator which handles alembic execution properly
+            # Get revision numbers from migrations.yaml or installed migration files
+            capability_dir = self.capabilities_dir / capability_code
+            migrations_yaml = capability_dir / "migrations.yaml"
+            revisions = []
+
+            if migrations_yaml.exists():
+                import yaml
+                with open(migrations_yaml, 'r') as f:
+                    migration_data = yaml.safe_load(f)
+                revisions = migration_data.get('revisions', [])
+            else:
+                # Fallback: extract revision from installed migration files
+                alembic_versions_dir = self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+                if alembic_versions_dir.exists():
+                    # Find migration files for this capability
+                    # Migration files are named like: {revision}_{description}.py
+                    # Match by capability code patterns in file content
+                    capability_patterns = [
+                        capability_code.replace("_", " "),
+                        capability_code.replace("_", ""),
+                        capability_code,
+                        # For video_chapter_studio, also check for vcs_ prefix
+                        "vcs_" if "video_chapter" in capability_code else None
+                    ]
+                    capability_patterns = [p for p in capability_patterns if p]
+
+                    for migration_file in alembic_versions_dir.glob("*.py"):
+                        if migration_file.name.startswith("__"):
+                            continue
+                        # Read file to check if it's for this capability
+                        try:
+                            content = migration_file.read_text()
+                            # Check if migration creates tables for this capability
+                            matches = any(pattern in content.lower() for pattern in capability_patterns)
+                            if matches:
+                                # Extract revision from filename (format: {revision}_{description}.py)
+                                revision = migration_file.stem.split("_")[0]
+                                if revision and revision.isdigit() and revision not in revisions:
+                                    revisions.append(revision)
+                                    logger.debug(f"Found migration revision {revision} for {capability_code} in {migration_file.name}")
+                        except Exception as e:
+                            logger.debug(f"Error reading migration file {migration_file.name}: {e}")
+                            continue
+
+            if not revisions:
+                logger.info(f"No migrations found for {capability_code}")
+                return
+
+            # Use MigrationOrchestrator to execute only this capability's migrations
             from app.services.migrations.orchestrator import MigrationOrchestrator
 
             capabilities_root = self.local_core_root / "backend" / "app" / "capabilities"
@@ -396,23 +478,24 @@ class RuntimeAssetsInstaller:
 
             orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
 
-            # Execute migrations for postgres (use apply method)
-            migration_result = orchestrator.apply("postgres", dry_run=False)
+            # Execute each revision individually to avoid conflicts with other capabilities
+            for revision in revisions:
+                logger.info(f"Executing migration {revision} for {capability_code}...")
+                upgrade_result = orchestrator._run_alembic_upgrade(alembic_config, revision)
 
-            success = migration_result.get("status") in ["success", "up_to_date"]
+                if not upgrade_result:
+                    error_msg = f"Migration {revision} failed for {capability_code}"
+                    logger.error(error_msg)
+                    result.add_warning(error_msg)
+                    if result.migration_status is None:
+                        result.migration_status = {}
+                    result.migration_status[capability_code] = "failed"
+                    return
 
-            if success:
-                logger.info(f"Successfully executed migrations for {capability_code}")
-                if result.migration_status is None:
-                    result.migration_status = {}
-                result.migration_status[capability_code] = "applied"
-            else:
-                error_msg = f"Migration execution failed via MigrationOrchestrator: {migration_result.get('error', 'Unknown error')}"
-                logger.error(error_msg)
-                result.add_warning(error_msg)
-                if result.migration_status is None:
-                    result.migration_status = {}
-                result.migration_status[capability_code] = "failed"
+            logger.info(f"Successfully executed migrations for {capability_code}")
+            if result.migration_status is None:
+                result.migration_status = {}
+            result.migration_status[capability_code] = "applied"
         except Exception as e:
             error_msg = f"Migration execution error: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -556,20 +639,28 @@ class RuntimeAssetsInstaller:
             for file_path in source_ui_dir.rglob("*"):
                 if file_path.is_file():
                     relative_path = file_path.relative_to(source_ui_dir)
-                    # Fix: If ui/ has a components/ subdirectory, remove the components/ prefix
-                    # to avoid components/components/ duplication
-                    # ui/components/X -> components/X (not components/components/X)
                     relative_path_str = str(relative_path)
+
+                    # Handle different ui/ subdirectories:
+                    # - ui/components/X -> components/X
+                    # - ui/lib/X -> lib/X (not components/lib/X)
+                    # - ui/contexts/X -> contexts/X (not components/contexts/X)
+                    # - ui/hooks/X -> hooks/X (not components/hooks/X)
                     if relative_path_str.startswith("components/"):
+                        # Remove components/ prefix to avoid duplication
                         relative_path = Path(relative_path_str[len("components/"):])
-                    # Preserve directory structure: ui/components/X -> components/X, ui/utils/Y -> utils/Y
-                    # Unified path: app/capabilities/{code}/components/
-                    target_path = frontend_dir / capability_code / "components" / relative_path
+                        target_path = frontend_dir / capability_code / "components" / relative_path
+                    elif relative_path_str.startswith(("lib/", "contexts/", "hooks/", "utils/", "types/")):
+                        # Keep these directories at capability root level
+                        target_path = frontend_dir / capability_code / relative_path
+                    else:
+                        # Default: put in components/ directory
+                        target_path = frontend_dir / capability_code / "components" / relative_path
                     # Create subdirectories if needed
                     try:
                         target_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(file_path, target_path)
-                        logger.debug(f"Installed UI file: {relative_path}")
+                        logger.info(f"Installed UI file: {relative_path} -> {target_path}")
                         result.add_installed("ui_components", str(relative_path))
                     except (PermissionError, OSError) as e:
                         # If Cloud path fails, fallback to Local-Core path
@@ -579,8 +670,15 @@ class RuntimeAssetsInstaller:
                                 f"Falling back to Local-Core path."
                             )
                             frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
-                            # Use the same corrected relative_path (already fixed above)
-                            target_path = frontend_dir / capability_code / "components" / relative_path
+                            # Recalculate target_path with fallback logic
+                            relative_path_str = str(relative_path)
+                            if relative_path_str.startswith("components/"):
+                                relative_path = Path(relative_path_str[len("components/"):])
+                                target_path = frontend_dir / capability_code / "components" / relative_path
+                            elif relative_path_str.startswith(("lib/", "contexts/", "hooks/", "utils/", "types/")):
+                                target_path = frontend_dir / capability_code / relative_path
+                            else:
+                                target_path = frontend_dir / capability_code / "components" / relative_path
                             target_path.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(file_path, target_path)
                             logger.debug(f"Installed UI file (fallback): {relative_path}")

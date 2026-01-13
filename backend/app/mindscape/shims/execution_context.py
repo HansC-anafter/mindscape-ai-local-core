@@ -1,17 +1,17 @@
 """
 Execution Context Shim for Local-Core
 
-提供 Cloud 環境 contracts.execution_context 的本地替代品。
-功能降級但保持 API 兼容。
+Provides local alternative for Cloud environment contracts.execution_context.
+Features are degraded but API remains compatible.
 
-使用方式：
-    # 在 capability 代碼中
+Usage:
+    # In capability code
     try:
         from contracts.execution_context import ExecutionContext
     except ImportError:
         from mindscape.shims.execution_context import ExecutionContext
 
-    # 或使用統一入口（推薦）
+    # Or use unified entry point (recommended)
     from mindscape.shims.execution_context import get_execution_context
     ctx = get_execution_context()
 """
@@ -26,7 +26,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# 線程本地存儲，用於存儲當前執行上下文
+# Thread-local storage for current execution context
 _context_local = threading.local()
 
 
@@ -35,16 +35,16 @@ class ExecutionContext:
     """
     Local-Core compatible ExecutionContext
 
-    與 Cloud 版本 API 兼容，但以下功能不可用：
-    - 分佈式追蹤 (distributed_tracing)
-    - 租戶隔離 (tenant_isolation)
-    - Cloud Task 調度 (cloud_task_scheduling)
-    - 多租戶數據庫路由 (multi_tenant_db_routing)
+    API compatible with Cloud version, but the following features are unavailable:
+    - Distributed tracing (distributed_tracing)
+    - Tenant isolation (tenant_isolation)
+    - Cloud Task scheduling (cloud_task_scheduling)
+    - Multi-tenant database routing (multi_tenant_db_routing)
 
-    在 Local-Core 中：
-    - tenant_id 固定為 "local-default-tenant"
-    - 所有操作同步執行
-    - 使用本地 SQLite 數據庫
+    In Local-Core:
+    - tenant_id is fixed to "local-default-tenant"
+    - All operations execute synchronously
+    - Uses local SQLite database
     """
 
     execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -55,10 +55,10 @@ class ExecutionContext:
     span_id: Optional[str] = field(default_factory=lambda: str(uuid.uuid4())[:16])
     created_at: datetime = field(default_factory=datetime.utcnow)
 
-    # 額外元數據
+    # Additional metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    # 降級標記
+    # Degradation flag
     _is_degraded: bool = field(default=True, repr=False)
     _unavailable_features: list = field(
         default_factory=lambda: [
@@ -71,29 +71,29 @@ class ExecutionContext:
     )
 
     def is_cloud_environment(self) -> bool:
-        """檢查是否在 Cloud 環境中運行"""
+        """Check if running in Cloud environment"""
         return False
 
     def is_degraded(self) -> bool:
-        """檢查是否在降級模式下運行"""
+        """Check if running in degraded mode"""
         return self._is_degraded
 
     def get_unavailable_features(self) -> list:
-        """獲取不可用的功能列表"""
+        """Get list of unavailable features"""
         return self._unavailable_features.copy()
 
     def get_tenant_db_session(self):
         """
-        獲取租戶數據庫會話
+        Get tenant database session
 
-        Local-Core 使用本地 SQLite，不需要多租戶路由。
-        返回默認的本地數據庫會話。
+        Local-Core uses local SQLite, no multi-tenant routing needed.
+        Returns default local database session.
         """
         try:
             from backend.app.database import get_local_session
             return get_local_session()
         except ImportError:
-            # 嘗試其他可能的導入路徑
+            # Try alternative import paths
             try:
                 from app.database import get_local_session
                 return get_local_session()
@@ -112,18 +112,18 @@ class ExecutionContext:
         delay_seconds: int = 0
     ) -> str:
         """
-        派發 Cloud Task
+        Dispatch Cloud Task
 
-        在 Local-Core 中降級為同步執行。
+        Degraded to synchronous execution in Local-Core.
 
         Args:
-            task_name: 任務名稱
-            payload: 任務參數
-            queue: 隊列名稱（在 local-core 中忽略）
-            delay_seconds: 延遲秒數（在 local-core 中忽略）
+            task_name: Task name
+            payload: Task parameters
+            queue: Queue name (ignored in local-core)
+            delay_seconds: Delay in seconds (ignored in local-core)
 
         Returns:
-            task_id: 任務 ID（在 local-core 中為同步執行的結果 ID）
+            task_id: Task ID (result ID for synchronous execution in local-core)
         """
         task_id = str(uuid.uuid4())
 
@@ -133,11 +133,14 @@ class ExecutionContext:
             f"task_id={task_id}, queue={queue}, delay={delay_seconds}s"
         )
 
-        # 同步執行替代
+        # Synchronous execution fallback for Local-Core
         try:
-            from mindscape.capabilities.registry import call_tool
+            try:
+                from app.capabilities.registry import call_tool
+            except ImportError:
+                from backend.app.capabilities.registry import call_tool
 
-            # 解析 task_name 為 capability.tool 格式
+            # Parse task_name as capability.tool format
             if '.' in task_name:
                 capability, tool = task_name.split('.', 1)
                 result = call_tool(capability, tool, **payload)
@@ -154,17 +157,17 @@ class ExecutionContext:
 
     def start_span(self, name: str) -> "SpanContext":
         """
-        開始一個追蹤 span
+        Start a tracing span
 
-        在 Local-Core 中返回一個空操作的 span context。
+        Returns a no-op span context in Local-Core.
         """
         return SpanContext(name=name, parent_context=self)
 
     def log_event(self, event_type: str, data: Dict[str, Any] = None):
         """
-        記錄事件
+        Log event
 
-        在 Local-Core 中記錄到本地日誌。
+        Logs to local log in Local-Core.
         """
         logger.info(
             f"[ExecutionContext Event] type={event_type}, "
@@ -173,7 +176,7 @@ class ExecutionContext:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """轉換為字典格式"""
+        """Convert to dictionary format"""
         return {
             "execution_id": self.execution_id,
             "tenant_id": self.tenant_id,
@@ -191,9 +194,9 @@ class ExecutionContext:
 @dataclass
 class SpanContext:
     """
-    追蹤 Span 上下文
+    Tracing Span Context
 
-    在 Local-Core 中為空操作實現。
+    No-op implementation in Local-Core.
     """
     name: str
     parent_context: ExecutionContext
@@ -219,11 +222,11 @@ class SpanContext:
         return False
 
     def set_attribute(self, key: str, value: Any):
-        """設置 span 屬性（在 local-core 中為 no-op）"""
+        """Set span attribute (no-op in local-core)"""
         pass
 
     def add_event(self, name: str, attributes: Dict[str, Any] = None):
-        """添加 span 事件（在 local-core 中記錄到日誌）"""
+        """Add span event (logs to local log in local-core)"""
         logger.debug(f"[Span Event] {name}, attributes={attributes}")
 
 
@@ -231,33 +234,33 @@ def get_execution_context(**kwargs) -> ExecutionContext:
     """
     Factory function to create ExecutionContext
 
-    與 Cloud 版本兼容的工廠函數。
+    Compatible factory function with Cloud version.
 
     Args:
-        **kwargs: 傳遞給 ExecutionContext 的參數
+        **kwargs: Parameters passed to ExecutionContext
 
     Returns:
-        ExecutionContext 實例
+        ExecutionContext instance
     """
     return ExecutionContext(**kwargs)
 
 
 def get_current_context() -> Optional[ExecutionContext]:
     """
-    獲取當前線程的執行上下文
+    Get current thread's execution context
 
     Returns:
-        當前 ExecutionContext 或 None
+        Current ExecutionContext or None
     """
     return getattr(_context_local, 'context', None)
 
 
 def set_current_context(context: ExecutionContext):
     """
-    設置當前線程的執行上下文
+    Set current thread's execution context
 
     Args:
-        context: ExecutionContext 實例
+        context: ExecutionContext instance
     """
     _context_local.context = context
 
@@ -265,11 +268,11 @@ def set_current_context(context: ExecutionContext):
 @contextmanager
 def execution_context_scope(**kwargs) -> Generator[ExecutionContext, None, None]:
     """
-    上下文管理器：創建並設置執行上下文
+    Context manager: create and set execution context
 
     Usage:
         with execution_context_scope(actor_id="user-123") as ctx:
-            # ctx 現在是當前上下文
+            # ctx is now the current context
             do_something()
     """
     previous = get_current_context()
@@ -281,7 +284,7 @@ def execution_context_scope(**kwargs) -> Generator[ExecutionContext, None, None]
         set_current_context(previous)
 
 
-# 導出
+# Exports
 __all__ = [
     "ExecutionContext",
     "SpanContext",

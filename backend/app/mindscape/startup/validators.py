@@ -59,7 +59,7 @@ class StartupValidator:
         self._validate_router_prefix()
         self._validate_manifests()
 
-        # 記錄結果
+        # Record results
         if self.errors:
             for error in self.errors:
                 logger.error(f"STARTUP VALIDATION ERROR: {error}")
@@ -127,7 +127,7 @@ class StartupValidator:
                 except Exception:
                     continue
 
-                # 檢查必要依賴
+                # Check required dependencies
                 dependencies = manifest.get('dependencies', {})
                 required_deps = dependencies.get('required', [])
 
@@ -159,7 +159,7 @@ class StartupValidator:
                         f"Degraded features: {status.degraded_features}"
                     )
         except ImportError:
-            # DegradationRegistry 不可用，跳過
+            # DegradationRegistry unavailable, skip
             pass
 
     def _validate_import_paths(self):
@@ -185,7 +185,7 @@ class StartupValidator:
 
         重用 CI 驗證的 AST 邏輯，避免兩套規則漂移。
         """
-        # 跳過 shim 文件（使用更嚴格的判斷：檔名或目錄名匹配）
+        # Skip shim files (strict check: filename or directory name match)
         file_name = file_path.name
         parent_dir = file_path.parent.name
         is_shim_file = (
@@ -198,7 +198,7 @@ class StartupValidator:
         if is_shim_file:
             return
 
-        # 使用與 CI 驗證相同的規則
+        # Use same rules as CI validation
         forbidden_modules = {"capabilities", "backend.app.capabilities"}
         forbidden_prefixes = [
             "capabilities.",
@@ -209,34 +209,34 @@ class StartupValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # 使用 AST 解析（與 CI 驗證保持一致）
+            # Use AST parsing (consistent with CI validation)
             try:
                 import ast
                 tree = ast.parse(content, filename=str(file_path))
             except SyntaxError as e:
-                # 語法錯誤處理：根據環境變數決定是否視為錯誤
+                # Syntax error handling: determine if treated as error based on environment variable
                 strict_syntax = os.getenv("STRICT_SYNTAX", "0") == "1"
                 strict_validation = os.getenv("MINDSCAPE_STRICT_VALIDATION", "1") == "1"
 
-                # 如果啟用嚴格模式，將語法錯誤視為驗證失敗
+                # If strict mode enabled, treat syntax error as validation failure
                 if strict_syntax or strict_validation:
                     message = f"File {file_path}: SyntaxError at line {e.lineno or 1}: {e.msg}"
                     self.errors.append(message)
-                # 否則跳過（可能是動態生成的文件等）
+                # Otherwise skip (may be dynamically generated files, etc.)
                 return
 
-            # 使用 AST visitor 檢查
+            # Use AST visitor to check
             class ImportChecker(ast.NodeVisitor):
                 def __init__(self, file_path: Path):
                     self.file_path = file_path
                     self.errors = []
 
                 def _is_forbidden(self, module_name: str) -> bool:
-                    """檢查模組名稱是否使用禁止的模組名稱或前綴"""
-                    # 檢查完全匹配（裸模組）
+                    """Check if module name uses forbidden module name or prefix"""
+                    # Check exact match (bare module)
                     if module_name in forbidden_modules:
                         return True
-                    # 檢查前綴匹配
+                    # Check prefix match
                     return any(module_name.startswith(prefix) for prefix in forbidden_prefixes)
 
                 def visit_Import(self, node):
@@ -265,13 +265,13 @@ class StartupValidator:
                     message = f"File {file_path}: {error} - Use 'capabilities.*' instead (mindscape.capabilities.* is deprecated)"
 
                     if strict_mode:
-                        # 生產環境嚴格模式：違規視為錯誤，會阻擋啟動
+                        # Production strict mode: violations treated as errors, will block startup
                         self.errors.append(message)
                     else:
-                        # 非嚴格模式：只記錄警告
+                        # Non-strict mode: only log warnings
                         self.warnings.append(message)
         except Exception:
-            # 讀取失敗時跳過
+            # Skip on read failure
             pass
 
     def _validate_router_prefix(self):
@@ -287,7 +287,7 @@ class StartupValidator:
                 if not cap_dir.is_dir() or cap_dir.name.startswith('_'):
                     continue
 
-                # 檢查 manifest 是否有 API 定義
+                # Check if manifest has API definition
                 manifest_path = cap_dir / "manifest.yaml"
                 has_api = False
                 if manifest_path.exists():
@@ -298,7 +298,7 @@ class StartupValidator:
                     except Exception:
                         pass
 
-                # 掃描 api/ 目錄
+                # Scan api/ directory
                 api_dir = cap_dir / "api"
                 if api_dir.exists() and api_dir.is_dir():
                     for py_file in api_dir.rglob("*.py"):
@@ -363,7 +363,7 @@ class StartupValidator:
 
             capabilities_dir = get_capabilities_base_path()
 
-            # 嘗試載入 JSON Schema
+            # Try to load JSON Schema
             schema_path = Path(__file__).parent.parent.parent.parent.parent / "schemas" / "manifest.schema.yaml"
             schema = None
             if schema_path.exists():
@@ -396,7 +396,7 @@ class StartupValidator:
                 if not manifest:
                     continue
 
-                # 基本檢查：必需字段
+                # Basic check: required fields
                 if 'portability' not in manifest:
                     strict_mode = os.getenv("MINDSCAPE_STRICT_VALIDATION", "1") == "1"
                     message = (
@@ -408,14 +408,14 @@ class StartupValidator:
                     else:
                         self.warnings.append(message)
 
-                # JSON Schema 驗證（如果可用）
+                # JSON Schema validation (if available)
                 if schema:
                     try:
                         from jsonschema import validate, ValidationError as JsonSchemaValidationError
                         manifest_json = json.loads(json.dumps(manifest))
                         validate(instance=manifest_json, schema=schema)
                     except ImportError:
-                        # jsonschema 不可用，跳過
+                        # jsonschema unavailable, skip
                         pass
                     except JsonSchemaValidationError as e:
                         strict_mode = os.getenv("MINDSCAPE_STRICT_VALIDATION", "1") == "1"
@@ -427,24 +427,24 @@ class StartupValidator:
                         else:
                             self.warnings.append(message)
                     except Exception:
-                        # Schema 驗證失敗時跳過（不阻擋啟動）
+                        # Skip on schema validation failure (does not block startup)
                         pass
         except Exception as e:
             logger.debug(f"Could not validate manifests: {e}")
 
     def _is_dependency_available(self, dep_name: str) -> bool:
         """
-        檢查依賴是否可用
+        Check if dependency is available
 
         Args:
-            dep_name: 依賴名稱
+            dep_name: Dependency name
 
         Returns:
-            True 如果可用
+            True if available
         """
-        # 處理特殊的依賴名稱
+        # Handle special dependency names
         special_deps = {
-            'core_llm': 'mindscape.capabilities.core_llm',
+            'core_llm': 'capabilities.core_llm',
             'database': 'backend.app.database',
         }
 
