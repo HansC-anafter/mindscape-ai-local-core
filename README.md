@@ -236,6 +236,41 @@ Once the stack is running:
 
 ---
 
+## 🔄 Updating to Latest Version
+
+To update your installation to the latest version:
+
+### For Existing Users
+
+1. **Update the code**:
+   ```bash
+   cd mindscape-ai-local-core
+   git pull origin master
+   ```
+
+2. **Restart services**:
+   ```bash
+   docker compose restart backend
+   ```
+
+3. **Verify the update**:
+   - Check service status: `docker compose ps`
+   - Check logs for any errors: `docker compose logs backend`
+   - Database migrations will run automatically on startup
+
+**Note**: Database migrations are automatic and idempotent. They will add missing columns without affecting existing data. If you encounter any issues, see the [Troubleshooting Guide](./docs/getting-started/troubleshooting.md).
+
+### For New Users
+
+Simply clone the latest version:
+```bash
+git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
+cd mindscape-ai-local-core
+./scripts/start.sh  # or .\scripts\start.ps1 on Windows
+```
+
+---
+
 ## 📚 Documentation
 
 ### Getting Started
