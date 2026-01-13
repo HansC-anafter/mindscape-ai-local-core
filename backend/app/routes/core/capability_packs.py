@@ -417,16 +417,18 @@ async def get_capability_ui_components(capability_code: str):
         # Get all packs
         pack_metas = _scan_pack_yaml_files()
 
-        # Find the capability
-        pack_meta = next((p for p in pack_metas if p.get('id') == capability_code), None)
+        pack_meta = next(
+            (p for p in pack_metas if p.get('id') == capability_code or p.get('code') == capability_code),
+            None
+        )
 
         if not pack_meta:
             raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' not found")
 
-        # Check if installed
         installed_ids = _get_installed_pack_ids()
-        if capability_code not in installed_ids:
-            raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' is not installed")
+        pack_id = pack_meta.get('id')
+        if pack_id not in installed_ids:
+            raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' (pack_id: {pack_id}) is not installed")
 
         # Return UI components from manifest
         ui_components = pack_meta.get('ui_components', [])

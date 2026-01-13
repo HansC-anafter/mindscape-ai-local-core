@@ -16,7 +16,7 @@ const nextConfig = {
       },
     ];
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     const corePackagePath = path.resolve(__dirname, '../packages/core/src');
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
@@ -37,6 +37,29 @@ const nextConfig = {
       path.resolve(__dirname, 'src'),
       'node_modules',
     ];
+
+    if (isServer) {
+      config.externals = config.externals || [];
+      if (typeof config.externals === 'function') {
+        const originalExternals = config.externals;
+        config.externals = [
+          originalExternals,
+          ({ request }, callback) => {
+            if (request === 'react-player' || request.startsWith('react-player/')) {
+              return callback(null, 'commonjs ' + request);
+            }
+            callback();
+          },
+        ];
+      } else if (Array.isArray(config.externals)) {
+        config.externals.push(({ request }, callback) => {
+          if (request === 'react-player' || request.startsWith('react-player/')) {
+            return callback(null, 'commonjs ' + request);
+          }
+          callback();
+        });
+      }
+    }
 
     config.module = config.module || {};
     config.module.rules = config.module.rules || [];

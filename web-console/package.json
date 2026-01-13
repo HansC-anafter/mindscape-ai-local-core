@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@mindscape-ai/core": "workspace:*",
     "@mindscape-ai/hooks": "^0.1.0-beta",
     "@mindscape-ai/shell": "^0.1.0-beta",
     "@mindscape-ai/ui": "^0.1.0-beta",
@@ -33,6 +34,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
+    "react-player": "^2.13.0",
     "react-virtuoso": "^4.15.0",
     "remark-gfm": "^4.0.1",
     "sigma": "^3.0.2",
