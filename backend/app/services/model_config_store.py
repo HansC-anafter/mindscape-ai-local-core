@@ -285,7 +285,7 @@ class ModelConfigStore:
 
     def initialize_default_models(self):
         """Initialize default models from hardcoded list"""
-        from backend.app.routes.core.system_settings import (
+        from backend.app.routes.core.system_settings.constants import (
             DEFAULT_CHAT_MODELS,
             DEFAULT_EMBEDDING_MODELS
         )

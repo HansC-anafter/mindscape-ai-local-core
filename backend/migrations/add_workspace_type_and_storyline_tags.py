@@ -3,8 +3,9 @@ Migration: Add workspace_type and storyline_tags columns
 
 This migration adds:
 1. workspace_type column to workspaces table
-2. storyline_tags column to intents table
-3. storyline_tags column to tasks table
+2. mode column to workspaces table
+3. storyline_tags column to intents table
+4. storyline_tags column to tasks table
 
 Revision ID: add_workspace_type_and_storyline_tags
 Revises:
@@ -96,6 +97,7 @@ def run_sqlite_migration(db_path: str):
 
         for column, ddl in [
             ("workspace_type", "TEXT DEFAULT 'personal'"),
+            ("mode", "TEXT"),
             ("execution_mode", "TEXT DEFAULT 'qa'"),
             ("expected_artifacts", "TEXT"),
             ("execution_priority", "TEXT DEFAULT 'medium'"),
