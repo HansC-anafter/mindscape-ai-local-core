@@ -213,7 +213,13 @@ async def list_packs():
             cursor.execute('SELECT pack_id, installed_at, metadata FROM installed_packs')
             for row in cursor.fetchall():
                 import json
-                metadata = json.loads(row['metadata']) if row['metadata'] else {}
+                metadata = {}
+                if row['metadata']:
+                    try:
+                        metadata = json.loads(row['metadata'])
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse metadata for pack {row['pack_id']}: {e}")
+                        metadata = {}
                 installed_metadata[row['pack_id']] = {
                     'installed_at': row['installed_at'],
                     'version': metadata.get('version', '1.0.0')
@@ -241,6 +247,19 @@ async def list_packs():
                         if tool_name:
                             tools_list.append(tool_name)
 
+            # Handle playbooks field: if it's a list of dicts, extract playbook codes
+            playbooks_raw = pack_meta.get('playbooks', [])
+            playbooks_list = []
+            if isinstance(playbooks_raw, list):
+                for pb in playbooks_raw:
+                    if isinstance(pb, str):
+                        playbooks_list.append(pb)
+                    elif isinstance(pb, dict):
+                        # Extract playbook code from dict
+                        pb_code = pb.get('code') or pb.get('id') or pb.get('playbook')
+                        if pb_code:
+                            playbooks_list.append(pb_code)
+
             packs.append(PackResponse(
                 id=pack_id,
                 name=pack_meta.get('name', pack_id),
@@ -249,7 +268,7 @@ async def list_packs():
                 enabled=pack_id in enabled_ids,
                 installed=pack_id in installed_ids,
                 routes=pack_meta.get('routes', []),
-                playbooks=pack_meta.get('playbooks', []),
+                playbooks=playbooks_list,
                 tools=tools_list,
                 version=installed_info.get('version') or pack_meta.get('version', '1.0.0'),
                 installed_at=installed_info.get('installed_at')
@@ -588,6 +607,19 @@ async def install_from_file(
             )
             runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
 
+            # 5b. Execute migrations (before playbook validation to ensure tables exist)
+            runtime_installer.execute_migrations(capability_code, result)
+            if hasattr(result, 'migration_status') and result.migration_status:
+                migration_status = result.migration_status.get(capability_code)
+                if migration_status in ['failed', 'error']:
+                    error_msg = f"Migration execution failed for {capability_code}: {migration_status}"
+                    logger.error(error_msg)
+                    result.add_error(error_msg)
+                elif migration_status == 'applied':
+                    logger.info(f"Successfully executed migrations for {capability_code}")
+            else:
+                logger.warning(f"Migration status not available for {capability_code}")
+
             # 6. Run post-install hooks
             post_install_handler = PostInstallHandler(
                 local_core_root=local_core_root,
@@ -863,6 +895,19 @@ async def install_from_cloud(
                 capabilities_dir=capabilities_dir
             )
             runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
+
+            # 5b. Execute migrations (before playbook validation to ensure tables exist)
+            runtime_installer.execute_migrations(capability_code, result)
+            if hasattr(result, 'migration_status') and result.migration_status:
+                migration_status = result.migration_status.get(capability_code)
+                if migration_status in ['failed', 'error']:
+                    error_msg = f"Migration execution failed for {capability_code}: {migration_status}"
+                    logger.error(error_msg)
+                    result.add_error(error_msg)
+                elif migration_status == 'applied':
+                    logger.info(f"Successfully executed migrations for {capability_code}")
+            else:
+                logger.warning(f"Migration status not available for {capability_code}")
 
             # 6. Run post-install hooks
             post_install_handler = PostInstallHandler(

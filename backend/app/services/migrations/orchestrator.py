@@ -249,7 +249,21 @@ command.upgrade(config, '{revision}')
             )
             logger.info(f"Migration upgrade to {revision} completed successfully")
             if result.stdout:
-                logger.debug(f"Alembic output: {result.stdout}")
+                logger.info(f"Alembic stdout: {result.stdout}")
+            if result.stderr:
+                # Check for revision conflict warnings
+                if "Revision" in result.stderr and "is present more than once" in result.stderr:
+                    logger.error(f"Migration revision conflict detected in stderr: {result.stderr}")
+                    # Extract the conflicting revision ID
+                    import re
+                    conflict_match = re.search(r"Revision (\d+) is present more than once", result.stderr)
+                    if conflict_match:
+                        conflicting_revision = conflict_match.group(1)
+                        error_msg = f"Migration revision ID conflict: Revision {conflicting_revision} is present more than once. This will prevent migrations from executing correctly."
+                        logger.error(error_msg)
+                        # Return False to indicate failure
+                        return False
+                logger.warning(f"Alembic stderr: {result.stderr}")
             return True
         except subprocess.TimeoutExpired:
             logger.error(f"Migration upgrade to {revision} timed out after 5 minutes")

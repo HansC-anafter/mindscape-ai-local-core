@@ -75,20 +75,22 @@ class RuntimeAssetsInstaller:
         # 5b. Install capability models (models/ directory)
         self.install_capability_models(cap_dir, capability_code, result)
 
-        # 6. Install migrations
+        # 6. Install migrations directory (copy migrations/ to capability directory)
+        self.install_migrations_directory(cap_dir, capability_code, result)
+
+        # 7. Install migrations (copy migration files to alembic/versions/)
         self.install_migrations(cap_dir, capability_code, result)
 
-        # 7. Execute migrations if any were installed
-        if result.installed.get("migrations"):
-            self.execute_migrations(capability_code, result)
+        # Note: Migration execution is deferred to capability_packs.py install_from_file
+        # to ensure migrations run even if playbook validation fails
 
-        # 8. Install UI components
+        # 9. Install UI components
         self.install_ui_components(cap_dir, capability_code, manifest, result)
 
-        # 9. Install manifest
+        # 10. Install manifest
         self.install_manifest(cap_dir, capability_code, manifest, temp_dir)
 
-        # 10. Install root-level Python files
+        # 11. Install root-level Python files and YAML files
         self.install_root_files(cap_dir, capability_code, result)
 
     def install_tools(
@@ -326,14 +328,42 @@ class RuntimeAssetsInstaller:
         target_models_dir = self.capabilities_dir / capability_code / "models"
         target_models_dir.mkdir(parents=True, exist_ok=True)
 
-        # Install all Python files from models/ directory
-        for model_file in models_dir.glob("*.py"):
-            target_model = target_models_dir / model_file.name
+        # Install all Python files from models/ directory (including subdirectories)
+        for model_file in models_dir.rglob("*.py"):
+            # Calculate relative path from models_dir to preserve subdirectory structure
+            relative_path = model_file.relative_to(models_dir)
+            target_model = target_models_dir / relative_path
+
+            # Create parent directories if needed
+            target_model.parent.mkdir(parents=True, exist_ok=True)
+
             shutil.copy2(model_file, target_model)
             model_name = model_file.stem
             if not model_name.startswith("__"):
-                result.add_installed("capability_models", model_name)
-            logger.debug(f"Installed capability model: {model_file.name}")
+                result.add_installed("capability_models", str(relative_path))
+            logger.debug(f"Installed capability model: {relative_path}")
+
+    def install_migrations_directory(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: InstallResult
+    ):
+        """Install migrations directory to capability directory (for execute_migrations to find migrations.yaml)"""
+        migrations_dir = cap_dir / "migrations"
+        if not migrations_dir.exists():
+            return
+
+        target_cap_dir = self.capabilities_dir / capability_code
+        target_migrations_dir = target_cap_dir / "migrations"
+
+        if target_migrations_dir.exists():
+            import shutil
+            shutil.rmtree(target_migrations_dir)
+
+        import shutil
+        shutil.copytree(migrations_dir, target_migrations_dir)
+        logger.info(f"Installed migrations directory for {capability_code}")
 
     def install_migrations(
         self,
@@ -345,17 +375,24 @@ class RuntimeAssetsInstaller:
         migrations_yaml = cap_dir / "migrations.yaml"
         migrations_dir = cap_dir / "migrations"
 
-        # Safety check: if migrations.yaml exists but migrations/ directory doesn't, create it
+        # If migrations.yaml exists but migrations/ directory doesn't exist in extracted cap_dir,
+        # migrations may be in migrations/versions/ subdirectory (standard structure)
         if migrations_yaml.exists() and not migrations_dir.exists():
-            logger.warning(
-                f"Capability {capability_code} has migrations.yaml but missing migrations/ directory. "
-                f"Creating migrations/ directory automatically."
-            )
-            migrations_dir.mkdir(parents=True, exist_ok=True)
-            # Create __init__.py in migrations directory
-            init_file = migrations_dir / "__init__.py"
-            if not init_file.exists():
-                init_file.write_text("# Migration files directory\n")
+            # Check for migrations/versions/ structure
+            migrations_versions_dir = cap_dir / "migrations" / "versions"
+            if migrations_versions_dir.exists():
+                migrations_dir = migrations_versions_dir.parent
+                logger.debug(f"Found migrations in migrations/versions/ subdirectory for {capability_code}")
+            else:
+                logger.warning(
+                    f"Capability {capability_code} has migrations.yaml but missing migrations/ directory. "
+                    f"Creating migrations/ directory automatically."
+                )
+                migrations_dir.mkdir(parents=True, exist_ok=True)
+                # Create __init__.py in migrations directory
+                init_file = migrations_dir / "__init__.py"
+                if not init_file.exists():
+                    init_file.write_text("# Migration files directory\n")
 
         # If no migrations directory and no migrations.yaml, skip
         if not migrations_dir.exists():
@@ -369,7 +406,7 @@ class RuntimeAssetsInstaller:
             result.add_error(error_msg)
             return
 
-        # Install all Python migration files from migrations/ directory
+        # Install all Python migration files from migrations/ directory (including subdirectories like versions/)
         all_py_files = list(migrations_dir.rglob("*.py"))
         # Filter out __init__.py and other non-migration files
         migration_files = [f for f in all_py_files if not f.name.startswith("__")]
@@ -468,6 +505,68 @@ class RuntimeAssetsInstaller:
                 logger.info(f"No migrations found for {capability_code}")
                 return
 
+            # Validate revision IDs for uniqueness across all installed migrations
+            # Only check for conflicts with OTHER capabilities, not the same capability
+            alembic_versions_dir = self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+            if alembic_versions_dir.exists():
+                existing_revisions = {}
+                capability_patterns = [
+                    capability_code.replace("_", " "),
+                    capability_code.replace("_", ""),
+                    capability_code,
+                ]
+                
+                for migration_file in alembic_versions_dir.glob("*.py"):
+                    if migration_file.name.startswith("__"):
+                        continue
+                    try:
+                        # Extract revision from filename (format: {revision}_{description}.py)
+                        revision = migration_file.stem.split("_")[0]
+                        if revision and revision.isdigit():
+                            # Check if this file belongs to the current capability
+                            file_content = migration_file.read_text().lower()
+                            is_current_capability = any(pattern in file_content for pattern in capability_patterns)
+                            
+                            if revision in existing_revisions:
+                                existing_revisions[revision].append({
+                                    'file': migration_file.name,
+                                    'is_current_capability': is_current_capability
+                                })
+                            else:
+                                existing_revisions[revision] = [{
+                                    'file': migration_file.name,
+                                    'is_current_capability': is_current_capability
+                                }]
+                    except:
+                        continue
+                
+                # Check if any of the new revisions conflict with OTHER capabilities
+                conflicting_revisions = []
+                for revision in revisions:
+                    if revision in existing_revisions:
+                        # Check if all files with this revision belong to the current capability
+                        files_for_revision = existing_revisions[revision]
+                        other_capability_files = [f for f in files_for_revision if not f['is_current_capability']]
+                        
+                        if other_capability_files:
+                            # This revision is used by other capabilities - it's a conflict
+                            conflicting_revisions.append({
+                                'revision': revision,
+                                'existing_files': [f['file'] for f in other_capability_files]
+                            })
+                
+                if conflicting_revisions:
+                    error_msg = f"Migration revision ID conflict detected for {capability_code}:\n"
+                    for conflict in conflicting_revisions:
+                        error_msg += f"  Revision {conflict['revision']} is already used by other capabilities: {', '.join(conflict['existing_files'])}\n"
+                    error_msg += "Please use a unique revision ID for this capability's migrations."
+                    logger.error(error_msg)
+                    result.add_error(error_msg)
+                    if result.migration_status is None:
+                        result.migration_status = {}
+                    result.migration_status[capability_code] = "conflict"
+                    return
+
             # Use MigrationOrchestrator to execute only this capability's migrations
             from app.services.migrations.orchestrator import MigrationOrchestrator
 
@@ -477,6 +576,51 @@ class RuntimeAssetsInstaller:
             }
 
             orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
+
+            # Check if revisions are already applied but tables might be missing
+            # This can happen if migration was marked as applied but failed to create tables
+            from sqlalchemy import create_engine, text, inspect
+            from app.database.config import get_postgres_url
+            engine = create_engine(get_postgres_url())
+            
+            # Build expected_tables map for all revisions (needed for verification)
+            revision_expected_tables = {}
+            inspector = inspect(engine)
+            existing_tables = set(inspector.get_table_names())
+            
+            for revision in revisions:
+                # Check migration file to find expected tables
+                migration_files = list((self.local_core_root / "backend" / "alembic" / "postgres" / "versions").glob(f"{revision}_*.py"))
+                expected_tables = []
+                for mf in migration_files:
+                    try:
+                        content = mf.read_text()
+                        # Look for table creation patterns for this capability
+                        import re
+                        table_matches = re.findall(r"op\.create_table\(['\"]([^'\"]+)['\"]", content)
+                        expected_tables.extend([t for t in table_matches if capability_code in t])
+                    except:
+                        pass
+                revision_expected_tables[revision] = expected_tables
+            
+            with engine.connect() as conn:
+                # Check which revisions are already in alembic_version
+                result_query = conn.execute(text("SELECT version_num FROM alembic_version"))
+                applied_revisions = {row[0] for row in result_query}
+                
+                # For each revision that's already applied, check if expected tables exist
+                for revision in revisions:
+                    if revision in applied_revisions:
+                        expected_tables = revision_expected_tables.get(revision, [])
+                        # If expected tables are missing, remove revision to allow re-execution
+                        if expected_tables:
+                            missing_tables = [t for t in expected_tables if t not in existing_tables]
+                            if missing_tables:
+                                logger.warning(f"Revision {revision} is marked as applied but tables are missing: {missing_tables}")
+                                logger.info(f"Removing revision {revision} from alembic_version to allow re-execution")
+                                conn.execute(text(f"DELETE FROM alembic_version WHERE version_num = '{revision}'"))
+                                conn.commit()
+                                logger.info(f"Removed revision {revision}, will re-execute migration")
 
             # Execute each revision individually to avoid conflicts with other capabilities
             for revision in revisions:
@@ -491,6 +635,21 @@ class RuntimeAssetsInstaller:
                         result.migration_status = {}
                     result.migration_status[capability_code] = "failed"
                     return
+                
+                # Verify tables were created after migration
+                inspector = inspect(engine)
+                existing_tables_after = set(inspector.get_table_names())
+                expected_tables = revision_expected_tables.get(revision, [])
+                if expected_tables:
+                    still_missing = [t for t in expected_tables if t not in existing_tables_after]
+                    if still_missing:
+                        error_msg = f"Migration {revision} completed but tables still missing: {still_missing}"
+                        logger.error(error_msg)
+                        result.add_warning(error_msg)
+                        if result.migration_status is None:
+                            result.migration_status = {}
+                        result.migration_status[capability_code] = "failed"
+                        return
 
             logger.info(f"Successfully executed migrations for {capability_code}")
             if result.migration_status is None:
@@ -781,7 +940,7 @@ class RuntimeAssetsInstaller:
         capability_code: str,
         result: InstallResult
     ):
-        """Install root-level Python files (e.g., models.py)"""
+        """Install root-level Python files and YAML files (e.g., models.py, migrations.yaml)"""
         cap_install_dir = self.capabilities_dir / capability_code
         cap_install_dir.mkdir(parents=True, exist_ok=True)
 
@@ -792,4 +951,12 @@ class RuntimeAssetsInstaller:
                 shutil.copy2(py_file, target_file)
                 logger.debug(f"Installed root file: {py_file.name}")
                 result.add_installed("root_files", py_file.name)
+
+        # Install all .yaml files in capability root directory (e.g., migrations.yaml)
+        for yaml_file in cap_dir.glob("*.yaml"):
+            if yaml_file.is_file() and yaml_file.name != "manifest.yaml":
+                target_file = cap_install_dir / yaml_file.name
+                shutil.copy2(yaml_file, target_file)
+                logger.debug(f"Installed root YAML file: {yaml_file.name}")
+                result.add_installed("root_files", yaml_file.name)
 
