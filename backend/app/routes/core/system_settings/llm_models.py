@@ -438,16 +438,16 @@ async def test_model_connection(model_id: int):
 
         # Test based on provider and model type
         if provider == "openai":
-            api_key = config.get("openai_api_key") or os.getenv("OPENAI_API_KEY")
+            api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             if not api_key:
                 return {"success": False, "message": "OpenAI API key not configured"}
 
             if model_type == "chat":
-                # Simple test: try to list models
                 try:
                     import openai
                     client = openai.OpenAI(api_key=api_key)
-                    client.models.list(limit=1)
+                    models = client.models.list()
+                    next(iter(models), None)
                     return {"success": True, "message": "OpenAI chat model connection successful"}
                 except Exception as e:
                     return {"success": False, "message": f"OpenAI connection failed: {str(e)}"}
@@ -465,7 +465,7 @@ async def test_model_connection(model_id: int):
                     return {"success": False, "message": f"OpenAI embedding connection failed: {str(e)}"}
 
         elif provider == "anthropic":
-            api_key = config.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY")
+            api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
                 return {"success": False, "message": "Anthropic API key not configured"}
 

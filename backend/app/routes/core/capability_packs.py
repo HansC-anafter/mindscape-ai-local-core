@@ -247,7 +247,6 @@ async def list_packs():
                         if tool_name:
                             tools_list.append(tool_name)
 
-            # Handle playbooks field: if it's a list of dicts, extract playbook codes
             playbooks_raw = pack_meta.get('playbooks', [])
             playbooks_list = []
             if isinstance(playbooks_raw, list):
@@ -255,7 +254,6 @@ async def list_packs():
                     if isinstance(pb, str):
                         playbooks_list.append(pb)
                     elif isinstance(pb, dict):
-                        # Extract playbook code from dict
                         pb_code = pb.get('code') or pb.get('id') or pb.get('playbook')
                         if pb_code:
                             playbooks_list.append(pb_code)
