@@ -33,6 +33,15 @@ def _apply_migrations(cursor):
             raise
 
     try:
+        cursor.execute("ALTER TABLE workspaces ADD COLUMN mode TEXT")
+        logger.info("Migration: Added mode column to workspaces table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+            logger.debug("mode column already exists, skipping")
+        else:
+            raise
+
+    try:
         cursor.execute("ALTER TABLE intents ADD COLUMN storyline_tags TEXT")
         logger.info("Migration: Added storyline_tags column to intents table")
     except sqlite3.OperationalError as e:
