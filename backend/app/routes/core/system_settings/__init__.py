@@ -14,13 +14,13 @@ from . import (
     system_control,
     governance,
     ports,
+    files,
 )
 
 router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
 
-# Register all sub-routers
-# IMPORTANT: Specific routes (like /llm-models) must be registered BEFORE
-# catch-all routes (like /{key}) to avoid route conflicts
+# Register all sub-routers.
+# Route registration order matters: register specific routers before the catch-all router to avoid conflicts.
 router.include_router(governance.router, prefix="/governance", tags=["governance"])
 router.include_router(llm_models.router)
 router.include_router(google_oauth.router)
@@ -29,5 +29,6 @@ router.include_router(embedding_migrations.router)
 router.include_router(env_vars.router)
 router.include_router(system_control.router)
 router.include_router(ports.router)  # Port configuration routes
+router.include_router(files.router)  # File system utility routes
 router.include_router(general.router)  # Catch-all routes last
 
