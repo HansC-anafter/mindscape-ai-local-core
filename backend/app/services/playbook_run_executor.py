@@ -137,9 +137,8 @@ class PlaybookRunExecutor:
             except Exception as e:
                 logger.warning(f"PlaybookRunExecutor: Failed to get workspace.primary_project_id: {e}")
 
-        # Normalize inputs and inject execution context fields for template resolution and tool parameters
-        # This ensures {{input.workspace_id}}, {{input.project_id}}, {{input.profile_id}} templates can be resolved
-        # and these fields are available for tool parameter injection
+        # Normalize inputs and inject execution context fields for placeholder rendering and tool parameter injection.
+        # Enables resolving {{input.workspace_id}}, {{input.project_id}}, {{input.profile_id}}.
         normalized_inputs = inputs.copy() if inputs else {}
         if workspace_id and "workspace_id" not in normalized_inputs:
             normalized_inputs["workspace_id"] = workspace_id
@@ -277,9 +276,8 @@ class PlaybookRunExecutor:
                     except Exception as e:
                         logger.warning(f"PlaybookRunExecutor: Failed to generate lens receipt: {e}", exc_info=True)
 
-                # Update task status if using task system
-                if execution_profile.execution_mode == "simple":
-                    # For simple mode, use existing task system
+                # Persist execution context for workflow result retrieval
+                try:
                     from backend.app.services.stores.tasks_store import TasksStore
                     from backend.app.services.mindscape_store import MindscapeStore
                     from backend.app.models.workspace import Task, TaskStatus
@@ -289,6 +287,25 @@ class PlaybookRunExecutor:
                     total_steps = len(playbook_run.playbook_json.steps) if playbook_run.playbook_json.steps else 1
 
                     playbook_name = playbook_run.playbook.metadata.name if playbook_run.playbook and playbook_run.playbook.metadata else playbook_code
+                    step_outputs_payload: Dict[str, Any] = {}
+                    outputs_payload: Dict[str, Any] = {}
+
+                    if runtime_result and runtime_result.metadata and isinstance(runtime_result.metadata.get("steps"), dict):
+                        steps_meta = runtime_result.metadata.get("steps") or {}
+                        for _, step_result in steps_meta.items():
+                            if isinstance(step_result, dict):
+                                if isinstance(step_result.get("step_outputs"), dict) and step_result["step_outputs"]:
+                                    step_outputs_payload = step_result["step_outputs"]
+                                if isinstance(step_result.get("outputs"), dict) and step_result["outputs"]:
+                                    outputs_payload = step_result["outputs"]
+                                break
+
+                    if not step_outputs_payload and runtime_result and isinstance(runtime_result.outputs, dict):
+                        step_outputs_payload = runtime_result.outputs
+
+                    if not outputs_payload and runtime_result and isinstance(runtime_result.outputs, dict):
+                        outputs_payload = runtime_result.outputs
+
                     execution_context_dict = {
                         "playbook_code": playbook_code,
                         "playbook_name": playbook_name,
@@ -296,48 +313,60 @@ class PlaybookRunExecutor:
                         "total_steps": total_steps,
                         "current_step_index": total_steps if runtime_result and runtime_result.status == "completed" else 0,
                         "status": runtime_result.status if runtime_result else "failed",
+                        "step_outputs": step_outputs_payload,
+                        "outputs": outputs_payload,
+                        "result": result,
+                        "workflow_result": {
+                            "status": runtime_result.status if runtime_result else "failed",
+                            "step_outputs": step_outputs_payload,
+                            "outputs": outputs_payload
+                        }
                     }
 
-                    task = Task(
-                        id=execution_id,
-                        workspace_id=workspace_id,
-                        message_id=str(uuid.uuid4()),
-                        execution_id=execution_id,
-                        project_id=project_id,  # Set project_id so sandbox can be created
-                        profile_id=profile_id,
-                        pack_id=playbook_code,
-                        task_type="playbook_execution",
-                        status=TaskStatus.SUCCEEDED if runtime_result and runtime_result.status == "completed" else TaskStatus.FAILED,
-                        execution_context=execution_context_dict,
-                        created_at=datetime.utcnow(),
-                        started_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow() if runtime_result and runtime_result.status == "completed" else None,
-                        error=runtime_result.error if runtime_result else "Runtime execution returned None"
-                    )
-                    tasks_store.create_task(task)
-
                     # Extract sandbox_id from runtime_result metadata and save to execution_context
-                    logger.error(f"🔍 Checking runtime_result.metadata: {runtime_result.metadata if runtime_result else 'None'}")
                     sandbox_id = runtime_result.metadata.get('sandbox_id') if runtime_result and runtime_result.metadata else None
-                    logger.error(f"🔍 sandbox_id from metadata: {sandbox_id}")
                     if not sandbox_id:
                         # Also check result.steps for sandbox_id (from _execute_playbook_steps return value)
                         steps_info = runtime_result.metadata.get("steps", {}) if runtime_result and runtime_result.metadata else {}
-                        logger.error(f"🔍 Checking steps_info: {list(steps_info.keys())}")
                         for step_code, step_result in steps_info.items():
-                            logger.error(f"🔍 step_code={step_code}, step_result keys: {list(step_result.keys()) if isinstance(step_result, dict) else 'not dict'}")
                             if isinstance(step_result, dict) and 'sandbox_id' in step_result:
                                 sandbox_id = step_result['sandbox_id']
-                                logger.error(f"🔍 Found sandbox_id in step_result: {sandbox_id}")
                                 break
 
                     if sandbox_id:
-                        logger.error(f"🔍 PlaybookRunExecutor: Saving sandbox_id={sandbox_id} to execution_context for execution {execution_id}")
                         execution_context_dict["sandbox_id"] = sandbox_id
-                        tasks_store.update_task(task.id, execution_context=execution_context_dict)
+
+                    task_status = TaskStatus.SUCCEEDED if runtime_result and runtime_result.status == "completed" else TaskStatus.FAILED
+                    existing_task = tasks_store.get_task_by_execution_id(execution_id)
+                    if existing_task:
+                        tasks_store.update_task(
+                            existing_task.id,
+                            execution_context=execution_context_dict,
+                            status=task_status,
+                            completed_at=datetime.utcnow() if task_status == TaskStatus.SUCCEEDED else None,
+                            error=runtime_result.error if runtime_result else "Runtime execution returned None"
+                        )
                     else:
-                        logger.error(f"🔍 No sandbox_id found to save")
+                        task = Task(
+                            id=execution_id,
+                            workspace_id=workspace_id,
+                            message_id=str(uuid.uuid4()),
+                            execution_id=execution_id,
+                            project_id=project_id,  # Set project_id so sandbox can be created
+                            profile_id=profile_id,
+                            pack_id=playbook_code,
+                            task_type="playbook_execution",
+                            status=task_status,
+                            execution_context=execution_context_dict,
+                            created_at=datetime.utcnow(),
+                            started_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow(),
+                            completed_at=datetime.utcnow() if task_status == TaskStatus.SUCCEEDED else None,
+                            error=runtime_result.error if runtime_result else "Runtime execution returned None"
+                        )
+                        tasks_store.create_task(task)
+                except Exception as e:
+                    logger.warning(f"PlaybookRunExecutor: Failed to persist execution context: {e}", exc_info=True)
 
                 return {
                     "execution_mode": "workflow",
@@ -758,8 +787,8 @@ class PlaybookRunExecutor:
         from backend.app.models.playbook import HandoffPlan, WorkflowStep
 
         # Use normalized_inputs to ensure workspace_id/project_id/profile_id are available
-        # Note: inputs parameter should already be normalized_inputs when called from _handle_standalone/_handle_plan_node
-        # But we ensure it's normalized here as well for safety
+        # inputs should already be normalized_inputs when called from _handle_standalone/_handle_plan_node.
+        # This block enforces it as a fallback.
         normalized_inputs_for_legacy = inputs.copy() if inputs else {}
         if workspace_id and "workspace_id" not in normalized_inputs_for_legacy:
             normalized_inputs_for_legacy["workspace_id"] = workspace_id
@@ -792,6 +821,11 @@ class PlaybookRunExecutor:
 
             execution_context["status"] = "completed"
             execution_context["current_step_index"] = total_steps
+            # Store workflow result in execution_context for retrieval
+            execution_context["workflow_result"] = result
+            execution_context["step_outputs"] = result.get("step_outputs", {})
+            execution_context["outputs"] = result.get("outputs", {})
+            execution_context["result"] = result
             completed_at = datetime.utcnow()
             tasks_store.update_task(
                 task.id,

@@ -98,7 +98,7 @@ class SimpleRuntime(RuntimePort):
             playbook_inputs = inputs or {}
             logger.info(f"SimpleRuntime: playbook_inputs keys: {list(playbook_inputs.keys())}")
             handoff_plan = self._convert_to_handoff_plan(playbook_run, playbook_inputs, playbook_code_from_context)
-            # Ensure inputs are in handoff_plan.context for template resolution
+            # Keep inputs in handoff_plan.context for placeholder rendering.
             if playbook_inputs:
                 handoff_plan.context.update(playbook_inputs)
                 logger.info(f"SimpleRuntime: Updated handoff_plan.context with inputs. Context keys: {list(handoff_plan.context.keys())}")
@@ -190,6 +190,20 @@ class SimpleRuntime(RuntimePort):
                         error=error,
                         metadata=metadata
                     )
+
+            # Fallback: return best-effort outputs even if step_outputs is empty.
+            metadata = {
+                "runtime": "simple",
+                "steps_completed": len(steps_info),
+                "steps": steps_info
+            }
+            return ExecutionResult(
+                status=status,
+                execution_id=execution_id or "unknown",
+                outputs=outputs,
+                error=error,
+                metadata=metadata
+            )
 
         except Exception as e:
             logger.error(f"SimpleRuntime execution failed: {e}", exc_info=True)

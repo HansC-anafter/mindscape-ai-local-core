@@ -286,7 +286,7 @@ class MindscapeToLangChainAdapter:
         # Create execution function
         async def execute_func(**kwargs) -> Any:
             """Execute Mindscape tool"""
-            result = await mindscape_tool.safe_execute(kwargs)
+            result = await mindscape_tool.safe_execute(**kwargs)
             if result.success:
                 return result.result
             else:

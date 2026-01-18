@@ -133,19 +133,21 @@ class UnifiedToolExecutor:
                 )
 
             logger.info(f"Executing tool: {tool_name}, arguments: {arguments}")
-            result = await tool.safe_execute(arguments)
+            tool_result = await tool.safe_execute(**arguments)
 
             execution_time = (datetime.utcnow() - start_time).total_seconds()
 
             execution_result = ToolExecutionResult(
-                success=True,
+                success=tool_result.success,
                 tool_name=tool_name,
                 tool_type=tool_type,
-                result=result,
+                result=tool_result.result,
+                error=tool_result.error,
                 execution_time=execution_time,
                 metadata={
                     "tool_description": getattr(tool, "description", ""),
-                    "tool_source": getattr(tool.metadata, "source_type", tool_type)
+                    "tool_source": getattr(tool.metadata, "source_type", tool_type),
+                    **(tool_result.metadata or {}),
                 }
             )
 
@@ -301,14 +303,15 @@ class UnifiedToolExecutor:
             start_time = datetime.utcnow()
 
             try:
-                result = await tool.safe_execute(arguments)
+                tool_result = await tool.safe_execute(**arguments)
                 execution_time = (datetime.utcnow() - start_time).total_seconds()
 
                 return ToolExecutionResult(
-                    success=True,
+                    success=tool_result.success,
                     tool_name=tool_dep.name,
                     tool_type=tool_dep.type,
-                    result=result,
+                    result=tool_result.result,
+                    error=tool_result.error,
                     execution_time=execution_time
                 )
 
