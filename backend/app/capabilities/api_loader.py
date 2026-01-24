@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import logging
 import os
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI
 from starlette.routing import Route, Mount
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class CapabilityAPILoader:
         self,
         remote_capabilities_dir: Optional[Path] = None,
         allowlist: Optional[List[str]] = None,
-        enable_all: bool = False
+        enable_all: bool = False,
     ):
         """
         Initialize the API loader
@@ -64,7 +64,9 @@ class CapabilityAPILoader:
             if path.exists():
                 return path
             else:
-                logger.warning(f"Env MINDSCAPE_REMOTE_CAPABILITIES_DIR points to non-existent path: {env_dir}")
+                logger.warning(
+                    f"Env MINDSCAPE_REMOTE_CAPABILITIES_DIR points to non-existent path: {env_dir}"
+                )
 
         if is_production:
             raise ValueError(
@@ -80,20 +82,20 @@ class CapabilityAPILoader:
 
     def load_manifest_capabilities(self, manifest_path: Path) -> List[Dict]:
         """
-        Load capabilities section from manifest.yaml
+        Load APIs section from manifest.yaml
 
         Returns:
-            List of capability definitions from manifest
+            List of API definitions from manifest
         """
         try:
-            with open(manifest_path, 'r', encoding='utf-8') as f:
+            with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = yaml.safe_load(f)
 
-            capabilities = manifest.get('capabilities', [])
-            if not isinstance(capabilities, list):
+            apis = manifest.get("apis", [])
+            if not isinstance(apis, list):
                 return []
 
-            return capabilities
+            return apis
         except Exception as e:
             logger.warning(f"Failed to load manifest from {manifest_path}: {e}")
             return []
@@ -115,14 +117,11 @@ class CapabilityAPILoader:
         if self.allowlist is not None:
             return capability_code in self.allowlist
 
-        enabled_by_default = cap_def.get('enabled_by_default', True)
+        enabled_by_default = cap_def.get("enabled_by_default", True)
         return enabled_by_default
 
     def load_api_router_from_capability_def(
-        self,
-        capability_code: str,
-        capability_dir: Path,
-        cap_def: Dict
+        self, capability_code: str, capability_dir: Path, cap_def: Dict
     ) -> Optional[APIRouter]:
         """
         Load API router from capability definition using router_export contract
@@ -135,7 +134,7 @@ class CapabilityAPILoader:
         Returns:
             APIRouter instance if found, None otherwise
         """
-        api_path = cap_def.get('path')
+        api_path = cap_def.get("path")
         if not api_path:
             logger.warning(
                 f"Capability {cap_def.get('code', 'unknown')} in {capability_code} "
@@ -145,9 +144,7 @@ class CapabilityAPILoader:
 
         api_file_path = capability_dir / api_path
         if not api_file_path.exists():
-            logger.warning(
-                f"API file not found for {capability_code}: {api_file_path}"
-            )
+            logger.warning(f"API file not found for {capability_code}: {api_file_path}")
             return None
 
         capabilities_parent = capability_dir.parent
@@ -162,7 +159,7 @@ class CapabilityAPILoader:
         try:
             relative_path = api_file_path.relative_to(capabilities_parent)
             module_parts = list(relative_path.parts[:-1])
-            module_name_base = '.'.join(module_parts)
+            module_name_base = ".".join(module_parts)
             file_stem = api_file_path.stem
             module_name = f"{module_name_base}.{file_stem}"
 
@@ -175,18 +172,18 @@ class CapabilityAPILoader:
 
             module = importlib.util.module_from_spec(spec)
             # Set __package__ and __file__ to support relative imports
-            if '.' in module_name:
-                module.__package__ = '.'.join(module_name.split('.')[:-1])
+            if "." in module_name:
+                module.__package__ = ".".join(module_name.split(".")[:-1])
             module.__file__ = str(api_file_path)
             # Ensure capability directory is in sys.path for relative imports
             if str(capability_dir) not in sys.path:
                 sys.path.insert(0, str(capability_dir))
             spec.loader.exec_module(module)
 
-            router_export = cap_def.get('router_export', 'router')
+            router_export = cap_def.get("router_export", "router")
 
-            if router_export == 'get_router':
-                get_router_func = getattr(module, 'get_router', None)
+            if router_export == "get_router":
+                get_router_func = getattr(module, "get_router", None)
                 if get_router_func is None:
                     logger.error(
                         f"router_export='get_router' but no get_router() function found "
@@ -199,8 +196,8 @@ class CapabilityAPILoader:
                     )
                     return None
                 router = get_router_func()
-            elif router_export == 'router':
-                router = getattr(module, 'router', None)
+            elif router_export == "router":
+                router = getattr(module, "router", None)
             else:
                 logger.error(
                     f"Invalid router_export value '{router_export}' for {capability_code}. "
@@ -229,17 +226,19 @@ class CapabilityAPILoader:
 
         except Exception as e:
             logger.error(
-                f"Failed to load API router from {api_file_path}: {e}",
-                exc_info=True
+                f"Failed to load API router from {api_file_path}: {e}", exc_info=True
             )
             return None
 
-    def extract_routes_from_router(self, router: APIRouter) -> Set[Tuple[str, str]]:
+    def extract_routes_from_router(
+        self, router: APIRouter, manifest_prefix: str = ""
+    ) -> Set[Tuple[str, str]]:
         """
         Extract all (method, path) tuples from a router
 
         Args:
             router: APIRouter instance
+            manifest_prefix: Prefix from manifest.yaml to prepend to all routes
 
         Returns:
             Set of (method, path) tuples
@@ -247,10 +246,10 @@ class CapabilityAPILoader:
         routes = set()
 
         def extract_from_route(route: Route, prefix: str = ""):
-            methods = getattr(route, 'methods', set())
+            methods = getattr(route, "methods", set())
             path = prefix + route.path
             for method in methods:
-                if method != 'HEAD':
+                if method != "HEAD":
                     routes.add((method.upper(), path))
 
         def extract_from_mount(mount: Mount, prefix: str = ""):
@@ -263,16 +262,17 @@ class CapabilityAPILoader:
                 elif isinstance(route, APIRouter):
                     extract_from_mount(route, mount_path)
 
-        router_prefix = getattr(router, 'prefix', '') or ''
+        router_prefix = getattr(router, "prefix", "") or ""
+        base_prefix = manifest_prefix + router_prefix
 
         for route in router.routes:
             if isinstance(route, Route):
-                extract_from_route(route, router_prefix)
+                extract_from_route(route, base_prefix)
             elif isinstance(route, Mount):
-                extract_from_mount(route, router_prefix)
+                extract_from_mount(route, base_prefix)
             elif isinstance(route, APIRouter):
-                nested_prefix = getattr(route, 'prefix', '') or ''
-                full_prefix = router_prefix + nested_prefix
+                nested_prefix = getattr(route, "prefix", "") or ""
+                full_prefix = base_prefix + nested_prefix
                 for nested_route in route.routes:
                     if isinstance(nested_route, Route):
                         extract_from_route(nested_route, full_prefix)
@@ -282,10 +282,7 @@ class CapabilityAPILoader:
         return routes
 
     def check_route_conflicts(
-        self,
-        router: APIRouter,
-        capability_code: str,
-        cap_def: Dict
+        self, router: APIRouter, capability_code: str, cap_def: Dict
     ) -> Tuple[bool, List[Tuple[str, str]]]:
         """
         Check if router routes conflict with already registered routes
@@ -298,7 +295,8 @@ class CapabilityAPILoader:
         Returns:
             (is_valid, conflicts) where conflicts is list of conflicting (method, path) tuples
         """
-        new_routes = self.extract_routes_from_router(router)
+        manifest_prefix = cap_def.get("prefix", "") or ""
+        new_routes = self.extract_routes_from_router(router, manifest_prefix)
         conflicts = []
 
         for method, path in new_routes:
@@ -324,7 +322,9 @@ class CapabilityAPILoader:
 
         if local_capabilities_dir.exists():
             capabilities_dir = local_capabilities_dir
-            logger.info(f"Using local installed capabilities directory: {capabilities_dir}")
+            logger.info(
+                f"Using local installed capabilities directory: {capabilities_dir}"
+            )
         elif remote_capabilities_dir and remote_capabilities_dir.exists():
             capabilities_dir = remote_capabilities_dir
             logger.info(f"Using remote capabilities directory: {capabilities_dir}")
@@ -343,7 +343,7 @@ class CapabilityAPILoader:
 
         # Scan each capability directory
         for capability_dir in capabilities_dir.iterdir():
-            if not capability_dir.is_dir() or capability_dir.name.startswith('_'):
+            if not capability_dir.is_dir() or capability_dir.name.startswith("_"):
                 continue
 
             capability_code = capability_dir.name
@@ -356,7 +356,9 @@ class CapabilityAPILoader:
             # Load capabilities from manifest
             capabilities = self.load_manifest_capabilities(manifest_path)
             if not capabilities:
-                logger.debug(f"No capabilities defined in manifest for {capability_code}")
+                logger.debug(
+                    f"No capabilities defined in manifest for {capability_code}"
+                )
                 continue
 
             # Load each API router
@@ -372,13 +374,13 @@ class CapabilityAPILoader:
                     continue
 
                 router = self.load_api_router_from_capability_def(
-                    capability_code,
-                    capability_dir,
-                    cap_def
+                    capability_code, capability_dir, cap_def
                 )
 
                 if router:
-                    is_valid, conflicts = self.check_route_conflicts(router, capability_code, cap_def)
+                    is_valid, conflicts = self.check_route_conflicts(
+                        router, capability_code, cap_def
+                    )
                     if is_valid:
                         loaded_routers.append(router)
                         self.loaded_routers.append((router, capability_code, cap_def))
@@ -391,16 +393,15 @@ class CapabilityAPILoader:
                             f"Please check router prefix and path definitions."
                         )
 
-        logger.info(
-            f"Loaded {len(loaded_routers)} API routers from cloud capabilities"
-        )
+        logger.info(f"Loaded {len(loaded_routers)} API routers from cloud capabilities")
         return loaded_routers
 
 
 def load_capability_apis(
+    app: Optional[FastAPI] = None,
     remote_capabilities_dir: Optional[Path] = None,
     allowlist: Optional[List[str]] = None,
-    enable_all: bool = False
+    enable_all: bool = False,
 ) -> List[APIRouter]:
     """
     Load and return all capability API routers
@@ -414,4 +415,21 @@ def load_capability_apis(
         List of APIRouter instances
     """
     loader = CapabilityAPILoader(remote_capabilities_dir, allowlist, enable_all)
-    return loader.load_all_capability_apis()
+    routers = loader.load_all_capability_apis()
+
+    # Register routers to app if provided
+    if app:
+        for router, capability_code, cap_def in loader.loaded_routers:
+            prefix = cap_def.get("prefix")
+            if prefix:
+                app.include_router(router, prefix=prefix)
+                logger.info(
+                    f"Registered capability API router for {capability_code} with prefix: {prefix}"
+                )
+            else:
+                app.include_router(router)
+                logger.info(
+                    f"Registered capability API router for {capability_code} with prefix: {getattr(router, 'prefix', 'none')}"
+                )
+
+    return routers
