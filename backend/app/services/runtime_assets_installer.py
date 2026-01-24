@@ -20,11 +20,7 @@ logger = logging.getLogger(__name__)
 class RuntimeAssetsInstaller:
     """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files)"""
 
-    def __init__(
-        self,
-        local_core_root: Path,
-        capabilities_dir: Path
-    ):
+    def __init__(self, local_core_root: Path, capabilities_dir: Path):
         """
         Initialize installer
 
@@ -42,7 +38,7 @@ class RuntimeAssetsInstaller:
         capability_code: str,
         manifest: Dict,
         result: InstallResult,
-        temp_dir: Optional[Path] = None
+        temp_dir: Optional[Path] = None,
     ):
         """
         Install all runtime assets
@@ -93,12 +89,7 @@ class RuntimeAssetsInstaller:
         # 11. Install root-level Python files and YAML files
         self.install_root_files(cap_dir, capability_code, result)
 
-    def install_tools(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
-    ):
+    def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability tools"""
         tools_dir = cap_dir / "tools"
         if not tools_dir.exists():
@@ -118,11 +109,23 @@ class RuntimeAssetsInstaller:
             result.add_installed("tools", tool_name)
             logger.debug(f"Installed tool: {tool_name}")
 
+        # Also install tool subdirectories (tool packages).
+        # Many capabilities split large tools into packages like tools/foo/*.
+        for item in tools_dir.iterdir():
+            if not item.is_dir():
+                continue
+            if item.name.startswith("__"):
+                # Skip __pycache__ and other dunder dirs
+                continue
+            target_subdir = target_tools_dir / item.name
+            if target_subdir.exists():
+                shutil.rmtree(target_subdir)
+            shutil.copytree(item, target_subdir)
+            logger.debug(f"Installed tools subdirectory: {item.name}")
+            result.add_installed("tools_dirs", item.name)
+
     def install_services(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install capability services"""
         services_dir = cap_dir / "services"
@@ -142,12 +145,7 @@ class RuntimeAssetsInstaller:
             result.add_installed("services", service_name)
             logger.debug(f"Installed service: {service_name}")
 
-    def install_jobs(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
-    ):
+    def install_jobs(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability jobs directory"""
         jobs_dir = cap_dir / "jobs"
         if not jobs_dir.exists():
@@ -174,10 +172,7 @@ class RuntimeAssetsInstaller:
                 result.add_installed("jobs_dirs", item.name)
 
     def install_api_endpoints(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install capability API endpoints from 'api' or 'routes' directory"""
         api_dir = cap_dir / "api"
@@ -216,10 +211,7 @@ class RuntimeAssetsInstaller:
                     logger.debug(f"Installed route file: {route_file.name}")
 
     def install_schema_modules(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install capability schema modules and data directories"""
         schema_dir = cap_dir / "schema"
@@ -251,10 +243,7 @@ class RuntimeAssetsInstaller:
                 result.add_installed("schema_data_dirs", item.name)
 
     def install_database_models(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install capability database models"""
         database_models_dir = cap_dir / "database" / "models"
@@ -279,9 +268,9 @@ class RuntimeAssetsInstaller:
             # Read and fix import paths for local-core
             # Try multiple encodings to handle different file encodings
             content = None
-            for encoding in ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']:
+            for encoding in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
                 try:
-                    with open(model_file, 'r', encoding=encoding) as f:
+                    with open(model_file, "r", encoding=encoding) as f:
                         content = f.read()
                     break
                 except UnicodeDecodeError:
@@ -289,15 +278,17 @@ class RuntimeAssetsInstaller:
 
             if content is None:
                 # If all encodings fail, try binary read and decode with errors='replace'
-                with open(model_file, 'rb') as f:
+                with open(model_file, "rb") as f:
                     raw_content = f.read()
-                content = raw_content.decode('utf-8', errors='replace')
+                content = raw_content.decode("utf-8", errors="replace")
 
             # Fix Base import: from .. import Base -> from database import Base
-            if 'from .. import Base' in content:
-                content = content.replace('from .. import Base', 'from database import Base')
+            if "from .. import Base" in content:
+                content = content.replace(
+                    "from .. import Base", "from database import Base"
+                )
 
-            with open(target_model, 'w', encoding='utf-8') as f:
+            with open(target_model, "w", encoding="utf-8") as f:
                 f.write(content)
 
             model_name = model_file.stem
@@ -314,10 +305,7 @@ class RuntimeAssetsInstaller:
             logger.debug(f"Installed database models __init__.py")
 
     def install_capability_models(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install capability models from models/ directory to app/capabilities/{capability_code}/models/"""
         models_dir = cap_dir / "models"
@@ -344,10 +332,7 @@ class RuntimeAssetsInstaller:
             logger.debug(f"Installed capability model: {relative_path}")
 
     def install_migrations_directory(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install migrations directory to capability directory (for execute_migrations to find migrations.yaml)"""
         migrations_dir = cap_dir / "migrations"
@@ -359,17 +344,16 @@ class RuntimeAssetsInstaller:
 
         if target_migrations_dir.exists():
             import shutil
+
             shutil.rmtree(target_migrations_dir)
 
         import shutil
+
         shutil.copytree(migrations_dir, target_migrations_dir)
         logger.info(f"Installed migrations directory for {capability_code}")
 
     def install_migrations(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install capability migration files to Alembic versions directory"""
         migrations_yaml = cap_dir / "migrations.yaml"
@@ -382,7 +366,9 @@ class RuntimeAssetsInstaller:
             migrations_versions_dir = cap_dir / "migrations" / "versions"
             if migrations_versions_dir.exists():
                 migrations_dir = migrations_versions_dir.parent
-                logger.debug(f"Found migrations in migrations/versions/ subdirectory for {capability_code}")
+                logger.debug(
+                    f"Found migrations in migrations/versions/ subdirectory for {capability_code}"
+                )
             else:
                 logger.warning(
                     f"Capability {capability_code} has migrations.yaml but missing migrations/ directory. "
@@ -399,7 +385,9 @@ class RuntimeAssetsInstaller:
             return
 
         # Target: alembic/postgres/versions/
-        alembic_versions_dir = self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+        alembic_versions_dir = (
+            self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+        )
         if not alembic_versions_dir.exists():
             error_msg = f"Alembic versions directory not found: {alembic_versions_dir}"
             logger.error(error_msg)
@@ -440,18 +428,20 @@ class RuntimeAssetsInstaller:
 
         if installed_files:
             result.extend_installed("migrations", installed_files)
-            logger.info(f"Installed {len(installed_files)} migration files for {capability_code}")
+            logger.info(
+                f"Installed {len(installed_files)} migration files for {capability_code}"
+            )
 
-    def execute_migrations(
-        self,
-        capability_code: str,
-        result: InstallResult
-    ):
+    def execute_migrations(self, capability_code: str, result: InstallResult):
         """Execute database migrations for a specific capability only"""
         alembic_config = self.local_core_root / "backend" / "alembic.postgres.ini"
         if not alembic_config.exists():
-            logger.warning(f"Alembic config not found: {alembic_config}, skipping migration execution")
-            result.add_warning("Migrations installed but not executed (alembic config not found)")
+            logger.warning(
+                f"Alembic config not found: {alembic_config}, skipping migration execution"
+            )
+            result.add_warning(
+                "Migrations installed but not executed (alembic config not found)"
+            )
             return
 
         try:
@@ -464,42 +454,17 @@ class RuntimeAssetsInstaller:
 
             if migrations_yaml.exists():
                 import yaml
-                with open(migrations_yaml, 'r') as f:
-                    migration_data = yaml.safe_load(f)
-                revisions = migration_data.get('revisions', [])
-            else:
-                # Fallback: extract revision from installed migration files
-                alembic_versions_dir = self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
-                if alembic_versions_dir.exists():
-                    # Find migration files for this capability
-                    # Migration files are named like: {revision}_{description}.py
-                    # Match by capability code patterns in file content
-                    capability_patterns = [
-                        capability_code.replace("_", " "),
-                        capability_code.replace("_", ""),
-                        capability_code,
-                        # For video_chapter_studio, also check for vcs_ prefix
-                        "vcs_" if "video_chapter" in capability_code else None
-                    ]
-                    capability_patterns = [p for p in capability_patterns if p]
 
-                    for migration_file in alembic_versions_dir.glob("*.py"):
-                        if migration_file.name.startswith("__"):
-                            continue
-                        # Read file to check if it's for this capability
-                        try:
-                            content = migration_file.read_text()
-                            # Check if migration creates tables for this capability
-                            matches = any(pattern in content.lower() for pattern in capability_patterns)
-                            if matches:
-                                # Extract revision from filename (format: {revision}_{description}.py)
-                                revision = migration_file.stem.split("_")[0]
-                                if revision and revision.isdigit() and revision not in revisions:
-                                    revisions.append(revision)
-                                    logger.debug(f"Found migration revision {revision} for {capability_code} in {migration_file.name}")
-                        except Exception as e:
-                            logger.debug(f"Error reading migration file {migration_file.name}: {e}")
-                            continue
+                with open(migrations_yaml, "r") as f:
+                    migration_data = yaml.safe_load(f)
+                revisions = migration_data.get("revisions", [])
+            else:
+                # No migrations.yaml - skip migration execution for this capability
+                # Only capabilities with explicit migrations.yaml should have migrations executed
+                logger.info(
+                    f"No migrations.yaml found for {capability_code}, skipping migration execution"
+                )
+                return
 
             if not revisions:
                 logger.info(f"No migrations found for {capability_code}")
@@ -507,7 +472,9 @@ class RuntimeAssetsInstaller:
 
             # Validate revision IDs for uniqueness across all installed migrations
             # Only check for conflicts with OTHER capabilities, not the same capability
-            alembic_versions_dir = self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+            alembic_versions_dir = (
+                self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+            )
             if alembic_versions_dir.exists():
                 existing_revisions = {}
                 capability_patterns = [
@@ -515,7 +482,7 @@ class RuntimeAssetsInstaller:
                     capability_code.replace("_", ""),
                     capability_code,
                 ]
-                
+
                 for migration_file in alembic_versions_dir.glob("*.py"):
                     if migration_file.name.startswith("__"):
                         continue
@@ -525,36 +492,51 @@ class RuntimeAssetsInstaller:
                         if revision and revision.isdigit():
                             # Check if this file belongs to the current capability
                             file_content = migration_file.read_text().lower()
-                            is_current_capability = any(pattern in file_content for pattern in capability_patterns)
-                            
+                            is_current_capability = any(
+                                pattern in file_content
+                                for pattern in capability_patterns
+                            )
+
                             if revision in existing_revisions:
-                                existing_revisions[revision].append({
-                                    'file': migration_file.name,
-                                    'is_current_capability': is_current_capability
-                                })
+                                existing_revisions[revision].append(
+                                    {
+                                        "file": migration_file.name,
+                                        "is_current_capability": is_current_capability,
+                                    }
+                                )
                             else:
-                                existing_revisions[revision] = [{
-                                    'file': migration_file.name,
-                                    'is_current_capability': is_current_capability
-                                }]
+                                existing_revisions[revision] = [
+                                    {
+                                        "file": migration_file.name,
+                                        "is_current_capability": is_current_capability,
+                                    }
+                                ]
                     except:
                         continue
-                
+
                 # Check if any of the new revisions conflict with OTHER capabilities
                 conflicting_revisions = []
                 for revision in revisions:
                     if revision in existing_revisions:
                         # Check if all files with this revision belong to the current capability
                         files_for_revision = existing_revisions[revision]
-                        other_capability_files = [f for f in files_for_revision if not f['is_current_capability']]
-                        
+                        other_capability_files = [
+                            f
+                            for f in files_for_revision
+                            if not f["is_current_capability"]
+                        ]
+
                         if other_capability_files:
                             # This revision is used by other capabilities - it's a conflict
-                            conflicting_revisions.append({
-                                'revision': revision,
-                                'existing_files': [f['file'] for f in other_capability_files]
-                            })
-                
+                            conflicting_revisions.append(
+                                {
+                                    "revision": revision,
+                                    "existing_files": [
+                                        f["file"] for f in other_capability_files
+                                    ],
+                                }
+                            )
+
                 if conflicting_revisions:
                     error_msg = f"Migration revision ID conflict detected for {capability_code}:\n"
                     for conflict in conflicting_revisions:
@@ -570,10 +552,10 @@ class RuntimeAssetsInstaller:
             # Use MigrationOrchestrator to execute only this capability's migrations
             from app.services.migrations.orchestrator import MigrationOrchestrator
 
-            capabilities_root = self.local_core_root / "backend" / "app" / "capabilities"
-            alembic_configs = {
-                "postgres": alembic_config
-            }
+            capabilities_root = (
+                self.local_core_root / "backend" / "app" / "capabilities"
+            )
+            alembic_configs = {"postgres": alembic_config}
 
             orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
 
@@ -581,51 +563,81 @@ class RuntimeAssetsInstaller:
             # This can happen if migration was marked as applied but failed to create tables
             from sqlalchemy import create_engine, text, inspect
             from app.database.config import get_postgres_url
+
             engine = create_engine(get_postgres_url())
-            
+
             # Build expected_tables map for all revisions (needed for verification)
             revision_expected_tables = {}
             inspector = inspect(engine)
             existing_tables = set(inspector.get_table_names())
-            
+
             for revision in revisions:
                 # Check migration file to find expected tables
-                migration_files = list((self.local_core_root / "backend" / "alembic" / "postgres" / "versions").glob(f"{revision}_*.py"))
+                migration_files = list(
+                    (
+                        self.local_core_root
+                        / "backend"
+                        / "alembic"
+                        / "postgres"
+                        / "versions"
+                    ).glob(f"{revision}_*.py")
+                )
                 expected_tables = []
                 for mf in migration_files:
                     try:
                         content = mf.read_text()
                         # Look for table creation patterns for this capability
                         import re
-                        table_matches = re.findall(r"op\.create_table\(['\"]([^'\"]+)['\"]", content)
-                        expected_tables.extend([t for t in table_matches if capability_code in t])
+
+                        table_matches = re.findall(
+                            r"op\.create_table\(['\"]([^'\"]+)['\"]", content
+                        )
+                        expected_tables.extend(
+                            [t for t in table_matches if capability_code in t]
+                        )
                     except:
                         pass
                 revision_expected_tables[revision] = expected_tables
-            
+
             with engine.connect() as conn:
                 # Check which revisions are already in alembic_version
-                result_query = conn.execute(text("SELECT version_num FROM alembic_version"))
+                result_query = conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                )
                 applied_revisions = {row[0] for row in result_query}
-                
+
                 # For each revision that's already applied, check if expected tables exist
                 for revision in revisions:
                     if revision in applied_revisions:
                         expected_tables = revision_expected_tables.get(revision, [])
                         # If expected tables are missing, remove revision to allow re-execution
                         if expected_tables:
-                            missing_tables = [t for t in expected_tables if t not in existing_tables]
+                            missing_tables = [
+                                t for t in expected_tables if t not in existing_tables
+                            ]
                             if missing_tables:
-                                logger.warning(f"Revision {revision} is marked as applied but tables are missing: {missing_tables}")
-                                logger.info(f"Removing revision {revision} from alembic_version to allow re-execution")
-                                conn.execute(text(f"DELETE FROM alembic_version WHERE version_num = '{revision}'"))
+                                logger.warning(
+                                    f"Revision {revision} is marked as applied but tables are missing: {missing_tables}"
+                                )
+                                logger.info(
+                                    f"Removing revision {revision} from alembic_version to allow re-execution"
+                                )
+                                conn.execute(
+                                    text(
+                                        f"DELETE FROM alembic_version WHERE version_num = '{revision}'"
+                                    )
+                                )
                                 conn.commit()
-                                logger.info(f"Removed revision {revision}, will re-execute migration")
+                                logger.info(
+                                    f"Removed revision {revision}, will re-execute migration"
+                                )
 
             # Execute each revision individually to avoid conflicts with other capabilities
             for revision in revisions:
                 logger.info(f"Executing migration {revision} for {capability_code}...")
-                upgrade_result = orchestrator._run_alembic_upgrade(alembic_config, revision)
+                upgrade_result = orchestrator._run_alembic_upgrade(
+                    alembic_config, revision
+                )
 
                 if not upgrade_result:
                     error_msg = f"Migration {revision} failed for {capability_code}"
@@ -635,13 +647,15 @@ class RuntimeAssetsInstaller:
                         result.migration_status = {}
                     result.migration_status[capability_code] = "failed"
                     return
-                
+
                 # Verify tables were created after migration
                 inspector = inspect(engine)
                 existing_tables_after = set(inspector.get_table_names())
                 expected_tables = revision_expected_tables.get(revision, [])
                 if expected_tables:
-                    still_missing = [t for t in expected_tables if t not in existing_tables_after]
+                    still_missing = [
+                        t for t in expected_tables if t not in existing_tables_after
+                    ]
                     if still_missing:
                         error_msg = f"Migration {revision} completed but tables still missing: {still_missing}"
                         logger.error(error_msg)
@@ -731,11 +745,7 @@ class RuntimeAssetsInstaller:
         return None
 
     def install_ui_components(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        manifest: Dict,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, manifest: Dict, result: InstallResult
     ):
         """
         Install UI components from capability pack to frontend.
@@ -761,12 +771,20 @@ class RuntimeAssetsInstaller:
                     f"Cloud environment detected but web-console path not found. "
                     f"Falling back to Local-Core path. Set CLOUD_WEB_CONSOLE_PATH env var if needed."
                 )
-                frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+                frontend_dir = (
+                    self.local_core_root
+                    / "web-console"
+                    / "src"
+                    / "app"
+                    / "capabilities"
+                )
             else:
                 frontend_dir = cloud_web_console / "src" / "app" / "capabilities"
         else:
             # Local-Core environment: use local_core_root
-            frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+            frontend_dir = (
+                self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+            )
 
         # Unified target directory: app/capabilities/{capability_code}/components/
         target_cap_dir = frontend_dir / capability_code / "components"
@@ -781,7 +799,13 @@ class RuntimeAssetsInstaller:
                     f"Failed to write to Cloud path {target_cap_dir}: {e}. "
                     f"Falling back to Local-Core path."
                 )
-                frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+                frontend_dir = (
+                    self.local_core_root
+                    / "web-console"
+                    / "src"
+                    / "app"
+                    / "capabilities"
+                )
                 target_cap_dir = frontend_dir / capability_code / "components"
                 target_cap_dir.mkdir(parents=True, exist_ok=True)
             else:
@@ -807,19 +831,33 @@ class RuntimeAssetsInstaller:
                     # - ui/hooks/X -> hooks/X (not components/hooks/X)
                     if relative_path_str.startswith("components/"):
                         # Remove components/ prefix to avoid duplication
-                        relative_path = Path(relative_path_str[len("components/"):])
-                        target_path = frontend_dir / capability_code / "components" / relative_path
-                    elif relative_path_str.startswith(("lib/", "contexts/", "hooks/", "utils/", "types/")):
+                        relative_path = Path(relative_path_str[len("components/") :])
+                        target_path = (
+                            frontend_dir
+                            / capability_code
+                            / "components"
+                            / relative_path
+                        )
+                    elif relative_path_str.startswith(
+                        ("lib/", "contexts/", "hooks/", "utils/", "types/")
+                    ):
                         # Keep these directories at capability root level
                         target_path = frontend_dir / capability_code / relative_path
                     else:
                         # Default: put in components/ directory
-                        target_path = frontend_dir / capability_code / "components" / relative_path
+                        target_path = (
+                            frontend_dir
+                            / capability_code
+                            / "components"
+                            / relative_path
+                        )
                     # Create subdirectories if needed
                     try:
                         target_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(file_path, target_path)
-                        logger.info(f"Installed UI file: {relative_path} -> {target_path}")
+                        logger.info(
+                            f"Installed UI file: {relative_path} -> {target_path}"
+                        )
                         result.add_installed("ui_components", str(relative_path))
                     except (PermissionError, OSError) as e:
                         # If Cloud path fails, fallback to Local-Core path
@@ -828,24 +866,52 @@ class RuntimeAssetsInstaller:
                                 f"Failed to write to Cloud path {target_path}: {e}. "
                                 f"Falling back to Local-Core path."
                             )
-                            frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+                            frontend_dir = (
+                                self.local_core_root
+                                / "web-console"
+                                / "src"
+                                / "app"
+                                / "capabilities"
+                            )
                             # Recalculate target_path with fallback logic
                             relative_path_str = str(relative_path)
                             if relative_path_str.startswith("components/"):
-                                relative_path = Path(relative_path_str[len("components/"):])
-                                target_path = frontend_dir / capability_code / "components" / relative_path
-                            elif relative_path_str.startswith(("lib/", "contexts/", "hooks/", "utils/", "types/")):
-                                target_path = frontend_dir / capability_code / relative_path
+                                relative_path = Path(
+                                    relative_path_str[len("components/") :]
+                                )
+                                target_path = (
+                                    frontend_dir
+                                    / capability_code
+                                    / "components"
+                                    / relative_path
+                                )
+                            elif relative_path_str.startswith(
+                                ("lib/", "contexts/", "hooks/", "utils/", "types/")
+                            ):
+                                target_path = (
+                                    frontend_dir / capability_code / relative_path
+                                )
                             else:
-                                target_path = frontend_dir / capability_code / "components" / relative_path
+                                target_path = (
+                                    frontend_dir
+                                    / capability_code
+                                    / "components"
+                                    / relative_path
+                                )
                             target_path.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(file_path, target_path)
-                            logger.debug(f"Installed UI file (fallback): {relative_path}")
+                            logger.debug(
+                                f"Installed UI file (fallback): {relative_path}"
+                            )
                             result.add_installed("ui_components", str(relative_path))
                         else:
                             # Re-raise if we're already in Local-Core
-                            logger.error(f"Failed to install UI file {relative_path}: {e}")
-                            result.add_warning(f"Failed to install UI file {relative_path}: {e}")
+                            logger.error(
+                                f"Failed to install UI file {relative_path}: {e}"
+                            )
+                            result.add_warning(
+                                f"Failed to install UI file {relative_path}: {e}"
+                            )
                             raise
 
         # Also install individual components specified in manifest
@@ -877,7 +943,13 @@ class RuntimeAssetsInstaller:
                         f"Failed to write to Cloud path {target_path}: {e}. "
                         f"Falling back to Local-Core path."
                     )
-                    frontend_dir = self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+                    frontend_dir = (
+                        self.local_core_root
+                        / "web-console"
+                        / "src"
+                        / "app"
+                        / "capabilities"
+                    )
                     target_cap_dir = frontend_dir / capability_code / "components"
                     target_path = target_cap_dir / source_path.name
                     target_cap_dir.mkdir(parents=True, exist_ok=True)
@@ -885,8 +957,12 @@ class RuntimeAssetsInstaller:
                     logger.debug(f"Installed UI component (fallback): {component_code}")
                 else:
                     # Re-raise if we're already in Local-Core
-                    logger.error(f"Failed to install UI component {component_code}: {e}")
-                    result.add_warning(f"Failed to install UI component {component_code}: {e}")
+                    logger.error(
+                        f"Failed to install UI component {component_code}: {e}"
+                    )
+                    result.add_warning(
+                        f"Failed to install UI component {component_code}: {e}"
+                    )
                     continue
 
             installed_components.append(component_code)
@@ -900,7 +976,7 @@ class RuntimeAssetsInstaller:
         cap_dir: Path,
         capability_code: str,
         manifest: Dict,
-        temp_dir: Optional[Path] = None
+        temp_dir: Optional[Path] = None,
     ):
         """
         Install capability manifest
@@ -927,7 +1003,9 @@ class RuntimeAssetsInstaller:
             # tar.gz format: manifest in capability directory
             manifest_path = cap_dir / "manifest.yaml"
         else:
-            logger.warning(f"manifest.yaml not found in expected locations for {capability_code}")
+            logger.warning(
+                f"manifest.yaml not found in expected locations for {capability_code}"
+            )
             return
 
         target_manifest = target_cap_dir / "manifest.yaml"
@@ -935,10 +1013,7 @@ class RuntimeAssetsInstaller:
         logger.debug(f"Installed manifest: {capability_code}/manifest.yaml")
 
     def install_root_files(
-        self,
-        cap_dir: Path,
-        capability_code: str,
-        result: InstallResult
+        self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
         """Install root-level Python files and YAML files (e.g., models.py, migrations.yaml)"""
         cap_install_dir = self.capabilities_dir / capability_code
@@ -959,4 +1034,3 @@ class RuntimeAssetsInstaller:
                 shutil.copy2(yaml_file, target_file)
                 logger.debug(f"Installed root YAML file: {yaml_file.name}")
                 result.add_installed("root_files", yaml_file.name)
-
