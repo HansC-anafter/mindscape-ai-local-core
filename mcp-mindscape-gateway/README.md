@@ -1,69 +1,101 @@
 # Mindscape Gateway MCP Server
 
-将 Mindscape Local Core 的 Playbook Packs 能力暴露给外部 MCP Client（Cursor、Claude Desktop 等）。
+Exposes Mindscape Local Core capabilities to external MCP clients (Cursor, Claude Desktop, etc.).
 
-## 快速开始
+## Features
 
-### 安装依赖
+- **P0: Auto-Provision Workspace** - No pre-configured workspace ID required
+- **P1: Mind-Lens MCP API** - Expose style adjustment capabilities
+- **P2: Multi-Workspace Mode** - Per-user workspace isolation
+- **P3: Context Passthrough** - Track Intent/Seed from external calls
+
+## Quick Start
+
+### Installation
 
 ```bash
 npm install
+npm run build
 ```
 
-### 开发模式
+### Development
 
 ```bash
 npm run dev
 ```
 
-### 构建
+## Configuration
 
-```bash
-npm run build
-npm start
-```
-
-## 配置
-
-通过环境变量配置：
+Configure via environment variables:
 
 ```bash
 export MINDSCAPE_BASE_URL="http://localhost:8000"
 export MINDSCAPE_API_KEY="optional-api-key"
-# 以下為可選配置
-export MINDSCAPE_WORKSPACE_ID="your-workspace-id"  # 如未設定，將自動創建
 export MINDSCAPE_PROFILE_ID="default-user"
 ```
 
-### Auto-Provision 功能（v1.1）
+### Auto-Provision (v1.1)
 
-如果未設定 `MINDSCAPE_WORKSPACE_ID`，Gateway 會自動：
-1. 查找名為 "MCP Gateway Workspace" 的現有 workspace
-2. 如果找不到，自動創建一個新的 workspace
+If `MINDSCAPE_WORKSPACE_ID` is not set, Gateway will automatically:
 
-可透過以下環境變量自訂行為：
+1. Search for existing workspace named "MCP Gateway Workspace"
+2. Create a new workspace if not found
 
 ```bash
-export MINDSCAPE_AUTO_PROVISION="true"              # 啟用自動 provision（預設）
-export MINDSCAPE_DEFAULT_WORKSPACE_TITLE="My Workspace"  # 自訂 workspace 名稱
+export MINDSCAPE_AUTO_PROVISION="true"                    # Enable (default)
+export MINDSCAPE_DEFAULT_WORKSPACE_TITLE="My Workspace"   # Custom name
 ```
 
-### Multi-Workspace Mode（v1.2）
-
-設定 `MINDSCAPE_GATEWAY_MODE=multi_workspace` 可支援多 workspace 模式：
+### Multi-Workspace Mode (v1.2)
 
 ```bash
 export MINDSCAPE_GATEWAY_MODE="multi_workspace"
 ```
 
-在 multi_workspace 模式下，可透過參數指定：
-- `workspace_id` — 直接指定 workspace ID
-- `surface_user_id` — 外部用戶 ID（如 LINE user ID），會自動查找/創建專屬 workspace
-- `surface_type` — 外部 surface 類型（如 "line", "discord"）
+In multi_workspace mode, tools accept:
 
-## Claude Desktop 配置
+- `workspace_id` - Direct workspace ID
+- `surface_user_id` - External user ID (e.g., LINE user ID)
+- `surface_type` - Surface type (e.g., "line", "discord")
 
-在 `~/Library/Application Support/Claude/claude_desktop_config.json` 中添加：
+### Context Passthrough (v1.3)
+
+Pass conversation context for intent/seed tracking:
+
+```json
+{
+  "name": "mindscape_playbook_creative_blog_post",
+  "arguments": {
+    "inputs": { "topic": "yoga" },
+    "_context": {
+      "original_message": "Write a yoga blog post",
+      "surface_type": "claude_desktop",
+      "surface_user_id": "user@example.com"
+    }
+  }
+}
+```
+
+## Tool Naming Convention
+
+MCP protocol requires `[a-zA-Z0-9_-]` only. Tool names use underscores:
+
+| Internal | MCP Name |
+|----------|----------|
+| `wordpress.get_posts` | `mindscape_tool_wordpress_get_posts` |
+| `creative.blog_post` | `mindscape_playbook_creative_blog_post` |
+
+## Mind-Lens Tools
+
+| Tool | Description |
+|------|-------------|
+| `mindscape_lens_list_schemas` | List available Lens schemas |
+| `mindscape_lens_resolve` | Resolve Lens for current context |
+| `mindscape_lens_get_effective` | Get effective merged Lens |
+
+## Claude Desktop Configuration
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -79,15 +111,13 @@ export MINDSCAPE_GATEWAY_MODE="multi_workspace"
 }
 ```
 
-> **注意**：`run.sh` 會自動找到支援 ES Modules 的 Node.js v18+。
+> **Note**: `run.sh` auto-detects Node.js v18+ with ES Module support.
 
-## 文档
+## Architecture
 
-- [快速启动指南](../docs-internal/GATEWAY_MVP_QUICK_START_2026-01-05.md)
-- [后端缺口分析](../docs-internal/BACKEND_GAP_ANALYSIS_AND_IMPLEMENTATION_PHASES_2026-01-05.md)
-- [完整实作方案](../docs-internal/CREATIVE_BRIDGE_AND_MCP_SERVER_IMPLEMENTATION_PLAN_2026-01-05.md)
+See [MCP Gateway Architecture](../docs/core-architecture/mcp-gateway.md) for detailed design.
 
+## Documentation
 
-
-
-
+- [Architecture Guide](../docs/core-architecture/mcp-gateway.md)
+- [Implementation Status](./IMPLEMENTATION_STATUS.md)

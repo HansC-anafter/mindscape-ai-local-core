@@ -92,8 +92,17 @@ Multi-layered governance framework for safe and controlled playbook execution, w
 #### [Mind-Model VC](./mind-model-vc.md)
 Version control for mind models - organizes user-provided clues into reviewable, adjustable, and rollback-able mind state recipes with version history.
 
+#### [Asset Provenance](./asset-provenance.md)
+Segment-level provenance architecture for AI-generated content - Asset/Revision/Segment/Take/Selection model enabling fine-grained rollback and traceability.
+
+#### [Prompt Compilation](./prompt-compilation.md)
+Three-layer prompt compilation architecture (Raw → Compiled → Semantic) showing how user intent, Mind-Lens styling, and memory injection combine before reaching the LLM.
+
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
+
+#### [MCP Gateway](./mcp-gateway.md)
+Model Context Protocol Gateway architecture for exposing Mindscape capabilities to external AI tools (Claude Desktop, Cursor IDE, custom integrations). Includes three-layer tool governance, auto-provision, and context passthrough.
 
 #### [Sandbox System](./sandbox/)
 System-level Sandbox architecture, unifying all AI write operations.

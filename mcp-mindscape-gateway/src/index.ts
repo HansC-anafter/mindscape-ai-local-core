@@ -16,6 +16,7 @@ import { ToolNameResolver } from "./utils/tool_name_resolver.js";
 import { toolAccessPolicy } from "./policy/tool_access_policy.js";
 import { wrapToolSchema, formatResult } from "./utils/schema.js";
 import { lensTools, isLensTool, LENS_TOOL_NAMES } from "./tools/lens_tools.js";
+import { ContextHandler } from "./context_handler.js";
 import { config } from "./config.js";
 
 const server = new Server(
@@ -34,6 +35,7 @@ const mindscapeClient = new MindscapeClient();
 const toolNameResolver = new ToolNameResolver();
 const playbookMapper = new PlaybookMapper(mindscapeClient, toolNameResolver);
 const workspaceProvisioner = new WorkspaceProvisioner(mindscapeClient);
+const contextHandler = new ContextHandler(mindscapeClient);
 
 mindscapeClient.listPacks().then(packs => {
   toolNameResolver.updateKnownPacks(packs.map(p => p.code));
@@ -174,6 +176,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const inputs = args.inputs || args;
     const confirmToken = args.confirm_token;
+    const externalContext = ContextHandler.extractContext(args as Record<string, any>);
+
+    // P3: Process external context if provided
+    let contextResult: { context_recorded: boolean; intent_id?: string; seed_id?: string } = { context_recorded: false };
+    if (externalContext) {
+      contextResult = await contextHandler.processContext(workspaceId, name, externalContext);
+    }
 
     if (accessDecision.level === "governed" && accessDecision.constraints?.requiresConfirmation) {
       if (!confirmToken) {

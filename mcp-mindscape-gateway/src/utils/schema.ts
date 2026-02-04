@@ -1,8 +1,41 @@
 /**
  * Schema utility functions
  *
- * Unified schema format for all MCP tools: {workspace_id, inputs}
+ * Unified schema format for all MCP tools: {workspace_id, inputs, _context}
  */
+
+/**
+ * Context schema for external tool tracking (P3: Context Passthrough)
+ */
+export const CONTEXT_SCHEMA = {
+  _context: {
+    type: "object",
+    description: "Optional: Pass conversation context for tracking and learning",
+    properties: {
+      original_message: {
+        type: "string",
+        description: "The user's original message that triggered this tool call"
+      },
+      surface_type: {
+        type: "string",
+        description: "External surface type (e.g., claude_desktop, cursor, custom)"
+      },
+      surface_user_id: {
+        type: "string",
+        description: "User identifier from external surface"
+      },
+      conversation_id: {
+        type: "string",
+        description: "Conversation/session ID from external surface"
+      },
+      intent_hint: {
+        type: "string",
+        description: "Optional intent classification hint from external LLM"
+      }
+    }
+  }
+} as const;
+
 export const UNIFIED_INPUT_SCHEMA = {
   type: "object",
   properties: {
@@ -14,7 +47,8 @@ export const UNIFIED_INPUT_SCHEMA = {
       type: "object",
       description: "Tool-specific parameters",
       additionalProperties: true
-    }
+    },
+    ...CONTEXT_SCHEMA
   },
   required: ["workspace_id"]
 } as const;
@@ -37,7 +71,8 @@ export const GOVERNED_INPUT_SCHEMA = {
     confirm_token: {
       type: "string",
       description: "Confirmation token (call mindscape.confirm.request first)"
-    }
+    },
+    ...CONTEXT_SCHEMA
   },
   required: ["workspace_id", "confirm_token"]
 } as const;
@@ -48,12 +83,15 @@ export const GOVERNED_INPUT_SCHEMA = {
 export interface WrapOptions {
   includeWorkspaceId: boolean;
   includeConfirmToken: boolean;
+  includeContext?: boolean;
 }
 
 export function wrapToolSchema(
   originalSchema: Record<string, any>,
   options: WrapOptions
 ): Record<string, any> {
+  const includeContext = options.includeContext !== false;
+
   if (options.includeConfirmToken) {
     return {
       ...GOVERNED_INPUT_SCHEMA,
@@ -64,7 +102,8 @@ export function wrapToolSchema(
           description: "Tool-specific parameters",
           properties: originalSchema.properties || {},
           required: originalSchema.required || []
-        }
+        },
+        ...(includeContext ? CONTEXT_SCHEMA : {})
       }
     };
   }
@@ -78,7 +117,8 @@ export function wrapToolSchema(
         description: "Tool-specific parameters",
         properties: originalSchema.properties || {},
         required: originalSchema.required || []
-      }
+      },
+      ...(includeContext ? CONTEXT_SCHEMA : {})
     }
   };
 }
@@ -103,13 +143,20 @@ export interface ToolResult {
   _metadata?: {
     tool: string;
     timestamp: string;
+    context_recorded?: boolean;
+    intent_id?: string;
+    seed_id?: string;
   };
 }
 
 /**
  * Format tool result
  */
-export function formatResult(result: any, toolName: string): ToolResult {
+export function formatResult(result: any, toolName: string, contextInfo?: {
+  context_recorded?: boolean;
+  intent_id?: string;
+  seed_id?: string;
+}): ToolResult {
   const formatted: ToolResult = {
     status: result.status || "completed",
     inputs: result.inputs || {},
@@ -117,7 +164,8 @@ export function formatResult(result: any, toolName: string): ToolResult {
     logs: result.logs || [],
     _metadata: {
       tool: toolName,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...contextInfo
     }
   };
 

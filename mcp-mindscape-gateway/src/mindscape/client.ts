@@ -310,6 +310,47 @@ export class MindscapeClient {
   }
 
   // ============================================
+  // External Context API - For Context Passthrough (P3)
+  // ============================================
+
+  /**
+   * Record external context for intent/seed tracking
+   */
+  async recordExternalContext(params: {
+    workspace_id: string;
+    surface_type: string;
+    surface_user_id: string;
+    original_message?: string;
+    tool_called: string;
+    conversation_id?: string;
+    intent_hint?: string;
+    timestamp: string;
+  }): Promise<{ intent_id?: string; seed_id?: string }> {
+    try {
+      const { data } = await this.client.post(
+        "/api/v1/surfaces/external-context",
+        {
+          workspace_id: params.workspace_id,
+          surface_type: params.surface_type,
+          surface_user_id: params.surface_user_id,
+          original_message: params.original_message,
+          tool_called: params.tool_called,
+          conversation_id: params.conversation_id,
+          intent_hint: params.intent_hint,
+          timestamp: params.timestamp
+        }
+      );
+      return {
+        intent_id: data.intent_id,
+        seed_id: data.seed_id
+      };
+    } catch (error: any) {
+      // Re-throw to let caller handle
+      throw error;
+    }
+  }
+
+  // ============================================
   // Helper Methods
   // ============================================
   private _inferPack(toolId: string, provider: string): string | undefined {
