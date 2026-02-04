@@ -1,14 +1,10 @@
 """Surface core API routes."""
+
 import uuid
 from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Optional, Dict, Any, List
 
-from ...models.surface import (
-    SurfaceDefinition,
-    Command,
-    CommandStatus,
-    SurfaceEvent
-)
+from ...models.surface import SurfaceDefinition, Command, CommandStatus, SurfaceEvent
 from ...services.surface.command_bus import CommandBus, SurfaceRegistry
 from ...services.surface.event_stream import EventStreamService
 
@@ -17,6 +13,7 @@ router = APIRouter(prefix="/api/v1", tags=["surface"])
 command_bus = CommandBus()
 event_stream = EventStreamService()
 surface_registry = SurfaceRegistry()
+
 
 # Auto-register default surfaces on module load
 def _register_default_surfaces():
@@ -38,11 +35,11 @@ def _register_default_surfaces():
             "approve_execution",
             "view_trace",
             "rollback_artifact",
-            "manage_preset"
+            "manage_preset",
         ],
         permission_level=PermissionLevel.OPERATOR,
         adapter_class=None,  # Provided by cloud layer
-        metadata={"type": "web_console"}
+        metadata={"type": "web_console"},
     )
     surface_registry.register_surface(ui_surface)
 
@@ -51,14 +48,10 @@ def _register_default_surfaces():
         surface_id="line",
         surface_type=SurfaceType.DELIVERY,
         display_name="LINE Official Account",
-        capabilities=[
-            "receive_message",
-            "send_message",
-            "trigger_preset_command"
-        ],
+        capabilities=["receive_message", "send_message", "trigger_preset_command"],
         permission_level=PermissionLevel.CONSUMER,
         adapter_class=None,  # Provided by cloud layer
-        metadata={"type": "messaging", "platform": "line"}
+        metadata={"type": "messaging", "platform": "line"},
     )
     surface_registry.register_surface(line_surface)
 
@@ -67,14 +60,10 @@ def _register_default_surfaces():
         surface_id="ig",
         surface_type=SurfaceType.DELIVERY,
         display_name="Instagram",
-        capabilities=[
-            "receive_message",
-            "send_message",
-            "trigger_preset_command"
-        ],
+        capabilities=["receive_message", "send_message", "trigger_preset_command"],
         permission_level=PermissionLevel.CONSUMER,
         adapter_class=None,  # Provided by cloud layer
-        metadata={"type": "social_media", "platform": "instagram"}
+        metadata={"type": "social_media", "platform": "instagram"},
     )
     surface_registry.register_surface(ig_surface)
 
@@ -83,16 +72,13 @@ def _register_default_surfaces():
         surface_id="wordpress_public",
         surface_type=SurfaceType.DELIVERY,
         display_name="WordPress Public",
-        capabilities=[
-            "receive_message",
-            "send_message",
-            "trigger_preset_command"
-        ],
+        capabilities=["receive_message", "send_message", "trigger_preset_command"],
         permission_level=PermissionLevel.CONSUMER,
         adapter_class=None,  # Provided by cloud layer
-        metadata={"type": "cms", "platform": "wordpress"}
+        metadata={"type": "cms", "platform": "wordpress"},
     )
     surface_registry.register_surface(wp_surface)
+
 
 # Register surfaces on module import
 _register_default_surfaces()
@@ -111,7 +97,9 @@ async def dispatch_command(command: Command = Body(...)) -> Dict[str, Any]:
 
         return await command_bus.dispatch_command(command)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to dispatch command: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to dispatch command: {str(e)}"
+        )
 
 
 @router.post("/commands/{command_id}/approve", response_model=Dict[str, Any])
@@ -126,13 +114,14 @@ async def approve_command(command_id: str) -> Dict[str, Any]:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to approve command: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to approve command: {str(e)}"
+        )
 
 
 @router.post("/commands/{command_id}/reject", response_model=Dict[str, Any])
 async def reject_command(
-    command_id: str,
-    reason: Optional[str] = Body(None, embed=True)
+    command_id: str, reason: Optional[str] = Body(None, embed=True)
 ) -> Dict[str, Any]:
     """
     Reject a pending command.
@@ -144,7 +133,9 @@ async def reject_command(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reject command: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reject command: {str(e)}"
+        )
 
 
 @router.get("/commands/{command_id}", response_model=Command)
@@ -164,14 +155,16 @@ async def get_command(command_id: str) -> Command:
 async def list_commands(
     workspace_id: Optional[str] = Query(None, description="Filter by workspace ID"),
     status: Optional[CommandStatus] = Query(None, description="Filter by status"),
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of results")
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of results"),
 ) -> List[Command]:
     """
     List commands with filters.
 
     Returns a list of commands, optionally filtered by workspace and status.
     """
-    return command_bus.list_commands(workspace_id=workspace_id, status=status, limit=limit)
+    return command_bus.list_commands(
+        workspace_id=workspace_id, status=status, limit=limit
+    )
 
 
 @router.post("/events", response_model=SurfaceEvent, status_code=201)
@@ -185,7 +178,7 @@ async def collect_event(
     thread_id: Optional[str] = Body(None),
     correlation_id: Optional[str] = Body(None),
     parent_event_id: Optional[str] = Body(None),
-    execution_id: Optional[str] = Body(None)
+    execution_id: Optional[str] = Body(None),
 ) -> SurfaceEvent:
     """
     Collect an event from any surface.
@@ -203,10 +196,12 @@ async def collect_event(
             thread_id=thread_id,
             correlation_id=correlation_id,
             parent_event_id=parent_event_id,
-            execution_id=execution_id
+            execution_id=execution_id,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to collect event: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to collect event: {str(e)}"
+        )
 
 
 @router.get("/events", response_model=List[SurfaceEvent])
@@ -217,10 +212,12 @@ async def get_events(
     actor_filter: Optional[str] = Query(None, description="Filter by actor ID"),
     command_id_filter: Optional[str] = Query(None, description="Filter by command ID"),
     thread_id_filter: Optional[str] = Query(None, description="Filter by thread ID"),
-    correlation_id_filter: Optional[str] = Query(None, description="Filter by correlation ID"),
+    correlation_id_filter: Optional[str] = Query(
+        None, description="Filter by correlation ID"
+    ),
     pack_id_filter: Optional[str] = Query(None, description="Filter by pack ID (BYOP)"),
     card_id_filter: Optional[str] = Query(None, description="Filter by card ID (BYOP)"),
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of results")
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of results"),
 ) -> List[SurfaceEvent]:
     """
     Get events with filters.
@@ -238,7 +235,7 @@ async def get_events(
         correlation_id_filter=correlation_id_filter,
         pack_id_filter=pack_id_filter,
         card_id_filter=card_id_filter,
-        limit=limit
+        limit=limit,
     )
 
 
@@ -252,7 +249,9 @@ async def register_surface(surface: SurfaceDefinition = Body(...)) -> SurfaceDef
     try:
         return surface_registry.register_surface(surface)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to register surface: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to register surface: {str(e)}"
+        )
 
 
 @router.get("/surfaces/{surface_id}", response_model=SurfaceDefinition)
@@ -277,3 +276,70 @@ async def list_surfaces() -> List[SurfaceDefinition]:
     """
     return surface_registry.list_surfaces()
 
+
+# ============================================
+# External Context API (P3: Context Passthrough)
+# ============================================
+
+
+@router.post("/surfaces/external-context", status_code=201)
+async def record_external_context(
+    workspace_id: str = Body(...),
+    surface_type: str = Body(...),
+    surface_user_id: str = Body(...),
+    tool_called: str = Body(...),
+    original_message: Optional[str] = Body(None),
+    conversation_id: Optional[str] = Body(None),
+    intent_hint: Optional[str] = Body(None),
+    timestamp: Optional[str] = Body(None),
+) -> Dict[str, Any]:
+    """
+    Record external context from MCP Gateway.
+
+    When external AI tools call Mindscape tools via MCP Gateway,
+    this endpoint records the context for Intent/Seed tracking.
+
+    Returns intent_id and seed_id if extraction was successful.
+    """
+    import uuid
+    from datetime import datetime as dt
+
+    try:
+        # Create event for timeline tracking
+        event = event_stream.collect_event(
+            workspace_id=workspace_id,
+            source_surface=f"mcp_{surface_type}",
+            event_type="external_tool_call",
+            payload={
+                "original_message": original_message,
+                "tool_called": tool_called,
+                "surface_user_id": surface_user_id,
+                "conversation_id": conversation_id,
+                "intent_hint": intent_hint,
+            },
+            actor_id=surface_user_id,
+        )
+
+        # TODO: Integrate with Intent extraction service
+        # For now, return event_id as reference
+        intent_id = None
+        seed_id = None
+
+        # If we have original_message, attempt intent extraction
+        if original_message and intent_hint:
+            # Placeholder for future intent extraction logic
+            # intent_id = intent_service.extract_intent(original_message, intent_hint)
+            pass
+
+        return {
+            "success": True,
+            "event_id": event.event_id,
+            "intent_id": intent_id,
+            "seed_id": seed_id,
+            "message": "External context recorded successfully",
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to record external context: {str(e)}"
+        )
