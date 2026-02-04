@@ -16,7 +16,9 @@ import { ToolNameResolver } from "./utils/tool_name_resolver.js";
 import { toolAccessPolicy } from "./policy/tool_access_policy.js";
 import { wrapToolSchema, formatResult } from "./utils/schema.js";
 import { lensTools, isLensTool, LENS_TOOL_NAMES } from "./tools/lens_tools.js";
+import { confirmTools, isConfirmTool, CONFIRM_TOOL_NAMES } from "./tools/confirm_tools.js";
 import { ContextHandler } from "./context_handler.js";
+import { ConfirmGuard } from "./confirm_guard.js";
 import { config } from "./config.js";
 
 const server = new Server(
@@ -36,6 +38,7 @@ const toolNameResolver = new ToolNameResolver();
 const playbookMapper = new PlaybookMapper(mindscapeClient, toolNameResolver);
 const workspaceProvisioner = new WorkspaceProvisioner(mindscapeClient);
 const contextHandler = new ContextHandler(mindscapeClient);
+const confirmGuard = new ConfirmGuard(mindscapeClient);
 
 mindscapeClient.listPacks().then(packs => {
   toolNameResolver.updateKnownPacks(packs.map(p => p.code));
@@ -77,6 +80,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     // ============================================
     for (const lensTool of lensTools) {
       mcpTools.push(lensTool);
+    }
+
+    // ============================================
+    // Confirm Tools (Built-in)
+    // ============================================
+    for (const confirmTool of confirmTools) {
+      mcpTools.push(confirmTool);
     }
 
     // ============================================
@@ -175,7 +185,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     const inputs = args.inputs || args;
-    const confirmToken = args.confirm_token;
+    const confirmToken = args.confirm_token ? String(args.confirm_token) : undefined;
     const externalContext = ContextHandler.extractContext(args as Record<string, any>);
 
     // P3: Process external context if provided
@@ -203,6 +213,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
       // TODO: Validate confirm_token (ConfirmGuard implementation)
+      const validation = confirmGuard.validateToken(confirmToken, workspaceId, name);
+      if (!validation.valid) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "confirmation_failed",
+              message: validation.reason,
+              action: name
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
     }
 
     let result;
@@ -330,6 +354,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }, null, 2)
         }]
       };
+    }
+
+    // ============================================
+    // Confirm Tools
+    // ============================================
+    if (isConfirmTool(name)) {
+      if (name === CONFIRM_TOOL_NAMES.REQUEST) {
+        const toolName = (inputs as any).tool_name;
+        const wsId = (inputs as any).workspace_id || workspaceId;
+        const actionPreview = (inputs as any).action_preview;
+
+        const token = confirmGuard.generateToken({
+          workspace_id: wsId,
+          tool_name: toolName,
+          action_preview: actionPreview || confirmGuard.buildActionPreview(toolName, inputs as Record<string, any>)
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "confirm_token_generated",
+              token: token.token,
+              expires_at: token.expires_at,
+              message: `Confirmation token generated for tool: ${toolName}`,
+              usage: `Include confirm_token: "${token.token}" in your next tool call to ${toolName}`
+            }, null, 2)
+          }]
+        };
+      } else if (name === CONFIRM_TOOL_NAMES.STATUS) {
+        const tokenId = (inputs as any).token;
+        // Check if token exists (without consuming it)
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "pending",
+              message: "Token status check - active tokens: " + confirmGuard.getActiveTokenCount()
+            }, null, 2)
+          }]
+        };
+      }
     }
 
     throw new Error(`Unknown tool: ${name}`);

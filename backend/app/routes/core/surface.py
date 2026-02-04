@@ -320,16 +320,58 @@ async def record_external_context(
             actor_id=surface_user_id,
         )
 
-        # TODO: Integrate with Intent extraction service
-        # For now, return event_id as reference
         intent_id = None
         seed_id = None
 
-        # If we have original_message, attempt intent extraction
-        if original_message and intent_hint:
-            # Placeholder for future intent extraction logic
-            # intent_id = intent_service.extract_intent(original_message, intent_hint)
-            pass
+        # Attempt intent extraction if we have a message
+        if original_message:
+            try:
+                from ...services.conversation.intent_extractor import IntentExtractor
+                from ...services.stores.mindscape_store import MindscapeStore
+                from ...services.stores.timeline_items_store import TimelineItemsStore
+                from ...adapters.local.local_intent_registry_adapter import (
+                    LocalIntentRegistryAdapter,
+                )
+
+                # Initialize stores (lightweight - uses connection pool)
+                store = MindscapeStore()
+                timeline_store = TimelineItemsStore()
+                intent_registry = LocalIntentRegistryAdapter()
+
+                extractor = IntentExtractor(
+                    store=store,
+                    timeline_items_store=timeline_store,
+                    intent_registry=intent_registry,
+                )
+
+                # Extract intent from external message
+                intent_tags = extractor.extract_intents(
+                    workspace_id=workspace_id,
+                    profile_id=surface_user_id,
+                    message=original_message,
+                    message_id=event.event_id,
+                )
+
+                if intent_tags:
+                    intent_id = (
+                        intent_tags[0].id
+                        if hasattr(intent_tags[0], "id")
+                        else str(uuid.uuid4())
+                    )
+                    # Create seed from intent if significant
+                    if len(intent_tags) > 0:
+                        seed_id = f"seed_{event.event_id[:8]}"
+
+            except ImportError as ie:
+                # Intent extraction not available in this environment
+                pass
+            except Exception as extract_error:
+                # Log but don't fail the request
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Intent extraction failed: {extract_error}"
+                )
 
         return {
             "success": True,
