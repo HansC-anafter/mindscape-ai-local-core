@@ -1,0 +1,190 @@
+"""Initial VCS schema
+
+Revision ID: 20260107000000
+Revises:
+Create Date: 2026-01-07 00:00:00.000000
+
+Creates initial Video Chapter Studio schema with 4 tables:
+- vcs_projects: Project management
+- vcs_chapters: Chapter segments
+- vcs_assets: Generated assets
+- vcs_jobs: Background processing jobs
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers, used by Alembic.
+revision = '20260107000000'
+down_revision = '20260105000000'
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    """
+    Create Video Chapter Studio schema and tables.
+    All tables include tenant_id for multi-tenancy support.
+    """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_tables = set(inspector.get_table_names(schema='video_chapter_studio'))
+
+    # Create schema if not exists
+    op.execute("CREATE SCHEMA IF NOT EXISTS video_chapter_studio")
+
+    # Create vcs_projects table
+    if 'vcs_projects' not in existing_tables:
+        op.create_table(
+            'vcs_projects',
+            sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column('tenant_id', sa.String(64), nullable=False),
+            sa.Column('name', sa.String(255), nullable=False),
+            sa.Column('description', sa.Text(), nullable=True),
+            sa.Column('video_source_type', sa.String(50), nullable=False, server_default='upload'),
+            sa.Column('video_source_ref', sa.String(512), nullable=True),
+            sa.Column('video_file_path', sa.String(512), nullable=True),
+            sa.Column('video_storage_key', sa.String(512), nullable=True),
+            sa.Column('video_playback_url', sa.String(512), nullable=True),
+            sa.Column('duration_seconds', sa.Float(), nullable=True),
+            sa.Column('width', sa.Float(), nullable=True),
+            sa.Column('height', sa.Float(), nullable=True),
+            sa.Column('fps', sa.Float(), nullable=True),
+            sa.Column('file_size_bytes', sa.Float(), nullable=True),
+            sa.Column('tags', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('custom_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('status', sa.String(50), nullable=False, server_default='draft'),
+            sa.Column('processing_started_at', sa.DateTime(), nullable=True),
+            sa.Column('processing_completed_at', sa.DateTime(), nullable=True),
+            sa.Column('processing_error', sa.Text(), nullable=True),
+            sa.Column('manifest_url', sa.String(512), nullable=True),
+            sa.Column('asset_bundle_url', sa.String(512), nullable=True),
+            sa.Column('publishable_id', sa.String(64), nullable=True),
+            sa.Column('extension_type', sa.String(64), nullable=True),
+            sa.Column('extension_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+            sa.Column('published_at', sa.DateTime(), nullable=True),
+            schema='video_chapter_studio'
+        )
+        op.create_index('idx_vcs_projects_tenant', 'vcs_projects', ['tenant_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_projects_storage_key', 'vcs_projects', ['video_storage_key'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_projects_publishable_id', 'vcs_projects', ['publishable_id'], schema='video_chapter_studio')
+
+    # Create vcs_chapters table
+    if 'vcs_chapters' not in existing_tables:
+        op.create_table(
+            'vcs_chapters',
+            sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column('project_id', postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column('tenant_id', sa.String(64), nullable=False),
+            sa.Column('sequence_number', sa.Integer(), nullable=False, server_default='0'),
+            sa.Column('title', sa.String(255), nullable=False),
+            sa.Column('description', sa.Text(), nullable=True),
+            sa.Column('start_time', sa.Float(), nullable=False),
+            sa.Column('end_time', sa.Float(), nullable=False),
+            sa.Column('duration', sa.Float(), nullable=True),
+            sa.Column('thumbnail_start', sa.String(512), nullable=True),
+            sa.Column('thumbnail_end', sa.String(512), nullable=True),
+            sa.Column('thumbnail_key', sa.String(512), nullable=True),
+            sa.Column('tags', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('custom_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('status', sa.String(50), nullable=False, server_default='pending'),
+            sa.Column('quality_metrics', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('processing_started_at', sa.DateTime(), nullable=True),
+            sa.Column('processing_completed_at', sa.DateTime(), nullable=True),
+            sa.Column('processing_error', sa.Text(), nullable=True),
+            sa.Column('validation_issues', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('extension_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+            sa.ForeignKeyConstraint(['project_id'], ['video_chapter_studio.vcs_projects.id'], ondelete='CASCADE'),
+            schema='video_chapter_studio'
+        )
+        op.create_index('idx_vcs_chapters_project', 'vcs_chapters', ['project_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_chapters_tenant', 'vcs_chapters', ['tenant_id'], schema='video_chapter_studio')
+
+    # Create vcs_assets table
+    if 'vcs_assets' not in existing_tables:
+        op.create_table(
+            'vcs_assets',
+            sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column('project_id', postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column('chapter_id', postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column('tenant_id', sa.String(64), nullable=False),
+            sa.Column('asset_type', sa.String(50), nullable=False),
+            sa.Column('storage_key', sa.String(512), nullable=False),
+            sa.Column('storage_url', sa.String(1024), nullable=True),
+            sa.Column('content_type', sa.String(128), nullable=True),
+            sa.Column('file_size_bytes', sa.Integer(), nullable=True),
+            sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+            sa.Column('expires_at', sa.DateTime(), nullable=True),
+            sa.ForeignKeyConstraint(['project_id'], ['video_chapter_studio.vcs_projects.id'], ondelete='CASCADE'),
+            sa.ForeignKeyConstraint(['chapter_id'], ['video_chapter_studio.vcs_chapters.id'], ondelete='CASCADE'),
+            schema='video_chapter_studio'
+        )
+        op.create_index('idx_vcs_assets_project', 'vcs_assets', ['project_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_assets_chapter', 'vcs_assets', ['chapter_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_assets_tenant', 'vcs_assets', ['tenant_id'], schema='video_chapter_studio')
+
+    # Create vcs_jobs table
+    if 'vcs_jobs' not in existing_tables:
+        op.create_table(
+            'vcs_jobs',
+            sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column('project_id', postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column('chapter_id', postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column('tenant_id', sa.String(64), nullable=False),
+            sa.Column('job_type', sa.String(50), nullable=False),
+            sa.Column('status', sa.String(50), nullable=False, server_default='queued'),
+            sa.Column('progress', sa.Float(), nullable=False, server_default='0'),
+            sa.Column('progress_message', sa.String(255), nullable=True),
+            sa.Column('worker_id', sa.String(64), nullable=True),
+            sa.Column('started_at', sa.DateTime(), nullable=True),
+            sa.Column('completed_at', sa.DateTime(), nullable=True),
+            sa.Column('error_message', sa.Text(), nullable=True),
+            sa.Column('error_code', sa.String(64), nullable=True),
+            sa.Column('retry_count', sa.Integer(), nullable=False, server_default='0'),
+            sa.Column('max_retries', sa.Integer(), nullable=False, server_default='3'),
+            sa.Column('input_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('output_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column('timeout_seconds', sa.Integer(), nullable=False, server_default='300'),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+            sa.ForeignKeyConstraint(['project_id'], ['video_chapter_studio.vcs_projects.id'], ondelete='CASCADE'),
+            sa.ForeignKeyConstraint(['chapter_id'], ['video_chapter_studio.vcs_chapters.id'], ondelete='CASCADE'),
+            schema='video_chapter_studio'
+        )
+        op.create_index('idx_vcs_jobs_project', 'vcs_jobs', ['project_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_jobs_chapter', 'vcs_jobs', ['chapter_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_jobs_tenant', 'vcs_jobs', ['tenant_id'], schema='video_chapter_studio')
+        op.create_index('idx_vcs_jobs_status', 'vcs_jobs', ['status'], schema='video_chapter_studio')
+
+
+def downgrade():
+    """
+    Drop Video Chapter Studio schema and tables.
+    """
+    op.drop_index('idx_vcs_jobs_status', table_name='vcs_jobs', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_jobs_tenant', table_name='vcs_jobs', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_jobs_chapter', table_name='vcs_jobs', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_jobs_project', table_name='vcs_jobs', schema='video_chapter_studio')
+    op.drop_table('vcs_jobs', schema='video_chapter_studio')
+
+    op.drop_index('idx_vcs_assets_tenant', table_name='vcs_assets', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_assets_chapter', table_name='vcs_assets', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_assets_project', table_name='vcs_assets', schema='video_chapter_studio')
+    op.drop_table('vcs_assets', schema='video_chapter_studio')
+
+    op.drop_index('idx_vcs_chapters_tenant', table_name='vcs_chapters', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_chapters_project', table_name='vcs_chapters', schema='video_chapter_studio')
+    op.drop_table('vcs_chapters', schema='video_chapter_studio')
+
+    op.drop_index('idx_vcs_projects_publishable_id', table_name='vcs_projects', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_projects_storage_key', table_name='vcs_projects', schema='video_chapter_studio')
+    op.drop_index('idx_vcs_projects_tenant', table_name='vcs_projects', schema='video_chapter_studio')
+    op.drop_table('vcs_projects', schema='video_chapter_studio')
+
+    op.execute("DROP SCHEMA IF EXISTS video_chapter_studio")
+

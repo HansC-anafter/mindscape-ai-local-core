@@ -1,0 +1,2 @@
+"""SQLite migration configuration."""
+

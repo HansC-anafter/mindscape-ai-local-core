@@ -1,0 +1,20 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "mindscape.tool.wordpress.list_posts",
+    "arguments": {
+      "workspace_id": "default-workspace",
+      "inputs": {
+        "site_id": "yogacookie.app",
+        "per_page": 5
+      }
+    }
+  }
+}
+
+
+
+
+
