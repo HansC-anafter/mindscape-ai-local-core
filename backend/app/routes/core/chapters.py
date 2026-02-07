@@ -27,8 +27,10 @@ store = MindscapeStore()
 # Request/Response Models
 # ============================================================================
 
+
 class IllustrationNeed(BaseModel):
     """Illustration need item"""
+
     intent_id: str
     type: str  # 'book_cover' | 'chapter_header' | 'social_media' | 'diagram' | 'icon'
     description: str
@@ -39,6 +41,7 @@ class IllustrationNeed(BaseModel):
 
 class ChapterResponse(BaseModel):
     """Chapter API response model"""
+
     id: str
     workspace_id: str
     title: str
@@ -49,12 +52,14 @@ class ChapterResponse(BaseModel):
 
 class ChapterIllustrationNeedsResponse(BaseModel):
     """Response for chapter illustration needs"""
+
     chapter_id: str
     illustration_needs: List[IllustrationNeed] = Field(default_factory=list)
 
 
 class ListChaptersResponse(BaseModel):
     """Response model for listing chapters"""
+
     chapters: List[ChapterResponse]
 
 
@@ -62,9 +67,9 @@ class ListChaptersResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
+
 def derive_chapters_from_intents(
-    intents: List[IntentCard],
-    workspace_id: str
+    intents: List[IntentCard], workspace_id: str
 ) -> List[ChapterResponse]:
     """
     Derive chapters from Intent structure
@@ -85,7 +90,7 @@ def derive_chapters_from_intents(
         # Find the primary intent (usually the one without parent or the first one)
         primary_intent = next(
             (i for i in chapter_intents if not i.parent_intent_id),
-            chapter_intents[0] if chapter_intents else None
+            chapter_intents[0] if chapter_intents else None,
         )
 
         if not primary_intent:
@@ -96,17 +101,21 @@ def derive_chapters_from_intents(
 
         for intent in chapter_intents:
             # Check if intent has illustration needs in metadata
-            needs = intent.metadata.get("illustration_needs") if intent.metadata else None
+            needs = (
+                intent.metadata.get("illustration_needs") if intent.metadata else None
+            )
             if needs and isinstance(needs, list):
                 for need in needs:
-                    illustration_needs.append(IllustrationNeed(
-                        intent_id=intent.id,
-                        type=need.get("type", "diagram"),
-                        description=need.get("description", ""),
-                        style=need.get("style"),
-                        status=need.get("status", "pending"),
-                        artifact_id=need.get("artifact_id")
-                    ))
+                    illustration_needs.append(
+                        IllustrationNeed(
+                            intent_id=intent.id,
+                            type=need.get("type", "diagram"),
+                            description=need.get("description", ""),
+                            style=need.get("style"),
+                            status=need.get("status", "pending"),
+                            artifact_id=need.get("artifact_id"),
+                        )
+                    )
 
         # Build chapter response
         chapter = ChapterResponse(
@@ -115,7 +124,7 @@ def derive_chapters_from_intents(
             title=primary_intent.title,  # Use primary intent title as chapter title
             description=primary_intent.description,
             parent_intent_id=primary_intent.id,
-            illustration_needs=illustration_needs
+            illustration_needs=illustration_needs,
         )
         chapters.append(chapter)
 
@@ -123,8 +132,7 @@ def derive_chapters_from_intents(
 
 
 def get_chapter_illustration_needs(
-    chapter_id: str,
-    intents: List[IntentCard]
+    chapter_id: str, intents: List[IntentCard]
 ) -> List[IllustrationNeed]:
     """
     Get illustration needs for a specific chapter
@@ -133,7 +141,8 @@ def get_chapter_illustration_needs(
 
     # Filter intents for this chapter
     chapter_intents = [
-        intent for intent in intents
+        intent
+        for intent in intents
         if intent.metadata and intent.metadata.get("chapter") == chapter_id
     ]
 
@@ -141,14 +150,16 @@ def get_chapter_illustration_needs(
         needs = intent.metadata.get("illustration_needs") if intent.metadata else None
         if needs and isinstance(needs, list):
             for need in needs:
-                illustration_needs.append(IllustrationNeed(
-                    intent_id=intent.id,
-                    type=need.get("type", "diagram"),
-                    description=need.get("description", ""),
-                    style=need.get("style"),
-                    status=need.get("status", "pending"),
-                    artifact_id=need.get("artifact_id")
-                ))
+                illustration_needs.append(
+                    IllustrationNeed(
+                        intent_id=intent.id,
+                        type=need.get("type", "diagram"),
+                        description=need.get("description", ""),
+                        style=need.get("style"),
+                        status=need.get("status", "pending"),
+                        artifact_id=need.get("artifact_id"),
+                    )
+                )
 
     return illustration_needs
 
@@ -157,10 +168,9 @@ def get_chapter_illustration_needs(
 # API Endpoints
 # ============================================================================
 
+
 @router.get("/workspaces/{workspace_id}/chapters")
-async def list_chapters(
-    workspace_id: str = Path(..., description="Workspace ID")
-):
+async def list_chapters(workspace_id: str = Path(..., description="Workspace ID")):
     """
     List all chapters for a workspace
 
@@ -169,23 +179,23 @@ async def list_chapters(
     """
     try:
         # Get workspace to find owner_user_id (profile_id)
-        workspace = store.get_workspace(workspace_id)
+        workspace = await store.get_workspace(workspace_id)
         if not workspace:
-            raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Workspace {workspace_id} not found"
+            )
 
         profile_id = workspace.owner_user_id
 
         # Get all intents for this profile
-        intents = store.list_intents(
-            profile_id=profile_id,
-            status=None,
-            priority=None
-        )
+        intents = store.list_intents(profile_id=profile_id, status=None, priority=None)
 
         # Filter intents that belong to this workspace
         workspace_intents = []
         for intent in intents:
-            intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
+            intent_workspace_id = (
+                intent.metadata.get("workspace_id") if intent.metadata else None
+            )
             if intent_workspace_id == workspace_id or not intent_workspace_id:
                 workspace_intents.append(intent)
 
@@ -197,53 +207,64 @@ async def list_chapters(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list chapters for workspace {workspace_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list chapters: {str(e)}")
+        logger.error(
+            f"Failed to list chapters for workspace {workspace_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list chapters: {str(e)}"
+        )
 
 
 @router.get("/chapters/{chapter_id}/illustration-needs")
 async def get_chapter_illustration_needs(
     chapter_id: str = Path(..., description="Chapter ID"),
-    workspace_id: str = Query(..., description="Workspace ID")
+    workspace_id: str = Query(..., description="Workspace ID"),
 ):
     """
     Get illustration needs for a specific chapter
     """
     try:
         # Get workspace to find owner_user_id (profile_id)
-        workspace = store.get_workspace(workspace_id)
+        workspace = await store.get_workspace(workspace_id)
         if not workspace:
-            raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Workspace {workspace_id} not found"
+            )
 
         profile_id = workspace.owner_user_id
 
         # Get all intents for this profile
-        intents = store.list_intents(
-            profile_id=profile_id,
-            status=None,
-            priority=None
-        )
+        intents = store.list_intents(profile_id=profile_id, status=None, priority=None)
 
         # Filter intents that belong to this workspace and chapter
         workspace_intents = []
         for intent in intents:
-            intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
+            intent_workspace_id = (
+                intent.metadata.get("workspace_id") if intent.metadata else None
+            )
             intent_chapter = intent.metadata.get("chapter") if intent.metadata else None
 
-            if (intent_workspace_id == workspace_id or not intent_workspace_id) and intent_chapter == chapter_id:
+            if (
+                intent_workspace_id == workspace_id or not intent_workspace_id
+            ) and intent_chapter == chapter_id:
                 workspace_intents.append(intent)
 
         # Get illustration needs
-        illustration_needs = get_chapter_illustration_needs(chapter_id, workspace_intents)
+        illustration_needs = get_chapter_illustration_needs(
+            chapter_id, workspace_intents
+        )
 
         return ChapterIllustrationNeedsResponse(
-            chapter_id=chapter_id,
-            illustration_needs=illustration_needs
+            chapter_id=chapter_id, illustration_needs=illustration_needs
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get illustration needs for chapter {chapter_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get illustration needs: {str(e)}")
-
+        logger.error(
+            f"Failed to get illustration needs for chapter {chapter_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get illustration needs: {str(e)}"
+        )

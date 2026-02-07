@@ -9,44 +9,49 @@ from fastapi import APIRouter, HTTPException, Path, Query, Depends, Body
 from pydantic import BaseModel
 
 from ..models.graph import (
-    GraphNode, GraphNodeCreate, GraphNodeUpdate, GraphNodeResponse,
-    GraphEdge, GraphEdgeCreate, GraphEdgeUpdate,
-    MindLensProfile, MindLensProfileCreate, MindLensProfileUpdate,
-    GraphNodeCategory, GraphNodeType, GraphRelationType
+    GraphNode,
+    GraphNodeCreate,
+    GraphNodeUpdate,
+    GraphNodeResponse,
+    GraphEdge,
+    GraphEdgeCreate,
+    GraphEdgeUpdate,
+    MindLensProfile,
+    MindLensProfileCreate,
+    MindLensProfileUpdate,
+    GraphNodeCategory,
+    GraphNodeType,
+    GraphRelationType,
 )
 from ..services.stores.graph_store import GraphStore
 from ..core.deps import get_current_profile_id
-import os
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/mindscape/graph", tags=["graph"])
+router = APIRouter(prefix="/api/v1/mind-lens/graph", tags=["mind-lens-graph"])
+
 
 # Initialize store
 def get_graph_store() -> GraphStore:
     """Get graph store instance"""
-    if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-        db_path = '/app/data/mindscape.db'
-    else:
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        data_dir = os.path.join(base_dir, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        db_path = os.path.join(data_dir, "mindscape.db")
-    return GraphStore(db_path)
+    return GraphStore()
 
 
 # ============================================================================
 # Response Models
 # ============================================================================
 
+
 class GraphFullResponse(BaseModel):
     """Full graph data (nodes + edges)"""
+
     nodes: List[GraphNodeResponse]
     edges: List[GraphEdge]
 
 
 class ProfileSummaryResponse(BaseModel):
     """Profile summary for homepage"""
+
     direction: dict
     action: dict
     summary_text: dict
@@ -56,10 +61,13 @@ class ProfileSummaryResponse(BaseModel):
 # Node API
 # ============================================================================
 
+
 @router.get("/nodes", response_model=List[GraphNodeResponse])
 async def list_nodes(
     profile_id: str = Depends(get_current_profile_id),
-    category: Optional[str] = Query(None, description="Filter by category: direction|action"),
+    category: Optional[str] = Query(
+        None, description="Filter by category: direction|action"
+    ),
     node_type: Optional[str] = Query(None, description="Filter by node type"),
     is_active: bool = Query(True, description="Filter by active status"),
     limit: int = Query(100, ge=1, le=1000, description="Limit results"),
@@ -79,7 +87,9 @@ async def list_nodes(
         try:
             node_type_enum = GraphNodeType(node_type)
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid node_type: {node_type}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid node_type: {node_type}"
+            )
 
     nodes = store.list_nodes(
         profile_id=profile_id,
@@ -93,9 +103,9 @@ async def list_nodes(
     result = []
     for node in nodes:
         node_dict = node.dict()
-        node_dict['linked_entity_ids'] = []
-        node_dict['linked_playbook_codes'] = store.get_node_linked_playbooks(node.id)
-        node_dict['linked_intent_ids'] = []
+        node_dict["linked_entity_ids"] = []
+        node_dict["linked_playbook_codes"] = store.get_node_linked_playbooks(node.id)
+        node_dict["linked_intent_ids"] = []
         result.append(GraphNodeResponse(**node_dict))
 
     return result
@@ -117,9 +127,9 @@ async def get_node(
         raise HTTPException(status_code=403, detail="Node not owned by profile")
 
     node_dict = node.dict()
-    node_dict['linked_entity_ids'] = []
-    node_dict['linked_playbook_codes'] = store.get_node_linked_playbooks(node_id)
-    node_dict['linked_intent_ids'] = []
+    node_dict["linked_entity_ids"] = []
+    node_dict["linked_playbook_codes"] = store.get_node_linked_playbooks(node_id)
+    node_dict["linked_intent_ids"] = []
     return GraphNodeResponse(**node_dict)
 
 
@@ -172,6 +182,7 @@ async def delete_node(
 # Edge API
 # ============================================================================
 
+
 @router.get("/edges", response_model=List[GraphEdge])
 async def list_edges(
     profile_id: str = Depends(get_current_profile_id),
@@ -187,7 +198,9 @@ async def list_edges(
         try:
             relation_type_enum = GraphRelationType(relation_type)
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid relation_type: {relation_type}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid relation_type: {relation_type}"
+            )
 
     edges = store.list_edges(
         profile_id=profile_id,
@@ -233,10 +246,13 @@ async def delete_edge(
 # Full Graph API
 # ============================================================================
 
+
 @router.get("/full", response_model=GraphFullResponse)
 async def get_full_graph(
     profile_id: str = Depends(get_current_profile_id),
-    workspace_id: Optional[str] = Query(None, description="Workspace ID for active lens"),
+    workspace_id: Optional[str] = Query(
+        None, description="Workspace ID for active lens"
+    ),
 ):
     """Get full graph data (nodes + edges) with active lens applied"""
     store = get_graph_store()
@@ -257,15 +273,19 @@ async def get_full_graph(
     # Get all edges for these nodes
     node_ids = {n.id for n in nodes}
     all_edges = store.list_edges(profile_id=profile_id)
-    edges = [e for e in all_edges if e.source_node_id in node_ids and e.target_node_id in node_ids]
+    edges = [
+        e
+        for e in all_edges
+        if e.source_node_id in node_ids and e.target_node_id in node_ids
+    ]
 
     # Populate linked fields
     result_nodes = []
     for node in nodes:
         node_dict = node.dict()
-        node_dict['linked_entity_ids'] = []
-        node_dict['linked_playbook_codes'] = store.get_node_linked_playbooks(node.id)
-        node_dict['linked_intent_ids'] = []
+        node_dict["linked_entity_ids"] = []
+        node_dict["linked_playbook_codes"] = store.get_node_linked_playbooks(node.id)
+        node_dict["linked_intent_ids"] = []
         result_nodes.append(GraphNodeResponse(**node_dict))
 
     return GraphFullResponse(nodes=result_nodes, edges=edges)
@@ -274,6 +294,7 @@ async def get_full_graph(
 # ============================================================================
 # Lens Profile API
 # ============================================================================
+
 
 @router.get("/lens/profiles", response_model=List[MindLensProfile])
 async def list_lens_profiles(
@@ -331,6 +352,7 @@ async def create_lens_profile(
 # Profile Summary API (for homepage)
 # ============================================================================
 
+
 @router.get("/profile-summary", response_model=ProfileSummaryResponse)
 async def get_profile_summary(
     profile_id: str = Depends(get_current_profile_id),
@@ -357,20 +379,32 @@ async def get_profile_summary(
     for node in nodes:
         if node.category == GraphNodeCategory.DIRECTION:
             if node.node_type == GraphNodeType.VALUE:
-                direction["values"].append({"id": node.id, "label": node.label, "icon": node.icon or ""})
+                direction["values"].append(
+                    {"id": node.id, "label": node.label, "icon": node.icon or ""}
+                )
             elif node.node_type == GraphNodeType.WORLDVIEW:
-                direction["worldviews"].append({"id": node.id, "label": node.label, "icon": node.icon or ""})
+                direction["worldviews"].append(
+                    {"id": node.id, "label": node.label, "icon": node.icon or ""}
+                )
             elif node.node_type == GraphNodeType.AESTHETIC:
-                direction["aesthetics"].append({"id": node.id, "label": node.label, "icon": node.icon or ""})
+                direction["aesthetics"].append(
+                    {"id": node.id, "label": node.label, "icon": node.icon or ""}
+                )
             elif node.node_type == GraphNodeType.KNOWLEDGE:
                 direction["knowledge_count"] += 1
         elif node.category == GraphNodeCategory.ACTION:
             if node.node_type == GraphNodeType.STRATEGY:
-                action["strategies"].append({"id": node.id, "label": node.label, "icon": node.icon or ""})
+                action["strategies"].append(
+                    {"id": node.id, "label": node.label, "icon": node.icon or ""}
+                )
             elif node.node_type == GraphNodeType.ROLE:
-                action["roles"].append({"id": node.id, "label": node.label, "icon": node.icon or ""})
+                action["roles"].append(
+                    {"id": node.id, "label": node.label, "icon": node.icon or ""}
+                )
             elif node.node_type == GraphNodeType.RHYTHM:
-                action["rhythms"].append({"id": node.id, "label": node.label, "icon": node.icon or ""})
+                action["rhythms"].append(
+                    {"id": node.id, "label": node.label, "icon": node.icon or ""}
+                )
 
     # Build summary text
     summary_text = {
@@ -388,6 +422,7 @@ async def get_profile_summary(
 # ============================================================================
 # Playbook Links API
 # ============================================================================
+
 
 @router.post("/nodes/{node_id}/link-playbook", status_code=201)
 async def link_node_to_playbook(
@@ -424,6 +459,7 @@ async def unlink_node_from_playbook(
 # Workspace Bindings API
 # ============================================================================
 
+
 @router.post("/lens/bind-workspace", status_code=201)
 async def bind_lens_to_workspace(
     profile_id: str = Depends(get_current_profile_id),
@@ -457,6 +493,7 @@ async def unbind_lens_from_workspace(
 # Initialization API
 # ============================================================================
 
+
 @router.post("/initialize", status_code=201)
 async def initialize_graph(
     profile_id: str = Depends(get_current_profile_id),
@@ -470,7 +507,10 @@ async def initialize_graph(
     # Check if user already has nodes
     existing_nodes = store.list_nodes(profile_id=profile_id, limit=1)
     if existing_nodes:
-        return {"message": "Graph already initialized", "node_count": len(store.list_nodes(profile_id=profile_id))}
+        return {
+            "message": "Graph already initialized",
+            "node_count": len(store.list_nodes(profile_id=profile_id)),
+        }
 
     # Sample nodes based on mock data structure
     sample_nodes = [
@@ -567,4 +607,3 @@ async def initialize_graph(
         "node_count": len(created_nodes),
         "nodes": [{"id": n.id, "label": n.label} for n in created_nodes],
     }
-

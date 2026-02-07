@@ -30,8 +30,10 @@ store = MindscapeStore()
 # Request/Response Models
 # ============================================================================
 
+
 class IntentResponse(BaseModel):
     """Intent API response model matching the API draft specification"""
+
     id: str
     workspace_id: str
     title: str
@@ -43,44 +45,52 @@ class IntentResponse(BaseModel):
     updated_at: str
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class IntentTreeNode(IntentResponse):
     """Intent tree node with children"""
-    children: Optional[List['IntentTreeNode']] = None
+
+    children: Optional[List["IntentTreeNode"]] = None
 
 
 class CreateIntentRequest(BaseModel):
     """Request model for creating a new intent"""
+
     workspace_id: str
     title: str
     description: Optional[str] = None
     status: Optional[str] = "CONFIRMED"  # Default to CONFIRMED
     parent_id: Optional[str] = None
-    storyline_tags: Optional[List[str]] = Field(default_factory=list, description="Storyline tags for cross-project story tracking")
+    storyline_tags: Optional[List[str]] = Field(
+        default_factory=list,
+        description="Storyline tags for cross-project story tracking",
+    )
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class UpdateIntentRequest(BaseModel):
     """Request model for updating an intent"""
+
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
     parent_id: Optional[str] = None
-    storyline_tags: Optional[List[str]] = Field(None, description="Storyline tags for cross-project story tracking")
+    storyline_tags: Optional[List[str]] = Field(
+        None, description="Storyline tags for cross-project story tracking"
+    )
     metadata: Optional[Dict[str, Any]] = None
 
 
 class ListIntentsResponse(BaseModel):
     """Response model for listing intents"""
+
     intents: List[IntentResponse]
 
 
 class ListIntentsTreeResponse(BaseModel):
     """Response model for listing intents as a tree"""
+
     intents: List[IntentTreeNode]
 
 
@@ -88,7 +98,10 @@ class ListIntentsTreeResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def intent_card_to_response(intent_card: IntentCard, workspace_id: str) -> IntentResponse:
+
+def intent_card_to_response(
+    intent_card: IntentCard, workspace_id: str
+) -> IntentResponse:
     """Convert IntentCard to API response format"""
 
     # Map IntentStatus to API status
@@ -108,16 +121,28 @@ def intent_card_to_response(intent_card: IntentCard, workspace_id: str) -> Inten
         status=api_status,
         parent_id=intent_card.parent_intent_id,
         metadata=intent_card.metadata or {},
-        created_at=intent_card.created_at.isoformat() if intent_card.created_at else datetime.utcnow().isoformat(),
-        updated_at=intent_card.updated_at.isoformat() if intent_card.updated_at else datetime.utcnow().isoformat(),
+        created_at=(
+            intent_card.created_at.isoformat()
+            if intent_card.created_at
+            else datetime.utcnow().isoformat()
+        ),
+        updated_at=(
+            intent_card.updated_at.isoformat()
+            if intent_card.updated_at
+            else datetime.utcnow().isoformat()
+        ),
     )
 
 
-def build_intent_tree(intents: List[IntentCard], workspace_id: str) -> List[IntentTreeNode]:
+def build_intent_tree(
+    intents: List[IntentCard], workspace_id: str
+) -> List[IntentTreeNode]:
     """Build tree structure from flat intent list"""
 
     # Convert to response format
-    intent_responses = {intent.id: intent_card_to_response(intent, workspace_id) for intent in intents}
+    intent_responses = {
+        intent.id: intent_card_to_response(intent, workspace_id) for intent in intents
+    }
 
     # Create tree nodes
     tree_nodes: Dict[str, IntentTreeNode] = {}
@@ -125,10 +150,7 @@ def build_intent_tree(intents: List[IntentCard], workspace_id: str) -> List[Inte
 
     # First pass: create all nodes
     for intent in intents:
-        node = IntentTreeNode(
-            **intent_responses[intent.id].dict(),
-            children=[]
-        )
+        node = IntentTreeNode(**intent_responses[intent.id].dict(), children=[])
         tree_nodes[intent.id] = node
 
     # Second pass: build tree structure
@@ -151,11 +173,14 @@ def build_intent_tree(intents: List[IntentCard], workspace_id: str) -> List[Inte
 # API Endpoints
 # ============================================================================
 
+
 @router.get("/workspaces/{workspace_id}/intents")
 async def list_intents(
     workspace_id: str = Path(..., description="Workspace ID"),
     tree: bool = Query(False, description="Return as tree structure"),
-    status: Optional[str] = Query(None, description="Filter by status (CANDIDATE, CONFIRMED, REJECTED)")
+    status: Optional[str] = Query(
+        None, description="Filter by status (CANDIDATE, CONFIRMED, REJECTED)"
+    ),
 ):
     """
     List all intents for a workspace
@@ -166,9 +191,11 @@ async def list_intents(
     """
     try:
         # Get workspace to find owner_user_id (profile_id)
-        workspace = store.get_workspace(workspace_id)
+        workspace = await store.get_workspace(workspace_id)
         if not workspace:
-            raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Workspace {workspace_id} not found"
+            )
 
         profile_id = workspace.owner_user_id
 
@@ -184,17 +211,21 @@ async def list_intents(
 
         # Get intents
         intents = store.list_intents(
-            profile_id=profile_id,
-            status=intent_status,
-            priority=None
+            profile_id=profile_id, status=intent_status, priority=None
         )
 
-        owner_workspaces = store.workspaces.list_workspaces(owner_user_id=profile_id, limit=5)
-        is_single_workspace_owner = len(owner_workspaces) == 1 and owner_workspaces[0].id == workspace_id
+        owner_workspaces = store.workspaces.list_workspaces(
+            owner_user_id=profile_id, limit=5
+        )
+        is_single_workspace_owner = (
+            len(owner_workspaces) == 1 and owner_workspaces[0].id == workspace_id
+        )
 
         filtered_intents = []
         for intent in intents:
-            intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
+            intent_workspace_id = (
+                intent.metadata.get("workspace_id") if intent.metadata else None
+            )
 
             if intent_workspace_id == workspace_id:
                 filtered_intents.append(intent)
@@ -208,7 +239,9 @@ async def list_intents(
                     updated = store.intents.update_intent(intent)
                     filtered_intents.append(updated or intent)
                 except Exception as e:
-                    logger.warning(f"Failed to backfill workspace_id for intent {intent.id}: {e}")
+                    logger.warning(
+                        f"Failed to backfill workspace_id for intent {intent.id}: {e}"
+                    )
 
         if tree:
             # Build and return tree structure
@@ -216,20 +249,23 @@ async def list_intents(
             return ListIntentsTreeResponse(intents=tree_nodes)
         else:
             # Return flat list
-            intent_responses = [intent_card_to_response(intent, workspace_id) for intent in filtered_intents]
+            intent_responses = [
+                intent_card_to_response(intent, workspace_id)
+                for intent in filtered_intents
+            ]
             return ListIntentsResponse(intents=intent_responses)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list intents for workspace {workspace_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to list intents for workspace {workspace_id}: {e}", exc_info=True
+        )
         raise HTTPException(status_code=500, detail=f"Failed to list intents: {str(e)}")
 
 
 @router.get("/intents/{intent_id}")
-async def get_intent(
-    intent_id: str = Path(..., description="Intent ID")
-):
+async def get_intent(intent_id: str = Path(..., description="Intent ID")):
     """
     Get a single intent by ID
     """
@@ -239,7 +275,9 @@ async def get_intent(
             raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
 
         # Get workspace_id from metadata or find it via profile_id
-        workspace_id = intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+        workspace_id = (
+            intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+        )
 
         if not workspace_id:
             # Try to find workspace by profile_id
@@ -259,17 +297,17 @@ async def get_intent(
 
 
 @router.post("/intents", status_code=201)
-async def create_intent(
-    request: CreateIntentRequest = Body(...)
-):
+async def create_intent(request: CreateIntentRequest = Body(...)):
     """
     Create a new intent
     """
     try:
         # Validate workspace exists
-        workspace = store.get_workspace(request.workspace_id)
+        workspace = await store.get_workspace(request.workspace_id)
         if not workspace:
-            raise HTTPException(status_code=404, detail=f"Workspace {request.workspace_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Workspace {request.workspace_id} not found"
+            )
 
         profile_id = workspace.owner_user_id
 
@@ -279,7 +317,10 @@ async def create_intent(
             "CANDIDATE": IntentStatus.PAUSED,
             "REJECTED": IntentStatus.ARCHIVED,
         }
-        intent_status = status_map.get(request.status.upper() if request.status else "CONFIRMED", IntentStatus.ACTIVE)
+        intent_status = status_map.get(
+            request.status.upper() if request.status else "CONFIRMED",
+            IntentStatus.ACTIVE,
+        )
 
         # Prepare metadata
         metadata = request.metadata.copy() if request.metadata else {}
@@ -301,7 +342,7 @@ async def create_intent(
             updated_at=datetime.utcnow(),
             parent_intent_id=request.parent_id,
             child_intent_ids=[],
-            metadata=metadata
+            metadata=metadata,
         )
 
         # Handle parent-child relationship
@@ -322,13 +363,15 @@ async def create_intent(
         raise
     except Exception as e:
         logger.error(f"Failed to create intent: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create intent: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create intent: {str(e)}"
+        )
 
 
 @router.put("/intents/{intent_id}")
 async def update_intent(
     intent_id: str = Path(..., description="Intent ID"),
-    request: UpdateIntentRequest = Body(...)
+    request: UpdateIntentRequest = Body(...),
 ):
     """
     Update an existing intent
@@ -339,14 +382,19 @@ async def update_intent(
         if not intent_card:
             raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
 
-        existing_workspace_id = intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+        existing_workspace_id = (
+            intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+        )
 
         if request.metadata and "workspace_id" in request.metadata:
             requested_workspace_id = request.metadata.get("workspace_id")
-            if existing_workspace_id and requested_workspace_id != existing_workspace_id:
+            if (
+                existing_workspace_id
+                and requested_workspace_id != existing_workspace_id
+            ):
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Cannot change intent workspace_id from {existing_workspace_id} to {requested_workspace_id}. Workspace isolation is enforced."
+                    detail=f"Cannot change intent workspace_id from {existing_workspace_id} to {requested_workspace_id}. Workspace isolation is enforced.",
                 )
             if not existing_workspace_id:
                 existing_workspace_id = requested_workspace_id
@@ -364,7 +412,9 @@ async def update_intent(
                 "CANDIDATE": IntentStatus.PAUSED,
                 "REJECTED": IntentStatus.ARCHIVED,
             }
-            intent_card.status = status_map.get(request.status.upper(), IntentStatus.ACTIVE)
+            intent_card.status = status_map.get(
+                request.status.upper(), IntentStatus.ACTIVE
+            )
 
         if request.storyline_tags is not None:
             intent_card.storyline_tags = request.storyline_tags
@@ -406,7 +456,11 @@ async def update_intent(
         if not updated_intent:
             raise HTTPException(status_code=500, detail="Failed to update intent")
 
-        workspace_id = updated_intent.metadata.get("workspace_id") if updated_intent.metadata else ""
+        workspace_id = (
+            updated_intent.metadata.get("workspace_id")
+            if updated_intent.metadata
+            else ""
+        )
 
         return intent_card_to_response(updated_intent, workspace_id)
 
@@ -414,13 +468,15 @@ async def update_intent(
         raise
     except Exception as e:
         logger.error(f"Failed to update intent {intent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update intent: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update intent: {str(e)}"
+        )
 
 
 @router.delete("/intents/{intent_id}", status_code=204)
 async def delete_intent(
     intent_id: str = Path(..., description="Intent ID"),
-    cascade: bool = Query(False, description="Delete child intents as well")
+    cascade: bool = Query(False, description="Delete child intents as well"),
 ):
     """
     Delete an intent
@@ -460,7 +516,9 @@ async def delete_intent(
         # Delete intent from database
         success = store.intents.delete_intent(intent_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete intent from database")
+            raise HTTPException(
+                status_code=500, detail="Failed to delete intent from database"
+            )
 
         return None
 
@@ -468,4 +526,6 @@ async def delete_intent(
         raise
     except Exception as e:
         logger.error(f"Failed to delete intent {intent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete intent: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete intent: {str(e)}"
+        )

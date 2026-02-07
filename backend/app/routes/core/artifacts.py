@@ -13,7 +13,12 @@ from datetime import datetime
 from pathlib import Path as PathLib
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    StreamingResponse,
+    RedirectResponse,
+    Response,
+)
 from pydantic import BaseModel, Field
 
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
@@ -31,8 +36,10 @@ store = MindscapeStore()
 # Request/Response Models
 # ============================================================================
 
+
 class ArtifactResponse(BaseModel):
     """Artifact API response model matching the API draft specification"""
+
     id: str
     workspace_id: str
     intent_id: Optional[str] = None
@@ -52,13 +59,12 @@ class ArtifactResponse(BaseModel):
     platform: Optional[str] = None
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class CreateArtifactRequest(BaseModel):
     """Request model for creating a new artifact"""
+
     workspace_id: str
     intent_id: Optional[str] = None
     type: str  # 'illustration' | 'document' | 'other'
@@ -71,6 +77,7 @@ class CreateArtifactRequest(BaseModel):
 
 class ListArtifactsResponse(BaseModel):
     """Response model for listing artifacts"""
+
     artifacts: List[ArtifactResponse]
     total: Optional[int] = None
     limit: Optional[int] = None
@@ -81,10 +88,9 @@ class ListArtifactsResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
+
 def artifact_to_response(
-    artifact: Artifact,
-    include_content: bool = False,
-    include_preview: bool = True
+    artifact: Artifact, include_content: bool = False, include_preview: bool = True
 ) -> ArtifactResponse:
     """Convert Artifact model to API response format
 
@@ -118,12 +124,16 @@ def artifact_to_response(
     file_path = None
     external_url = None
     if artifact.metadata:
-        file_path = artifact.metadata.get("actual_file_path") or artifact.metadata.get("file_path")
+        file_path = artifact.metadata.get("actual_file_path") or artifact.metadata.get(
+            "file_path"
+        )
         external_url = artifact.metadata.get("external_url")
 
     # Fallback to storage_ref if not in metadata
     if not file_path and not external_url and artifact.storage_ref:
-        if artifact.storage_ref.startswith("http://") or artifact.storage_ref.startswith("https://"):
+        if artifact.storage_ref.startswith(
+            "http://"
+        ) or artifact.storage_ref.startswith("https://"):
             external_url = artifact.storage_ref
         else:
             file_path = artifact.storage_ref
@@ -136,7 +146,9 @@ def artifact_to_response(
         if "navigate_to" not in response_metadata:
             response_metadata["navigate_to"] = artifact.execution_id
 
-    artifact_type_value = artifact.artifact_type.value if artifact.artifact_type else None
+    artifact_type_value = (
+        artifact.artifact_type.value if artifact.artifact_type else None
+    )
 
     content_preview = None
     if include_preview and artifact.content:
@@ -160,14 +172,22 @@ def artifact_to_response(
         file_path=file_path,
         external_url=external_url,
         metadata=response_metadata,
-        created_at=artifact.created_at.isoformat() if artifact.created_at else datetime.utcnow().isoformat(),
-        updated_at=artifact.updated_at.isoformat() if artifact.updated_at else datetime.utcnow().isoformat(),
+        created_at=(
+            artifact.created_at.isoformat()
+            if artifact.created_at
+            else datetime.utcnow().isoformat()
+        ),
+        updated_at=(
+            artifact.updated_at.isoformat()
+            if artifact.updated_at
+            else datetime.utcnow().isoformat()
+        ),
         execution_id=artifact.execution_id,
         playbook_code=artifact.playbook_code,
         artifact_type=artifact_type_value,
         content=content,
         content_preview=content_preview,
-        platform=platform
+        platform=platform,
     )
 
 
@@ -205,6 +225,7 @@ def _generate_content_preview(content: Dict[str, Any], max_length: int = 200) ->
     # Case 4: Other formats, serialize JSON
     else:
         import json
+
         text = json.dumps(content, ensure_ascii=False)
 
     # Truncate and add ellipsis
@@ -215,8 +236,7 @@ def _generate_content_preview(content: Dict[str, Any], max_length: int = 200) ->
 
 
 def create_artifact_from_request(
-    request: CreateArtifactRequest,
-    artifact_id: str
+    request: CreateArtifactRequest, artifact_id: str
 ) -> Artifact:
     """Create Artifact model from API request"""
 
@@ -240,7 +260,11 @@ def create_artifact_from_request(
         metadata["external_url"] = request.external_url
 
     # Determine primary_action_type based on type
-    primary_action_type = PrimaryActionType.OPEN_EXTERNAL if request.external_url else PrimaryActionType.DOWNLOAD
+    primary_action_type = (
+        PrimaryActionType.OPEN_EXTERNAL
+        if request.external_url
+        else PrimaryActionType.DOWNLOAD
+    )
 
     return Artifact(
         id=artifact_id,
@@ -258,7 +282,7 @@ def create_artifact_from_request(
         primary_action_type=primary_action_type,
         metadata=metadata,
         created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        updated_at=datetime.utcnow(),
     )
 
 
@@ -266,40 +290,36 @@ def create_artifact_from_request(
 # API Endpoints
 # ============================================================================
 
+
 @router.get("/workspaces/{workspace_id}/artifacts")
 async def list_artifacts(
     workspace_id: str = Path(..., description="Workspace ID"),
     # Existing parameters (backward compatible)
-    type: Optional[str] = Query(None, description="Filter by type (illustration, document, other)"),
+    type: Optional[str] = Query(
+        None, description="Filter by type (illustration, document, other)"
+    ),
     intent_id: Optional[str] = Query(None, description="Filter by intent ID"),
-    kind: Optional[str] = Query(None, description="Filter by kind (e.g., 'brand_mi', 'brand_persona', 'brand_storyline')"),
-    playbook_code: Optional[str] = Query(
+    kind: Optional[str] = Query(
         None,
-        description="Filter by playbook (e.g., 'ig_post_generation')"
+        description="Filter by kind (e.g., 'brand_mi', 'brand_persona', 'brand_storyline')",
+    ),
+    playbook_code: Optional[str] = Query(
+        None, description="Filter by playbook (e.g., 'ig_post_generation')"
     ),
     include_content: bool = Query(
         False,
-        description="Include full content in response (default: false for performance)"
+        description="Include full content in response (default: false for performance)",
     ),
     include_preview: bool = Query(
-        True,
-        description="Include content preview (default: true)"
+        True, description="Include content preview (default: true)"
     ),
     platform: Optional[str] = Query(
-        None,
-        description="Filter by platform (e.g., 'instagram', 'facebook')"
+        None, description="Filter by platform (e.g., 'instagram', 'facebook')"
     ),
     limit: int = Query(
-        100,
-        description="Maximum number of artifacts to return",
-        ge=1,
-        le=1000
+        100, description="Maximum number of artifacts to return", ge=1, le=1000
     ),
-    offset: int = Query(
-        0,
-        description="Offset for pagination",
-        ge=0
-    ),
+    offset: int = Query(0, description="Offset for pagination", ge=0),
 ):
     """
     List all artifacts for a workspace
@@ -336,71 +356,89 @@ async def list_artifacts(
         if type:
             # Map API type to ArtifactType for filtering
             type_filter_map = {
-                "illustration": [ArtifactType.IMAGE, ArtifactType.VIDEO, ArtifactType.CANVA],
-                "document": [ArtifactType.DOCX, ArtifactType.CODE, ArtifactType.DATA, ArtifactType.LINK, ArtifactType.CHECKLIST, ArtifactType.DRAFT, ArtifactType.CONFIG],
+                "illustration": [
+                    ArtifactType.IMAGE,
+                    ArtifactType.VIDEO,
+                    ArtifactType.CANVA,
+                ],
+                "document": [
+                    ArtifactType.DOCX,
+                    ArtifactType.CODE,
+                    ArtifactType.DATA,
+                    ArtifactType.LINK,
+                    ArtifactType.CHECKLIST,
+                    ArtifactType.DRAFT,
+                    ArtifactType.CONFIG,
+                ],
             }
             allowed_types = type_filter_map.get(type.lower(), [])
             filtered_artifacts = [
-                a for a in filtered_artifacts
-                if a.artifact_type in allowed_types
+                a for a in filtered_artifacts if a.artifact_type in allowed_types
             ]
 
         if intent_id:
             filtered_artifacts = [
-                a for a in filtered_artifacts
-                if a.intent_id == intent_id
+                a for a in filtered_artifacts if a.intent_id == intent_id
             ]
 
         if kind:
             # Filter by kind from metadata
             filtered_artifacts = [
-                a for a in filtered_artifacts
+                a
+                for a in filtered_artifacts
                 if a.metadata and a.metadata.get("kind") == kind
             ]
 
         if playbook_code:
             filtered_artifacts = [
-                a for a in filtered_artifacts
-                if a.playbook_code == playbook_code
+                a for a in filtered_artifacts if a.playbook_code == playbook_code
             ]
 
         if platform:
             filtered_artifacts = [
-                a for a in filtered_artifacts
+                a
+                for a in filtered_artifacts
                 if a.metadata and a.metadata.get("platform") == platform
             ]
 
         total_count = len(filtered_artifacts)
 
-        paginated_artifacts = filtered_artifacts[offset:offset + limit]
+        paginated_artifacts = filtered_artifacts[offset : offset + limit]
 
         artifact_responses = [
             artifact_to_response(
                 artifact,
                 include_content=include_content,
-                include_preview=include_preview
+                include_preview=include_preview,
             )
             for artifact in paginated_artifacts
         ]
 
         response = ListArtifactsResponse(
-            artifacts=artifact_responses,
-            total=total_count,
-            limit=limit,
-            offset=offset
+            artifacts=artifact_responses, total=total_count, limit=limit, offset=offset
         )
         return response
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list artifacts for workspace {workspace_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list artifacts: {str(e)}")
+        logger.error(
+            f"Failed to list artifacts for workspace {workspace_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list artifacts: {str(e)}"
+        )
 
 
 @router.get("/artifacts/{artifact_id}")
 async def get_artifact(
-    artifact_id: str = Path(..., description="Artifact ID")
+    artifact_id: str = Path(..., description="Artifact ID"),
+    include_content: bool = Query(
+        False, description="Include full content in response (default: false)"
+    ),
+    include_preview: bool = Query(
+        True, description="Include content preview (default: true)"
+    ),
 ):
     """
     Get a single artifact by ID
@@ -408,9 +446,13 @@ async def get_artifact(
     try:
         artifact = store.artifacts.get_artifact(artifact_id)
         if not artifact:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Artifact {artifact_id} not found"
+            )
 
-        return artifact_to_response(artifact)
+        return artifact_to_response(
+            artifact, include_content=include_content, include_preview=include_preview
+        )
 
     except HTTPException:
         raise
@@ -420,23 +462,25 @@ async def get_artifact(
 
 
 @router.post("/artifacts", status_code=201)
-async def create_artifact(
-    request: CreateArtifactRequest = Body(...)
-):
+async def create_artifact(request: CreateArtifactRequest = Body(...)):
     """
     Create a new artifact
     """
     try:
         # Validate workspace exists
-        workspace = store.get_workspace(request.workspace_id)
+        workspace = await store.get_workspace(request.workspace_id)
         if not workspace:
-            raise HTTPException(status_code=404, detail=f"Workspace {request.workspace_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Workspace {request.workspace_id} not found"
+            )
 
         # Validate intent exists if provided
         if request.intent_id:
             intent = store.get_intent(request.intent_id)
             if not intent:
-                raise HTTPException(status_code=404, detail=f"Intent {request.intent_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Intent {request.intent_id} not found"
+                )
 
         # Create artifact ID
         artifact_id = str(uuid.uuid4())
@@ -453,13 +497,15 @@ async def create_artifact(
         raise
     except Exception as e:
         logger.error(f"Failed to create artifact: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create artifact: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create artifact: {str(e)}"
+        )
 
 
 @router.get("/workspaces/{workspace_id}/artifacts/{artifact_id}/file")
 async def get_artifact_file(
     workspace_id: str = Path(..., description="Workspace ID"),
-    artifact_id: str = Path(..., description="Artifact ID")
+    artifact_id: str = Path(..., description="Artifact ID"),
 ):
     """
     Get artifact file content
@@ -470,11 +516,15 @@ async def get_artifact_file(
     try:
         artifact = store.artifacts.get_artifact(artifact_id)
         if not artifact:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Artifact {artifact_id} not found"
+            )
 
         # Verify artifact belongs to workspace
         if artifact.workspace_id != workspace_id:
-            raise HTTPException(status_code=403, detail="Artifact does not belong to this workspace")
+            raise HTTPException(
+                status_code=403, detail="Artifact does not belong to this workspace"
+            )
 
         # Get file path from metadata or storage_ref
         file_path = None
@@ -484,14 +534,18 @@ async def get_artifact_file(
             file_path = artifact.metadata.get("actual_file_path")
         elif artifact.storage_ref:
             # Check if storage_ref is a URL
-            if artifact.storage_ref.startswith("http://") or artifact.storage_ref.startswith("https://"):
+            if artifact.storage_ref.startswith(
+                "http://"
+            ) or artifact.storage_ref.startswith("https://"):
                 # Redirect to external URL
                 return RedirectResponse(url=artifact.storage_ref)
             else:
                 file_path = artifact.storage_ref
 
         if not file_path:
-            raise HTTPException(status_code=404, detail="Artifact does not have a file path")
+            raise HTTPException(
+                status_code=404, detail="Artifact does not have a file path"
+            )
 
         # Check if file exists
         if not os.path.exists(file_path):
@@ -527,31 +581,41 @@ async def get_artifact_file(
 
         # For text-based files (JSON, text, markdown), return content directly
         # This allows frontend to display inline instead of forcing download
-        text_based_types = {".json", ".txt", ".md", ".html", ".css", ".js", ".tsx", ".ts"}
+        text_based_types = {
+            ".json",
+            ".txt",
+            ".md",
+            ".html",
+            ".css",
+            ".js",
+            ".tsx",
+            ".ts",
+        }
         if file_ext in text_based_types:
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 return Response(
                     content=content,
                     media_type=media_type,
                     headers={
                         "Content-Disposition": f'inline; filename="{PathLib(file_path).name}"'
-                    }
+                    },
                 )
             except Exception as e:
-                logger.warning(f"Failed to read file as text, falling back to FileResponse: {e}")
+                logger.warning(
+                    f"Failed to read file as text, falling back to FileResponse: {e}"
+                )
 
         # For binary files (images, videos, documents), return as file download
         return FileResponse(
-            path=file_path,
-            media_type=media_type,
-            filename=PathLib(file_path).name
+            path=file_path, media_type=media_type, filename=PathLib(file_path).name
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get artifact file {artifact_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get artifact file: {str(e)}")
-
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get artifact file: {str(e)}"
+        )

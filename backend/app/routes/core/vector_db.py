@@ -9,6 +9,7 @@ a vector store adapter to be installed and configured.
 
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
+from contextlib import contextmanager
 from pydantic import BaseModel
 try:
     import psycopg2
@@ -18,7 +19,27 @@ except ImportError:
     RealDictCursor = None
 import os
 
+from app.database.config import get_vector_postgres_config
+
 router = APIRouter(prefix="/api/v1/vector-db", tags=["Vector Database"])
+
+
+def get_local_postgres_config() -> Dict[str, Any]:
+    """Return local vector database connection parameters."""
+    return get_vector_postgres_config()
+
+
+@contextmanager
+def get_connection():
+    """Get a psycopg2 connection for vector database operations."""
+    if psycopg2 is None:
+        raise HTTPException(status_code=500, detail="psycopg2 not installed")
+    config = get_vector_postgres_config()
+    conn = psycopg2.connect(**config)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _check_vector_store_adapter() -> bool:
@@ -37,11 +58,12 @@ def _check_vector_store_adapter() -> bool:
         import os
 
         # Get connection parameters from environment
-        host = os.getenv("POSTGRES_HOST", "postgres")
-        port = int(os.getenv("POSTGRES_PORT", "5432"))
-        database = os.getenv("POSTGRES_DB", "mindscape_vectors")
-        user = os.getenv("POSTGRES_USER", "mindscape")
-        password = os.getenv("POSTGRES_PASSWORD", "mindscape_password")
+        vector_config = get_vector_postgres_config()
+        host = vector_config.get("host") or "postgres"
+        port = vector_config.get("port") or 5432
+        database = vector_config.get("database") or "mindscape_vectors"
+        user = vector_config.get("user") or "mindscape"
+        password = vector_config.get("password") or "mindscape_password"
 
         # Try to connect and check if pgvector extension is available
         conn = psycopg2.connect(
@@ -157,11 +179,12 @@ async def test_connection(config_request: Optional[VectorDBConfigRequest] = None
             password = config_request.password or os.getenv("POSTGRES_PASSWORD", "mindscape_password")
         else:
             # Local mode - use environment variables
-            host = os.getenv("POSTGRES_HOST", "postgres")
-            port = int(os.getenv("POSTGRES_PORT", "5432"))
-            database = os.getenv("POSTGRES_DB", "mindscape_vectors")
-            user = os.getenv("POSTGRES_USER", "mindscape")
-            password = os.getenv("POSTGRES_PASSWORD", "mindscape_password")
+            vector_config = get_vector_postgres_config()
+            host = vector_config.get("host") or "postgres"
+            port = vector_config.get("port") or 5432
+            database = vector_config.get("database") or "mindscape_vectors"
+            user = vector_config.get("user") or "mindscape"
+            password = vector_config.get("password") or "mindscape_password"
 
         # Connect to PostgreSQL
         conn_params = {
@@ -245,4 +268,3 @@ async def test_connection(config_request: Optional[VectorDBConfigRequest] = None
             "error": f"Test failed: {str(e)}",
             "pgvector_installed": False
         }
-

@@ -220,7 +220,14 @@ async def validate_connection(
                     # Try actual validation by calling Canva API
                     try:
                         from ...services.tools.base import ToolConnection
-                        from ...services.tools.registry import register_canva_tools, get_mindscape_tool
+                        # ✅ Updated: Import from capability pack
+                        try:
+                            from capabilities.canva.services.tool_registration import register_canva_tools
+                        except ImportError:
+                            # Fallback if capability pack not installed
+                            logger.warning("Canva capability pack not found")
+                            continue
+                        from ...services.tools.registry import get_mindscape_tool
 
                         # Register tools if not already registered
                         register_canva_tools(connection)

@@ -6,6 +6,7 @@ These routes provide the fundamental OS-level functionality.
 """
 
 from . import (
+    agents,
     workspace,
     playbook,
     playbook_execution,

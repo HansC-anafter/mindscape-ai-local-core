@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 
 from ...models.runtime_environment import RuntimeEnvironment
 from ...services.runtime_auth_service import RuntimeAuthService
+from ...services.runtime_discovery_service import (
+    RuntimeDiscoveryService,
+    DiscoveryResult,
+)
 
 # Import database session
 try:
@@ -35,7 +39,7 @@ except ImportError:
 
     async def get_current_user() -> Any:
         """Placeholder for development"""
-        return type('User', (), {'id': 'dev-user'})()
+        return type("User", (), {"id": "dev-user"})()
 
     User = Any
 
@@ -44,24 +48,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/runtime-environments", tags=["runtime-environments"])
 
 auth_service = RuntimeAuthService()
+discovery_service = RuntimeDiscoveryService()
 
 
 # Pydantic models for request/response
 class CreateRuntimeEnvironmentRequest(BaseModel):
     """Request model for creating a runtime environment"""
+
     name: str = Field(..., description="Runtime name (user-defined)")
     description: Optional[str] = Field(None, description="Runtime description")
     icon: Optional[str] = Field(None, description="Icon (emoji or identifier)")
     config_url: str = Field(..., description="Configuration page URL")
-    auth_type: str = Field(default="none", description="Authentication type: 'api_key', 'oauth2', or 'none'")
-    auth_config: Optional[Dict[str, Any]] = Field(None, description="Authentication configuration")
-    supports_dispatch: bool = Field(default=True, description="Support Dispatch Workspace")
+    auth_type: str = Field(
+        default="none",
+        description="Authentication type: 'api_key', 'oauth2', or 'none'",
+    )
+    auth_config: Optional[Dict[str, Any]] = Field(
+        None, description="Authentication configuration"
+    )
+    supports_dispatch: bool = Field(
+        default=True, description="Support Dispatch Workspace"
+    )
     supports_cell: bool = Field(default=True, description="Support Cell Workspace")
-    recommended_for_dispatch: bool = Field(default=False, description="Recommended for Dispatch")
+    recommended_for_dispatch: bool = Field(
+        default=False, description="Recommended for Dispatch"
+    )
 
 
 class UpdateRuntimeEnvironmentRequest(BaseModel):
     """Request model for updating a runtime environment"""
+
     name: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
@@ -74,10 +90,18 @@ class UpdateRuntimeEnvironmentRequest(BaseModel):
     recommended_for_dispatch: Optional[bool] = None
 
 
+class DiscoveryScanRequest(BaseModel):
+    """Request model for scanning a folder for runtime configuration"""
+
+    path: str = Field(..., description="Local folder path to scan")
+    runtime_type: str = Field(
+        default="comfyui", description="Type of runtime to scan for"
+    )
+
+
 @router.get("")
 async def list_runtime_environments(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     List all runtime environments for the current user.
@@ -88,9 +112,11 @@ async def list_runtime_environments(
     """
     try:
         # Get user's runtime environments
-        user_runtimes = db.query(RuntimeEnvironment).filter(
-            RuntimeEnvironment.user_id == current_user.id
-        ).all()
+        user_runtimes = (
+            db.query(RuntimeEnvironment)
+            .filter(RuntimeEnvironment.user_id == current_user.id)
+            .all()
+        )
 
         # Build response with Local-Core as default
         runtimes = [
@@ -116,14 +142,16 @@ async def list_runtime_environments(
 
     except Exception as e:
         logger.error(f"Failed to list runtime environments: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to list runtime environments")
+        raise HTTPException(
+            status_code=500, detail="Failed to list runtime environments"
+        )
 
 
 @router.post("")
 async def create_runtime_environment(
     request: CreateRuntimeEnvironmentRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
     Create a new runtime environment.
@@ -138,16 +166,20 @@ async def create_runtime_environment(
     """
     try:
         # Validate auth configuration
-        if not auth_service.validate_auth_config(request.auth_type, request.auth_config):
+        if not auth_service.validate_auth_config(
+            request.auth_type, request.auth_config
+        ):
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid authentication configuration for auth_type '{request.auth_type}'"
+                detail=f"Invalid authentication configuration for auth_type '{request.auth_type}'",
             )
 
         # Encrypt credentials if provided
         encrypted_auth_config = None
         if request.auth_config:
-            encrypted_auth_config = auth_service.encrypt_credentials(request.auth_config)
+            encrypted_auth_config = auth_service.encrypt_credentials(
+                request.auth_config
+            )
 
         # Create runtime environment
         runtime_id = f"runtime-{uuid.uuid4().hex[:12]}"
@@ -178,14 +210,16 @@ async def create_runtime_environment(
     except Exception as e:
         logger.error(f"Failed to create runtime environment: {e}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create runtime environment")
+        raise HTTPException(
+            status_code=500, detail="Failed to create runtime environment"
+        )
 
 
 @router.get("/{runtime_id}")
 async def get_runtime_environment(
     runtime_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
     Get a specific runtime environment.
@@ -215,15 +249,18 @@ async def get_runtime_environment(
             }
 
         # Get user's runtime environment
-        runtime = db.query(RuntimeEnvironment).filter(
-            RuntimeEnvironment.id == runtime_id,
-            RuntimeEnvironment.user_id == current_user.id
-        ).first()
+        runtime = (
+            db.query(RuntimeEnvironment)
+            .filter(
+                RuntimeEnvironment.id == runtime_id,
+                RuntimeEnvironment.user_id == current_user.id,
+            )
+            .first()
+        )
 
         if not runtime:
             raise HTTPException(
-                status_code=404,
-                detail=f"Runtime environment '{runtime_id}' not found"
+                status_code=404, detail=f"Runtime environment '{runtime_id}' not found"
             )
 
         return runtime.to_dict(include_sensitive=False)
@@ -240,7 +277,7 @@ async def update_runtime_environment(
     runtime_id: str,
     request: UpdateRuntimeEnvironmentRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
     Update a runtime environment.
@@ -259,19 +296,22 @@ async def update_runtime_environment(
         if runtime_id == "local-core":
             raise HTTPException(
                 status_code=400,
-                detail="Cannot update Local-Core runtime (system default)"
+                detail="Cannot update Local-Core runtime (system default)",
             )
 
         # Get user's runtime environment
-        runtime = db.query(RuntimeEnvironment).filter(
-            RuntimeEnvironment.id == runtime_id,
-            RuntimeEnvironment.user_id == current_user.id
-        ).first()
+        runtime = (
+            db.query(RuntimeEnvironment)
+            .filter(
+                RuntimeEnvironment.id == runtime_id,
+                RuntimeEnvironment.user_id == current_user.id,
+            )
+            .first()
+        )
 
         if not runtime:
             raise HTTPException(
-                status_code=404,
-                detail=f"Runtime environment '{runtime_id}' not found"
+                status_code=404, detail=f"Runtime environment '{runtime_id}' not found"
             )
 
         # Update fields
@@ -297,12 +337,16 @@ async def update_runtime_environment(
             runtime.auth_type = request.auth_type
             if request.auth_config is not None:
                 # Validate and encrypt
-                if not auth_service.validate_auth_config(request.auth_type, request.auth_config):
+                if not auth_service.validate_auth_config(
+                    request.auth_type, request.auth_config
+                ):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid authentication configuration for auth_type '{request.auth_type}'"
+                        detail=f"Invalid authentication configuration for auth_type '{request.auth_type}'",
                     )
-                runtime.auth_config = auth_service.encrypt_credentials(request.auth_config)
+                runtime.auth_config = auth_service.encrypt_credentials(
+                    request.auth_config
+                )
 
         db.commit()
         db.refresh(runtime)
@@ -314,14 +358,16 @@ async def update_runtime_environment(
     except Exception as e:
         logger.error(f"Failed to update runtime environment: {e}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to update runtime environment")
+        raise HTTPException(
+            status_code=500, detail="Failed to update runtime environment"
+        )
 
 
 @router.delete("/{runtime_id}")
 async def delete_runtime_environment(
     runtime_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Dict[str, str]:
     """
     Delete a runtime environment.
@@ -339,19 +385,22 @@ async def delete_runtime_environment(
         if runtime_id == "local-core":
             raise HTTPException(
                 status_code=400,
-                detail="Cannot delete Local-Core runtime (system default)"
+                detail="Cannot delete Local-Core runtime (system default)",
             )
 
         # Get user's runtime environment
-        runtime = db.query(RuntimeEnvironment).filter(
-            RuntimeEnvironment.id == runtime_id,
-            RuntimeEnvironment.user_id == current_user.id
-        ).first()
+        runtime = (
+            db.query(RuntimeEnvironment)
+            .filter(
+                RuntimeEnvironment.id == runtime_id,
+                RuntimeEnvironment.user_id == current_user.id,
+            )
+            .first()
+        )
 
         if not runtime:
             raise HTTPException(
-                status_code=404,
-                detail=f"Runtime environment '{runtime_id}' not found"
+                status_code=404, detail=f"Runtime environment '{runtime_id}' not found"
             )
 
         # TODO: Check if runtime is in use by any workspace
@@ -367,5 +416,24 @@ async def delete_runtime_environment(
     except Exception as e:
         logger.error(f"Failed to delete runtime environment: {e}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete runtime environment")
+        raise HTTPException(
+            status_code=500, detail="Failed to delete runtime environment"
+        )
 
+
+@router.post("/discovery/scan", response_model=DiscoveryResult)
+async def scan_runtime(
+    request: DiscoveryScanRequest, current_user: User = Depends(get_current_user)
+):
+    """
+    Scan a local folder for runtime configuration.
+
+    This endpoint helps users automatically configure local runtimes
+    by identifying paths, ports, and metadata from a selected folder.
+    """
+    try:
+        result = discovery_service.scan_folder(request.path, request.runtime_type)
+        return result
+    except Exception as e:
+        logger.error(f"Discovery scan failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Discovery scan failed: {str(e)}")

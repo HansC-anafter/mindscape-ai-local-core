@@ -10,6 +10,8 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
+from app.database.config import get_core_postgres_config
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/unsplash/fingerprints", tags=["unsplash"])
@@ -40,13 +42,7 @@ def get_db_connection():
     try:
         import psycopg2
 
-        postgres_config = {
-            "host": os.getenv("POSTGRES_HOST", "localhost"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-            "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-            "user": os.getenv("POSTGRES_USER", "mindscape"),
-            "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-        }
+        postgres_config = get_core_postgres_config()
 
         return psycopg2.connect(**postgres_config)
     except ImportError:
@@ -236,4 +232,3 @@ async def reset_progress():
         "error": None,
     }
     return {"status": "reset"}
-

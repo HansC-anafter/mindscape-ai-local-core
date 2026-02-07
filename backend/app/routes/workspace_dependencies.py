@@ -46,17 +46,24 @@ def get_intent_pipeline(store: MindscapeStore = Depends(get_store)) -> IntentPip
         # Try to get llm_provider dynamically
         llm_provider = None
         try:
-            from ..shared.llm_provider_helper import get_llm_provider_from_settings, create_llm_provider_manager
+            from ..shared.llm_provider_helper import (
+                get_llm_provider_from_settings,
+                create_llm_provider_manager,
+            )
+
             llm_manager = create_llm_provider_manager()
             llm_provider = get_llm_provider_from_settings(llm_manager)
-            logger.info(f"IntentPipeline: Successfully obtained llm_provider from settings: {type(llm_provider).__name__}")
+            logger.info(
+                f"IntentPipeline: Successfully obtained llm_provider from settings: {type(llm_provider).__name__}"
+            )
         except Exception as e:
-            logger.warning(f"IntentPipeline: Failed to get llm_provider from settings: {e}, will use None", exc_info=True)
+            logger.warning(
+                f"IntentPipeline: Failed to get llm_provider from settings: {e}, will use None",
+                exc_info=True,
+            )
 
         _intent_pipeline = IntentPipeline(
-            llm_provider=llm_provider,
-            store=store,
-            playbook_service=playbook_service
+            llm_provider=llm_provider, store=store, playbook_service=playbook_service
         )
     return _intent_pipeline
 
@@ -69,14 +76,14 @@ def get_playbook_runner() -> PlaybookRunner:
     return _playbook_runner
 
 
-def get_workspace(
+async def get_workspace(
     workspace_id: str = Path(..., description="Workspace ID"),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> Workspace:
     """Get workspace by ID, raise 404 if not found"""
     # Note: Cannot access Request directly in dependency, will log in route handler instead
     logger.debug(f"get_workspace called for workspace_id: {workspace_id}")
-    workspace = store.get_workspace(workspace_id)
+    workspace = await store.get_workspace(workspace_id)
     if not workspace:
         logger.error(f"Workspace not found: {workspace_id}")
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -87,7 +94,7 @@ def get_orchestrator(
     workspace: Workspace = Depends(get_workspace),
     store: MindscapeStore = Depends(get_store),
     intent_pipeline: IntentPipeline = Depends(get_intent_pipeline),
-    playbook_runner: PlaybookRunner = Depends(get_playbook_runner)
+    playbook_runner: PlaybookRunner = Depends(get_playbook_runner),
 ) -> ConversationOrchestrator:
     """Get ConversationOrchestrator with workspace locale"""
     # Get default_locale from workspace, or fallback to system settings
@@ -95,16 +102,23 @@ def get_orchestrator(
         default_locale = workspace.default_locale
     else:
         from ..services.system_settings_store import SystemSettingsStore
+
         settings_store = SystemSettingsStore(db_path=store.db_path)
         language_setting = settings_store.get_setting("default_language")
-        default_locale = language_setting.value if language_setting and language_setting.value else "zh-TW"
-        logger.info(f"Workspace {workspace.id if workspace else 'None'} has no default_locale, using system setting: {default_locale}")
+        default_locale = (
+            language_setting.value
+            if language_setting and language_setting.value
+            else "zh-TW"
+        )
+        logger.info(
+            f"Workspace {workspace.id if workspace else 'None'} has no default_locale, using system setting: {default_locale}"
+        )
 
     return ConversationOrchestrator(
         store=store,
         intent_pipeline=intent_pipeline,
         playbook_runner=playbook_runner,
-        default_locale=default_locale
+        default_locale=default_locale,
     )
 
 
@@ -113,7 +127,9 @@ def get_tasks_store(store: MindscapeStore = Depends(get_store)) -> TasksStore:
     return TasksStore(store.db_path)
 
 
-def get_timeline_items_store(store: MindscapeStore = Depends(get_store)) -> TimelineItemsStore:
+def get_timeline_items_store(
+    store: MindscapeStore = Depends(get_store),
+) -> TimelineItemsStore:
     """Get TimelineItemsStore instance"""
     return TimelineItemsStore(store.db_path)
 
@@ -138,4 +154,3 @@ def get_identity_port_or_default() -> IdentityPort:
     if _identity_port is None:
         _identity_port = LocalIdentityAdapter()
     return _identity_port
-

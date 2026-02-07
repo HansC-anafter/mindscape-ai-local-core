@@ -24,7 +24,6 @@ from ..services.lens.effective_lens_resolver import EffectiveLensResolver
 from ..services.lens.session_override_store import InMemorySessionStore
 from ..services.lens.preset_diff_service import PresetDiffService
 from ..core.deps import get_current_profile_id
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +32,7 @@ router = APIRouter(prefix="/api/v1/mindscape/lens", tags=["lens"])
 # Initialize stores
 def get_graph_store() -> GraphStore:
     """Get graph store instance"""
-    if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-        db_path = '/app/data/mindscape.db'
-    else:
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        data_dir = os.path.join(base_dir, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        db_path = os.path.join(data_dir, "mindscape.db")
-    return GraphStore(db_path)
+    return GraphStore()
 
 
 # Global session store instance (in-memory for now)
@@ -220,9 +212,8 @@ async def get_lens_receipt(
     """Get lens receipt for an execution"""
     from ..services.lens.lens_receipt_store import LensReceiptStore
 
-    store = get_graph_store()
-    receipt_store = LensReceiptStore(store)
-    receipt = receipt_store.get_receipt(execution_id)
+    receipt_store = LensReceiptStore()
+    receipt = receipt_store.get_by_execution_id(execution_id)
 
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")

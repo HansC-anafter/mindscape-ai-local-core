@@ -15,7 +15,6 @@ from ...services.tool_status_checker import ToolStatusChecker
 from ...services.tool_registry import ToolRegistryService
 from ...services.playbook_tool_checker import PlaybookToolChecker
 from ...services.mindscape_store import MindscapeStore
-from ...services.stores.playbook_executions_store import PlaybookExecutionsStore
 from ...services.stores.workspace_pinned_playbooks_store import WorkspacePinnedPlaybooksStore
 import os
 
@@ -25,7 +24,7 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 # Initialize services
 mindscape_store = MindscapeStore()
-executions_store = PlaybookExecutionsStore(mindscape_store.db_path)
+executions_store = mindscape_store.playbook_executions
 pinned_playbooks_store = WorkspacePinnedPlaybooksStore(mindscape_store.db_path)
 
 # Initialize Cloud Extension Manager and register providers

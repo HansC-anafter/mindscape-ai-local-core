@@ -7,12 +7,10 @@ Provides registry API for listing, enabling, and disabling packs.
 Packs are loaded from /packs/*.yaml files or plugin registry.
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Request
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import json
-import sqlite3
-from contextlib import contextmanager
 import os
 from datetime import datetime
 from pathlib import Path
@@ -20,44 +18,13 @@ import tempfile
 import logging
 import yaml
 
+from app.services.stores.installed_packs_store import InstalledPacksStore
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
-# Database helper
-def get_db_path():
-    if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-        return '/app/data/mindscape.db'
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-    data_dir = os.path.join(base_dir, "data")
-    os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, "mindscape.db")
-
-@contextmanager
-def get_connection():
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-def _init_installed_packs_table():
-    """Initialize installed_packs table"""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS installed_packs (
-                pack_id TEXT PRIMARY KEY,
-                installed_at TEXT NOT NULL,
-                enabled BOOLEAN DEFAULT 1,
-                metadata TEXT
-            )
-        ''')
-        conn.commit()
-
-# Initialize table on module load
-_init_installed_packs_table()
+installed_packs_store = InstalledPacksStore()
 
 
 def _load_manifest_file(manifest_path: Path) -> Optional[Dict[str, Any]]:
@@ -163,18 +130,12 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
 
 def _get_installed_pack_ids() -> set:
     """Get set of installed pack IDs from database"""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT pack_id FROM installed_packs WHERE enabled = 1')
-        return {row['pack_id'] for row in cursor.fetchall()}
+    return set(installed_packs_store.list_installed_pack_ids())
 
 
 def _get_enabled_pack_ids() -> set:
     """Get set of enabled pack IDs from database"""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT pack_id FROM installed_packs WHERE enabled = 1')
-        return {row['pack_id'] for row in cursor.fetchall()}
+    return set(installed_packs_store.list_enabled_pack_ids())
 
 
 class PackResponse(BaseModel):
@@ -208,22 +169,12 @@ async def list_packs():
         enabled_ids = _get_enabled_pack_ids()
 
         installed_metadata = {}
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT pack_id, installed_at, metadata FROM installed_packs')
-            for row in cursor.fetchall():
-                import json
-                metadata = {}
-                if row['metadata']:
-                    try:
-                        metadata = json.loads(row['metadata'])
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(f"Failed to parse metadata for pack {row['pack_id']}: {e}")
-                        metadata = {}
-                installed_metadata[row['pack_id']] = {
-                    'installed_at': row['installed_at'],
-                    'version': metadata.get('version', '1.0.0')
-                }
+        for row in installed_packs_store.list_installed_metadata():
+            metadata = row.get("metadata") or {}
+            installed_metadata[row["pack_id"]] = {
+                "installed_at": row.get("installed_at"),
+                "version": metadata.get("version", "1.0.0"),
+            }
 
         packs = []
         for pack_meta in pack_metas:
@@ -295,32 +246,16 @@ async def enable_pack(pack_id: str):
         if not pack_meta:
             raise HTTPException(status_code=404, detail=f"Capability pack '{pack_id}' not found")
 
-        with get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Check if already installed
-            cursor.execute('SELECT pack_id, enabled FROM installed_packs WHERE pack_id = ?', (pack_id,))
-            existing = cursor.fetchone()
-
-            if existing:
-                # Update enabled status
-                cursor.execute('''
-                    UPDATE installed_packs
-                    SET enabled = 1
-                    WHERE pack_id = ?
-                ''', (pack_id,))
-            else:
-                # Install and enable
-                cursor.execute('''
-                    INSERT INTO installed_packs (pack_id, installed_at, enabled, metadata)
-                    VALUES (?, ?, 1, ?)
-                ''', (
-                    pack_id,
-                    datetime.utcnow().isoformat(),
-                    json.dumps(pack_meta)
-                ))
-
-            conn.commit()
+        existing = installed_packs_store.get_pack(pack_id)
+        if existing:
+            installed_packs_store.set_enabled(pack_id, True)
+        else:
+            installed_packs_store.upsert_pack(
+                pack_id=pack_id,
+                installed_at=datetime.utcnow(),
+                enabled=True,
+                metadata=pack_meta,
+            )
 
         return {
             "success": True,
@@ -343,17 +278,9 @@ async def disable_pack(pack_id: str):
     Disables a pack but does not uninstall it. The pack can be re-enabled later.
     """
     try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE installed_packs
-                SET enabled = 0
-                WHERE pack_id = ?
-            ''', (pack_id,))
-            conn.commit()
-
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail=f"Pack '{pack_id}' is not installed")
+        updated = installed_packs_store.set_enabled(pack_id, False)
+        if not updated:
+            raise HTTPException(status_code=404, detail=f"Pack '{pack_id}' is not installed")
 
         return {
             "success": True,
@@ -371,10 +298,7 @@ async def disable_pack(pack_id: str):
 @router.get("/installed", response_model=List[str])
 async def list_installed_packs():
     """List all installed pack IDs"""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT pack_id FROM installed_packs')
-        return [row['pack_id'] for row in cursor.fetchall()]
+    return installed_packs_store.list_installed_pack_ids()
 
 
 @router.get("/enabled", response_model=List[str])
@@ -493,6 +417,7 @@ async def get_capability_ui_components(capability_code: str):
 
 @router.post("/install-from-file", response_model=Dict[str, Any])
 async def install_from_file(
+    fastapi_request: Request,
     file: UploadFile = File(...),
     allow_overwrite: str = Form("false"),
     profile_id: str = Query("default-user", description="User profile ID for role mapping")
@@ -640,6 +565,24 @@ async def install_from_file(
                 logger.warning(f"Failed to reload capability registry: {e}")
                 result.add_warning(f"Failed to reload capability registry: {e}")
 
+            # 8. Hot-reload capability APIs (best-effort)
+            # This avoids requiring a backend restart after installing a new pack.
+            # Note: still respects CAPABILITY_ALLOWLIST if present.
+            try:
+                from app.capabilities.api_loader import load_capability_apis
+
+                allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
+                if allowlist_env:
+                    allowlist = [cap.strip() for cap in allowlist_env.split(",") if cap.strip()]
+                else:
+                    allowlist = None
+
+                load_capability_apis(fastapi_request.app, allowlist=allowlist)
+                logger.info(f"Capability APIs hot-reloaded after installing {capability_code}")
+            except Exception as e:
+                logger.warning(f"Failed to hot-reload capability APIs: {e}", exc_info=True)
+                result.add_warning(f"Failed to hot-reload capability APIs: {e}")
+
             # Convert result format
             if result.has_errors():
                 error_msg = result.errors[0] if result.errors else 'Installation failed'
@@ -679,17 +622,12 @@ async def install_from_file(
                                 'version': result_dict.get('version')
                             }
 
-                    with get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute('''
-                            INSERT OR REPLACE INTO installed_packs (pack_id, installed_at, enabled, metadata)
-                            VALUES (?, ?, 1, ?)
-                        ''', (
-                            capability_id,
-                            datetime.utcnow().isoformat(),
-                            json.dumps(pack_metadata)
-                        ))
-                        conn.commit()
+                    installed_packs_store.upsert_pack(
+                        pack_id=capability_id,
+                        installed_at=datetime.utcnow(),
+                        enabled=True,
+                        metadata=pack_metadata,
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to register pack in database: {e}")
 
@@ -741,6 +679,7 @@ class InstallFromCloudRequest(BaseModel):
 
 @router.post("/install-from-cloud", response_model=Dict[str, Any])
 async def install_from_cloud(
+    fastapi_request: Request,
     request: InstallFromCloudRequest,
     profile_id: str = Query("default-user", description="User profile ID for role mapping")
 ):
@@ -929,6 +868,23 @@ async def install_from_cloud(
                 logger.warning(f"Failed to reload capability registry: {e}")
                 result.add_warning(f"Failed to reload capability registry: {e}")
 
+            # 8. Hot-reload capability APIs (best-effort)
+            # Note: still respects CAPABILITY_ALLOWLIST if present.
+            try:
+                from app.capabilities.api_loader import load_capability_apis
+
+                allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
+                if allowlist_env:
+                    allowlist = [cap.strip() for cap in allowlist_env.split(",") if cap.strip()]
+                else:
+                    allowlist = None
+
+                load_capability_apis(fastapi_request.app, allowlist=allowlist)
+                logger.info(f"Capability APIs hot-reloaded after installing {capability_code} from cloud")
+            except Exception as e:
+                logger.warning(f"Failed to hot-reload capability APIs: {e}", exc_info=True)
+                result.add_warning(f"Failed to hot-reload capability APIs: {e}")
+
             # Check for errors
             if result.has_errors():
                 error_msg = result.errors[0] if result.errors else 'Installation failed'
@@ -960,17 +916,12 @@ async def install_from_cloud(
                                 'version': installed_manifest.get('version', pack_metadata['version'])
                             })
 
-                    with get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute('''
-                            INSERT OR REPLACE INTO installed_packs (pack_id, installed_at, enabled, metadata)
-                            VALUES (?, ?, 1, ?)
-                        ''', (
-                            capability_code,
-                            datetime.utcnow().isoformat(),
-                            json.dumps(pack_metadata)
-                        ))
-                        conn.commit()
+                    installed_packs_store.upsert_pack(
+                        pack_id=capability_code,
+                        installed_at=datetime.utcnow(),
+                        enabled=True,
+                        metadata=pack_metadata,
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to register pack in database: {e}")
 
@@ -1013,4 +964,3 @@ async def install_from_cloud(
             status_code=500,
             detail=f"Cloud installation failed: {str(e)}"
         )
-
