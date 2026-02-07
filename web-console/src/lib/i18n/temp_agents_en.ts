@@ -97,4 +97,5 @@ export const agentsEn = {
   roleLearningCoachTask2: 'Help me design a 4-week learning plan and practice methods',
   roleLearningCoachTask3: 'Help me extract 10 practice points from this content',
   roleLearningCoachTask4: 'Help me review current learning progress and adjust the pace',
+};
 

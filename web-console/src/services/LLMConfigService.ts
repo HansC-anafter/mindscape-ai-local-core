@@ -193,9 +193,15 @@ class LLMConfigService {
     } catch (error: any) {
       clearTimeout(timeoutId);
 
-      if (error.name === 'AbortError' && cached) {
-        console.warn('[LLMConfigService] Request timeout, using cached value');
-        return cached.data;
+      // Handle AbortError gracefully - this is normal when component unmounts
+      if (error.name === 'AbortError') {
+        if (cached) {
+          console.warn('[LLMConfigService] Request aborted, using cached value');
+          return cached.data;
+        }
+        // Silently handle abort when no cache - component is likely unmounting
+        // Don't log as error, just re-throw to let caller handle (useChatModel already handles this)
+        throw error;
       }
 
       console.error('[LLMConfigService] Failed to load chat model:', error);

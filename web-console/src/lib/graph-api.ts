@@ -154,7 +154,7 @@ export function useGraphNodes(params?: {
   if (params?.node_type) queryParams.append('node_type', params.node_type);
   if (params?.is_active !== undefined) queryParams.append('is_active', String(params.is_active));
 
-  const url = `${API_BASE}/api/v1/mindscape/graph/nodes${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  const url = `${API_BASE}/api/v1/mind-lens/graph/nodes${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
   const { data, error, isLoading, mutate } = useSWR<GraphNode[]>(url, fetcher, {
     revalidateOnFocus: false,
@@ -180,7 +180,7 @@ export function useGraphEdges(params?: {
   if (params?.target_node_id) queryParams.append('target_node_id', params.target_node_id);
   if (params?.relation_type) queryParams.append('relation_type', params.relation_type);
 
-  const url = `${API_BASE}/api/v1/mindscape/graph/edges${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  const url = `${API_BASE}/api/v1/mind-lens/graph/edges${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
   const { data, error, isLoading, mutate } = useSWR<GraphEdge[]>(url, fetcher);
 
@@ -198,7 +198,7 @@ export function useFullGraph(workspaceId?: string) {
   queryParams.append('profile_id', 'default-user'); // Add profile_id for v0 MVP
   if (workspaceId) queryParams.append('workspace_id', workspaceId);
 
-  const url = `${API_BASE}/api/v1/mindscape/graph/full?${queryParams.toString()}`;
+  const url = `${API_BASE}/api/v1/mind-lens/graph/full?${queryParams.toString()}`;
 
   const { data, error, isLoading, mutate } = useSWR<{ nodes: GraphNode[]; edges: GraphEdge[] }>(url, fetcher);
 
@@ -224,7 +224,7 @@ export function useActiveLens(workspaceId?: string) {
   const queryParams = new URLSearchParams();
   if (workspaceId) queryParams.append('workspace_id', workspaceId);
 
-  const url = `${API_BASE}/api/v1/mindscape/graph/lens/active${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  const url = `${API_BASE}/api/v1/mind-lens/graph/lens/active${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
   const { data, error, isLoading, mutate } = useSWR<MindLensProfile | null>(url, fetcher);
 
@@ -238,7 +238,7 @@ export function useActiveLens(workspaceId?: string) {
 }
 
 export function useProfileSummary() {
-  const url = `${API_BASE}/api/v1/mindscape/graph/profile-summary`;
+  const url = `${API_BASE}/api/v1/mind-lens/graph/profile-summary`;
 
   const { data, error, isLoading, mutate } = useSWR<ProfileSummary>(url, fetcher);
 
@@ -256,7 +256,7 @@ export function useProfileSummary() {
 // ============================================================================
 
 export async function createNode(node: GraphNodeCreate): Promise<GraphNode> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/nodes`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/nodes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(node),
@@ -271,7 +271,7 @@ export async function createNode(node: GraphNodeCreate): Promise<GraphNode> {
 }
 
 export async function updateNode(nodeId: string, updates: GraphNodeUpdate): Promise<GraphNode> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/nodes/${nodeId}`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/nodes/${nodeId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -286,7 +286,7 @@ export async function updateNode(nodeId: string, updates: GraphNodeUpdate): Prom
 }
 
 export async function deleteNode(nodeId: string, cascade: boolean = false): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/nodes/${nodeId}?cascade=${cascade}`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/nodes/${nodeId}?cascade=${cascade}`, {
     method: 'DELETE',
   });
 
@@ -297,7 +297,7 @@ export async function deleteNode(nodeId: string, cascade: boolean = false): Prom
 }
 
 export async function createEdge(edge: GraphEdgeCreate): Promise<GraphEdge> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/edges`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/edges`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(edge),
@@ -312,7 +312,7 @@ export async function createEdge(edge: GraphEdgeCreate): Promise<GraphEdge> {
 }
 
 export async function deleteEdge(edgeId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/edges/${edgeId}`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/edges/${edgeId}`, {
     method: 'DELETE',
   });
 
@@ -332,7 +332,7 @@ export async function linkNodeToPlaybook(
   linkType: string = 'applies',
 ): Promise<void> {
   const res = await fetch(
-    `${API_BASE}/api/v1/mindscape/graph/nodes/${nodeId}/link-playbook`,
+    `${API_BASE}/api/v1/mind-lens/graph/nodes/${nodeId}/link-playbook`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -351,7 +351,7 @@ export async function linkNodeToPlaybook(
 
 export async function unlinkNodeFromPlaybook(nodeId: string, playbookCode: string): Promise<void> {
   const res = await fetch(
-    `${API_BASE}/api/v1/mindscape/graph/nodes/${nodeId}/link-playbook/${playbookCode}`,
+    `${API_BASE}/api/v1/mind-lens/graph/nodes/${nodeId}/link-playbook/${playbookCode}`,
     {
       method: 'DELETE',
     }
@@ -369,7 +369,7 @@ export async function unlinkNodeFromPlaybook(nodeId: string, playbookCode: strin
 
 export async function bindLensToWorkspace(lensId: string, workspaceId: string): Promise<void> {
   const res = await fetch(
-    `${API_BASE}/api/v1/mindscape/graph/lens/bind-workspace?lens_id=${lensId}&workspace_id=${workspaceId}`,
+    `${API_BASE}/api/v1/mind-lens/graph/lens/bind-workspace?lens_id=${lensId}&workspace_id=${workspaceId}`,
     {
       method: 'POST',
     }
@@ -383,7 +383,7 @@ export async function bindLensToWorkspace(lensId: string, workspaceId: string): 
 
 export async function unbindLensFromWorkspace(workspaceId: string): Promise<void> {
   const res = await fetch(
-    `${API_BASE}/api/v1/mindscape/graph/lens/unbind-workspace/${workspaceId}`,
+    `${API_BASE}/api/v1/mind-lens/graph/lens/unbind-workspace/${workspaceId}`,
     {
       method: 'DELETE',
     }
@@ -396,7 +396,7 @@ export async function unbindLensFromWorkspace(workspaceId: string): Promise<void
 }
 
 export async function createLensProfile(lens: MindLensProfileCreate): Promise<MindLensProfile> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/lens/profiles`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/lens/profiles`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(lens),
@@ -411,7 +411,7 @@ export async function createLensProfile(lens: MindLensProfileCreate): Promise<Mi
 }
 
 export async function initializeGraph(): Promise<{ message: string; node_count: number; nodes: Array<{ id: string; label: string }> }> {
-  const res = await fetch(`${API_BASE}/api/v1/mindscape/graph/initialize`, {
+  const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/initialize`, {
     method: 'POST',
   });
   if (!res.ok) {

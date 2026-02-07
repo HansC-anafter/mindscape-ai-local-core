@@ -70,10 +70,10 @@ export function t(key: MessageKey, params?: Record<string, string>): string {
   // This ensures server-rendered HTML matches client-rendered HTML
   // After mount, components using useLocale() will re-render with the correct locale
   const locale = getLocale();
-  let message = messages[locale]?.[key];
+  let message = (messages[locale] as Record<string, string>)?.[key];
   if (message === undefined) {
     // Fallback to zh-TW if message not found
-    message = messages['zh-TW']?.[key];
+    message = (messages['zh-TW'] as Record<string, string>)?.[key];
   }
   if (message === undefined) {
     return key;
@@ -123,9 +123,9 @@ export function useLocale(): [Locale, (locale: Locale) => void] {
 export function useT() {
   const [locale] = useLocale();
   return React.useCallback((key: MessageKey, params?: Record<string, string>): string => {
-    let message = messages[locale]?.[key];
+    let message = (messages[locale] as Record<string, string>)?.[key];
     if (message === undefined) {
-      message = messages['zh-TW']?.[key];
+      message = (messages['zh-TW'] as Record<string, string>)?.[key];
     }
     if (message === undefined) {
       return key;

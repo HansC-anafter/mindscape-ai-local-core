@@ -62,6 +62,7 @@ export function useChatEvents(
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [autoLoadAttempted, setAutoLoadAttempted] = useState(false);
+  const inFlightRef = useRef(false);
 
   // AbortController for canceling requests on thread switch
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -71,8 +72,9 @@ export function useChatEvents(
       return;
     }
 
-    // Prevent duplicate requests
-    if (!append && loading) {
+    // Prevent duplicate requests without blocking the initial load.
+    // We use a ref (not state) to avoid a race where `loading=true` blocks the first fetch forever.
+    if (!append && inFlightRef.current) {
       return;
     }
 
@@ -83,6 +85,7 @@ export function useChatEvents(
 
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
+    inFlightRef.current = true;
 
     try {
       if (append) {
@@ -104,6 +107,8 @@ export function useChatEvents(
       if (threadId) {
         url.searchParams.set('thread_id', threadId);
       }
+      // 🆕 Add cache-busting parameter to prevent browser from returning stale results
+      url.searchParams.set('_t', Date.now().toString());
 
       const eventsResponse = await fetch(url.toString(), {
         signal: abortControllerRef.current.signal
@@ -140,8 +145,8 @@ export function useChatEvents(
           id: e.id,
           role: e.actor === 'user' ? 'user' : 'assistant',
           content: e.payload?.message || e.payload?.text ||
-                   (e.event_type === 'playbook_step' ? `Playbook step: ${e.payload?.step || ''}` : '') ||
-                   (e.event_type === 'tool_call' ? `Tool: ${e.payload?.tool_fqn || ''}` : ''),
+            (e.event_type === 'playbook_step' ? `Playbook step: ${e.payload?.step || ''}` : '') ||
+            (e.event_type === 'tool_call' ? `Tool: ${e.payload?.tool_fqn || ''}` : ''),
           timestamp: new Date(e.timestamp),
           event_type: e.event_type,
           is_welcome: e.payload?.is_welcome === true,
@@ -155,6 +160,21 @@ export function useChatEvents(
           project_assignment: e.metadata?.project_assignment || undefined,
           _originalEvent: e  // Store original event for metadata access
         }));
+
+      // Debug: Log welcome messages
+      const welcomeMessages = chatMessages.filter(m => m.is_welcome);
+      if (welcomeMessages.length > 0) {
+        console.log(`[useChatEvents] Found ${welcomeMessages.length} welcome message(s):`,
+          welcomeMessages.map(m => ({
+            id: m.id,
+            content: m.content?.substring(0, 50),
+            suggestions: m.suggestions?.length || 0,
+            metadata: (m as any)._originalEvent?.metadata
+          }))
+        );
+      } else {
+        console.log('[useChatEvents] No welcome messages found in events');
+      }
 
       console.log(`[useChatEvents] Filtered to ${chatMessages.length} chat messages`);
 
@@ -173,33 +193,57 @@ export function useChatEvents(
       const welcomeMessage = chatMessages.find(m => m.is_welcome && m.suggestions && m.suggestions.length > 0);
       const hasUserMessages = chatMessages.some(m => m.role === 'user');
 
+      console.log('[useChatEvents] Welcome message check:', {
+        hasWelcomeMessage: !!welcomeMessage,
+        welcomeMessageId: welcomeMessage?.id,
+        welcomeMessageContent: welcomeMessage?.content?.substring(0, 50),
+        hasSuggestions: welcomeMessage?.suggestions?.length || 0,
+        hasUserMessages,
+        threadId,
+        totalMessages: chatMessages.length
+      });
+
       if (welcomeMessage && welcomeMessage.suggestions && !hasUserMessages) {
         // Check if this is a cold start by looking at the original event metadata
         const originalEvent = (welcomeMessage as any)._originalEvent;
         const isColdStart = originalEvent?.metadata?.is_cold_start === true;
 
+        console.log('[useChatEvents] Welcome message details:', {
+          isColdStart,
+          originalEventMetadata: originalEvent?.metadata,
+          suggestions: welcomeMessage.suggestions
+        });
+
         // Only show if it's a cold start and no user messages yet
-        if (isColdStart && !hasUserMessages) {
+        // Fix: Show welcome message if:
+        // 1. is_cold_start is explicitly true, OR
+        // 2. is_cold_start is undefined/null (fallback - assume cold start if no user messages)
+        // This ensures welcome messages are shown even if metadata is missing
+        if ((isColdStart !== false) && !hasUserMessages) {
           // Filter out placeholder / malformed suggestions (e.g. "或許可以開始")
           const cleaned = (welcomeMessage.suggestions || [])
             .map((s: string) => (s || '').trim())
             .filter((s: string) => s.length > 0)
             .filter((s: string) => !/^或許(也)?可以開始/i.test(s) && !/^maybe\s*(we)?\s*can\s*start/i.test(s));
+
+          console.log('[useChatEvents] Setting quick start suggestions:', cleaned);
           setQuickStartSuggestions(cleaned);
         } else {
+          console.log('[useChatEvents] Not showing suggestions - isColdStart:', isColdStart, 'hasUserMessages:', hasUserMessages);
           setQuickStartSuggestions([]);
         }
       } else {
         // Clear suggestions if there are user messages or no welcome message
+        console.log('[useChatEvents] No welcome message or has user messages - clearing suggestions');
         setQuickStartSuggestions([]);
       }
 
       for (const event of eventsData.events || []) {
         if (event.event_type === 'message' &&
-            event.actor === 'user' &&
-            event.payload?.files &&
-            event.payload.files.length > 0 &&
-            event.metadata?.file_analysis) {
+          event.actor === 'user' &&
+          event.payload?.files &&
+          event.payload.files.length > 0 &&
+          event.metadata?.file_analysis) {
           const analysisResult = event.metadata.file_analysis;
           if (analysisResult && analysisResult.collaboration_results) {
             setFileAnalysisResult(analysisResult);
@@ -219,16 +263,33 @@ export function useChatEvents(
       setLoading(false);
       setLoadingMore(false);
       abortControllerRef.current = null;
+      inFlightRef.current = false;
     }
-  }, [workspaceId, apiUrl, threadId, enabled, loading]);
+  }, [workspaceId, apiUrl, threadId, enabled]);
 
   // Load events when threadId or enabled changes
   // Note: If threadId is null/undefined, backend will use default thread
+  // Added debounce to prevent rapid-fire requests during thread switches
   useEffect(() => {
     if (enabled && threadId !== undefined) {
-      loadEvents();
+      // Debounce to avoid race conditions during rapid thread switches
+      const timer = setTimeout(() => {
+        loadEvents();
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [threadId, enabled, loadEvents]);
+
+  // Retry mechanism: if messages fail to load and we have an error, retry once
+  useEffect(() => {
+    if (error && !loading && messages.length === 0 && enabled) {
+      console.log('[useChatEvents] Retrying load after error...');
+      const retryTimer = setTimeout(() => {
+        loadEvents();
+      }, 1000);
+      return () => clearTimeout(retryTimer);
+    }
+  }, [error, loading, messages.length, enabled, loadEvents]);
 
   // Cleanup: abort ongoing requests when component unmounts or threadId changes
   useEffect(() => {

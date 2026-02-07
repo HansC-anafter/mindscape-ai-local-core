@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, useEffect, ReactNode } from 'react';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
+import { useMessageStream } from '@/hooks/useMessageStream';
 import { useExecutionState, ExecutionUIState, PipelineStage, TreeStep } from '@/hooks/useExecutionState';
 import { useCurrentExecution } from '@/hooks/useCurrentExecution';
 import type { CurrentExecution } from '@/components/workspace/CurrentExecutionBar';
@@ -18,6 +19,7 @@ export interface MessagesState {
   loadingMore: boolean;
   loadMore: () => Promise<void>;
   reloadMessages: () => Promise<void>;
+  sseConnected: boolean;  // 🆕 SSE connection status
 
   executionState: ExecutionUIState;
   pipelineStage: PipelineStage | null;
@@ -33,23 +35,28 @@ interface MessagesProviderProps {
   children: ReactNode;
   workspaceId: string;
   apiUrl?: string;
-  threadId?: string | null;  // 🆕 Current thread ID
+  threadId?: string | null;
 }
 
 const MessagesContext = createContext<MessagesState | null>(null);
 
-export function MessagesProvider({ 
-  children, 
-  workspaceId, 
+export function MessagesProvider({
+  children,
+  workspaceId,
   apiUrl = '',
-  threadId  // 🆕
+  threadId
 }: MessagesProviderProps) {
-  const chatEvents = useChatEvents(workspaceId, apiUrl, { threadId });  // 🆕 傳遞 threadId
+  // HTTP-based initial load
+  const chatEvents = useChatEvents(workspaceId, apiUrl, { threadId });
+
+  // 🆕 SSE-based real-time stream
+  const messageStream = useMessageStream(workspaceId, apiUrl, { threadId, enabled: true });
+
   const executionStateHook = useExecutionState(workspaceId, apiUrl);
   const currentExecutionHook = useCurrentExecution(workspaceId, apiUrl);
 
   const {
-    messages,
+    messages: initialMessages,
     setMessages,
     loading: messagesLoading,
     error: messagesError,
@@ -62,6 +69,51 @@ export function MessagesProvider({
     reload: reloadMessages,
   } = chatEvents;
 
+  const {
+    streamedMessages,
+    connected: sseConnected,
+    markManyAsSeen,
+    clearStreamedMessages,
+  } = messageStream;
+
+  // 🆕 Mark initial messages as seen to prevent duplicates from SSE
+  useEffect(() => {
+    if (initialMessages.length > 0) {
+      markManyAsSeen(initialMessages.map(m => m.id));
+    }
+  }, [initialMessages, markManyAsSeen]);
+
+  // 🆕 Clear streamed messages when doing a full reload
+  useEffect(() => {
+    if (messagesLoading) {
+      clearStreamedMessages();
+    }
+  }, [messagesLoading, clearStreamedMessages]);
+
+  // 🆕 Merge initial messages with SSE streamed messages
+  const messages = useMemo(() => {
+    if (streamedMessages.length === 0) {
+      return initialMessages;
+    }
+
+    // Create a Set of existing message IDs for deduplication
+    const existingIds = new Set(initialMessages.map(m => m.id));
+
+    // Add only new messages from SSE stream
+    const newMessages = streamedMessages.filter(m => !existingIds.has(m.id));
+
+    if (newMessages.length === 0) {
+      return initialMessages;
+    }
+
+    console.log(`[MessagesContext] Merging ${newMessages.length} new SSE messages`);
+
+    // Combine and sort by timestamp
+    return [...initialMessages, ...newMessages].sort(
+      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+    );
+  }, [initialMessages, streamedMessages]);
+
   const executionStateHookResult = executionStateHook || {} as ExecutionUIState;
   const {
     executionTree = [],
@@ -69,7 +121,6 @@ export function MessagesProvider({
     ...execState
   } = executionStateHookResult;
 
-  // Ensure executionTree is included in execState for type compatibility
   const executionState: ExecutionUIState = {
     ...execState,
     executionTree: executionTree || [],
@@ -96,6 +147,7 @@ export function MessagesProvider({
       loadingMore,
       loadMore,
       reloadMessages,
+      sseConnected,  // 🆕
 
       executionState,
       pipelineStage: pipelineStage || null,
@@ -118,6 +170,7 @@ export function MessagesProvider({
       loadingMore,
       loadMore,
       reloadMessages,
+      sseConnected,
       execState,
       pipelineStage,
       executionTree,
@@ -138,4 +191,5 @@ export function useMessages() {
   }
   return context;
 }
+
 

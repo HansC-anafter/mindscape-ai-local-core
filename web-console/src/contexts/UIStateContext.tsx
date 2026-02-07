@@ -24,6 +24,8 @@ export interface UIState {
   setIsStreaming: (value: boolean) => void;
   copiedAll: boolean;
   setCopiedAll: (value: boolean) => void;
+  firstChunkReceived: boolean;
+  setFirstChunkReceived: (value: boolean) => void;
   dataPrompt: DataPrompt | null;
   setDataPrompt: (value: DataPrompt | null) => void;
   analyzingFile: boolean;
@@ -39,6 +41,7 @@ export function UIStateProvider({ children }: { children: ReactNode }) {
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [firstChunkReceived, setFirstChunkReceived] = useState(false);
   const [dataPrompt, setDataPrompt] = useState<DataPrompt | null>(null);
   const [analyzingFile, setAnalyzingFile] = useState(false);
   const [duplicateFileToast, setDuplicateFileToast] = useState<DuplicateFileToast | null>(null);
@@ -53,6 +56,8 @@ export function UIStateProvider({ children }: { children: ReactNode }) {
       setIsStreaming,
       copiedAll,
       setCopiedAll,
+      firstChunkReceived,
+      setFirstChunkReceived,
       dataPrompt,
       setDataPrompt,
       analyzingFile,
@@ -60,7 +65,7 @@ export function UIStateProvider({ children }: { children: ReactNode }) {
       duplicateFileToast,
       setDuplicateFileToast,
     }),
-    [input, llmConfigured, isStreaming, copiedAll, dataPrompt, analyzingFile, duplicateFileToast]
+    [input, llmConfigured, isStreaming, firstChunkReceived, copiedAll, dataPrompt, analyzingFile, duplicateFileToast]
   );
 
   return <UIStateContext.Provider value={value}>{children}</UIStateContext.Provider>;

@@ -32,7 +32,8 @@ export function getApiBaseUrl(): string {
 export async function getApiUrl(): Promise<string> {
   // 如果 settingsApi 可用，使用它的动态获取功能
   try {
-    const { getApiUrl: getDynamicApiUrl } = await import('../app/settings/utils/settingsApi');
+    const module = await import('../app/settings/utils/settingsApi') as any;
+    const getDynamicApiUrl = module.getApiUrl;
     return await getDynamicApiUrl();
   } catch {
     // 如果导入失败，回退到同步版本

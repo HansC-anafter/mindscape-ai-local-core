@@ -378,8 +378,11 @@ export function WorkspaceDataProvider({
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
+      // Optimization: use /tasks endpoint (which we patched to strip heavy results)
+      // instead of /executions-with-steps (which returns huge payloads).
+      // This prevents the "Infinite Loading" issue.
       const response = await fetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`,
+        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=100&include_completed=true&task_type=execution`,
         { signal: controller.signal }
       );
 
@@ -391,7 +394,22 @@ export function WorkspaceDataProvider({
 
       const data = await response.json();
       if (mountedRef.current) {
-        setExecutions(data.executions || []);
+        // Map Task to ExecutionSession
+        const mappedExecutions = (data.tasks || []).map((t: any) => ({
+          execution_id: t.id,
+          status: t.status,
+          workspace_id: t.workspace_id,
+          project_id: t.project_id,
+          playbook_code: t.pack_id, // Map pack_id to playbook_code
+          created_at: t.created_at,
+          started_at: t.started_at,
+          completed_at: t.completed_at,
+          current_step_index: 0,
+          total_steps: 0,
+          task: t,
+          steps: [] // Steps are lazy loaded via SSE or detail view
+        }));
+        setExecutions(mappedExecutions);
       }
     } catch (err: any) {
       clearTimeout(timeoutId);

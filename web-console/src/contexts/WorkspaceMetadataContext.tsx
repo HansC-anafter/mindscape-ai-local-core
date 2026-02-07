@@ -18,6 +18,10 @@ export interface WorkspaceMetadataState {
   setCurrentChatModel: (value: string) => void;
   availableChatModels: ChatModel[];
   setAvailableChatModels: (value: ChatModel[]) => void;
+  isFallbackUsed: boolean;
+  setIsFallbackUsed: (value: boolean) => void;
+  preferredAgent: string | null;
+  setPreferredAgent: (value: string | null) => void;
 }
 
 const WorkspaceMetadataContext = createContext<WorkspaceMetadataState | null>(null);
@@ -28,6 +32,8 @@ export function WorkspaceMetadataProvider({ children }: { children: ReactNode })
   const [contextTokenCount, setContextTokenCount] = useState<number | null>(null);
   const [currentChatModel, setCurrentChatModel] = useState('');
   const [availableChatModels, setAvailableChatModels] = useState<ChatModel[]>([]);
+  const [isFallbackUsed, setIsFallbackUsed] = useState(false);
+  const [preferredAgent, setPreferredAgent] = useState<string | null>(null);
 
   const value = useMemo(
     () => ({
@@ -41,8 +47,12 @@ export function WorkspaceMetadataProvider({ children }: { children: ReactNode })
       setCurrentChatModel,
       availableChatModels,
       setAvailableChatModels,
+      isFallbackUsed,
+      setIsFallbackUsed,
+      preferredAgent,
+      setPreferredAgent,
     }),
-    [workspaceTitle, systemHealth, contextTokenCount, currentChatModel, availableChatModels]
+    [workspaceTitle, systemHealth, contextTokenCount, currentChatModel, availableChatModels, isFallbackUsed, preferredAgent]
   );
 
   return (

@@ -123,6 +123,18 @@ export function useSendMessage(
           throw new Error(errorData.detail || `API error: ${response.status}`);
         }
 
+        // New Async Architecture: Handle 202 Accepted (Fire-and-Forget)
+        // The backend processes the chat in the background via SSE
+        // The frontend should receive updates via eventProjector SSE connection
+        if (response.status === 202) {
+          console.log('[useSendMessage] Request accepted for background processing (Async Job Queue)');
+          const data = await response.json();
+          setIsLoading(false);
+          // Note: Message updates should come through SSE, not polling
+          // See eventProjector.ts for SSE handling
+          return { streamed: true, async: true, task_id: data.task_id };
+        }
+
         // Process streaming response
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
@@ -267,8 +279,8 @@ export function useSendMessage(
                       id: s.step_id || s.id || `step-${Math.random().toString(36).substr(2, 9)}`,
                       name: s.intent || s.name || 'Unknown Step',
                       icon: s.artifacts?.[0] === 'pptx' ? '📊' :
-                            s.artifacts?.[0] === 'xlsx' ? '📊' :
-                            s.artifacts?.[0] === 'docx' ? '📝' : '📋',
+                        s.artifacts?.[0] === 'xlsx' ? '📊' :
+                          s.artifacts?.[0] === 'docx' ? '📝' : '📋',
                       status: 'pending' as const
                     };
                     if (process.env.NODE_ENV === 'development') {
@@ -310,7 +322,7 @@ export function useSendMessage(
                     }
                   }));
                 } else if (data.type === 'step_start' || data.type === 'step_progress' ||
-                           data.type === 'step_complete' || data.type === 'step_error') {
+                  data.type === 'step_complete' || data.type === 'step_error') {
                   // Forward step events to execution state
                   window.dispatchEvent(new CustomEvent('execution-event', {
                     detail: data

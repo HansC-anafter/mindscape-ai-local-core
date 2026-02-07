@@ -200,13 +200,13 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           // Map AI team members if present, otherwise keep existing ones for same run
           const aiTeamMembers = (event.plan.ai_team_members && event.plan.ai_team_members.length > 0)
             ? event.plan.ai_team_members.map((m: any) => ({
-                id: m.pack_id || m.id,
-                name: m.name || m.pack_id,
-                name_zh: m.name_zh,
-                role: m.role || '',
-                icon: m.icon || '🤖',
-                status: 'pending' as const
-              }))
+              id: m.pack_id || m.id,
+              name: m.name || m.pack_id,
+              name_zh: m.name_zh,
+              role: m.role || '',
+              icon: m.icon || '🤖',
+              status: 'pending' as const
+            }))
             : (isNewRun ? [] : prev.aiTeamMembers); // Reset for new run, keep for same run
 
           const newState = {
@@ -282,22 +282,24 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         break;
 
       case 'run_started':
-        setState(prev => ({
-          ...prev,
-          currentRunId: event.run_id,
-          pipelineStage: null,
-          aiTeamMembers: [],
-        }));
-        window.dispatchEvent(new CustomEvent('execution-event', {
-          detail: {
-            type: 'execution_started',
-            data: {
-              executionId: event.run_id,
-              playbookCode: prev.trainSteps[0]?.name || '',
-              runNumber: parseInt(event.run_id.split('-').pop() || '1', 10),
+        setState(prev => {
+          window.dispatchEvent(new CustomEvent('execution-event', {
+            detail: {
+              type: 'execution_started',
+              data: {
+                executionId: event.run_id,
+                playbookCode: prev.trainSteps[0]?.name || '',
+                runNumber: parseInt(event.run_id.split('-').pop() || '1', 10),
+              },
             },
-          },
-        }));
+          }));
+          return {
+            ...prev,
+            currentRunId: event.run_id,
+            pipelineStage: null,
+            aiTeamMembers: [],
+          };
+        });
         break;
 
       case 'run_completed':
@@ -573,8 +575,8 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           id: s.step_id || s.id || `step-${Math.random().toString(36).substr(2, 9)}`,
           name: s.intent || s.name || 'Unknown Step',
           icon: s.artifacts?.[0] === 'pptx' ? '📊' :
-                s.artifacts?.[0] === 'xlsx' ? '📊' :
-                s.artifacts?.[0] === 'docx' ? '📝' : '📋',
+            s.artifacts?.[0] === 'xlsx' ? '📊' :
+              s.artifacts?.[0] === 'docx' ? '📝' : '📋',
           status: (s.status as ExecutionStep['status']) || 'pending',
         }));
 
@@ -589,18 +591,32 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
         // Check if there's a running execution to determine status
         // Also collect AI team members from all running and recent playbook executions
+        // Check if there's a running execution to determine status
+        // Also collect AI team members from all running and recent playbook executions
+        // Optimization: Use /tasks instead of /executions-with-steps to avoid huge payloads
         const executionsResponse = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=20&include_steps_for=all`
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=20&task_type=execution`
         );
 
         let isExecuting = false;
         const runningPlaybookCodes = new Set<string>();
         const recentPlaybookCodes = new Set<string>();
+
         if (executionsResponse.ok) {
-          const execData = await executionsResponse.json();
-          const allExecutions = execData.executions || [];
-          const activeExecutions = allExecutions.filter(
-            (e: any) => e.status === 'running'
+          const tasksData = await executionsResponse.json();
+          const tasks = tasksData.tasks || [];
+
+          // Map tasks to execution format locally for status check
+          const allExecutions = tasks.map((t: any) => ({
+            execution_id: t.id,
+            status: t.status,
+            task: t,
+            playbook_code: t.pack_id,
+            steps: []
+          }));
+
+          const activeExecutions = allExecutions.filter((e: any) =>
+            e.status === 'running' || e.status === 'pending' || e.status === 'queued'
           );
 
           // Collect playbook codes from all running executions
@@ -641,8 +657,8 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
                 );
                 if (execStep) {
                   step.status = execStep.status === 'running' ? 'in_progress' :
-                               execStep.status === 'completed' ? 'completed' :
-                               execStep.status === 'failed' ? 'error' : 'pending';
+                    execStep.status === 'completed' ? 'completed' :
+                      execStep.status === 'failed' ? 'error' : 'pending';
                 }
               });
 
@@ -653,8 +669,8 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
                 );
                 if (execStep) {
                   step.status = execStep.status === 'running' ? 'in_progress' :
-                               execStep.status === 'completed' ? 'completed' :
-                               execStep.status === 'failed' ? 'error' : 'pending';
+                    execStep.status === 'completed' ? 'completed' :
+                      execStep.status === 'failed' ? 'error' : 'pending';
                 }
               });
             }
@@ -686,13 +702,13 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         // Restore AI team members from plan payload
         let aiTeamMembers = (planPayload.ai_team_members && planPayload.ai_team_members.length > 0)
           ? planPayload.ai_team_members.map((m: any) => ({
-              id: m.pack_id || m.id,
-              name: m.name || m.pack_id,
-              name_zh: m.name_zh,
-              role: m.role || '',
-              icon: m.icon || '🤖',
-              status: 'pending' as const
-            }))
+            id: m.pack_id || m.id,
+            name: m.name || m.pack_id,
+            name_zh: m.name_zh,
+            role: m.role || '',
+            icon: m.icon || '🤖',
+            status: 'pending' as const
+          }))
           : [];
 
         // Also collect AI team members from all running and recent playbook executions
@@ -725,8 +741,8 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
               }));
 
               // Merge with existing members, avoiding duplicates
-              const existingIds = new Set(aiTeamMembers.map(m => m.id));
-              executionMembers.forEach(member => {
+              const existingIds = new Set(aiTeamMembers.map((m: any) => m.id));
+              executionMembers.forEach((member: any) => {
                 if (!existingIds.has(member.id)) {
                   aiTeamMembers.push(member);
                 }

@@ -62,10 +62,10 @@ export function useKeyboardShortcuts(
       }
     };
 
-    target.addEventListener('keydown', handleKeyDown);
+    target.addEventListener('keydown', handleKeyDown as EventListener);
 
     return () => {
-      target.removeEventListener('keydown', handleKeyDown);
+      target.removeEventListener('keydown', handleKeyDown as EventListener);
     };
   }, [latestHandlers, latestOptions, latestOptions.current?.enabled, latestOptions.current?.target]);
 }
@@ -82,14 +82,14 @@ function getSelectedMessageId(): string | null {
   }
 
   const range = selection.getRangeAt(0);
-  let element = range.commonAncestorContainer;
+  let element: Element | null = range.commonAncestorContainer as Element;
 
   if (element.nodeType !== Node.ELEMENT_NODE) {
-    element = element.parentElement;
+    element = (element as any).parentElement;
   }
 
   while (element && element !== document.body) {
-    const messageId = element.getAttribute('data-message-id');
+    const messageId = element.getAttribute?.('data-message-id');
     if (messageId) {
       return messageId;
     }

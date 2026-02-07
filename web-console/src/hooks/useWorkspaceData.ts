@@ -32,6 +32,7 @@ export function useWorkspaceData(
     setSystemHealth,
     contextTokenCount,
     setContextTokenCount,
+    setPreferredAgent,
   } = useWorkspaceMetadata();
 
   const { messagesLoading } = useMessages();
@@ -60,6 +61,10 @@ export function useWorkspaceData(
       if (response.ok) {
         const data = await response.json();
         setWorkspaceTitle(data.title || data.name || '');
+        // Load preferred_agent if exists
+        if (data.preferred_agent !== undefined) {
+          setPreferredAgent(data.preferred_agent);
+        }
         onWorkspaceLoaded?.(data);
       }
     } catch (err: any) {
@@ -68,7 +73,7 @@ export function useWorkspaceData(
         console.error('Failed to load workspace info:', err);
       }
     }
-  }, [workspaceId, apiUrl, enabled, setWorkspaceTitle, onWorkspaceLoaded]);
+  }, [workspaceId, apiUrl, enabled, setWorkspaceTitle, setPreferredAgent, onWorkspaceLoaded]);
 
   const loadSystemHealth = useCallback(async () => {
     if (!enabled || !workspaceId || !apiUrl) {

@@ -69,10 +69,7 @@ export interface PresetDiff {
   disabled_count?: number;
   enabled_count?: number;
   // Computed properties from backend
-  get strengthened_count(): number;
-  get weakened_count(): number;
-  get disabled_count(): number;
-  get enabled_count(): number;
+
 }
 
 export interface ChangeSet {
@@ -163,7 +160,7 @@ export function useEffectiveLens(params?: {
       isLoading: false,
       isError: false,
       error: null,
-      refresh: () => {},
+      refresh: () => { },
     };
   }
 
@@ -186,7 +183,7 @@ export function useEffectiveLens(params?: {
 }
 
 export function useLensProfiles(profileId: string) {
-  const url = `${API_BASE}/api/v1/mindscape/graph/lens/profiles?profile_id=${profileId}`;
+  const url = `${API_BASE}/api/v1/mind-lens/graph/lens/profiles?profile_id=${profileId}`;
 
   const { data, error, isLoading, mutate } = useSWR<MindLensProfile[]>(url, fetcher);
 

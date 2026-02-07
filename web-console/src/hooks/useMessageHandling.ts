@@ -35,8 +35,8 @@ export function useMessageHandling(
   options?: UseMessageHandlingOptions
 ) {
   const { messages, setMessages } = useMessages();
-  const { input, setInput, isStreaming, setIsStreaming } = useUIState();
-  const { setContextTokenCount } = useWorkspaceMetadata();
+  const { input, setInput, isStreaming, setIsStreaming, firstChunkReceived, setFirstChunkReceived } = useUIState();
+  const { setContextTokenCount, setIsFallbackUsed } = useWorkspaceMetadata();
   const { loadContextTokenCount } = useWorkspaceData(workspaceId, apiUrl, { enabled: false });
   const { scrollToBottom } = useScrollManagement();
   const { sendMessage, isLoading: sendLoading, error: sendError } = useSendMessage(
@@ -62,6 +62,9 @@ export function useMessageHandling(
     if ((!input.trim() && uploadedFiles.length === 0)) {
       return;
     }
+
+    // Reset fallback state on new message
+    setIsFallbackUsed(false);
 
     const currentInput = input.trim();
     const currentFiles = [...uploadedFiles];
@@ -117,20 +120,24 @@ export function useMessageHandling(
 
       let assistantMessageId: string | null = null;
       let accumulatedText = '';
-      let firstChunkReceived = false;
 
       const messageText = currentInput || (currentFiles.length > 0 ? `${t('uploadedFile')}：${currentFiles.map(f => f.name).join(', ')}` : '');
+
+      setFirstChunkReceived(false);
+      setIsStreaming(true);
+
       await sendMessage({
         message: messageText,
         files: fileIds,
         mode: 'auto',
         stream: true,
-        onChunk: (chunk: string) => {
-          if (!firstChunkReceived) {
-            firstChunkReceived = true;
-            setIsStreaming(true);
+        onChunk: (chunk: string, metadata?: any) => {
+          if (!accumulatedText) {
+            setFirstChunkReceived(true);
           }
-
+          if (metadata?.is_fallback) {
+            setIsFallbackUsed(true);
+          }
           accumulatedText += chunk;
           setMessages(prev => {
             const existingIndex = prev.findIndex(m => m.id === assistantMessageId);
@@ -158,6 +165,7 @@ export function useMessageHandling(
         },
         onComplete: (fullText: string, contextTokens?: number) => {
           setIsStreaming(false);
+          setFirstChunkReceived(false);
           if (assistantMessageId) {
             setMessages(prev => prev.map(m =>
               m.id === assistantMessageId

@@ -157,7 +157,6 @@ export const playbooksJa = {
   sourceSystemVersion: 'ソース：システムバージョン v{version}',
   clickExecuteButton: '下の「実行」ボタンをクリックして、このプレイブックの使用を開始してください',
   youDontHavePersonalVersion: 'まだ個人バージョンがありません。LLM に生成を依頼できます：',
-  send: '送信',
   changePreview: '変更プレビュー',
   afterStartingConversation: '会話を開始すると、最適化提案がここに表示されます',
   variantName: 'バリアント名',

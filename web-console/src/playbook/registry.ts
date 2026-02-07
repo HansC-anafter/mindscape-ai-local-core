@@ -63,6 +63,32 @@ export class PlaybookRegistry {
   }
 
   /**
+   * Register a single component for a playbook
+   */
+  registerComponent(
+    playbookCode: string,
+    componentName: string,
+    component: ComponentType<any>
+  ): void {
+    let playbook = this.playbooks.get(playbookCode);
+    if (!playbook) {
+      // Create a minimal playbook package if not exists
+      playbook = {
+        playbookCode,
+        version: '0.0.0', // Default version for dynamically loaded components
+        components: {},
+      };
+      this.playbooks.set(playbookCode, playbook);
+    }
+
+    if (!playbook.components) {
+      playbook.components = {};
+    }
+
+    playbook.components[componentName] = component;
+  }
+
+  /**
    * Get a playbook package by code
    */
   get(playbookCode: string): PlaybookPackage | undefined {

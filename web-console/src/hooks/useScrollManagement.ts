@@ -123,7 +123,7 @@ export function useScrollManagement(options?: ScrollManagementOptions) {
   });
 
   const handleScroll = useMemo(
-    () => debounce((...args: any[]) => handleScrollRef.current(...args), debounceMs),
+    () => debounce(() => handleScrollRef.current(), debounceMs),
     [debounceMs, handleScrollRef]
   );
 
