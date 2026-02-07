@@ -93,7 +93,7 @@ export default function SuggestedNextStepsCard({
       stepIndex,
       stepTitle: step.title,
       stepAction: step.action,
-      params: step.params || step.action_params
+      params: step.params || (step as any).action_params
     });
 
     if (action === 'start_chat') {
@@ -248,7 +248,7 @@ export default function SuggestedNextStepsCard({
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-2 shadow-sm">
       <div className="flex items-center justify-between gap-1 mb-2">
         <div className="flex items-center gap-1">
-          <h3 className="font-semibold text-xs text-gray-900 dark:text-gray-100">{t('suggestedNextSteps')}</h3>
+          <h3 className="font-semibold text-xs text-gray-900 dark:text-gray-100">{t('suggestedNextSteps' as any)}</h3>
           <HelpIcon helpKey="suggestedNextStepsHelp" />
         </div>
         {suggestionHistory && suggestionHistory.length > 0 && (
@@ -256,7 +256,7 @@ export default function SuggestedNextStepsCard({
             onClick={() => setShowHistory(!showHistory)}
             className="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 underline"
           >
-            {showHistory ? t('hideDetails') : `${t('timelineHistory')} (${suggestionHistory.length})`}
+            {showHistory ? t('hideDetails' as any) : `${t('timelineHistory' as any)} (${suggestionHistory.length})`}
           </button>
         )}
       </div>
@@ -276,11 +276,11 @@ export default function SuggestedNextStepsCard({
                     const description = step.description || '';
                     const action = step.action || '';
                     return !title.includes('系統狀態正常') &&
-                           !title.includes('System Status Normal') &&
-                           !description.includes('目前這個工作空間還缺以下設定') &&
-                           !description.includes('目前這個工作空間還缺以下設定：') &&
-                           !action.includes('system_status') &&
-                           !action.includes('system-status');
+                      !title.includes('System Status Normal') &&
+                      !description.includes('目前這個工作空間還缺以下設定') &&
+                      !description.includes('目前這個工作空間還缺以下設定：') &&
+                      !action.includes('system_status') &&
+                      !action.includes('system-status');
                   })
                   .map((step, idx) => (
                     <div
@@ -312,11 +312,11 @@ export default function SuggestedNextStepsCard({
             const description = step.description || '';
             const action = step.action || '';
             return !title.includes('系統狀態正常') &&
-                   !title.includes('System Status Normal') &&
-                   !description.includes('目前這個工作空間還缺以下設定') &&
-                   !description.includes('目前這個工作空間還缺以下設定：') &&
-                   !action.includes('system_status') &&
-                   !action.includes('system-status');
+              !title.includes('System Status Normal') &&
+              !description.includes('目前這個工作空間還缺以下設定') &&
+              !description.includes('目前這個工作空間還缺以下設定：') &&
+              !action.includes('system_status') &&
+              !action.includes('system-status');
           })
           .map((step, idx) => {
             const originalIndex = nextSteps.findIndex(s => s === step);
@@ -326,15 +326,13 @@ export default function SuggestedNextStepsCard({
             return (
               <div
                 key={originalIndex}
-                className={`p-2 rounded border transition-opacity ${
-                  isExecuted ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'
-                } ${
-                  step.priority === 'high'
+                className={`p-2 rounded border transition-opacity ${isExecuted ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'
+                  } ${step.priority === 'high'
                     ? 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20'
                     : step.priority === 'medium'
-                    ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20'
-                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
-                } ${isExecuting ? 'animate-pulse' : ''}`}
+                      ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20'
+                      : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                  } ${isExecuting ? 'animate-pulse' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -348,7 +346,7 @@ export default function SuggestedNextStepsCard({
                           className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-400 dark:border-gray-600 flex-shrink-0 whitespace-nowrap"
                           title={t('llmConfidenceScore', { confidence: step.llm_analysis.confidence.toFixed(2) })}
                         >
-                          {t('confidence')}{step.llm_analysis.confidence.toFixed(2)}
+                          {t('confidence' as any)}{step.llm_analysis.confidence.toFixed(2)}
                         </span>
                       )}
                     </div>
@@ -357,26 +355,24 @@ export default function SuggestedNextStepsCard({
                     </div>
                     {isExecuting && (
                       <div className="text-[9px] text-blue-600 dark:text-blue-400 mt-1">
-                        {t('executing')}
+                        {t('executing' as any)}
                       </div>
                     )}
                   </div>
                   <button
                     onClick={() => handleAction(step.action, step, originalIndex)}
                     disabled={isExecuting}
-                    className={`flex-shrink-0 px-2 py-1 text-[10px] font-medium rounded transition-all ${
-                      isExecuting
+                    className={`flex-shrink-0 px-2 py-1 text-[10px] font-medium rounded transition-all ${isExecuting
                         ? 'opacity-50 cursor-not-allowed'
                         : 'cursor-pointer'
-                    } ${
-                      step.priority === 'high'
+                      } ${step.priority === 'high'
                         ? 'bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
                         : step.priority === 'medium'
-                        ? 'bg-yellow-600 dark:bg-yellow-700 text-white hover:bg-yellow-700 dark:hover:bg-yellow-600'
-                        : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
-                    }`}
+                          ? 'bg-yellow-600 dark:bg-yellow-700 text-white hover:bg-yellow-700 dark:hover:bg-yellow-600'
+                          : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
+                      }`}
                   >
-                    {isExecuting ? t('executing') : t('execute')}
+                    {isExecuting ? t('executing' as any) : t('execute' as any)}
                   </button>
                 </div>
               </div>

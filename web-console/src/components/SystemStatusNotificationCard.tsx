@@ -50,23 +50,23 @@ export default function SystemStatusNotificationCard({
 
       <div className="flex items-center gap-2 mb-2">
         <div className="w-2 h-2 rounded-full bg-green-500"></div>
-        <h3 className="font-semibold text-xs text-gray-900">{t('systemStatusNormal')}</h3>
+        <h3 className="font-semibold text-xs text-gray-900">{t('systemStatusNormal' as any)}</h3>
       </div>
 
       {disconnectedTools.length > 0 && (
         <>
           <div className="text-[10px] text-gray-600 mb-2">
-            {t('workspaceMissingSettings')}
+            {t('workspaceMissingSettings' as any)}
           </div>
           <ul className="space-y-1 mb-3">
             {disconnectedTools.map((tool) => (
               <li key={tool} className="text-xs text-gray-700">
-                • {tool.charAt(0).toUpperCase() + tool.slice(1)} {t('notConnected')}{' '}
+                • {tool.charAt(0).toUpperCase() + tool.slice(1)} {t('notConnected' as any)}{' '}
                 <Link
                   href="/settings"
                   className="text-blue-600 hover:text-blue-800 underline text-[10px]"
                 >
-                  {t('goToSettingsConfigure')}
+                  {t('goToSettingsConfigure' as any)}
                 </Link>
               </li>
             ))}
@@ -79,13 +79,13 @@ export default function SystemStatusNotificationCard({
           href="/settings?tab=llm"
           className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-xs font-medium rounded text-center hover:bg-blue-700 transition-colors"
         >
-          {t('goToSetAPIKey')}
+          {t('goToSetAPIKey' as any)}
         </Link>
         <button
           onClick={() => setDismissed(true)}
           className="flex-1 px-2 py-1.5 bg-gray-200 text-gray-700 text-xs font-medium rounded hover:bg-gray-300 transition-colors"
         >
-          {t('later')}
+          {t('later' as any)}
         </button>
       </div>
 
@@ -94,7 +94,7 @@ export default function SystemStatusNotificationCard({
           <svg className="w-3 h-3 text-green-500" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
           </svg>
-          <span className="text-[10px] text-green-600">{t('allSystemStatusNormal')}</span>
+          <span className="text-[10px] text-green-600">{t('allSystemStatusNormal' as any)}</span>
         </div>
       )}
     </div>

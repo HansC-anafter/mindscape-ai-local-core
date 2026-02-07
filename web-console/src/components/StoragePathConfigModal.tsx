@@ -158,10 +158,10 @@ export default function StoragePathConfigModal({
   if (!isOpen) return null;
 
   const tabs: { id: TabType; label: string }[] = [
-    { id: 'storage', label: t('configureWorkspaceStoragePath') || '配置工作區儲存路徑' },
-    { id: 'results', label: t('expectedArtifacts') || '預期產出類型' },
-    { id: 'resources', label: t('resourceBindings') || '資源綁定' },
-    { id: 'dataSources', label: t('dataSourceOverlaySettings') || '資料來源覆寫' },
+    { id: 'storage', label: t('configureWorkspaceStoragePath' as any) || '配置工作區儲存路徑' },
+    { id: 'results', label: t('expectedArtifacts' as any) || '預期產出類型' },
+    { id: 'resources', label: t('resourceBindings' as any) || '資源綁定' },
+    { id: 'dataSources', label: t('dataSourceOverlaySettings' as any) || '資料來源覆寫' },
   ];
 
   return (
@@ -183,16 +183,16 @@ export default function StoragePathConfigModal({
                   id="workspace-settings-modal-title"
                   className="text-2xl font-semibold text-gray-900 dark:text-gray-100"
                 >
-                  {t('fullSettings') || '完整設置'}
+                  {t('fullSettings' as any) || '完整設置'}
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {t('fullSettingsDescription') || '管理資源綁定、工具覆寫和資料來源覆寫'}
+                  {t('fullSettingsDescription' as any) || '管理資源綁定、工具覆寫和資料來源覆寫'}
                 </p>
               </div>
               <button
                 onClick={onClose}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                aria-label={t('close')}
+                aria-label={t('close' as any)}
               >
                 <svg
                   className="w-6 h-6"
@@ -251,10 +251,10 @@ export default function StoragePathConfigModal({
                 <div className="p-6 space-y-4">
                   <div>
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                      {t('expectedArtifacts') || '預期產出類型'}
+                      {t('expectedArtifacts' as any) || '預期產出類型'}
                     </h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                      {t('expectedArtifactsDescription') || '選擇此 Workspace 預期產出的檔案類型, AI 會優先嘗試產出這些類型的文件。'}
+                      {t('expectedArtifactsDescription' as any) || '選擇此 Workspace 預期產出的檔案類型, AI 會優先嘗試產出這些類型的文件。'}
                     </p>
 
                     <div className="flex flex-wrap gap-2 mb-4">
@@ -281,7 +281,7 @@ export default function StoragePathConfigModal({
                         disabled={savingExecution || !executionSettingsChanged}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                       >
-                        {savingExecution ? t('saving') : t('saveSettings')}
+                        {savingExecution ? t('saving' as any) : t('saveSettings' as any)}
                       </button>
                     </div>
 
@@ -293,7 +293,7 @@ export default function StoragePathConfigModal({
 
                     {executionSuccess && (
                       <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 mt-4">
-                        <p className="text-sm text-green-700 dark:text-green-300">{t('success')}</p>
+                        <p className="text-sm text-green-700 dark:text-green-300">{t('success' as any)}</p>
                       </div>
                     )}
                   </div>
@@ -319,7 +319,7 @@ export default function StoragePathConfigModal({
                 onClick={onClose}
                 className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
               >
-                {t('close')}
+                {t('close' as any)}
               </button>
             </div>
           </div>

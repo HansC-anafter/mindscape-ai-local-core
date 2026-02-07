@@ -161,10 +161,10 @@ export default function IntentPanel({
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {t('intentPanel.title') || 'Intent Panel'}
+              {t('intentPanel.title' as any) || 'Intent Panel'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {t('intentPanel.subtitle') || 'Manage your long-term intents and projects'}
+              {t('intentPanel.subtitle' as any) || 'Manage your long-term intents and projects'}
             </p>
           </div>
           {onClose && (
@@ -185,45 +185,41 @@ export default function IntentPanel({
             <div className="flex gap-2">
               <button
                 onClick={() => setFilter('all')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  filter === 'all'
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'all'
                     ? 'bg-blue-600 text-white dark:bg-blue-700'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                  }`}
               >
-                {t('intentPanel.all') || 'All'}
+                {t('intentPanel.all' as any) || 'All'}
               </button>
               <button
                 onClick={() => setFilter('active')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  filter === 'active'
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'active'
                     ? 'bg-blue-600 text-white dark:bg-blue-700'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                  }`}
               >
-                {t('intentPanel.active') || 'Active'}
+                {t('intentPanel.active' as any) || 'Active'}
               </button>
               <button
                 onClick={() => setFilter('completed')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  filter === 'completed'
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'completed'
                     ? 'bg-blue-600 text-white dark:bg-blue-700'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                  }`}
               >
-                {t('intentPanel.completed') || 'Completed'}
+                {t('intentPanel.completed' as any) || 'Completed'}
               </button>
             </div>
             <div className="flex gap-2 ml-auto">
               <button
                 onClick={() => setGroupBy(groupBy === 'cluster' ? 'none' : 'cluster')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  groupBy === 'cluster'
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${groupBy === 'cluster'
                     ? 'bg-green-600 text-white dark:bg-green-700'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                  }`}
               >
-                {groupBy === 'cluster' ? (t('intentPanel.groupedByCluster') || 'Grouped by Cluster') : (t('intentPanel.groupByCluster') || 'Group by Cluster')}
+                {groupBy === 'cluster' ? (t('intentPanel.groupedByCluster' as any) || 'Grouped by Cluster') : (t('intentPanel.groupByCluster' as any) || 'Group by Cluster')}
               </button>
             </div>
           </div>
@@ -231,7 +227,7 @@ export default function IntentPanel({
           <div className="relative">
             <input
               type="text"
-              placeholder={t('intentPanel.searchPlaceholder') || 'Search intents...'}
+              placeholder={t('intentPanel.searchPlaceholder' as any) || 'Search intents...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full px-4 py-2 pl-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -252,7 +248,7 @@ export default function IntentPanel({
           {loading && (
             <div className="flex items-center justify-center py-12">
               <div className="text-gray-500 dark:text-gray-400">
-                {t('intentPanel.loading') || 'Loading...'}
+                {t('intentPanel.loading' as any) || 'Loading...'}
               </div>
             </div>
           )}
@@ -279,10 +275,10 @@ export default function IntentPanel({
                 />
               </svg>
               <p className="mt-4 text-gray-500 dark:text-gray-400">
-                {t('intentPanel.noIntents') || 'No intent cards found'}
+                {t('intentPanel.noIntents' as any) || 'No intent cards found'}
               </p>
               <p className="mt-2 text-sm text-gray-400 dark:text-gray-500">
-                {t('intentPanel.noIntentsHint') || 'Intent cards will appear here when created'}
+                {t('intentPanel.noIntentsHint' as any) || 'Intent cards will appear here when created'}
               </p>
             </div>
           )}
@@ -295,9 +291,9 @@ export default function IntentPanel({
                   // Filter by search query first
                   const filteredCards = searchQuery
                     ? intentCards.filter(card =>
-                        card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        card.description?.toLowerCase().includes(searchQuery.toLowerCase())
-                      )
+                      card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      card.description?.toLowerCase().includes(searchQuery.toLowerCase())
+                    )
                     : intentCards;
 
                   const clusters: Record<string, IntentCard[]> = {};
@@ -367,7 +363,7 @@ export default function IntentPanel({
                         <div className="space-y-3">
                           <div className="flex items-center gap-2 mb-2">
                             <h4 className="text-md font-semibold text-gray-700 dark:text-gray-300">
-                              {t('intentPanel.unclustered') || 'Unclustered'}
+                              {t('intentPanel.unclustered' as any) || 'Unclustered'}
                             </h4>
                             <span className="text-xs text-gray-500 dark:text-gray-400">
                               ({unclustered.length} {unclustered.length === 1 ? 'intent' : 'intents'})
@@ -393,9 +389,9 @@ export default function IntentPanel({
                 (() => {
                   const filteredCards = searchQuery
                     ? intentCards.filter(card =>
-                        card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        card.description?.toLowerCase().includes(searchQuery.toLowerCase())
-                      )
+                      card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      card.description?.toLowerCase().includes(searchQuery.toLowerCase())
+                    )
                     : intentCards;
 
                   return filteredCards.map((card) => (
@@ -416,10 +412,10 @@ export default function IntentPanel({
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
           <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
             <span>
-              {t('intentPanel.total') || 'Total'}: {intentCards.length} {t('intentPanel.intents') || 'intents'}
+              {t('intentPanel.total' as any) || 'Total'}: {intentCards.length} {t('intentPanel.intents' as any) || 'intents'}
             </span>
             <span>
-              {t('intentPanel.phase0Note') || 'Phase 0: Metrics collection active'}
+              {t('intentPanel.phase0Note' as any) || 'Phase 0: Metrics collection active'}
             </span>
           </div>
         </div>

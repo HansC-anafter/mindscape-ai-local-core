@@ -253,7 +253,7 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
                     : 'bg-surface-secondary hover:bg-surface-accent text-primary'
                 }`}
                 style={{ flexShrink: 0 }}
-                title={copied ? t('copied') : t('copyMessage')}
+                title={copied ? t('copied' as any) : t('copyMessage' as any)}
               >
                 {copied ? (
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

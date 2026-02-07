@@ -81,22 +81,22 @@ export default function MultiAICollaborationCard({
         </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-gray-900 mb-1">
-                  🤝 {t('multiAICollaborationTitle')}
+                  🤝 {t('multiAICollaborationTitle' as any)}
                 </h3>
                 <p className="text-sm text-gray-600 mb-2 break-words">
-                  {t('fileReceived')}：<span className="font-medium break-all">{fileInfo.name}</span>
-                  {fileInfo.pages && `（${fileInfo.pages} ${t('pages')}）`}
+                  {t('fileReceived' as any)}：<span className="font-medium break-all">{fileInfo.name}</span>
+                  {fileInfo.pages && `（${fileInfo.pages} ${t('pages' as any)}）`}
                 </p>
                 <p className="text-xs text-gray-500 break-words">
-                  {t('mainLanguage')}：{fileInfo.language === 'zh-TW' ? t('traditionalChinese') : t('english')} ·
-                  {t('fileLooksLike')} {fileInfo.detected_type === 'proposal' ? t('proposalOrPlan') : fileInfo.detected_type}
+                  {t('mainLanguage' as any)}：{fileInfo.language === 'zh-TW' ? t('traditionalChinese' as any) : t('english' as any)} ·
+                  {t('fileLooksLike' as any)} {fileInfo.detected_type === 'proposal' ? t('proposalOrPlan' as any) : fileInfo.detected_type}
                 </p>
               </div>
       </div>
 
       <div className="space-y-3">
         <p className="text-sm font-medium text-gray-700">
-          {t('aiTeamPreview')}
+          {t('aiTeamPreview' as any)}
         </p>
 
         {/* Semantic Seeds Path */}
@@ -106,16 +106,16 @@ export default function MultiAICollaborationCard({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-lg">🧩</span>
-                  <span className="font-medium text-gray-900">{t('extractHighlightsAndIntent')}</span>
+                  <span className="font-medium text-gray-900">{t('extractHighlightsAndIntent' as any)}</span>
                 </div>
                 {collaborationResults.semantic_seeds.themes && collaborationResults.semantic_seeds.themes.length > 0 && (
                   <div className="text-sm text-gray-600 mb-1 break-words">
-                    {t('mainThemes')}：{collaborationResults.semantic_seeds.themes.join(' / ')}
+                    {t('mainThemes' as any)}：{collaborationResults.semantic_seeds.themes.join(' / ')}
                   </div>
                 )}
                 {collaborationResults.semantic_seeds.intents && collaborationResults.semantic_seeds.intents.length > 0 && (
                   <div className="text-sm text-gray-600 break-words">
-                    {t('possibleLongTermIntent')}：<span className="font-medium">{collaborationResults.semantic_seeds.intents[0]}</span>
+                    {t('possibleLongTermIntent' as any)}：<span className="font-medium">{collaborationResults.semantic_seeds.intents[0]}</span>
                   </div>
                 )}
               </div>
@@ -123,7 +123,7 @@ export default function MultiAICollaborationCard({
                 onClick={() => handlePathSelect('semantic_seeds')}
                 className="ml-3 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap flex-shrink-0"
               >
-                {t('addToMindscape')}
+                {t('addToMindscape' as any)}
               </button>
             </div>
           </div>
@@ -136,13 +136,13 @@ export default function MultiAICollaborationCard({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-lg">🗓</span>
-                  <span className="font-medium text-gray-900">{t('convertToTaskList')}</span>
+                  <span className="font-medium text-gray-900">{t('convertToTaskList' as any)}</span>
                 </div>
                 {collaborationResults.daily_planning.suggested_steps && (
                   <div className="text-sm text-gray-600 break-words">
-                    {t('suggestedSteps')} {collaborationResults.daily_planning.suggested_steps} {t('steps')}{t('comma')}
+                    {t('suggestedSteps' as any)} {collaborationResults.daily_planning.suggested_steps} {t('steps' as any)}{t('comma' as any)}
                     {collaborationResults.daily_planning.today_actions && (
-                      <>{t('todayCanDo')} {collaborationResults.daily_planning.today_actions} {t('items')}</>
+                      <>{t('todayCanDo' as any)} {collaborationResults.daily_planning.today_actions} {t('items' as any)}</>
                     )}
                   </div>
                 )}
@@ -151,7 +151,7 @@ export default function MultiAICollaborationCard({
                 onClick={() => handlePathSelect('daily_planning')}
                 className="ml-3 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap flex-shrink-0"
               >
-                {t('viewTaskList')}
+                {t('viewTaskList' as any)}
               </button>
             </div>
           </div>
@@ -164,11 +164,11 @@ export default function MultiAICollaborationCard({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-lg">✍️</span>
-                  <span className="font-medium text-gray-900">{t('extendToContentDraft')}</span>
+                  <span className="font-medium text-gray-900">{t('extendToContentDraft' as any)}</span>
                 </div>
                 {collaborationResults.content_drafting.suggested_formats && (
                   <div className="text-sm text-gray-600 break-words">
-                    {t('canBecome')}：{collaborationResults.content_drafting.suggested_formats.join(' / ')}
+                    {t('canBecome' as any)}：{collaborationResults.content_drafting.suggested_formats.join(' / ')}
                   </div>
                 )}
               </div>
@@ -177,13 +177,13 @@ export default function MultiAICollaborationCard({
                   onClick={() => handlePathSelect('content_drafting')}
                   className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
                 >
-                  {t('createDraft')} {collaborationResults.content_drafting.suggested_formats?.[0] || ''}
+                  {t('createDraft' as any)} {collaborationResults.content_drafting.suggested_formats?.[0] || ''}
                 </button>
                 <button
                   onClick={() => handlePathSelect('content_drafting')}
                   className="px-3 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors whitespace-nowrap"
                 >
-                  {t('viewSummary')}
+                  {t('viewSummary' as any)}
                 </button>
               </div>
             </div>
@@ -194,7 +194,7 @@ export default function MultiAICollaborationCard({
          !collaborationResults.daily_planning.enabled &&
          !collaborationResults.content_drafting.enabled && (
           <div className="text-sm text-gray-500 text-center py-2">
-            {t('cannotAnalyzeFileType')}
+            {t('cannotAnalyzeFileType' as any)}
           </div>
         )}
       </div>

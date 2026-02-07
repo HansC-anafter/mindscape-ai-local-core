@@ -151,7 +151,7 @@ export default function HelpIcon({ helpKey, className = '' }: HelpIconProps) {
           onClick={() => setIsExpanded(false)}
           className="text-xs text-gray-500 hover:text-gray-700 underline"
         >
-          {t('close') || 'Close'}
+          {t('close' as any) || 'Close'}
         </button>
       </div>
     </>

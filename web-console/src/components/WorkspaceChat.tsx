@@ -302,7 +302,7 @@ function WorkspaceChatContent({
       return result;
     } catch (err: any) {
       console.error('Failed to analyze file:', err);
-      const errorMessage = err.message || t('workspaceFileAnalysisFailed');
+      const errorMessage = err.message || t('workspaceFileAnalysisFailed' as any);
       const errorChatMessage: ChatMessage = {
         id: `file-error-${Date.now()}`,
         role: 'assistant',
@@ -351,7 +351,7 @@ function WorkspaceChatContent({
       console.error('Failed to send message:', err);
 
       // Extract user-friendly error message, preserving URLs
-      let errorMessage = err.message || t('workspaceSendMessageFailed');
+      let errorMessage = err.message || t('workspaceSendMessageFailed' as any);
 
       // Handle specific error types with user-friendly messages, but preserve original message with URLs
       if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('insufficient_quota')) {
@@ -445,7 +445,7 @@ function WorkspaceChatContent({
                   <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                 </div>
-                <span className="text-sm text-secondary dark:text-gray-300">{t('thinking')}</span>
+                <span className="text-sm text-secondary dark:text-gray-300">{t('thinking' as any)}</span>
               </div>
             </div>
           </div>
@@ -461,10 +461,10 @@ function WorkspaceChatContent({
         {fileAnalysisResult && !fileAnalysisResult.collaboration_results && (
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 mb-4">
             <p className="text-sm text-yellow-800 dark:text-yellow-300">
-              {t('workspaceAnalysisNoResults')}
+              {t('workspaceAnalysisNoResults' as any)}
             </p>
             <details className="mt-2">
-              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse') || '查看原始回應'}</summary>
+              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse' as any) || '查看原始回應'}</summary>
               <pre className="text-xs mt-2 overflow-auto text-primary dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
             </details>
           </div>

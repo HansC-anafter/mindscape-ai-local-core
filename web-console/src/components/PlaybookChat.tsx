@@ -65,7 +65,7 @@ export default function PlaybookChat({
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setUserInput('');
+    setUserInput('' as any);
     setIsLoading(true);
     setError(null);
 
@@ -105,7 +105,7 @@ export default function PlaybookChat({
 
     } catch (err: any) {
       console.error('Failed to send message:', err);
-      setError(t('sendMessageFailed'));
+      setError(t('sendMessageFailed' as any));
     } finally {
       setIsLoading(false);
     }
@@ -174,7 +174,7 @@ export default function PlaybookChat({
       <div className="border-t border-gray-200 p-4">
         {isComplete ? (
           <div className="text-center py-4">
-            <p className="text-green-600 font-medium">{t('conversationCompleted')}</p>
+            <p className="text-green-600 font-medium">{t('conversationCompleted' as any)}</p>
           </div>
         ) : (
           <div className="flex gap-2">
@@ -182,7 +182,7 @@ export default function PlaybookChat({
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder={t('enterYourAnswer')}
+              placeholder={t('enterYourAnswer' as any)}
               className="flex-1 resize-none border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={2}
               disabled={isLoading}
@@ -201,7 +201,7 @@ export default function PlaybookChat({
                   : 'bg-blue-600 text-white hover:bg-blue-700'
               }`}
             >
-              {isLoading ? t('sending') : t('send')}
+              {isLoading ? t('sending' as any) : t('send' as any)}
             </button>
           </div>
         )}

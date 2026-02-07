@@ -61,7 +61,7 @@ export function BaseModal({
           <button
             onClick={onClose}
             className="text-secondary dark:text-gray-500 hover:text-primary dark:hover:text-gray-300 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
-            aria-label={t('closeModal')}
+            aria-label={t('closeModal' as any)}
           >
             ×
           </button>

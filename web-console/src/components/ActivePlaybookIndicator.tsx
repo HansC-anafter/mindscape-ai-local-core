@@ -335,7 +335,7 @@ export default function ActivePlaybookIndicator({
       <style dangerouslySetInnerHTML={{ __html: laserScanStyle }} />
       <div className={`flex items-center gap-1.5 leading-tight ${isVisible || showPendingStatus ? 'fade-in-out slide-in opacity-100' : 'opacity-50'}`}>
         <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 whitespace-nowrap leading-tight">
-          {t('activePlaybook')}:
+          {t('activePlaybook' as any)}:
         </span>
         {playbookNames ? (
           <button
@@ -362,7 +362,7 @@ export default function ActivePlaybookIndicator({
           </span>
         ) : (
           <span className="text-xs text-gray-400 italic leading-tight">
-            {t('noActivePlaybook')}
+            {t('noActivePlaybook' as any)}
           </span>
         )}
       </div>

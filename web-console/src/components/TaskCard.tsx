@@ -44,7 +44,7 @@ export default function TaskCard({
         )}
         <div>
           <h3 className="text-lg font-semibold text-gray-900">
-            {isCompleted ? title : `${t('taskLabel')} ${taskNumber}：${title}`}
+            {isCompleted ? title : `${t('taskLabel' as any)} ${taskNumber}：${title}`}
           </h3>
           <p className="text-sm text-gray-600">{subtitle}</p>
         </div>
@@ -54,7 +54,7 @@ export default function TaskCard({
       <div className="mb-4">
         {isCompleted ? (
           completedContent || (
-            <p className="text-sm text-gray-500">{t('taskCompleted')}</p>
+            <p className="text-sm text-gray-500">{t('taskCompleted' as any)}</p>
           )
         ) : (
           <div>

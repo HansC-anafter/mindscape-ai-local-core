@@ -179,7 +179,7 @@ export default function MindscapeAIWorkbench({
           onClick={loadWorkbenchData}
           className="mt-1.5 text-xs text-blue-600 hover:text-blue-800 underline"
         >
-          {t('refresh')}
+          {t('refresh' as any)}
         </button>
       </div>
     );

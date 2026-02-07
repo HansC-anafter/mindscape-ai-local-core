@@ -21,7 +21,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
     e.preventDefault();
 
     if (!identity.trim()) {
-      alert(t('pleaseCompleteFirstQuestion'));
+      alert(t('pleaseCompleteFirstQuestion' as any));
       return;
     }
 
@@ -37,7 +37,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
       onClose();
     } catch (error) {
       console.error('Failed to submit:', error);
-      alert(t('submitFailed'));
+      alert(t('submitFailed' as any));
     } finally {
       setIsSubmitting(false);
     }
@@ -55,11 +55,11 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-gray-900">{t('letAIKnowYou')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900">{t('letAIKnowYou' as any)}</h2>
             <button
               onClick={onClose}
               className="text-gray-500 hover:text-gray-700 text-2xl"
-              aria-label={t('close')}
+              aria-label={t('close' as any)}
             >
               ×
             </button>
@@ -69,7 +69,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
             {/* Question 1 */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('whatAreYouMainlyDoing')}？
+                {t('whatAreYouMainlyDoing' as any)}？
               </label>
               <input
                 type="text"
@@ -84,7 +84,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
             {/* Question 2 */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('whatDoYouWantToSolve')}？<span className="text-gray-400 text-xs ml-1">（{t('optional')}）</span>
+                {t('whatDoYouWantToSolve' as any)}？<span className="text-gray-400 text-xs ml-1">（{t('optional' as any)}）</span>
               </label>
               <input
                 type="text"
@@ -99,7 +99,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
             {/* Question 3 */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('whatAreYouThinking')}？<span className="text-gray-400 text-xs ml-1">（{t('optional')}）</span>
+                {t('whatAreYouThinking' as any)}？<span className="text-gray-400 text-xs ml-1">（{t('optional' as any)}）</span>
               </label>
               <input
                 type="text"
@@ -113,7 +113,7 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
 
             {/* Helper text */}
             <p className="text-sm text-gray-500 mb-6">
-              {t('selfIntroHelperText')}
+              {t('selfIntroHelperText' as any)}
             </p>
 
             {/* Actions */}
@@ -124,14 +124,14 @@ export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntro
                 className="px-6 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 disabled:opacity-50"
                 disabled={isSubmitting}
               >
-                {t('cancel')}
+                {t('cancel' as any)}
               </button>
               <button
                 type="submit"
                 className="px-6 py-2 text-white bg-gray-600 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? t('submitting') : t('completeSetup')}
+                {isSubmitting ? t('submitting' as any) : t('completeSetup' as any)}
               </button>
             </div>
           </form>

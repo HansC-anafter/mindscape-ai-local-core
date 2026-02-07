@@ -31,17 +31,17 @@ export default function OnboardingBanner({
           <div className="flex-1">
             <div className="flex items-center mb-2">
               <span className="text-3xl mr-3">🎉</span>
-              <h2 className="text-xl font-bold text-gray-900">{t('congratulationsFullyActivated')}</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t('congratulationsFullyActivated' as any)}</h2>
             </div>
             <p className="text-gray-700 ml-12">
-              {t('afterTaskCompletion')}
+              {t('afterTaskCompletion' as any)}
             </p>
           </div>
           {onClose && (
             <button
               onClick={onClose}
               className="ml-4 text-gray-500 hover:text-gray-700 text-2xl"
-              aria-label={t('close')}
+              aria-label={t('close' as any)}
             >
               ×
             </button>
@@ -57,14 +57,14 @@ export default function OnboardingBanner({
       <div className="flex items-start mb-2">
         <span className="text-2xl mr-3">🎯</span>
         <div className="flex-1">
-          <h2 className="text-xl font-bold text-gray-900 mb-1">{t('welcomeToMindscape')}</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">{t('welcomeToMindscape' as any)}</h2>
           {task1Completed ? (
-            <p className="text-gray-700 mb-1">{t('mindscapeActivated')}</p>
+            <p className="text-gray-700 mb-1">{t('mindscapeActivated' as any)}</p>
           ) : (
-            <p className="text-gray-700 mb-1">{t('mindscapeNotActivated')}</p>
+            <p className="text-gray-700 mb-1">{t('mindscapeNotActivated' as any)}</p>
           )}
           {!task1Completed && (
-            <p className="text-sm text-gray-600">{t('optionalCalibration')}</p>
+            <p className="text-sm text-gray-600">{t('optionalCalibration' as any)}</p>
           )}
         </div>
       </div>
@@ -73,14 +73,14 @@ export default function OnboardingBanner({
       <div className="ml-11 space-y-2">
         {/* Level 1: Activation Status */}
         <div className="flex items-center space-x-2">
-          <span className="text-sm font-medium text-gray-700 w-28">{t('activationStatus')}</span>
+          <span className="text-sm font-medium text-gray-700 w-28">{t('activationStatus' as any)}</span>
           {task1Completed ? (
             <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium flex items-center">
-              <span className="mr-1">✓</span> {t('activated')}
+              <span className="mr-1">✓</span> {t('activated' as any)}
             </span>
           ) : (
             <span className="px-3 py-1 bg-gray-200 text-gray-600 rounded-full text-sm font-medium">
-              {t('notActivated')}
+              {t('notActivated' as any)}
             </span>
           )}
         </div>
@@ -88,14 +88,14 @@ export default function OnboardingBanner({
         {/* Level 2: Project Calibration */}
         {task1Completed && (
           <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700 w-28">{t('projectCalibrationStatus')}</span>
+            <span className="text-sm font-medium text-gray-700 w-28">{t('projectCalibrationStatus' as any)}</span>
             {task2Completed ? (
               <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium flex items-center">
-                <span className="mr-1">✓</span> {t('activated')}
+                <span className="mr-1">✓</span> {t('activated' as any)}
               </span>
             ) : (
               <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-sm font-medium">
-                {t('notActivated')} (選做)
+                {t('notActivated' as any)} (選做)
               </span>
             )}
           </div>
@@ -104,14 +104,14 @@ export default function OnboardingBanner({
         {/* Level 3: Work Rhythm Calibration */}
         {task1Completed && (
           <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700 w-28">{t('workRhythmCalibrationStatus')}</span>
+            <span className="text-sm font-medium text-gray-700 w-28">{t('workRhythmCalibrationStatus' as any)}</span>
             {task3Completed ? (
               <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium flex items-center">
-                <span className="mr-1">✓</span> {t('activated')}
+                <span className="mr-1">✓</span> {t('activated' as any)}
               </span>
             ) : (
               <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-sm font-medium">
-                {t('notActivated')} (選做)
+                {t('notActivated' as any)} (選做)
               </span>
             )}
           </div>
@@ -119,7 +119,7 @@ export default function OnboardingBanner({
 
         {task1Completed && (
           <p className="text-sm text-gray-600 mt-2">
-            {t('afterCompletionMindscapeWillOrganize')}
+            {t('afterCompletionMindscapeWillOrganize' as any)}
           </p>
         )}
       </div>

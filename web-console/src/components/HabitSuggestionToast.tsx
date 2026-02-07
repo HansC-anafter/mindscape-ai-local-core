@@ -82,7 +82,7 @@ export default function HabitSuggestionToast({
       onConfirm?.(candidate.candidate.id);
       
       // 顯示成功訊息
-      alert(t('habitConfirmSuccess'));
+      alert(t('habitConfirmSuccess' as any));
     } catch (error: any) {
       alert(`確認失敗：${error.message}`);
     } finally {
@@ -114,7 +114,7 @@ export default function HabitSuggestionToast({
       onReject?.(candidate.candidate.id);
       
       // 顯示成功訊息
-      alert(t('habitRejectSuccess'));
+      alert(t('habitRejectSuccess' as any));
     } catch (error: any) {
       alert(`拒絕失敗：${error.message}`);
     } finally {
@@ -153,7 +153,7 @@ export default function HabitSuggestionToast({
   }
 
   const habitKeyDisplay: Record<string, string> = {
-    language: t('language') || '語言',
+    language: t('language' as any) || '語言',
     communication_style: '溝通風格',
     response_length: '回應長度',
     preferred_agent_type: '偏好的 Agent 類型',
@@ -177,7 +177,7 @@ export default function HabitSuggestionToast({
           <div className="flex items-center space-x-2">
             <span className="text-2xl">💡</span>
             <h3 className="text-lg font-semibold text-gray-900">
-              {t('habitSuggestions')}
+              {t('habitSuggestions' as any)}
             </h3>
           </div>
           <button
@@ -210,14 +210,14 @@ export default function HabitSuggestionToast({
             disabled={loading}
             className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
-            {t('rejectHabit')}
+            {t('rejectHabit' as any)}
           </button>
           <button
             onClick={handleConfirm}
             disabled={loading}
             className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? t('submitting') : t('confirmHabit')}
+            {loading ? t('submitting' as any) : t('confirmHabit' as any)}
           </button>
         </div>
 

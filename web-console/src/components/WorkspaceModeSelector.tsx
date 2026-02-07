@@ -19,27 +19,27 @@ export default function WorkspaceModeSelector({
   const modes: Array<{ value: WorkspaceMode; label: string; icon: string; description: string }> = [
     {
       value: 'research',
-      label: t('modeResearch'),
+      label: t('modeResearch' as any),
       icon: '🔬',
-      description: t('modeResearchDescription')
+      description: t('modeResearchDescription' as any)
     },
     {
       value: 'publishing',
-      label: t('modePublishing'),
+      label: t('modePublishing' as any),
       icon: '✍️',
-      description: t('modePublishingDescription')
+      description: t('modePublishingDescription' as any)
     },
     {
       value: 'planning',
-      label: t('modePlanning'),
+      label: t('modePlanning' as any),
       icon: '🗓',
-      description: t('modePlanningDescription')
+      description: t('modePlanningDescription' as any)
     }
   ];
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs font-medium text-gray-700">{t('workspaceMode')}:</span>
+      <span className="text-xs font-medium text-gray-700">{t('workspaceMode' as any)}:</span>
       <div className="flex gap-1.5">
         {modes.map((mode) => (
           <button
@@ -70,9 +70,9 @@ export default function WorkspaceModeSelector({
               bg-gray-100 text-gray-600 hover:bg-gray-200
               ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
             `}
-            title={t('clearMode')}
+            title={t('clearMode' as any)}
           >
-            {t('clear')}
+            {t('clear' as any)}
           </button>
         )}
       </div>

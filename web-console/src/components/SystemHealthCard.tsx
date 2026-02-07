@@ -54,14 +54,14 @@ export default function SystemHealthCard({
             health.overall_status === 'healthy' ? 'bg-green-500' : 'bg-yellow-500'
           }`} />
           <h3 className="font-semibold text-gray-900">
-            {health.overall_status === 'healthy' ? t('systemHealthNormal') : t('systemHealthStatus')}
+            {health.overall_status === 'healthy' ? t('systemHealthNormal' as any) : t('systemHealthStatus' as any)}
           </h3>
         </div>
         {onDismiss && (
           <button
             onClick={onDismiss}
             className="text-gray-400 hover:text-gray-600 transition-colors"
-            aria-label={t('close')}
+            aria-label={t('close' as any)}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -72,7 +72,7 @@ export default function SystemHealthCard({
 
       {errorIssues.length > 0 && (
         <div className="mb-3">
-          <div className="text-sm font-medium text-red-700 mb-2">{t('needsImmediateAction')}</div>
+          <div className="text-sm font-medium text-red-700 mb-2">{t('needsImmediateAction' as any)}</div>
           <ul className="space-y-2">
             {errorIssues.map((issue, idx) => (
               <li key={idx} className="flex items-start gap-2">
@@ -86,7 +86,7 @@ export default function SystemHealthCard({
                       href={issue.action_url}
                       className="text-xs text-blue-600 hover:text-blue-800 underline mt-1 inline-block"
                     >
-                      {t('goToSettings')} →
+                      {t('goToSettings' as any)} →
                     </Link>
                   )}
                 </div>
@@ -98,7 +98,7 @@ export default function SystemHealthCard({
 
       {warningIssues.length > 0 && (
         <div className="mb-3">
-          <div className="text-sm font-medium text-yellow-700 mb-2">{t('recommendedAction')}</div>
+          <div className="text-sm font-medium text-yellow-700 mb-2">{t('recommendedAction' as any)}</div>
           <ul className="space-y-2">
             {warningIssues.map((issue, idx) => (
               <li key={idx} className="flex items-start gap-2">
@@ -112,7 +112,7 @@ export default function SystemHealthCard({
                       href={issue.action_url}
                       className="text-xs text-blue-600 hover:text-blue-800 underline mt-1 inline-block"
                     >
-                      {t('viewDetails')} →
+                      {t('viewDetails' as any)} →
                     </Link>
                   )}
                 </div>
@@ -124,7 +124,7 @@ export default function SystemHealthCard({
 
       {infoIssues.length > 0 && errorIssues.length === 0 && warningIssues.length === 0 && (
         <div className="text-sm text-gray-600">
-          <p className="mb-2">{t('systemHealthMissingConfig')}</p>
+          <p className="mb-2">{t('systemHealthMissingConfig' as any)}</p>
           <ul className="space-y-1 list-disc list-inside">
             {infoIssues.map((issue, idx) => (
               <li key={idx}>
@@ -134,7 +134,7 @@ export default function SystemHealthCard({
                     href={issue.action_url}
                     className="text-blue-600 hover:text-blue-800 underline ml-1"
                   >
-                    {t('goToSettings')}
+                    {t('goToSettings' as any)}
                   </Link>
                 )}
               </li>
@@ -145,13 +145,13 @@ export default function SystemHealthCard({
               href="/settings?tab=llm"
               className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
             >
-              {t('configureApiKey')}
+              {t('configureApiKey' as any)}
             </Link>
             <button
               onClick={onDismiss}
               className="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors"
             >
-              {t('later')}
+              {t('later' as any)}
             </button>
           </div>
         </div>
@@ -159,7 +159,7 @@ export default function SystemHealthCard({
 
       {health.overall_status === 'healthy' && (
         <div className="text-sm text-green-700">
-          <p>{t('allSystemsNormal')}</p>
+          <p>{t('allSystemsNormal' as any)}</p>
         </div>
       )}
     </div>
