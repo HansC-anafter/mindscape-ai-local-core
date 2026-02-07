@@ -67,6 +67,23 @@ class ToolSlotResolver:
             store = MindscapeStore()
         self.store = store
 
+    def _is_registered_capability_tool(self, tool_id: str) -> bool:
+        """
+        Check if a tool_id is available via the capability registry.
+
+        This supports the "system-level default mapping" behavior for capability tools:
+        if a capability pack is installed and registers `capability.tool_name`, we can
+        treat the slot as already-resolved (unless an explicit mapping overrides it).
+        """
+        try:
+            # Local import to avoid import cycles during app bootstrap.
+            from backend.app.capabilities.registry import get_registry
+
+            reg = get_registry()
+            return bool(reg.get_tool(tool_id))
+        except Exception:
+            return False
+
     async def resolve(
         self,
         slot: str,
@@ -106,7 +123,11 @@ class ToolSlotResolver:
                     return tool_id
 
             # Try system-level default mapping (future: could come from playbook metadata)
-            # For now, system defaults are not implemented
+            # Implement a safe default for installed capability tools:
+            # if the slot itself is a registered capability tool_id, use it directly.
+            if self._is_registered_capability_tool(slot):
+                logger.info(f"Slot '{slot}' is a registered capability tool, using as-is")
+                return slot
 
             # If slot looks like a concrete tool ID, return it as-is (backward compatibility)
             if self._looks_like_tool_id(slot):
@@ -220,12 +241,16 @@ class ToolSlotResolver:
         if '-' in parts[0]:
             return True
 
-        # Heuristic: if it has exactly 2 parts, check patterns
+        # Heuristic: if it has exactly 2 parts, check if tool is registered in registry
         if len(parts) == 2:
-            # Known capability patterns (e.g., 'core_files.ocr_pdf')
-            known_capabilities = ['core_files', 'filesystem', 'capability']
-            if parts[0] in known_capabilities:
-                return True
+            # Check if this tool_id is registered in MindscapeTool registry
+            try:
+                from backend.app.services.tools.registry import get_mindscape_tool
+                tool = get_mindscape_tool(slot)
+                if tool is not None:
+                    return True
+            except Exception:
+                pass  # Tool not found in registry, continue with other heuristics
 
             # Known tool types (e.g., 'connection.wordpress')
             known_tool_types = ['wordpress', 'canva', 'slack', 'github', 'airtable', 'google_sheets', 'notion', 'mcp']

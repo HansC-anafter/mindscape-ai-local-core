@@ -45,7 +45,7 @@ class WorkspaceSeedService:
         workspace_id: str,
         seed_type: str,  # "text" | "file" | "urls"
         payload: Any,
-        locale: str = "zh-TW"
+        locale: str = "zh-TW",
     ) -> Dict[str, Any]:
         """
         Process seed and generate digest
@@ -73,18 +73,16 @@ class WorkspaceSeedService:
         # 2. LLM generate digest (no embedding needed)
         # Important: must pass seed_type, otherwise URL "no hallucination" rule will fail
         # Important: _generate_digest() must receive seed_type parameter, otherwise URL rule will fail
-        digest = await self._generate_digest(text_content, locale, workspace_id, seed_type=seed_type)
+        digest = await self._generate_digest(
+            text_content, locale, workspace_id, seed_type=seed_type
+        )
 
         # 3. Apply to workspace_blueprint
         await self._apply_to_blueprint(workspace_id, digest, seed_type=seed_type)
 
         return digest
 
-    async def _extract_text(
-        self,
-        seed_type: str,
-        payload: Any
-    ) -> str:
+    async def _extract_text(self, seed_type: str, payload: Any) -> str:
         """Extract readable text from seed"""
         if seed_type == "text":
             return payload  # Use directly
@@ -98,12 +96,13 @@ class WorkspaceSeedService:
             # Then feed to document_processor for chunking (if needed)
             # Important: chunking's content parameter must be extracted text content, not original payload
             from backend.app.services.document_processor import (
-                chunk_document_to_objects
+                chunk_document_to_objects,
             )
+
             chunks = chunk_document_to_objects(
                 content=text_content,  # Correct: use extracted text content
                 max_chunk_size=100000,
-                strategy="paragraph"
+                strategy="paragraph",
             )
             return "\n\n".join([chunk.content for chunk in chunks])
 
@@ -111,12 +110,11 @@ class WorkspaceSeedService:
             # Key rule: only store link + note, don't fetch webpage content
             # Important: URLs seed's prompt must explicitly tell LLM "don't hallucinate content"
             # This rule is implemented in _generate_digest()
-            return "\n".join([f"{item['url']}: {item.get('note', '')}" for item in payload])
+            return "\n".join(
+                [f"{item['url']}: {item.get('note', '')}" for item in payload]
+            )
 
-    async def _extract_text_from_file(
-        self,
-        payload: Any
-    ) -> str:
+    async def _extract_text_from_file(self, payload: Any) -> str:
         """
         Extract text from file (handles base64/UploadFile/path)
 
@@ -129,14 +127,16 @@ class WorkspaceSeedService:
         # Handle base64 / UploadFile / file path
         # Do OCR if necessary
         # Return plain text content
-        raise NotImplementedError("File extraction not yet implemented. MFR v0 only supports text seed.")
+        raise NotImplementedError(
+            "File extraction not yet implemented. MFR v0 only supports text seed."
+        )
 
     async def _generate_digest(
         self,
         text_content: str,
         locale: str,
         workspace_id: str,
-        seed_type: str = "text"  # Important: must receive seed_type parameter
+        seed_type: str = "text",  # Important: must receive seed_type parameter
     ) -> Dict[str, Any]:
         """
         Generate seed digest using LLM (no embedding)
@@ -146,7 +146,7 @@ class WorkspaceSeedService:
         Important: embedding can be done in "subsequent events (after output completion/user clicks save to knowledge base)"
         """
         # Get workspace to get profile_id
-        workspace = self.workspaces_store.get_workspace(workspace_id)
+        workspace = await self.workspaces_store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -155,7 +155,7 @@ class WorkspaceSeedService:
         # Get LLM provider
         from backend.app.shared.llm_provider_helper import (
             create_llm_provider_manager,
-            get_llm_provider_from_settings
+            get_llm_provider_from_settings,
         )
         from backend.app.services.config_store import ConfigStore
         from backend.app.services.system_settings_store import SystemSettingsStore
@@ -170,7 +170,7 @@ class WorkspaceSeedService:
             anthropic_key=config.agent_backend.anthropic_api_key,
             vertex_api_key=config.agent_backend.vertex_api_key,
             vertex_project_id=config.agent_backend.vertex_project_id,
-            vertex_location=config.agent_backend.vertex_location
+            vertex_location=config.agent_backend.vertex_location,
         )
 
         try:
@@ -225,7 +225,7 @@ Please generate a structured digest according to the schema description.
                 text=full_text,
                 schema_description=schema_description,
                 llm_provider=llm_provider,
-                target_language=locale
+                target_language=locale,
             )
 
             extracted_data = result.get("extracted_data", {})
@@ -240,9 +240,7 @@ Please generate a structured digest according to the schema description.
             return self._generate_fallback_digest(text_content, seed_type)
 
     def _generate_fallback_digest(
-        self,
-        text_content: str,
-        seed_type: str
+        self, text_content: str, seed_type: str
     ) -> Dict[str, Any]:
         """Generate fallback digest when LLM is not available"""
         return {
@@ -253,31 +251,31 @@ Please generate a structured digest according to the schema description.
                 "Review workspace configuration",
                 "Add initial intents",
                 "Configure AI team",
-                "Select playbooks"
+                "Select playbooks",
             ],
             "intents": [
                 {
                     "title": "Initial Setup",
                     "description": "Complete workspace configuration",
-                    "priority": "high"
+                    "priority": "high",
                 }
             ],
             "starter_kit_type": "custom",
-            "first_playbook": "daily_planning"
+            "first_playbook": "daily_planning",
         }
 
     async def _apply_to_blueprint(
         self,
         workspace_id: str,
         digest: Dict[str, Any],
-        seed_type: str = "text"  # Pass seed_type for event recording
+        seed_type: str = "text",  # Pass seed_type for event recording
     ):
         """
         Apply digest to workspace blueprint
 
         Important: define "minimum write set" to avoid scattered logic
         """
-        workspace = self.workspaces_store.get_workspace(workspace_id)
+        workspace = await self.workspaces_store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -296,7 +294,7 @@ Please generate a structured digest according to the schema description.
             goals = WorkspaceGoals(
                 primary_goals=[digest["brief"][:100]],  # Simplified
                 out_of_scope=digest.get("unknowns", [])[:3],
-                success_criteria=digest.get("next_actions", [])[:3]
+                success_criteria=digest.get("next_actions", [])[:3],
             )
 
         blueprint = WorkspaceBlueprint(
@@ -310,15 +308,15 @@ Please generate a structured digest according to the schema description.
             seed_digest={
                 "facts": digest.get("facts", []),
                 "unknowns": digest.get("unknowns", []),
-                "next_actions": digest.get("next_actions", [])
-            }
+                "next_actions": digest.get("next_actions", []),
+            },
         )
 
         # Update workspace
         workspace.workspace_blueprint = blueprint
         workspace.launch_status = LaunchStatus.READY
         workspace.starter_kit_type = digest.get("starter_kit_type")
-        self.workspaces_store.update_workspace(workspace)
+        await self.workspaces_store.update_workspace(workspace)
 
         # Create intents
         profile_id = workspace.owner_user_id
@@ -341,12 +339,13 @@ Please generate a structured digest according to the schema description.
                 due_date=None,
                 parent_intent_id=None,
                 child_intent_ids=[],
-                metadata={"workspace_id": workspace_id}
+                metadata={"workspace_id": workspace_id},
             )
             self.intents_store.create_intent(intent)
 
         # Create mind_event for "seed_applied"
         from backend.app.models.mindscape import MindEvent, EventType, EventActor
+
         event = MindEvent(
             id=str(uuid.uuid4()),
             profile_id=profile_id,
@@ -357,12 +356,13 @@ Please generate a structured digest according to the schema description.
             payload={
                 "seed_type": seed_type,
                 "digest": digest,
-                "source": "workspace_seed_service"
+                "source": "workspace_seed_service",
             },
             timestamp=datetime.utcnow(),
-            metadata={"source": "workspace_seed_service", "action": "seed_applied"}
+            metadata={"source": "workspace_seed_service", "action": "seed_applied"},
         )
         self.events_store.create_event(event, generate_embedding=False)
 
-        logger.info(f"Applied seed digest to workspace {workspace_id}, created {len(digest.get('intents', []))} intents")
-
+        logger.info(
+            f"Applied seed digest to workspace {workspace_id}, created {len(digest.get('intents', []))} intents"
+        )

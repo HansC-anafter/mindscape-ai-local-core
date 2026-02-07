@@ -24,7 +24,6 @@ from ..models.workspace import WorkspaceType
 from ..dependencies.auth import AuthContext
 from ..utils.scope import ParsedScope
 from ..services.mindscape_store import MindscapeStore
-from ..services.stores.playbook_executions_store import PlaybookExecutionsStore
 from ..services.stores.tasks_store import TasksStore
 from .dashboard_mappings import (
     map_execution_to_case,
@@ -47,7 +46,7 @@ class DashboardAggregator:
 
     def __init__(self, store: MindscapeStore):
         self.store = store
-        self.executions_store = PlaybookExecutionsStore(store.db_path)
+        self.executions_store = store.playbook_executions
         self.tasks_store = TasksStore(store.db_path)
 
     async def get_summary(
@@ -77,7 +76,11 @@ class DashboardAggregator:
         warnings = effective_scope.warnings.copy()
 
         return DashboardSummaryDTO(
-            scope=f"{effective_scope.type}:{effective_scope.id}" if effective_scope.id else effective_scope.type,
+            scope=(
+                f"{effective_scope.type}:{effective_scope.id}"
+                if effective_scope.id
+                else effective_scope.type
+            ),
             counts=counts,
             recent_activity_at=datetime.utcnow(),
             needs_setup=needs_setup,
@@ -124,7 +127,7 @@ class DashboardAggregator:
 
         # 4. Pagination
         total = len(items)
-        items = items[query.offset:query.offset + query.limit]
+        items = items[query.offset : query.offset + query.limit]
 
         # Collect warnings about unsupported inbox types
         # NOTE: Local-Core does not generate items for these types:
@@ -162,11 +165,13 @@ class DashboardAggregator:
         cases: List[CaseCardDTO] = []
 
         for ws_id in workspace_ids:
-            workspace = self.store.get_workspace(ws_id)
+            workspace = await self.store.get_workspace(ws_id)
             if not workspace:
                 continue
 
-            executions = self.executions_store.list_executions_by_workspace(ws_id, limit=100)
+            executions = self.executions_store.list_executions_by_workspace(
+                ws_id, limit=100
+            )
             tasks_by_exec = self._group_tasks_by_execution(ws_id)
 
             for exec in executions:
@@ -180,13 +185,15 @@ class DashboardAggregator:
                 cases.append(CaseCardDTO(**case_data))
 
         # Sort: blocked > open, updated_at desc
-        cases.sort(key=lambda c: (
-            0 if c.status == "blocked" else 1,
-            -c.updated_at.timestamp() if c.updated_at else 0,
-        ))
+        cases.sort(
+            key=lambda c: (
+                0 if c.status == "blocked" else 1,
+                -c.updated_at.timestamp() if c.updated_at else 0,
+            )
+        )
 
         total = len(cases)
-        cases = cases[query.offset:query.offset + query.limit]
+        cases = cases[query.offset : query.offset + query.limit]
 
         return PaginatedResponse(
             items=cases,
@@ -208,7 +215,7 @@ class DashboardAggregator:
         assignments: List[AssignmentCardDTO] = []
 
         for ws_id in workspace_ids:
-            workspace = self.store.get_workspace(ws_id)
+            workspace = await self.store.get_workspace(ws_id)
             if not workspace:
                 continue
 
@@ -223,13 +230,15 @@ class DashboardAggregator:
                 assignments.append(AssignmentCardDTO(**assignment_data))
 
         # Sort: pending first, created_at desc
-        assignments.sort(key=lambda a: (
-            0 if a.status == "pending" else 1,
-            -a.created_at.timestamp() if a.created_at else 0,
-        ))
+        assignments.sort(
+            key=lambda a: (
+                0 if a.status == "pending" else 1,
+                -a.created_at.timestamp() if a.created_at else 0,
+            )
+        )
 
         total = len(assignments)
-        assignments = assignments[query.offset:query.offset + query.limit]
+        assignments = assignments[query.offset : query.offset + query.limit]
 
         return PaginatedResponse(
             items=assignments,
@@ -237,10 +246,15 @@ class DashboardAggregator:
             limit=query.limit,
             offset=query.offset,
             has_more=query.offset + len(assignments) < total,
-            warnings=effective_scope.warnings + [
-                "review_status not supported in Local-Core",
-                "due_at not supported in Local-Core",
-            ] if assignments else effective_scope.warnings,
+            warnings=(
+                effective_scope.warnings
+                + [
+                    "review_status not supported in Local-Core",
+                    "due_at not supported in Local-Core",
+                ]
+                if assignments
+                else effective_scope.warnings
+            ),
         )
 
     # ==================== Private Methods ====================
@@ -269,7 +283,7 @@ class DashboardAggregator:
         3. created_at descending
         """
         tier = INBOX_PRIORITY_TIER.get(item.item_type.value, 99)
-        due_ts = item.due_at.timestamp() if item.due_at else float('inf')
+        due_ts = item.due_at.timestamp() if item.due_at else float("inf")
         created_ts = -item.created_at.timestamp()
         return (tier, due_ts, created_ts)
 
@@ -379,13 +393,16 @@ class DashboardAggregator:
         workspaces: List[WorkspaceCardDTO] = []
 
         for ws_id in workspace_ids:
-            workspace = self.store.get_workspace(ws_id)
+            workspace = await self.store.get_workspace(ws_id)
             if not workspace:
                 continue
 
             # Apply search filter
             if search and search.lower() not in (workspace.title or "").lower():
-                if not (workspace.description and search.lower() in workspace.description.lower()):
+                if not (
+                    workspace.description
+                    and search.lower() in workspace.description.lower()
+                ):
                     continue
 
             # NOTE: pinned_only filter is not implemented (workspace pinning not supported)
@@ -394,7 +411,9 @@ class DashboardAggregator:
                 continue  # Skip all workspaces since pinning is not implemented
 
             # Get workspace statistics
-            executions = self.executions_store.list_executions_by_workspace(ws_id, limit=100)
+            executions = self.executions_store.list_executions_by_workspace(
+                ws_id, limit=100
+            )
             tasks = self.tasks_store.list_tasks_by_workspace(ws_id, limit=100)
 
             open_cases = sum(1 for e in executions if e.status == "running")
@@ -417,15 +436,25 @@ class DashboardAggregator:
                 open_cases_count=open_cases,
                 pending_decisions_count=pending_decisions,
                 running_jobs_count=running_jobs,
-                last_activity_at=workspace.updated_at if hasattr(workspace, 'updated_at') else None,
+                last_activity_at=(
+                    workspace.updated_at if hasattr(workspace, "updated_at") else None
+                ),
                 last_activity_type=None,
                 members_count=1,
                 current_user_role="owner",
                 is_pinned=False,
                 tags=[],
                 primary_action=None,
-                created_at=workspace.created_at if hasattr(workspace, 'created_at') else datetime.utcnow(),
-                updated_at=workspace.updated_at if hasattr(workspace, 'updated_at') else datetime.utcnow(),
+                created_at=(
+                    workspace.created_at
+                    if hasattr(workspace, "created_at")
+                    else datetime.utcnow()
+                ),
+                updated_at=(
+                    workspace.updated_at
+                    if hasattr(workspace, "updated_at")
+                    else datetime.utcnow()
+                ),
             )
 
             # Apply setup_status filter
@@ -441,11 +470,11 @@ class DashboardAggregator:
         # Sort by last_activity_at descending
         workspaces.sort(
             key=lambda w: w.last_activity_at.timestamp() if w.last_activity_at else 0,
-            reverse=True
+            reverse=True,
         )
 
         total = len(workspaces)
-        workspaces = workspaces[query.offset:query.offset + query.limit]
+        workspaces = workspaces[query.offset : query.offset + query.limit]
 
         return PaginatedResponse(
             items=workspaces,

@@ -132,6 +132,17 @@ class WorkflowOrchestrator:
                 completed_steps.add(step.playbook_code)
                 del pending_steps[step.playbook_code]
 
+                if isinstance(step_result, dict) and step_result.get("status") == "paused":
+                    # Stop the workflow immediately. Caller can resume using checkpoint.
+                    return {
+                        "status": "paused",
+                        "steps": results,
+                        "context": workflow_context,
+                        "checkpoint": step_result.get("checkpoint"),
+                        "paused_step": step.playbook_code,
+                        "pause_reason": step_result.get("pause_reason", "waiting_gate"),
+                    }
+
                 if step_result.get('status') == 'completed' and step_result.get('outputs'):
                     workflow_context.update(step_result['outputs'])
 
@@ -157,6 +168,7 @@ class WorkflowOrchestrator:
         logger.info(f"WorkflowOrchestrator.execute_workflow: returning results with {len(results)} steps")
         logger.info(f"WorkflowOrchestrator.execute_workflow: results keys: {list(results.keys())}")
         return {
+            'status': 'completed',
             'steps': results,
             'context': workflow_context
         }
@@ -467,15 +479,30 @@ class WorkflowOrchestrator:
         Returns:
             Dict with step outputs and final playbook outputs
         """
-        # Create sandbox for execution (with or without project)
+        # Best-effort resume support:
+        # - If _workflow_checkpoint is provided in inputs, reuse sandbox + step_outputs.
+        # - Gate decisions are passed via inputs.gate_decisions[step_id].action = "approved"|"rejected".
+        resume_checkpoint = None
+        try:
+            if isinstance(playbook_inputs, dict):
+                candidate = playbook_inputs.get("_workflow_checkpoint")
+                if isinstance(candidate, dict):
+                    if candidate.get("execution_id") == execution_id and candidate.get("playbook_code") == getattr(playbook_json, "playbook_code", None):
+                        resume_checkpoint = candidate
+        except Exception:
+            resume_checkpoint = None
+
+        # Create sandbox for execution (with or without project), unless resuming with a known sandbox_id
         sandbox_id = None
+        if isinstance(resume_checkpoint, dict):
+            sandbox_id = resume_checkpoint.get("sandbox_id") or None
         logger.info(f"WorkflowOrchestrator._execute_playbook_steps: Starting execution. project_id={project_id}, workspace_id={workspace_id}, playbook_inputs keys: {list(playbook_inputs.keys())}")
         if workspace_id:
             try:
                 from backend.app.services.sandbox.sandbox_manager import SandboxManager
                 sandbox_manager = SandboxManager(self.store)
 
-                if project_id:
+                if project_id and not sandbox_id:
                     # Create sandbox for project
                     try:
                         from backend.app.services.project.project_manager import ProjectManager
@@ -518,8 +545,27 @@ class WorkflowOrchestrator:
         else:
             logger.warning(f"WorkflowOrchestrator: No workspace_id provided, skipping sandbox creation")
 
-        step_outputs = {}
-        completed_steps = set()
+        step_outputs: Dict[str, Dict[str, Any]] = {}
+        completed_steps: Set[str] = set()
+
+        if isinstance(resume_checkpoint, dict):
+            cp_step_outputs = resume_checkpoint.get("step_outputs")
+            cp_completed_steps = resume_checkpoint.get("completed_steps")
+            if isinstance(cp_step_outputs, dict):
+                step_outputs = cp_step_outputs
+            if isinstance(cp_completed_steps, list):
+                completed_steps = set([s for s in cp_completed_steps if isinstance(s, str)])
+
+            # If resuming a paused gate step, require explicit approval before marking it completed.
+            paused_step_id = resume_checkpoint.get("paused_step_id")
+            if isinstance(paused_step_id, str) and paused_step_id:
+                decisions = {}
+                if isinstance(playbook_inputs, dict) and isinstance(playbook_inputs.get("gate_decisions"), dict):
+                    decisions = playbook_inputs.get("gate_decisions") or {}
+                decision = decisions.get(paused_step_id) if isinstance(decisions, dict) else None
+                action = (decision.get("action") if isinstance(decision, dict) else decision)
+                if action == "approved":
+                    completed_steps.add(paused_step_id)
 
         while len(completed_steps) < len(playbook_json.steps):
             ready_steps = self._get_ready_steps(
@@ -550,7 +596,6 @@ class WorkflowOrchestrator:
                         step_index=step_index
                     )
                     step_outputs[step.id] = step_result
-                    completed_steps.add(step.id)
                     step_result_keys = list(step_result.keys()) if isinstance(step_result, dict) else 'N/A'
                     step_result_preview = {}
                     if isinstance(step_result, dict):
@@ -560,6 +605,46 @@ class WorkflowOrchestrator:
                             else:
                                 step_result_preview[k] = str(v)[:100] if len(str(v)) > 100 else str(v)
                     logger.info(f"Step {step.id} completed successfully. Output keys: {step_result_keys}, Preview: {step_result_preview}")
+
+                    # Gate pause: stop after completing the step, wait for external approval.
+                    gate = getattr(step, "gate", None)
+                    if gate and getattr(gate, "required", False):
+                        decisions = {}
+                        if isinstance(playbook_inputs, dict) and isinstance(playbook_inputs.get("gate_decisions"), dict):
+                            decisions = playbook_inputs.get("gate_decisions") or {}
+                        decision = decisions.get(step.id) if isinstance(decisions, dict) else None
+                        action = (decision.get("action") if isinstance(decision, dict) else decision)
+                        if action == "rejected":
+                            raise RuntimeError(f"Gate rejected for step {step.id}")
+                        if action != "approved":
+                            partial_outputs = self._collect_final_outputs(playbook_json.outputs, step_outputs)
+                            checkpoint = {
+                                "execution_id": execution_id,
+                                "playbook_code": getattr(playbook_json, "playbook_code", None),
+                                "sandbox_id": sandbox_id,
+                                "paused_step_id": step.id,
+                                "gate": gate.dict() if hasattr(gate, "dict") else gate,
+                                "completed_steps": list(completed_steps),
+                                "step_outputs": step_outputs,
+                                "created_at": datetime.utcnow().isoformat(),
+                            }
+                            result = {
+                                "status": "paused",
+                                "pause_reason": "waiting_gate",
+                                "paused_step_id": step.id,
+                                "gate": gate.dict() if hasattr(gate, "dict") else gate,
+                                "step_outputs": step_outputs,
+                                "outputs": partial_outputs,
+                                "checkpoint": checkpoint,
+                            }
+                            if sandbox_id:
+                                result["sandbox_id"] = sandbox_id
+                            return result
+                        # Approved: mark the step completed and continue.
+                        completed_steps.add(step.id)
+                        continue
+
+                    completed_steps.add(step.id)
                 except Exception as e:
                     error_msg = str(e)[:500] if len(str(e)) > 500 else str(e)
                     logger.error(f"Step {step.id} failed: {error_msg}")
@@ -591,14 +676,13 @@ class WorkflowOrchestrator:
                 artifact_creator = PlaybookOutputArtifactCreator(artifacts_store)
 
                 # Get playbook_code and metadata
-                playbook_code = getattr(playbook_json, 'playbook_code', None)
+                playbook_code = getattr(playbook_json, "playbook_code", None)
+                if not playbook_code and hasattr(playbook_json, "metadata") and playbook_json.metadata:
+                    playbook_code = getattr(playbook_json.metadata, "playbook_code", None)
+
                 if not playbook_code:
-                    # Try to get from playbook service
-                    from backend.app.services.playbook_service import PlaybookService
-                    playbook_service = PlaybookService(store=self.store)
-                    # Need to find playbook_code from context or load playbook
                     logger.warning("Cannot determine playbook_code for artifact creation")
-                    playbook_code = 'unknown'
+                    playbook_code = "unknown"
 
                 # Get playbook metadata (contains output_artifacts)
                 playbook_metadata = {}
@@ -823,11 +907,22 @@ class WorkflowOrchestrator:
             playbook_inputs_with_context = playbook_inputs.copy()
             if workspace_id:
                 playbook_inputs_with_context['workspace_id'] = workspace_id
+            if execution_id:
+                playbook_inputs_with_context['execution_id'] = execution_id
+
+            workflow_context: Dict[str, Any] = {}
+            if workspace_id:
+                workflow_context["workspace_id"] = workspace_id
+            if execution_id:
+                workflow_context["execution_id"] = execution_id
+            if profile_id:
+                workflow_context["profile_id"] = profile_id
 
             resolved_inputs = self.template_engine.prepare_playbook_inputs(
                 step,
                 playbook_inputs_with_context,
-                step_outputs
+                step_outputs,
+                workflow_context
             )
 
             # Resolve tool: support both legacy 'tool' field and new 'tool_slot' field

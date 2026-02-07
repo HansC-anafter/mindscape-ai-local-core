@@ -68,10 +68,14 @@ class ManifestValidator:
                 # Parse warnings (validation passed but may have warnings)
                 warnings = []
                 for line in result.stdout.split('\n'):
-                    if line.strip() and (
-                        '⚠️' in line or 'WARNING' in line or 'warning' in line.lower()
-                    ):
-                        warnings.append(line.strip())
+                    s = line.strip()
+                    if not s:
+                        continue
+                    # Ignore summary headers like "Warnings: 0"
+                    if s.lower().startswith("warnings:"):
+                        continue
+                    if ('⚠️' in s) or ('WARNING' in s) or ('warning' in s.lower()):
+                        warnings.append(s)
                 return True, [], warnings
             else:
                 # Validation failed: parse errors and warnings

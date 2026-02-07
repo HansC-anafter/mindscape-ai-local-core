@@ -3,11 +3,13 @@ Vector Search Service
 Provides semantic search across pgvector tables
 """
 
-import os
 import logging
+import os
 from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
+
+from app.database.config import get_vector_postgres_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +22,7 @@ class VectorSearchService:
 
     def _get_postgres_config(self):
         """Get PostgreSQL config from environment"""
-        return {
-            "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-            "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-            "user": os.getenv("POSTGRES_USER", "mindscape"),
-            "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-        }
+        return get_vector_postgres_config()
 
     def _get_connection(self):
         """Get PostgreSQL connection"""
@@ -46,7 +42,95 @@ class VectorSearchService:
             return False
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for query text using configured model"""
+        """Generate embedding for query text using configured model
+
+        Priority:
+        1. Ollama (local) - preferred for local development
+        2. OpenAI - fallback if Ollama unavailable
+        """
+        # Try Ollama first (local, no API key needed)
+        ollama_embedding = await self._generate_ollama_embedding(text)
+        if ollama_embedding:
+            return ollama_embedding
+
+        # Fallback to OpenAI
+        return await self._generate_openai_embedding(text)
+
+    async def _generate_embedding_with_model(
+        self, text: str
+    ) -> tuple[Optional[List[float]], Optional[str]]:
+        """Generate embedding and return both embedding and model name
+
+        Returns:
+            Tuple of (embedding, model_name) or (None, None) if failed
+        """
+        import os
+
+        # Try Ollama first
+        ollama_model = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+        ollama_embedding = await self._generate_ollama_embedding(text)
+        if ollama_embedding:
+            return ollama_embedding, ollama_model
+
+        # Fallback to OpenAI
+        openai_embedding = await self._generate_openai_embedding(text)
+        if openai_embedding:
+            # Get OpenAI model name
+            try:
+                from backend.app.services.system_settings_store import (
+                    SystemSettingsStore,
+                )
+
+                settings_store = SystemSettingsStore()
+                embedding_setting = settings_store.get_setting("embedding_model")
+                openai_model = (
+                    str(embedding_setting.value)
+                    if embedding_setting
+                    else "text-embedding-3-small"
+                )
+            except Exception:
+                openai_model = "text-embedding-3-small"
+            return openai_embedding, openai_model
+
+        return None, None
+
+    async def _generate_ollama_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate embedding using Ollama local model"""
+        try:
+            import httpx
+
+            # Ollama embedding endpoint
+            ollama_url = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
+
+            # Use nomic-embed-text for embeddings (768 dimensions)
+            model = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{ollama_url}/api/embeddings",
+                    json={"model": model, "prompt": text},
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    embedding = data.get("embedding")
+                    if embedding:
+                        logger.debug(
+                            f"Generated Ollama embedding using model: {model} (dimension: {len(embedding)})"
+                        )
+                        return embedding
+                else:
+                    logger.warning(
+                        f"Ollama embedding failed with status {response.status_code}: {response.text[:200]}"
+                    )
+
+        except Exception as e:
+            logger.warning(f"Ollama embedding unavailable: {e}")
+
+        return None
+
+    async def _generate_openai_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate embedding using OpenAI API (fallback)"""
         try:
             from backend.app.services.system_settings_store import SystemSettingsStore
             from backend.app.services.config_store import ConfigStore
@@ -56,12 +140,12 @@ class VectorSearchService:
             embedding_setting = settings_store.get_setting("embedding_model")
 
             if not embedding_setting:
-                logger.warning("No embedding model configured, using default: text-embedding-3-small")
+                logger.warning(
+                    "No embedding model configured, using default: text-embedding-3-small"
+                )
                 model_name = "text-embedding-3-small"
-                provider = "openai"
             else:
                 model_name = str(embedding_setting.value)
-                provider = embedding_setting.metadata.get("provider", "openai")
 
             # Get API key
             config_store = ConfigStore()
@@ -73,18 +157,18 @@ class VectorSearchService:
                 return None
 
             import openai
+
             client = openai.OpenAI(api_key=api_key)
-            response = client.embeddings.create(
-                model=model_name,
-                input=text
-            )
+            response = client.embeddings.create(model=model_name, input=text)
 
             embedding = response.data[0].embedding
-            logger.debug(f"Generated embedding using model: {model_name} (dimension: {len(embedding)})")
+            logger.debug(
+                f"Generated OpenAI embedding using model: {model_name} (dimension: {len(embedding)})"
+            )
             return embedding
 
         except Exception as e:
-            logger.error(f"Failed to generate embedding: {e}")
+            logger.error(f"Failed to generate OpenAI embedding: {e}")
             return None
 
     async def vector_search(
@@ -93,7 +177,7 @@ class VectorSearchService:
         query_embedding: List[float],
         filters: Dict[str, Any] = None,
         top_k: int = 5,
-        require_model_match: bool = True
+        require_model_match: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Generic vector search across any table
@@ -115,7 +199,10 @@ class VectorSearchService:
             # Get current embedding model for filtering
             current_model_name = None
             if require_model_match and table == "mindscape_personal":
-                from backend.app.services.system_settings_store import SystemSettingsStore
+                from backend.app.services.system_settings_store import (
+                    SystemSettingsStore,
+                )
+
                 settings_store = SystemSettingsStore()
                 embedding_setting = settings_store.get_setting("embedding_model")
                 if embedding_setting:
@@ -131,14 +218,18 @@ class VectorSearchService:
                     params.append(value)
 
             # Add model matching filter if required
-            if require_model_match and current_model_name and table == "mindscape_personal":
+            if (
+                require_model_match
+                and current_model_name
+                and table == "mindscape_personal"
+            ):
                 where_clauses.append("metadata->>'embedding_model' = %s")
                 params.append(current_model_name)
 
             where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
             # Execute vector similarity search
-            query = f'''
+            query = f"""
                 SELECT
                     *,
                     1 - (embedding <=> %s::vector) as similarity
@@ -146,7 +237,7 @@ class VectorSearchService:
                 {where_sql}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            '''
+            """
 
             params = [str(query_embedding)] + params + [str(query_embedding), top_k]
             cursor.execute(query, params)
@@ -158,10 +249,7 @@ class VectorSearchService:
             conn.close()
 
     async def search_playbook_sop(
-        self,
-        playbook_code: str,
-        query: str,
-        top_k: int = 5
+        self, playbook_code: str, query: str, top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """
         Search for relevant Playbook SOP chunks
@@ -182,14 +270,11 @@ class VectorSearchService:
             table="playbook_knowledge",
             query_embedding=query_embedding,
             filters={"playbook_code": playbook_code},
-            top_k=top_k
+            top_k=top_k,
         )
 
     async def search_personal_context(
-        self,
-        user_id: str,
-        query: str,
-        top_k: int = 3
+        self, user_id: str, query: str, top_k: int = 3
     ) -> List[Dict[str, Any]]:
         """
         Search user's personal mindscape context
@@ -210,14 +295,11 @@ class VectorSearchService:
             table="mindscape_personal",
             query_embedding=query_embedding,
             filters={"user_id": user_id},
-            top_k=top_k
+            top_k=top_k,
         )
 
     async def execute_playbook_with_context(
-        self,
-        playbook_code: str,
-        user_query: str,
-        user_id: str = "default_user"
+        self, playbook_code: str, user_query: str, user_id: str = "default_user"
     ) -> Dict[str, Any]:
         """
         Execute playbook with combined context from SOP and personal memory
@@ -234,15 +316,11 @@ class VectorSearchService:
             Combined context for AI with formatted text
         """
         playbook_chunks = await self.search_playbook_sop(
-            playbook_code=playbook_code,
-            query=user_query,
-            top_k=5
+            playbook_code=playbook_code, query=user_query, top_k=5
         )
 
         personal_context = await self.search_personal_context(
-            user_id=user_id,
-            query=user_query,
-            top_k=3
+            user_id=user_id, query=user_query, top_k=3
         )
 
         context = {
@@ -250,7 +328,7 @@ class VectorSearchService:
                 {
                     "content": chunk["content"],
                     "section_type": chunk["section_type"],
-                    "similarity": chunk["similarity"]
+                    "similarity": chunk["similarity"],
                 }
                 for chunk in playbook_chunks
             ],
@@ -258,10 +336,10 @@ class VectorSearchService:
                 {
                     "content": ctx["content"],
                     "source_type": ctx["source_type"],
-                    "similarity": ctx["similarity"]
+                    "similarity": ctx["similarity"],
                 }
                 for ctx in personal_context
-            ]
+            ],
         }
 
         context_text = self._format_context_for_llm(context)
@@ -269,7 +347,7 @@ class VectorSearchService:
         return {
             "context": context,
             "context_text": context_text,
-            "playbook_code": playbook_code
+            "playbook_code": playbook_code,
         }
 
     def _format_context_for_llm(self, context: Dict[str, Any]) -> str:
@@ -279,13 +357,17 @@ class VectorSearchService:
         if context["playbook_sop"]:
             parts.append("## Playbook SOP:")
             for i, chunk in enumerate(context["playbook_sop"], 1):
-                parts.append(f"\n### {chunk['section_type'].title()} (similarity: {chunk['similarity']:.2f})")
+                parts.append(
+                    f"\n### {chunk['section_type'].title()} (similarity: {chunk['similarity']:.2f})"
+                )
                 parts.append(chunk["content"])
 
         if context["personal_context"]:
             parts.append("\n\n## Your Personal Context:")
             for i, ctx in enumerate(context["personal_context"], 1):
-                parts.append(f"\n### {ctx['source_type']} (similarity: {ctx['similarity']:.2f})")
+                parts.append(
+                    f"\n### {ctx['source_type']} (similarity: {ctx['similarity']:.2f})"
+                )
                 parts.append(ctx["content"])
 
         return "\n".join(parts)
@@ -295,7 +377,8 @@ class VectorSearchService:
         query: str,
         source_apps: List[str] = None,
         user_id: str = "default_user",
-        top_k: int = 10
+        top_k: int = 10,
+        require_model_match: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Scenario 2: Search external knowledge (RAG)
@@ -305,20 +388,15 @@ class VectorSearchService:
             source_apps: Filter by source apps (wordpress, notion, etc.)
             user_id: User identifier
             top_k: Number of results
+            require_model_match: If True, only search embeddings from same model
 
         Returns:
             List of relevant external documents
         """
-        query_embedding = await self._generate_embedding(query)
+        # Get embedding with model info for proper filtering
+        query_embedding, model_name = await self._generate_embedding_with_model(query)
         if not query_embedding:
             return []
-
-        # Build filters
-        filters = {"user_id": user_id}
-
-        # Note: For source_apps filtering, we need a different approach
-        # since it's a list filter, not single value
-        # For now, we'll do post-filtering
 
         conn = self._get_connection()
         try:
@@ -331,9 +409,14 @@ class VectorSearchService:
                 where_clauses.append("source_app = ANY(%s)")
                 params.append(source_apps)
 
+            # Filter by embedding model to ensure compatible embeddings
+            if require_model_match and model_name:
+                where_clauses.append("metadata->>'embedding_model' = %s")
+                params.append(model_name)
+
             where_sql = f"WHERE {' AND '.join(where_clauses)}"
 
-            query_sql = f'''
+            query_sql = f"""
                 SELECT
                     *,
                     1 - (embedding <=> %s::vector) as similarity
@@ -341,7 +424,7 @@ class VectorSearchService:
                 {where_sql}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            '''
+            """
 
             params = [str(query_embedding)] + params + [str(query_embedding), top_k]
             cursor.execute(query_sql, params)
@@ -359,7 +442,7 @@ class VectorSearchService:
         workspace_id: Optional[str] = None,
         intent_id: Optional[str] = None,
         scopes: List[str] = None,
-        top_k_per_scope: Dict[str, int] = None
+        top_k_per_scope: Dict[str, int] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Multi-scope hierarchical memory search
@@ -376,14 +459,10 @@ class VectorSearchService:
             Dict mapping scope to list of results
         """
         if scopes is None:
-            scopes = ['global', 'workspace', 'intent']
+            scopes = ["global", "workspace", "intent"]
 
         if top_k_per_scope is None:
-            top_k_per_scope = {
-                'global': 3,
-                'workspace': 8,
-                'intent': 8
-            }
+            top_k_per_scope = {"global": 3, "workspace": 8, "intent": 8}
 
         query_embedding = await self._generate_embedding(query)
         if not query_embedding:
@@ -392,17 +471,14 @@ class VectorSearchService:
         results = {}
 
         for scope in scopes:
-            filters = {
-                'user_id': user_id,
-                'scope': scope
-            }
+            filters = {"user_id": user_id, "scope": scope}
 
-            if scope == 'workspace' and workspace_id:
-                filters['workspace_id'] = workspace_id
-            elif scope == 'intent' and intent_id:
-                filters['intent_id'] = intent_id
+            if scope == "workspace" and workspace_id:
+                filters["workspace_id"] = workspace_id
+            elif scope == "intent" and intent_id:
+                filters["intent_id"] = intent_id
                 if workspace_id:
-                    filters['workspace_id'] = workspace_id
+                    filters["workspace_id"] = workspace_id
 
             top_k = top_k_per_scope.get(scope, 5)
 
@@ -410,13 +486,12 @@ class VectorSearchService:
                 table="mindscape_personal",
                 query_embedding=query_embedding,
                 filters=filters,
-                top_k=top_k * 2  # Get more results for composite scoring
+                top_k=top_k * 2,  # Get more results for composite scoring
             )
 
             # Apply composite scoring
             scored_results = await self._calculate_composite_scores(
-                scope_results,
-                query_embedding
+                scope_results, query_embedding
             )
 
             # Return top_k after scoring
@@ -425,9 +500,7 @@ class VectorSearchService:
         return results
 
     async def _calculate_composite_scores(
-        self,
-        results: List[Dict[str, Any]],
-        query_embedding: List[float]
+        self, results: List[Dict[str, Any]], query_embedding: List[float]
     ) -> List[Dict[str, Any]]:
         """
         Calculate composite scores using multiple factors
@@ -446,23 +519,25 @@ class VectorSearchService:
 
         # Weight factors (can be configured)
         alpha = 0.6  # cosine similarity weight
-        beta = 0.2   # recency weight
+        beta = 0.2  # recency weight
         gamma = 0.2  # importance weight
 
         scored_results = []
 
         for result in results:
             # Cosine similarity (already calculated in vector_search)
-            similarity = result.get('similarity', 0.0)
+            similarity = result.get("similarity", 0.0)
 
             # Recency score (based on last_used_at)
             recency_score = 0.5  # default
-            if 'last_used_at' in result and result['last_used_at']:
+            if "last_used_at" in result and result["last_used_at"]:
                 try:
-                    if isinstance(result['last_used_at'], str):
-                        last_used = datetime.fromisoformat(result['last_used_at'].replace('Z', '+00:00'))
+                    if isinstance(result["last_used_at"], str):
+                        last_used = datetime.fromisoformat(
+                            result["last_used_at"].replace("Z", "+00:00")
+                        )
                     else:
-                        last_used = result['last_used_at']
+                        last_used = result["last_used_at"]
 
                     if last_used.tzinfo is None:
                         last_used = last_used.replace(tzinfo=timezone.utc)
@@ -477,30 +552,26 @@ class VectorSearchService:
                     logger.debug(f"Failed to calculate recency score: {e}")
 
             # Importance score
-            importance = result.get('importance', 0.5)
+            importance = result.get("importance", 0.5)
             if importance is None:
                 importance = 0.5
 
             # Composite score
             composite_score = (
-                alpha * similarity +
-                beta * recency_score +
-                gamma * importance
+                alpha * similarity + beta * recency_score + gamma * importance
             )
 
-            result['composite_score'] = composite_score
-            result['recency_score'] = recency_score
+            result["composite_score"] = composite_score
+            result["recency_score"] = recency_score
             scored_results.append(result)
 
         # Sort by composite score (descending)
-        scored_results.sort(key=lambda x: x['composite_score'], reverse=True)
+        scored_results.sort(key=lambda x: x["composite_score"], reverse=True)
 
         return scored_results
 
     async def update_last_used_at(
-        self,
-        record_ids: List[str],
-        table: str = "mindscape_personal"
+        self, record_ids: List[str], table: str = "mindscape_personal"
     ):
         """
         Update last_used_at timestamp for records
@@ -517,7 +588,7 @@ class VectorSearchService:
             cursor = conn.cursor()
 
             # Update last_used_at for all matching IDs
-            placeholders = ','.join(['%s'] * len(record_ids))
+            placeholders = ",".join(["%s"] * len(record_ids))
             query = f"""
                 UPDATE {table}
                 SET last_used_at = NOW()
@@ -527,23 +598,22 @@ class VectorSearchService:
             cursor.execute(query, record_ids)
             conn.commit()
 
-            logger.debug(f"Updated last_used_at for {len(record_ids)} records in {table}")
+            logger.debug(
+                f"Updated last_used_at for {len(record_ids)} records in {table}"
+            )
 
         finally:
             conn.close()
 
-    async def save_to_external_docs(
-        self,
-        doc: Dict[str, Any]
-    ) -> bool:
+    async def save_to_external_docs(self, doc: Dict[str, Any]) -> bool:
         """
         Save document to external_docs table for RAG
 
         Args:
             doc: Document dictionary with:
                 - user_id: User identifier
-                - source_app: Source application (e.g., 'content-vault', 'wordpress')
-                - title: Document title
+                - source_app: Source application (e.g., 'content-vault', 'wordpress', 'local_folder')
+                - title: Document title (used as source_id for local_folder)
                 - content: Document content
                 - embedding: Embedding vector
                 - metadata: Optional metadata dictionary
@@ -555,12 +625,14 @@ class VectorSearchService:
         try:
             cursor = conn.cursor()
 
-            user_id = doc.get('user_id', 'default_user')
-            source_app = doc.get('source_app', 'unknown')
-            title = doc.get('title', 'Untitled')
-            content = doc.get('content', '')
-            embedding = doc.get('embedding')
-            metadata = doc.get('metadata', {})
+            user_id = doc.get("user_id", "default_user")
+            source_app = doc.get("source_app", "unknown")
+            title = doc.get("title", "Untitled")
+            content = doc.get("content", "")
+            embedding = doc.get("embedding")
+            metadata = doc.get("metadata", {})
+            # Use title as source_id for local_folder content (unique per chunk)
+            source_id = doc.get("source_id", title)
 
             if not embedding:
                 logger.warning("No embedding provided for document")
@@ -570,6 +642,7 @@ class VectorSearchService:
                 INSERT INTO external_docs (
                     user_id,
                     source_app,
+                    source_id,
                     title,
                     content,
                     embedding,
@@ -577,10 +650,11 @@ class VectorSearchService:
                     created_at,
                     updated_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s::vector, %s, NOW(), NOW()
+                    %s, %s, %s, %s, %s, %s::vector, %s, NOW(), NOW()
                 )
-                ON CONFLICT (user_id, source_app, title)
+                ON CONFLICT (user_id, source_app, source_id)
                 DO UPDATE SET
+                    title = EXCLUDED.title,
                     content = EXCLUDED.content,
                     embedding = EXCLUDED.embedding,
                     metadata = EXCLUDED.metadata,
@@ -589,22 +663,26 @@ class VectorSearchService:
             """
 
             import json
+
             cursor.execute(
                 query,
                 (
                     user_id,
                     source_app,
+                    source_id,
                     title,
                     content,
                     str(embedding),
-                    json.dumps(metadata)
-                )
+                    json.dumps(metadata),
+                ),
             )
 
             result = cursor.fetchone()
             conn.commit()
 
-            logger.debug(f"Saved document to external_docs: {title} (id: {result[0] if result else 'unknown'})")
+            logger.debug(
+                f"Saved document to external_docs: {title} (id: {result[0] if result else 'unknown'})"
+            )
             return True
 
         except Exception as e:

@@ -10,10 +10,13 @@ import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import json
+from datetime import datetime
 
 from backend.app.models.ai_role import AIRoleConfig
 from backend.app.services.ai_role_store import AIRoleStore
 from backend.app.shared.tool_executor import ToolExecutor
+from backend.app.services.stores.postgres_base import PostgresStoreBase
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -281,70 +284,50 @@ def save_role_capability_mappings(
         Dict with saved_count and has_fallback flag
     """
     try:
-        import sqlite3
-        from pathlib import Path
-
-        # Get database path (same as ai_role_store)
-        db_path = Path("./data/mindscape.db")
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # Create table if not exists (add is_fallback column)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS role_capabilities (
-                role_id TEXT NOT NULL,
-                capability_id TEXT NOT NULL,
-                profile_id TEXT NOT NULL,
-                label TEXT NOT NULL,
-                blurb TEXT NOT NULL,
-                entry_prompt TEXT NOT NULL,
-                is_fallback INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (role_id, capability_id, profile_id)
-            )
-        """)
-
-        # Add is_fallback column if it doesn't exist (for existing databases)
-        try:
-            cursor.execute("ALTER TABLE role_capabilities ADD COLUMN is_fallback INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            # Column already exists
-            pass
-
-        from datetime import datetime
-        now = datetime.utcnow().isoformat()
+        store = PostgresStoreBase()
+        now = datetime.utcnow()
 
         saved_count = 0
         has_fallback = False
 
-        for mapping in mappings:
-            try:
-                is_fallback = mapping.get("is_fallback", False)
-                if is_fallback:
-                    has_fallback = True
+        with store.transaction() as conn:
+            for mapping in mappings:
+                try:
+                    is_fallback = mapping.get("is_fallback", False)
+                    if is_fallback:
+                        has_fallback = True
 
-                cursor.execute("""
-                    INSERT OR REPLACE INTO role_capabilities
-                    (role_id, capability_id, profile_id, label, blurb, entry_prompt, is_fallback, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    mapping["role_id"],
-                    capability_id,
-                    profile_id,
-                    mapping["brief_label"],
-                    mapping["blurb"],
-                    mapping["suggested_entry_prompt"],
-                    1 if is_fallback else 0,
-                    now
-                ))
-                saved_count += 1
-            except Exception as e:
-                logger.error(f"Failed to save mapping for role {mapping.get('role_id')}: {e}")
-
-        conn.commit()
-        conn.close()
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO role_capabilities
+                            (role_id, capability_id, profile_id, label, blurb, entry_prompt, is_fallback, created_at)
+                            VALUES
+                            (:role_id, :capability_id, :profile_id, :label, :blurb, :entry_prompt, :is_fallback, :created_at)
+                            ON CONFLICT (role_id, capability_id, profile_id) DO UPDATE SET
+                                label = EXCLUDED.label,
+                                blurb = EXCLUDED.blurb,
+                                entry_prompt = EXCLUDED.entry_prompt,
+                                is_fallback = EXCLUDED.is_fallback,
+                                created_at = EXCLUDED.created_at
+                        """
+                        ),
+                        {
+                            "role_id": mapping["role_id"],
+                            "capability_id": capability_id,
+                            "profile_id": profile_id,
+                            "label": mapping["brief_label"],
+                            "blurb": mapping["blurb"],
+                            "entry_prompt": mapping["suggested_entry_prompt"],
+                            "is_fallback": is_fallback,
+                            "created_at": now,
+                        },
+                    )
+                    saved_count += 1
+                except Exception as e:
+                    logger.error(
+                        f\"Failed to save mapping for role {mapping.get('role_id')}: {e}\"
+                    )
 
         logger.info(f"Saved {saved_count} role-capability mappings for {capability_id} (fallback: {has_fallback})")
 
@@ -373,36 +356,30 @@ def get_role_capabilities(role_id: str, profile_id: str = "default-user") -> Lis
         List of capability mappings
     """
     try:
-        import sqlite3
-        from pathlib import Path
+        store = PostgresStoreBase()
+        with store.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT capability_id, label, blurb, entry_prompt, is_fallback
+                    FROM role_capabilities
+                    WHERE role_id = :role_id AND profile_id = :profile_id
+                    ORDER BY is_fallback ASC, created_at DESC
+                """
+                ),
+                {"role_id": role_id, "profile_id": profile_id},
+            ).fetchall()
 
-        db_path = Path("./data/mindscape.db")
-        if not db_path.exists():
-            return []
-
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT capability_id, label, blurb, entry_prompt, is_fallback
-            FROM role_capabilities
-            WHERE role_id = ? AND profile_id = ?
-            ORDER BY is_fallback ASC, created_at DESC
-        """, (role_id, profile_id))
-
-        results = []
-        for row in cursor.fetchall():
-            results.append({
-                "capability_id": row["capability_id"],
-                "label": row["label"],
-                "blurb": row["blurb"],
-                "entry_prompt": row["entry_prompt"],
-                "is_fallback": bool(row.get("is_fallback", 0))
-            })
-
-        conn.close()
-        return results
+        return [
+            {
+                "capability_id": row.capability_id,
+                "label": row.label,
+                "blurb": row.blurb,
+                "entry_prompt": row.entry_prompt,
+                "is_fallback": bool(row.is_fallback) if row.is_fallback is not None else False,
+            }
+            for row in rows
+        ]
 
     except Exception as e:
         logger.error(f"Failed to get role capabilities: {e}", exc_info=True)

@@ -11,8 +11,14 @@ from typing import Dict, List, Optional, Any
 import logging
 
 from backend.app.models.mindscape import (
-    MindscapeProfile, IntentCard, AgentExecution, RunAgentRequest, AgentResponse,
-    MindEvent, EventType, EventActor
+    MindscapeProfile,
+    IntentCard,
+    AgentExecution,
+    RunAgentRequest,
+    AgentResponse,
+    MindEvent,
+    EventType,
+    EventActor,
 )
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
@@ -26,16 +32,20 @@ class LLMProvider:
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    async def chat_completion(self, messages: List[Dict[str, str]],
-                           model: str = "gpt-4o-mini") -> str:
+    async def chat_completion(
+        self, messages: List[Dict[str, str]], model: str = "gpt-4o-mini"
+    ) -> str:
         """Abstract method for chat completion"""
         raise NotImplementedError
 
-    async def chat_completion_stream(self, messages: List[Dict[str, str]],
-                                   model: str = "gpt-4o-mini",
-                                   temperature: float = 0.7,
-                                   max_tokens: Optional[int] = None,
-                                   max_completion_tokens: Optional[int] = None):
+    async def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ):
         """
         Abstract method for streaming chat completion
 
@@ -48,39 +58,51 @@ class LLMProvider:
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider"""
 
-    async def chat_completion(self, messages: List[Dict[str, str]],
-                           model: str = "gpt-4o-mini",
-                           temperature: float = 0.7,
-                           max_tokens: Optional[int] = None,
-                           max_completion_tokens: Optional[int] = None,
-                           stream: bool = False) -> str:
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+        stream: bool = False,
+    ) -> str:
         try:
             import openai
+
             client = openai.AsyncOpenAI(api_key=self.api_key)
 
             # Build request parameters
             request_params = {
                 "model": model,
                 "messages": messages,
-                "temperature": temperature
+                "temperature": temperature,
             }
 
             # For newer models (like gpt-5.1, o1, o3), use max_completion_tokens via extra_body
             # SDK 1.3.7 doesn't have max_completion_tokens in signature, but API supports it
             model_lower = model.lower() if model else ""
-            is_newer_model = "gpt-5" in model_lower or "o1" in model_lower or "o3" in model_lower
+            is_newer_model = (
+                "gpt-5" in model_lower or "o1" in model_lower or "o3" in model_lower
+            )
 
             if is_newer_model:
                 # For newer models, use max_completion_tokens via extra_body
                 # SDK 1.3.7 doesn't support it directly, but API does
                 # Newer models (gpt-5.x, o1, o3) support higher token limits
-                token_param = max_completion_tokens if max_completion_tokens is not None else max_tokens
+                token_param = (
+                    max_completion_tokens
+                    if max_completion_tokens is not None
+                    else max_tokens
+                )
                 if token_param is not None:
                     # Use extra_body to pass max_completion_tokens (SDK 1.3.7 workaround)
                     if "extra_body" not in request_params:
                         request_params["extra_body"] = {}
                     request_params["extra_body"]["max_completion_tokens"] = token_param
-                    logger.info(f"Using max_completion_tokens={token_param} via extra_body for {model}")
+                    logger.info(
+                        f"Using max_completion_tokens={token_param} via extra_body for {model}"
+                    )
                 else:
                     # Default to higher limit for newer models (they support it)
                     if "extra_body" not in request_params:
@@ -108,7 +130,7 @@ class OpenAIProvider(LLMProvider):
                 async for chunk in stream:
                     if chunk.choices and len(chunk.choices) > 0:
                         delta = chunk.choices[0].delta
-                        if hasattr(delta, 'content') and delta.content:
+                        if hasattr(delta, "content") and delta.content:
                             full_text += delta.content
 
                 logger.info(f"LLM streaming response received: {len(full_text)} chars")
@@ -121,21 +143,35 @@ class OpenAIProvider(LLMProvider):
                 response_text = None
                 if response.choices and len(response.choices) > 0:
                     message = response.choices[0].message
-                    if hasattr(message, 'content'):
+                    if hasattr(message, "content"):
                         response_text = message.content
 
                 # Log response for debugging
                 if response_text:
-                    logger.info(f"LLM response received: {len(response_text)} chars, preview: {response_text[:100]}")
+                    logger.info(
+                        f"LLM response received: {len(response_text)} chars, preview: {response_text[:100]}"
+                    )
                 else:
-                    logger.warning(f"LLM response is empty or None. Response object: {response}")
-                    logger.warning(f"Response choices: {response.choices if hasattr(response, 'choices') else 'N/A'}")
-                    if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
+                    logger.warning(
+                        f"LLM response is empty or None. Response object: {response}"
+                    )
+                    logger.warning(
+                        f"Response choices: {response.choices if hasattr(response, 'choices') else 'N/A'}"
+                    )
+                    if (
+                        hasattr(response, "choices")
+                        and response.choices
+                        and len(response.choices) > 0
+                    ):
                         logger.warning(f"First choice: {response.choices[0]}")
-                        if hasattr(response.choices[0], 'message'):
-                            logger.warning(f"First choice message: {response.choices[0].message}")
-                            if hasattr(response.choices[0].message, 'content'):
-                                logger.warning(f"First choice message content: {response.choices[0].message.content}")
+                        if hasattr(response.choices[0], "message"):
+                            logger.warning(
+                                f"First choice message: {response.choices[0].message}"
+                            )
+                            if hasattr(response.choices[0].message, "content"):
+                                logger.warning(
+                                    f"First choice message content: {response.choices[0].message.content}"
+                                )
 
                 return response_text or ""
 
@@ -145,11 +181,14 @@ class OpenAIProvider(LLMProvider):
             logger.error(f"OpenAI API error: {e}")
             raise
 
-    async def chat_completion_stream(self, messages: List[Dict[str, str]],
-                                   model: str = "gpt-4o-mini",
-                                   temperature: float = 0.7,
-                                   max_tokens: Optional[int] = None,
-                                   max_completion_tokens: Optional[int] = None):
+    async def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ):
         """
         Streaming chat completion - returns stream object for SSE
 
@@ -158,6 +197,7 @@ class OpenAIProvider(LLMProvider):
         """
         try:
             import openai
+
             client = openai.AsyncOpenAI(api_key=self.api_key)
 
             # Build request parameters
@@ -165,16 +205,22 @@ class OpenAIProvider(LLMProvider):
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
-                "stream": True
+                "stream": True,
             }
 
             # Handle token limits for different model types
             model_lower = model.lower() if model else ""
-            is_newer_model = "gpt-5" in model_lower or "o1" in model_lower or "o3" in model_lower
+            is_newer_model = (
+                "gpt-5" in model_lower or "o1" in model_lower or "o3" in model_lower
+            )
 
             if is_newer_model:
                 # For newer models, use max_completion_tokens via extra_body
-                token_param = max_completion_tokens if max_completion_tokens is not None else max_tokens
+                token_param = (
+                    max_completion_tokens
+                    if max_completion_tokens is not None
+                    else max_tokens
+                )
                 if token_param is not None:
                     if "extra_body" not in request_params:
                         request_params["extra_body"] = {}
@@ -195,7 +241,7 @@ class OpenAIProvider(LLMProvider):
             async for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         yield delta.content
         except ImportError:
             raise Exception("OpenAI package not installed")
@@ -207,10 +253,12 @@ class OpenAIProvider(LLMProvider):
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider"""
 
-    async def chat_completion(self, messages: List[Dict[str, str]],
-                           model: str = "claude-3-sonnet-20240229") -> str:
+    async def chat_completion(
+        self, messages: List[Dict[str, str]], model: str = "claude-3-sonnet-20240229"
+    ) -> str:
         try:
             import anthropic
+
             client = anthropic.AsyncAnthropic(api_key=self.api_key)
 
             system_message = ""
@@ -227,7 +275,7 @@ class AnthropicProvider(LLMProvider):
                 max_tokens=2000,
                 temperature=0.7,
                 system=system_message,
-                messages=conversation_messages
+                messages=conversation_messages,
             )
 
             return response.content[0].text
@@ -242,7 +290,12 @@ class AnthropicProvider(LLMProvider):
 class VertexAIProvider(LLMProvider):
     """Google Vertex AI provider"""
 
-    def __init__(self, api_key: str, project_id: Optional[str] = None, location: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: str,
+        project_id: Optional[str] = None,
+        location: Optional[str] = None,
+    ):
         """
         Initialize Vertex AI provider
 
@@ -270,19 +323,25 @@ class VertexAIProvider(LLMProvider):
         if self.api_key:
             try:
                 sa_info = json.loads(self.api_key)
-                credentials = service_account.Credentials.from_service_account_info(sa_info)
-                if not self.project_id and 'project_id' in sa_info:
-                    self.project_id = sa_info['project_id']
+                credentials = service_account.Credentials.from_service_account_info(
+                    sa_info
+                )
+                if not self.project_id and "project_id" in sa_info:
+                    self.project_id = sa_info["project_id"]
             except (json.JSONDecodeError, ValueError):
-                credentials = service_account.Credentials.from_service_account_file(self.api_key)
+                credentials = service_account.Credentials.from_service_account_file(
+                    self.api_key
+                )
                 if not self.project_id:
-                    with open(self.api_key, 'r') as f:
+                    with open(self.api_key, "r") as f:
                         sa_info = json.load(f)
-                        if 'project_id' in sa_info:
-                            self.project_id = sa_info['project_id']
+                        if "project_id" in sa_info:
+                            self.project_id = sa_info["project_id"]
 
         if credentials:
-            aiplatform.init(project=self.project_id, location=self.location, credentials=credentials)
+            aiplatform.init(
+                project=self.project_id, location=self.location, credentials=credentials
+            )
         else:
             aiplatform.init(project=self.project_id, location=self.location)
 
@@ -297,14 +356,27 @@ class VertexAIProvider(LLMProvider):
             if msg["role"] == "system":
                 system_instruction = msg["content"]
             elif msg["role"] == "user":
-                vertex_messages.append({"role": "user", "parts": [{"text": msg["content"]}]})
+                vertex_messages.append(
+                    {"role": "user", "parts": [{"text": msg["content"]}]}
+                )
             elif msg["role"] == "assistant":
-                vertex_messages.append({"role": "model", "parts": [{"text": msg["content"]}]})
+                vertex_messages.append(
+                    {"role": "model", "parts": [{"text": msg["content"]}]}
+                )
 
         return vertex_messages, system_instruction
 
     def _get_model_instance(self, model: str, system_instruction: Optional[str] = None):
         """Get or create model instance with optional system instruction"""
+        # [Fallback Remapping] Map generic/OpenAI model names to Gemini equivalents
+        # This handles cases where system defaults (gpt-4o-mini) are passed to Vertex provider
+        if model and ("gpt" in model.lower() or "openai" in model.lower()):
+            original_model = model
+            model = "gemini-2.0-flash"  # Updated from deprecated gemini-1.5-flash-001
+            logger.info(
+                f"VertexAIProvider: Remapping requested model '{original_model}' to '{model}'"
+            )
+
         cache_key = f"{model}:{system_instruction}" if system_instruction else model
         if cache_key not in self._model_instance_cache:
             try:
@@ -313,57 +385,81 @@ class VertexAIProvider(LLMProvider):
                 from vertexai.preview.generative_models import GenerativeModel
             if system_instruction:
                 self._model_instance_cache[cache_key] = GenerativeModel(
-                    model_name=model,
-                    system_instruction=system_instruction
+                    model_name=model, system_instruction=system_instruction
                 )
             else:
-                self._model_instance_cache[cache_key] = GenerativeModel(model_name=model)
+                self._model_instance_cache[cache_key] = GenerativeModel(
+                    model_name=model
+                )
         return self._model_instance_cache[cache_key]
 
-    def _build_generation_config(self, temperature: float, max_tokens: Optional[int], max_completion_tokens: Optional[int]):
+    def _build_generation_config(
+        self,
+        temperature: float,
+        max_tokens: Optional[int],
+        max_completion_tokens: Optional[int],
+    ):
         """Build generation config for Vertex AI"""
         from vertexai.generative_models import GenerationConfig
+
         # Increase max_output_tokens to prevent truncation (Gemini models support up to 8192)
         # Use max_completion_tokens if provided, otherwise max_tokens, otherwise default to 2000 for welcome messages
-        max_output = max_completion_tokens if max_completion_tokens else (max_tokens if max_tokens else 2000)
+        max_output = (
+            max_completion_tokens
+            if max_completion_tokens
+            else (max_tokens if max_tokens else 2000)
+        )
         # Cap at 8192 for Gemini models, but ensure minimum of 1000 for proper completion
         max_output = min(max(max_output, 1000), 8192)
         import sys
-        logger.info(f"Vertex AI GenerationConfig: max_output_tokens={max_output}, temperature={temperature}, max_tokens={max_tokens}, max_completion_tokens={max_completion_tokens}")
-        print(f"[DEBUG] Vertex AI GenerationConfig: max_output_tokens={max_output}, temperature={temperature}, max_tokens={max_tokens}, max_completion_tokens={max_completion_tokens}", file=sys.stderr)
-        config = GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_output
+
+        logger.info(
+            f"Vertex AI GenerationConfig: max_output_tokens={max_output}, temperature={temperature}, max_tokens={max_tokens}, max_completion_tokens={max_completion_tokens}"
         )
+        print(
+            f"[DEBUG] Vertex AI GenerationConfig: max_output_tokens={max_output}, temperature={temperature}, max_tokens={max_tokens}, max_completion_tokens={max_completion_tokens}",
+            file=sys.stderr,
+        )
+        config = GenerationConfig(temperature=temperature, max_output_tokens=max_output)
         # Store max_output on the config object for later retrieval
         config._actual_max_output_tokens = max_output
         return config
 
-    async def chat_completion(self, messages: List[Dict[str, str]],
-                           model: str = "gemini-pro",
-                           temperature: float = 0.7,
-                           max_tokens: Optional[int] = None,
-                           max_completion_tokens: Optional[int] = None,
-                           stream: bool = False) -> str:
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gemini-pro",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+        stream: bool = False,
+    ) -> str:
         try:
             self._ensure_initialized()
             vertex_messages, system_instruction = self._prepare_messages(messages)
             model_instance = self._get_model_instance(model, system_instruction)
-            generation_config = self._build_generation_config(temperature, max_tokens, max_completion_tokens)
+            generation_config = self._build_generation_config(
+                temperature, max_tokens, max_completion_tokens
+            )
 
             response = await model_instance.generate_content_async(
-                contents=vertex_messages,
-                generation_config=generation_config
+                contents=vertex_messages, generation_config=generation_config
             )
 
             # Extract and log usage metadata if available
-            if hasattr(response, 'usage_metadata'):
+            if hasattr(response, "usage_metadata"):
                 usage = response.usage_metadata
-                logger.info(f"Vertex AI usage_metadata: prompt_token_count={getattr(usage, 'prompt_token_count', 'N/A')}, "
-                          f"candidates_token_count={getattr(usage, 'candidates_token_count', 'N/A')}, "
-                          f"total_token_count={getattr(usage, 'total_token_count', 'N/A')}")
+                logger.info(
+                    f"Vertex AI usage_metadata: prompt_token_count={getattr(usage, 'prompt_token_count', 'N/A')}, "
+                    f"candidates_token_count={getattr(usage, 'candidates_token_count', 'N/A')}, "
+                    f"total_token_count={getattr(usage, 'total_token_count', 'N/A')}"
+                )
                 import sys
-                print(f"[DEBUG] usage_metadata: prompt={getattr(usage, 'prompt_token_count', 'N/A')}, candidates={getattr(usage, 'candidates_token_count', 'N/A')}, total={getattr(usage, 'total_token_count', 'N/A')}", file=sys.stderr)
+
+                print(
+                    f"[DEBUG] usage_metadata: prompt={getattr(usage, 'prompt_token_count', 'N/A')}, candidates={getattr(usage, 'candidates_token_count', 'N/A')}, total={getattr(usage, 'total_token_count', 'N/A')}",
+                    file=sys.stderr,
+                )
 
             # Handle multi-part responses (Vertex AI may return multiple content parts)
             # This fixes "Multiple content parts are not supported" error
@@ -371,44 +467,72 @@ class VertexAIProvider(LLMProvider):
                 candidate = response.candidates[0]
 
                 # Log finish reason for debugging
-                if hasattr(candidate, 'finish_reason'):
+                if hasattr(candidate, "finish_reason"):
                     logger.info(f"Vertex AI finish_reason: {candidate.finish_reason}")
                     import sys
+
                     # Read max_output_tokens from stored attribute
-                    max_output_val = getattr(generation_config, '_actual_max_output_tokens', 'N/A')
+                    max_output_val = getattr(
+                        generation_config, "_actual_max_output_tokens", "N/A"
+                    )
                     # Get actual output token count from usage_metadata
-                    actual_output_tokens = 'N/A'
-                    prompt_tokens = 'N/A'
-                    total_tokens = 'N/A'
-                    if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                        actual_output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 'N/A')
-                        prompt_tokens = getattr(response.usage_metadata, 'prompt_token_count', 'N/A')
-                        total_tokens = getattr(response.usage_metadata, 'total_token_count', 'N/A')
+                    actual_output_tokens = "N/A"
+                    prompt_tokens = "N/A"
+                    total_tokens = "N/A"
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        actual_output_tokens = getattr(
+                            response.usage_metadata, "candidates_token_count", "N/A"
+                        )
+                        prompt_tokens = getattr(
+                            response.usage_metadata, "prompt_token_count", "N/A"
+                        )
+                        total_tokens = getattr(
+                            response.usage_metadata, "total_token_count", "N/A"
+                        )
 
                     # Get finish_reason enum name
                     from vertexai.generative_models import FinishReason
-                    finish_reason_name = 'UNKNOWN'
+
+                    finish_reason_name = "UNKNOWN"
                     try:
                         finish_reason_name = FinishReason(candidate.finish_reason).name
                     except:
                         finish_reason_name = str(candidate.finish_reason)
 
-                    print(f"[DEBUG] finish_reason: {candidate.finish_reason} ({finish_reason_name}), max_output_tokens={max_output_val}, prompt_tokens={prompt_tokens}, output_tokens={actual_output_tokens}, total_tokens={total_tokens}", file=sys.stderr)
+                    print(
+                        f"[DEBUG] finish_reason: {candidate.finish_reason} ({finish_reason_name}), max_output_tokens={max_output_val}, prompt_tokens={prompt_tokens}, output_tokens={actual_output_tokens}, total_tokens={total_tokens}",
+                        file=sys.stderr,
+                    )
 
                     # If finish_reason=2 but output_tokens is much lower than max_output_tokens, log warning
-                    if candidate.finish_reason == 2 and max_output_val != 'N/A' and actual_output_tokens != 'N/A':
-                        if isinstance(max_output_val, int) and isinstance(actual_output_tokens, int):
-                            if actual_output_tokens < max_output_val * 0.5:  # If actual output is less than 50% of set value
-                                print(f"[WARNING] finish_reason=2 but output_tokens ({actual_output_tokens}) is much lower than max_output_tokens ({max_output_val}), may be triggered by other limits (safety filter, thinking budget, etc.)", file=sys.stderr)
+                    if (
+                        candidate.finish_reason == 2
+                        and max_output_val != "N/A"
+                        and actual_output_tokens != "N/A"
+                    ):
+                        if isinstance(max_output_val, int) and isinstance(
+                            actual_output_tokens, int
+                        ):
+                            if (
+                                actual_output_tokens < max_output_val * 0.5
+                            ):  # If actual output is less than 50% of set value
+                                print(
+                                    f"[WARNING] finish_reason=2 but output_tokens ({actual_output_tokens}) is much lower than max_output_tokens ({max_output_val}), may be triggered by other limits (safety filter, thinking budget, etc.)",
+                                    file=sys.stderr,
+                                )
 
-                    if candidate.finish_reason and candidate.finish_reason != 1:  # 1 = STOP (normal completion)
-                        logger.warning(f"Vertex AI response finished with reason: {candidate.finish_reason} (1=STOP, 2=MAX_TOKENS, 3=SAFETY)")
+                    if (
+                        candidate.finish_reason and candidate.finish_reason != 1
+                    ):  # 1 = STOP (normal completion)
+                        logger.warning(
+                            f"Vertex AI response finished with reason: {candidate.finish_reason} (1=STOP, 2=MAX_TOKENS, 3=SAFETY)"
+                        )
 
                 if candidate.content and candidate.content.parts:
                     # Concatenate all text parts
                     text_parts = []
                     for part in candidate.content.parts:
-                        if hasattr(part, 'text') and part.text:
+                        if hasattr(part, "text") and part.text:
                             text_parts.append(part.text)
                     if text_parts:
                         full_text = "".join(text_parts)
@@ -419,28 +543,42 @@ class VertexAIProvider(LLMProvider):
             try:
                 return response.text
             except Exception as text_error:
-                logger.warning(f"Vertex AI response.text failed: {text_error}, attempting manual extraction")
+                logger.warning(
+                    f"Vertex AI response.text failed: {text_error}, attempting manual extraction"
+                )
                 # Last resort: try to get any text from the response
-                if hasattr(response, 'candidates') and response.candidates:
+                if hasattr(response, "candidates") and response.candidates:
                     for candidate in response.candidates:
-                        if hasattr(candidate, 'content') and candidate.content:
-                            if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                                texts = [p.text for p in candidate.content.parts if hasattr(p, 'text') and p.text]
+                        if hasattr(candidate, "content") and candidate.content:
+                            if (
+                                hasattr(candidate.content, "parts")
+                                and candidate.content.parts
+                            ):
+                                texts = [
+                                    p.text
+                                    for p in candidate.content.parts
+                                    if hasattr(p, "text") and p.text
+                                ]
                                 if texts:
                                     return "".join(texts)
                 raise text_error
 
         except ImportError:
-            raise Exception("Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai")
+            raise Exception(
+                "Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai"
+            )
         except Exception as e:
             logger.error(f"Vertex AI API error: {e}")
             raise
 
-    async def chat_completion_stream(self, messages: List[Dict[str, str]],
-                                   model: str = "gemini-pro",
-                                   temperature: float = 0.7,
-                                   max_tokens: Optional[int] = None,
-                                   max_completion_tokens: Optional[int] = None):
+    async def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gemini-pro",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ):
         """
         Streaming chat completion - returns async generator for SSE
 
@@ -451,7 +589,9 @@ class VertexAIProvider(LLMProvider):
             self._ensure_initialized()
             vertex_messages, system_instruction = self._prepare_messages(messages)
             model_instance = self._get_model_instance(model, system_instruction)
-            generation_config = self._build_generation_config(temperature, max_tokens, max_completion_tokens)
+            generation_config = self._build_generation_config(
+                temperature, max_tokens, max_completion_tokens
+            )
 
             import asyncio
 
@@ -459,7 +599,7 @@ class VertexAIProvider(LLMProvider):
                 return model_instance.generate_content(
                     contents=vertex_messages,
                     generation_config=generation_config,
-                    stream=True
+                    stream=True,
                 )
 
             responses = await asyncio.to_thread(create_stream)
@@ -467,28 +607,211 @@ class VertexAIProvider(LLMProvider):
                 if response.candidates and len(response.candidates) > 0:
                     candidate = response.candidates[0]
                     # Check for finish_reason to detect truncation
-                    if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
+                    if hasattr(candidate, "finish_reason") and candidate.finish_reason:
                         finish_reason = candidate.finish_reason
-                        if finish_reason == 1:  # STOP = 1 (normal completion), MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4
+                        if (
+                            finish_reason == 1
+                        ):  # STOP = 1 (normal completion), MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4
                             # Finish reason 1 is STOP (normal completion), not an error
-                            logger.debug(f"[VertexAI Streaming] Response completed normally. Finish reason: {finish_reason} (STOP)")
+                            logger.debug(
+                                f"[VertexAI Streaming] Response completed normally. Finish reason: {finish_reason} (STOP)"
+                            )
                         elif finish_reason == 2:  # MAX_TOKENS
-                            logger.warning(f"[VertexAI Streaming] Response truncated due to max_tokens limit. Finish reason: {finish_reason}")
+                            logger.warning(
+                                f"[VertexAI Streaming] Response truncated due to max_tokens limit. Finish reason: {finish_reason}"
+                            )
                         elif finish_reason == 3:  # SAFETY
-                            logger.warning(f"[VertexAI Streaming] Response stopped due to safety filter. Finish reason: {finish_reason}")
+                            logger.warning(
+                                f"[VertexAI Streaming] Response stopped due to safety filter. Finish reason: {finish_reason}"
+                            )
                         else:
-                            logger.warning(f"[VertexAI Streaming] Response stopped with unexpected reason. Finish reason: {finish_reason}")
+                            logger.warning(
+                                f"[VertexAI Streaming] Response stopped with unexpected reason. Finish reason: {finish_reason}"
+                            )
                     if candidate.content and candidate.content.parts:
                         for part in candidate.content.parts:
-                            if hasattr(part, 'text') and part.text:
+                            if hasattr(part, "text") and part.text:
                                 yield part.text
                                 await asyncio.sleep(0)
 
         except ImportError:
-            raise Exception("Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai")
+            raise Exception(
+                "Google Cloud AI Platform or Vertex AI packages not installed. Install with: pip install google-cloud-aiplatform vertexai"
+            )
         except Exception as e:
             logger.error(f"Vertex AI streaming API error: {e}", exc_info=True)
             raise
+
+
+class OllamaProvider(LLMProvider):
+    """Local Ollama provider (via OpenAI-compatible API)"""
+
+    def __init__(
+        self, base_url: str = "http://localhost:11434", api_key: str = "ollama"
+    ):
+        super().__init__(api_key=api_key)
+        self.base_url = base_url
+        # Ensure base_url ends with /v1 for OpenAI compatibility if not present
+        if not self.base_url.endswith("/v1"):
+            self.base_url = f"{self.base_url.rstrip('/')}/v1"
+
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "llama3",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+        stream: bool = False,
+    ) -> str:
+        try:
+            import openai
+
+            client = openai.AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+
+            # Build request parameters
+            request_params = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
+
+            if max_tokens is not None:
+                request_params["max_tokens"] = max_tokens
+
+            # Handle streaming vs non-streaming
+            if stream:
+                request_params["stream"] = True
+                stream = await client.chat.completions.create(**request_params)
+
+                full_text = ""
+                async for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if hasattr(delta, "content") and delta.content:
+                            full_text += delta.content
+
+                logger.info(
+                    f"Ollama streaming response received: {len(full_text)} chars"
+                )
+                return full_text
+            else:
+                response = await client.chat.completions.create(**request_params)
+
+                response_text = None
+                if response.choices and len(response.choices) > 0:
+                    message = response.choices[0].message
+                    if hasattr(message, "content"):
+                        response_text = message.content
+
+                return response_text or ""
+
+        except ImportError:
+            raise Exception("OpenAI package not installed (required for Ollama client)")
+        except Exception as e:
+            logger.error(f"Ollama API error: {e}")
+            raise
+
+    async def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "llama3",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ):
+        """
+        Streaming chat completion - returns stream object for SSE
+        """
+        try:
+            import openai
+
+            client = openai.AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+
+            request_params = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": True,
+            }
+
+            if max_tokens is not None:
+                request_params["max_tokens"] = max_tokens
+
+            stream = await client.chat.completions.create(**request_params)
+            async for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, "content") and delta.content:
+                        yield delta.content
+        except ImportError:
+            raise Exception("OpenAI package not installed (required for Ollama client)")
+        except Exception as e:
+            logger.error(f"Ollama streaming API error: {e}", exc_info=True)
+            raise
+
+
+class LlamaCppProvider(LLMProvider):
+    """Local GGUF provider using llama.cpp / metal"""
+
+    def __init__(self, model_path: str, n_ctx: int = 4096):
+        super().__init__(api_key="local")
+        self.model_path = model_path
+        self.n_ctx = n_ctx
+        self._llm = None
+
+    def _ensure_model_loaded(self):
+        if self._llm:
+            return
+        try:
+            import llama_cpp
+
+            logger.info(
+                f"Loading local GGUF model from {self.model_path} (Metal enabled)"
+            )
+            self._llm = llama_cpp.Llama(
+                model_path=str(self.model_path),
+                n_ctx=self.n_ctx,
+                n_gpu_layers=-1,  # Use all layers on Apple Silicon (MPS/Metal)
+                verbose=False,
+            )
+        except ImportError:
+            logger.error(
+                "llama-cpp-python not installed. Use CMAKE_ARGS='-DLLAMA_METAL=on' to install."
+            )
+            raise Exception("llama-cpp-python not installed for local preview.")
+
+    async def chat_completion(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        self._ensure_model_loaded()
+
+        # Simple ChatML-like formatting for Llama-3 / GGUF
+        prompt = ""
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            prompt += f"<|im_start|>{role}\n{content}<|im_end|>\n"
+        prompt += "<|im_start|>assistant\n"
+
+        # Offload execution to thread to avoid blocking event loop
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+
+        def _run():
+            return self._llm(
+                prompt,
+                max_tokens=kwargs.get("max_tokens", 1024),
+                stop=["<|im_end|>", "user:", "assistant:"],
+                echo=False,
+            )
+
+        response = await loop.run_in_executor(None, _run)
+        return response["choices"][0]["text"].strip()
+
+    async def chat_completion_stream(self, messages: List[Dict[str, str]], **kwargs):
+        # Placeholder for streaming
+        text = await self.chat_completion(messages, **kwargs)
+        yield text
 
 
 class LLMProviderManager:
@@ -500,7 +823,9 @@ class LLMProviderManager:
         anthropic_key: Optional[str] = None,
         vertex_api_key: Optional[str] = None,
         vertex_project_id: Optional[str] = None,
-        vertex_location: Optional[str] = None
+        vertex_location: Optional[str] = None,
+        llama_model_path: Optional[str] = None,
+        ollama_base_url: Optional[str] = None,
     ):
         self.providers = {}
         self._init_providers(
@@ -508,7 +833,9 @@ class LLMProviderManager:
             anthropic_key=anthropic_key,
             vertex_api_key=vertex_api_key,
             vertex_project_id=vertex_project_id,
-            vertex_location=vertex_location
+            vertex_location=vertex_location,
+            llama_model_path=llama_model_path,
+            ollama_base_url=ollama_base_url,
         )
 
     def _init_providers(
@@ -517,7 +844,9 @@ class LLMProviderManager:
         anthropic_key: Optional[str] = None,
         vertex_api_key: Optional[str] = None,
         vertex_project_id: Optional[str] = None,
-        vertex_location: Optional[str] = None
+        vertex_location: Optional[str] = None,
+        llama_model_path: Optional[str] = None,
+        ollama_base_url: Optional[str] = None,
     ):
         """Initialize available providers"""
         # Use provided keys or fallback to environment variables
@@ -530,26 +859,52 @@ class LLMProviderManager:
             self.providers["anthropic"] = AnthropicProvider(anthropic_key)
 
         # Vertex AI configuration (uses Service Account JSON, not API key)
-        vertex_service_account = vertex_api_key or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        vertex_service_account = vertex_api_key or os.getenv(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        )
         vertex_project_id = vertex_project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
         vertex_location = vertex_location or os.getenv("VERTEX_LOCATION", "us-central1")
 
-        logger.info(f"Vertex AI config check: service_account={'set' if vertex_service_account else 'not set'}, project_id={'set' if vertex_project_id else 'not set'}, location={vertex_location}")
+        logger.info(
+            f"Vertex AI config check: service_account={'set' if vertex_service_account else 'not set'}, project_id={'set' if vertex_project_id else 'not set'}, location={vertex_location}"
+        )
 
         if vertex_service_account and vertex_project_id:
             try:
                 self.providers["vertex-ai"] = VertexAIProvider(
                     api_key=vertex_service_account,
                     project_id=vertex_project_id,
-                    location=vertex_location
+                    location=vertex_location,
                 )
                 logger.info("Vertex AI provider initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to initialize Vertex AI provider: {e}")
         else:
-            logger.warning(f"Vertex AI provider not initialized: service_account={'set' if vertex_service_account else 'missing'}, project_id={'set' if vertex_project_id else 'missing'}")
+            logger.warning(
+                f"Vertex AI provider not initialized: service_account={'set' if vertex_service_account else 'missing'}, project_id={'set' if vertex_project_id else 'missing'}"
+            )
 
-    def get_provider(self, provider_name: Optional[str] = None) -> Optional[LLMProvider]:
+        # Ollama Provider (Recommended Local)
+        ollama_base_url = ollama_base_url or os.getenv(
+            "OLLAMA_BASE_URL", "http://localhost:11434"
+        )
+        # Always initialize Ollama as it is the default local strategy
+        self.providers["ollama"] = OllamaProvider(base_url=ollama_base_url)
+        logger.info(f"Ollama provider initialized with {ollama_base_url}")
+
+        # Local Llama GGUF (Fallback for Local Preview)
+        llama_model_path = llama_model_path or os.getenv("LLAMA_MODEL_PATH")
+        if llama_model_path and os.path.exists(llama_model_path):
+            self.providers["llama-cpp"] = LlamaCppProvider(llama_model_path)
+            logger.info(f"LlamaCpp provider initialized with {llama_model_path}")
+        else:
+            logger.debug(
+                "LlamaCpp provider not initialized (model path missing or invalid)"
+            )
+
+    def get_provider(
+        self, provider_name: Optional[str] = None
+    ) -> Optional[LLMProvider]:
         """
         Get LLM provider by name
 
@@ -588,28 +943,33 @@ class AgentPromptBuilder:
         self.agent_prompts = {
             "planner": {
                 "role": "You are an expert project planner and strategist. Help the user break down their goals into actionable steps.",
-                "instructions": "Focus on creating clear, prioritized action plans with timelines and dependencies."
+                "instructions": "Focus on creating clear, prioritized action plans with timelines and dependencies.",
             },
             "writer": {
                 "role": "You are a skilled writer and content creator. Help the user craft compelling written content and visual designs.",
-                "instructions": "Focus on clarity, engagement, and adapting to the user's communication style. You can also create visual designs using Canva tools when needed for social media posts, marketing materials, or presentations."
+                "instructions": "Focus on clarity, engagement, and adapting to the user's communication style. You can also create visual designs using Canva tools when needed for social media posts, marketing materials, or presentations.",
             },
             "visual_design_partner": {
                 "role": "You are a visual design partner specializing in creating compelling visual content from text ideas. Help users transform their concepts into professional design assets.",
-                "instructions": "Focus on understanding the user's content goals and creating appropriate visual designs. Use Canva tools to generate designs from templates, update text blocks, and export assets in multiple sizes for different platforms (Instagram, Facebook, banners, etc.)."
+                "instructions": "Focus on understanding the user's content goals and creating appropriate visual designs. Use Canva tools to generate designs from templates, update text blocks, and export assets in multiple sizes for different platforms (Instagram, Facebook, banners, etc.).",
             },
             "coach": {
                 "role": "You are an experienced coach and mentor. Help the user reflect on their progress and overcome challenges.",
-                "instructions": "Focus on asking insightful questions, providing encouragement, and helping with personal growth."
+                "instructions": "Focus on asking insightful questions, providing encouragement, and helping with personal growth.",
             },
             "coder": {
                 "role": "You are an expert software developer. Help the user with programming tasks and technical challenges.",
-                "instructions": "Focus on providing clear, well-documented code solutions with explanations."
-            }
+                "instructions": "Focus on providing clear, well-documented code solutions with explanations.",
+            },
         }
 
-    def build_system_prompt(self, agent_type: str, profile: MindscapeProfile,
-                          active_intents: List[IntentCard], workspace: Optional[Any] = None) -> str:
+    def build_system_prompt(
+        self,
+        agent_type: str,
+        profile: MindscapeProfile,
+        active_intents: List[IntentCard],
+        workspace: Optional[Any] = None,
+    ) -> str:
         """Build system prompt with user context and language policy
 
         Args:
@@ -631,7 +991,9 @@ class AgentPromptBuilder:
         from backend.app.shared.i18n_loader import get_locale_from_context
         from backend.app.shared.prompt_templates import build_language_policy_section
 
-        preferred_language = get_locale_from_context(profile=profile, workspace=workspace)
+        preferred_language = get_locale_from_context(
+            profile=profile, workspace=workspace
+        )
         language_policy = build_language_policy_section(preferred_language)
         prompt_parts.append(language_policy)
 
@@ -645,7 +1007,9 @@ class AgentPromptBuilder:
                 prompt_parts.append(f"Domains: {', '.join(profile.domains)}")
             if profile.preferences:
                 prefs = profile.preferences
-                prompt_parts.append(f"Communication Style: {prefs.communication_style.value}")
+                prompt_parts.append(
+                    f"Communication Style: {prefs.communication_style.value}"
+                )
                 prompt_parts.append(f"Response Length: {prefs.response_length.value}")
                 # Note: Language preference is now in language policy section above
                 # Keep legacy language field for backward compatibility, but it's redundant
@@ -656,6 +1020,7 @@ class AgentPromptBuilder:
         if profile:
             try:
                 from backend.app.services.habit_store import HabitStore
+
                 habit_store = HabitStore()
                 confirmed_habits = habit_store.get_confirmed_habits(profile.id)
 
@@ -665,11 +1030,20 @@ class AgentPromptBuilder:
                 agent_type_preferences = []
 
                 for habit in confirmed_habits:
-                    if habit.habit_category.value == "tool_usage" and habit.habit_key == "tool_usage":
+                    if (
+                        habit.habit_category.value == "tool_usage"
+                        and habit.habit_key == "tool_usage"
+                    ):
                         tool_preferences.append(habit.habit_value)
-                    elif habit.habit_category.value == "playbook_usage" and habit.habit_key == "playbook_usage":
+                    elif (
+                        habit.habit_category.value == "playbook_usage"
+                        and habit.habit_key == "playbook_usage"
+                    ):
                         playbook_preferences.append(habit.habit_value)
-                    elif habit.habit_category.value == "tool_usage" and habit.habit_key == "preferred_agent_type":
+                    elif (
+                        habit.habit_category.value == "tool_usage"
+                        and habit.habit_key == "preferred_agent_type"
+                    ):
                         agent_type_preferences.append(habit.habit_value)
 
                 # Add to prompt if any preferences found
@@ -677,15 +1051,28 @@ class AgentPromptBuilder:
                     prompt_parts.append("[USER_HABITS]")
                     if agent_type_preferences:
                         # If user has a preferred agent type, suggest it
-                        most_common_agent = max(set(agent_type_preferences), key=agent_type_preferences.count)
+                        most_common_agent = max(
+                            set(agent_type_preferences),
+                            key=agent_type_preferences.count,
+                        )
                         if most_common_agent == agent_type:
-                            prompt_parts.append(f"Note: User frequently uses {agent_type} agent type.")
+                            prompt_parts.append(
+                                f"Note: User frequently uses {agent_type} agent type."
+                            )
                     if tool_preferences:
-                        common_tools = list(set(tool_preferences))[:5]  # Top 5 unique tools
-                        prompt_parts.append(f"Preferred tools: {', '.join(common_tools)}")
+                        common_tools = list(set(tool_preferences))[
+                            :5
+                        ]  # Top 5 unique tools
+                        prompt_parts.append(
+                            f"Preferred tools: {', '.join(common_tools)}"
+                        )
                     if playbook_preferences:
-                        common_playbooks = list(set(playbook_preferences))[:3]  # Top 3 unique playbooks
-                        prompt_parts.append(f"Frequently used playbooks: {', '.join(common_playbooks)}")
+                        common_playbooks = list(set(playbook_preferences))[
+                            :3
+                        ]  # Top 3 unique playbooks
+                        prompt_parts.append(
+                            f"Frequently used playbooks: {', '.join(common_playbooks)}"
+                        )
                     prompt_parts.append("[/USER_HABITS]")
             except Exception as e:
                 # If habit store is not available, continue without habits
@@ -710,6 +1097,7 @@ class AgentRunner:
 
     def __init__(self):
         from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
         self.store = MindscapeStore()
         # Initialize with unified configuration (will be overridden by user config when needed)
         self.llm_manager = create_llm_provider_manager()
@@ -722,10 +1110,13 @@ class AgentRunner:
         """Lazy initialization of backend manager"""
         if self._backend_manager is None:
             from backend.app.services.backend_manager import BackendManager
+
             self._backend_manager = BackendManager(self.store)
         return self._backend_manager
 
-    async def run_agent(self, profile_id: str, request: RunAgentRequest) -> AgentResponse:
+    async def run_agent(
+        self, profile_id: str, request: RunAgentRequest
+    ) -> AgentResponse:
         """Execute an agent with the given request"""
 
         execution_id = str(uuid.uuid4())
@@ -738,7 +1129,7 @@ class AgentRunner:
             task=request.task,
             intent_ids=request.intent_ids,
             status="running",
-            started_at=start_time
+            started_at=start_time,
         )
 
         try:
@@ -761,7 +1152,7 @@ class AgentRunner:
                 agent_type=request.agent_type,
                 profile=profile,
                 active_intents=active_intents,
-                metadata={"intent_ids": request.intent_ids}
+                metadata={"intent_ids": request.intent_ids},
             )
 
             response_text = agent_response.output
@@ -793,13 +1184,13 @@ class AgentRunner:
                         "task": request.task[:200],  # Truncate for storage
                         "status": "completed",
                         "duration_seconds": execution.duration_seconds,
-                        "intent_ids": request.intent_ids
+                        "intent_ids": request.intent_ids,
                     },
                     entity_ids=request.intent_ids,  # Associate with intents
                     metadata={
                         "output_length": len(response_text) if response_text else 0,
-                        "use_mindscape": request.use_mindscape
-                    }
+                        "use_mindscape": request.use_mindscape,
+                    },
                 )
                 self.store.create_event(event)
             except Exception as e:
@@ -811,7 +1202,7 @@ class AgentRunner:
                     profile_id=profile_id,
                     execution_id=execution_id,
                     task=request.task,
-                    output=response_text
+                    output=response_text,
                 )
             except Exception as e:
                 logger.warning(f"Failed to extract seeds: {e}")
@@ -819,9 +1210,7 @@ class AgentRunner:
             # Observe habits from execution (background, don't block response)
             try:
                 await self._observe_habits_from_execution(
-                    profile_id=profile_id,
-                    execution=execution,
-                    profile=profile
+                    profile_id=profile_id, execution=execution, profile=profile
                 )
             except Exception as e:
                 logger.warning(f"Failed to observe habits from execution: {e}")
@@ -832,7 +1221,7 @@ class AgentRunner:
                 output=response_text,
                 used_profile=execution.used_profile,
                 used_intents=execution.used_intents,
-                metadata=agent_response.metadata
+                metadata=agent_response.metadata,
             )
 
         except Exception as e:
@@ -863,12 +1252,10 @@ class AgentRunner:
                         "status": "failed",
                         "error_message": str(e)[:500],  # Truncate error message
                         "duration_seconds": execution.duration_seconds,
-                        "intent_ids": request.intent_ids
+                        "intent_ids": request.intent_ids,
                     },
                     entity_ids=request.intent_ids,
-                    metadata={
-                        "use_mindscape": request.use_mindscape
-                    }
+                    metadata={"use_mindscape": request.use_mindscape},
                 )
                 self.store.create_event(event)
             except Exception as e2:
@@ -880,7 +1267,7 @@ class AgentRunner:
                     profile_id=profile_id,
                     execution_id=execution_id,
                     task=request.task,
-                    output=None
+                    output=None,
                 )
             except Exception as e:
                 logger.warning(f"Failed to extract seeds from failed execution: {e}")
@@ -888,9 +1275,7 @@ class AgentRunner:
             # Try to observe habits even from failed executions (might still have useful info)
             try:
                 await self._observe_habits_from_execution(
-                    profile_id=profile_id,
-                    execution=execution,
-                    profile=profile
+                    profile_id=profile_id, execution=execution, profile=profile
                 )
             except Exception as e:
                 logger.warning(f"Failed to observe habits from failed execution: {e}")
@@ -899,14 +1284,16 @@ class AgentRunner:
                 execution_id=execution_id,
                 status="failed",
                 error_message=str(e),
-                metadata={"agent_type": request.agent_type}
+                metadata={"agent_type": request.agent_type},
             )
 
     async def get_execution_status(self, execution_id: str) -> Optional[AgentExecution]:
         """Get execution status by ID"""
         return self.store.get_agent_execution(execution_id)
 
-    async def list_executions(self, profile_id: str, limit: int = 20) -> List[AgentExecution]:
+    async def list_executions(
+        self, profile_id: str, limit: int = 20
+    ) -> List[AgentExecution]:
         """List recent executions for a profile"""
         return self.store.list_agent_executions(profile_id, limit)
 
@@ -917,25 +1304,25 @@ class AgentRunner:
                 "type": "planner",
                 "name": "Project Planner",
                 "description": "Helps break down goals into actionable plans",
-                "category": "planning"
+                "category": "planning",
             },
             {
                 "type": "writer",
                 "name": "Content Writer",
                 "description": "Creates compelling written content and visual designs",
-                "category": "content_creator"
+                "category": "content_creator",
             },
             {
                 "type": "coach",
                 "name": "Personal Coach",
                 "description": "Provides guidance and motivation",
-                "category": "coaching"
+                "category": "coaching",
             },
             {
                 "type": "coder",
                 "name": "Code Assistant",
                 "description": "Helps with programming tasks",
-                "category": "development"
+                "category": "development",
             },
             {
                 "type": "visual_design_partner",
@@ -943,8 +1330,8 @@ class AgentRunner:
                 "description": "幫你把想法變成視覺素材，從社群貼文到行銷海報，自動生成多尺寸設計",
                 "category": "content_creator",
                 "icon": "🎨",
-                "subtitle": "從文案到設計，一鍵生成多平台視覺素材"
-            }
+                "subtitle": "從文案到設計，一鍵生成多平台視覺素材",
+            },
         ]
 
     def get_agent_detail(self, agent_type: str) -> Optional[Dict[str, Any]]:
@@ -968,13 +1355,13 @@ class AgentRunner:
                             {
                                 "role": "文案生成師",
                                 "capability": "content_drafting.generate",
-                                "description": "從 Campaign Brief 生成標題、副標、要點等文案內容"
+                                "description": "從 Campaign Brief 生成標題、副標、要點等文案內容",
                             },
                             {
                                 "role": "內容結構化專家",
-                                "description": "將文案解析為設計元素（標題、副標、CTA）"
-                            }
-                        ]
+                                "description": "將文案解析為設計元素（標題、副標、CTA）",
+                            },
+                        ],
                     },
                     {
                         "name": "設計組",
@@ -982,29 +1369,29 @@ class AgentRunner:
                             {
                                 "role": "模板搜尋師",
                                 "tool": "canva.list_templates",
-                                "description": "根據需求推薦合適的 Canva 模板"
+                                "description": "根據需求推薦合適的 Canva 模板",
                             },
                             {
                                 "role": "設計創建師",
                                 "tool": "canva.create_design_from_template",
-                                "description": "從模板創建設計"
+                                "description": "從模板創建設計",
                             },
                             {
                                 "role": "文字更新師",
                                 "tool": "canva.update_text_blocks",
-                                "description": "將文案填入設計模板"
+                                "description": "將文案填入設計模板",
                             },
                             {
                                 "role": "多尺寸生成師",
-                                "description": "自動生成 Instagram、Facebook、Banner 等多種尺寸變體"
+                                "description": "自動生成 Instagram、Facebook、Banner 等多種尺寸變體",
                             },
                             {
                                 "role": "資產匯出師",
                                 "tool": "canva.export_design",
-                                "description": "匯出最終設計檔案"
-                            }
-                        ]
-                    }
+                                "description": "匯出最終設計檔案",
+                            },
+                        ],
+                    },
                 ],
                 "workflow": [
                     "讀取 Campaign Brief（從 Intent）",
@@ -1013,22 +1400,22 @@ class AgentRunner:
                     "搜尋並選擇 Canva 模板",
                     "創建設計並更新文字",
                     "生成多尺寸變體",
-                    "匯出設計資產"
+                    "匯出設計資產",
                 ],
                 "use_cases": [
                     "社群媒體貼文設計",
                     "行銷活動海報",
                     "產品宣傳素材",
                     "簡報視覺化",
-                    "多平台素材批量生成"
+                    "多平台素材批量生成",
                 ],
                 "related_playbooks": [
                     {
                         "code": "campaign_asset_playbook",
                         "name": "Campaign Asset Generator",
-                        "description": "從 Campaign Brief 生成設計資產"
+                        "description": "從 Campaign Brief 生成設計資產",
                     }
-                ]
+                ],
             }
 
         return agent_info
@@ -1043,7 +1430,7 @@ class AgentRunner:
         task: str,
         agent_types: List[str],
         use_mindscape: bool = True,
-        intent_ids: List[str] = None
+        intent_ids: List[str] = None,
     ) -> List[AgentResponse]:
         """Run multiple agents in parallel for the same task"""
         if not task:
@@ -1075,7 +1462,10 @@ class AgentRunner:
                         agent_type=at,
                         profile=profile,
                         active_intents=active_intents,
-                        metadata={"intent_ids": intent_ids or [], "parallel_execution": True}
+                        metadata={
+                            "intent_ids": intent_ids or [],
+                            "parallel_execution": True,
+                        },
                     )
                     return AgentResponse(
                         execution_id=execution_id,
@@ -1084,7 +1474,7 @@ class AgentRunner:
                         error_message=agent_response.error_message,
                         used_profile=profile.dict() if profile else None,
                         used_intents=[intent.dict() for intent in active_intents],
-                        metadata={**agent_response.metadata, "agent_type": at}
+                        metadata={**agent_response.metadata, "agent_type": at},
                     )
                 except Exception as e:
                     logger.error(f"Parallel agent execution failed for {at}: {e}")
@@ -1092,7 +1482,7 @@ class AgentRunner:
                         execution_id=execution_id,
                         status="failed",
                         error_message=str(e),
-                        metadata={"agent_type": at}
+                        metadata={"agent_type": at},
                     )
 
             tasks.append(run_single_agent(agent_type))
@@ -1105,12 +1495,14 @@ class AgentRunner:
         for r in responses:
             if isinstance(r, Exception):
                 logger.error(f"Agent execution exception: {r}")
-                result.append(AgentResponse(
-                    execution_id=str(uuid.uuid4()),
-                    status="failed",
-                    error_message=str(r),
-                    metadata={}
-                ))
+                result.append(
+                    AgentResponse(
+                        execution_id=str(uuid.uuid4()),
+                        status="failed",
+                        error_message=str(r),
+                        metadata={},
+                    )
+                )
             else:
                 result.append(r)
 
@@ -1127,45 +1519,47 @@ class AgentRunner:
                 "id": "daily_planning",
                 "name": "每日整理 & 優先級",
                 "description": "整理每日/每週任務，排優先順序",
-                "agent_type": "planner"
+                "agent_type": "planner",
             },
             {
                 "id": "project_breakdown",
                 "name": "專案拆解 & 里程碑",
                 "description": "將專案拆成階段和里程碑",
-                "agent_type": "planner"
+                "agent_type": "planner",
             },
             {
                 "id": "content_drafting",
                 "name": "內容／文案起稿",
                 "description": "起草文案、文章、貼文",
-                "agent_type": "writer"
+                "agent_type": "writer",
             },
             {
                 "id": "learning_plan",
                 "name": "學習計畫 & 筆記整理",
                 "description": "整理內容重點，制定學習計畫",
-                "agent_type": "planner"
+                "agent_type": "planner",
             },
             {
                 "id": "mindful_dialogue",
                 "name": "心智 / 情緒整理對話",
                 "description": "梳理焦慮，用提問方式釐清狀態",
-                "agent_type": "coach"
+                "agent_type": "coach",
             },
             {
                 "id": "client_collaboration",
                 "name": "客戶／合作案梳理",
                 "description": "整理客戶/合作案現況，列出選項",
-                "agent_type": "planner"
-            }
+                "agent_type": "planner",
+            },
         ]
 
         # Build prompt for scene suggestion
-        scenes_text = "\n".join([
-            f"- {s['id']}: {s['name']} - {s['description']} (適合: {s['agent_type']})"
-            for s in work_scenes
-        ])
+        scenes_text = "\n".join(
+            [
+                f"- {s['id']}: {s['name']} - {s['description']} (適合: {s['agent_type']})"
+                for s in work_scenes
+            ]
+        )
 
         system_prompt = f"""You are a helpful assistant that suggests the best work scenario for a user's task.
 
@@ -1180,7 +1574,9 @@ Respond in JSON format:
     "reason": "brief explanation in Traditional Chinese"
 }}"""
 
-        user_prompt = f"Task: {task}\n\nWhich work scenario is most suitable for this task?"
+        user_prompt = (
+            f"Task: {task}\n\nWhich work scenario is most suitable for this task?"
+        )
 
         try:
             # Get LLM provider from user settings
@@ -1188,7 +1584,7 @@ Respond in JSON format:
 
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ]
 
             response_text = await provider.chat_completion(messages)
@@ -1198,7 +1594,7 @@ Respond in JSON format:
             import re
 
             # Extract JSON from response (handle cases where LLM adds extra text)
-            json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+            json_match = re.search(r"\{[^{}]*\}", response_text, re.DOTALL)
             if json_match:
                 suggestion_data = json.loads(json_match.group())
             else:
@@ -1206,15 +1602,19 @@ Respond in JSON format:
                 suggestion_data = json.loads(response_text)
 
             # Validate and return
-            suggested_id = suggestion_data.get("suggested_scene_id", work_scenes[0]["id"])
-            scene_info = next((s for s in work_scenes if s["id"] == suggested_id), work_scenes[0])
+            suggested_id = suggestion_data.get(
+                "suggested_scene_id", work_scenes[0]["id"]
+            )
+            scene_info = next(
+                (s for s in work_scenes if s["id"] == suggested_id), work_scenes[0]
+            )
 
             return {
                 "suggested_scene_id": suggested_id,
                 "suggested_scene": scene_info,
                 "confidence": suggestion_data.get("confidence", 0.7),
                 "reason": suggestion_data.get("reason", "根據任務內容自動推薦"),
-                "all_scenes": work_scenes
+                "all_scenes": work_scenes,
             }
 
         except Exception as e:
@@ -1225,7 +1625,7 @@ Respond in JSON format:
                 "suggested_scene": work_scenes[0],
                 "confidence": 0.5,
                 "reason": "自動推薦失敗，使用預設場景",
-                "all_scenes": work_scenes
+                "all_scenes": work_scenes,
             }
 
     async def _extract_seeds_from_execution(
@@ -1233,7 +1633,7 @@ Respond in JSON format:
         profile_id: str,
         execution_id: str,
         task: str,
-        output: Optional[str] = None
+        output: Optional[str] = None,
     ):
         """
         Extract seeds from execution (placeholder, may be implemented later)
@@ -1246,7 +1646,7 @@ Respond in JSON format:
         self,
         profile_id: str,
         execution: AgentExecution,
-        profile: Optional[MindscapeProfile] = None
+        profile: Optional[MindscapeProfile] = None,
     ):
         """
         Observe habits from agent execution and generate candidates if threshold is met
@@ -1257,12 +1657,16 @@ Respond in JSON format:
             profile: Profile used in execution (optional)
         """
         try:
-            from backend.app.capabilities.habit_learning.services.habit_observer import HabitObserver
-            from backend.app.capabilities.habit_learning.services.habit_candidate_generator import HabitCandidateGenerator
+            from backend.app.capabilities.habit_learning.services.habit_observer import (
+                HabitObserver,
+            )
+            from backend.app.capabilities.habit_learning.services.habit_candidate_generator import (
+                HabitCandidateGenerator,
+            )
 
             # Check if habit learning is enabled (from profile preferences)
             if profile and profile.preferences:
-                if not getattr(profile.preferences, 'enable_habit_suggestions', False):
+                if not getattr(profile.preferences, "enable_habit_suggestions", False):
                     logger.debug(f"Habit suggestions disabled for profile {profile_id}")
                     return
 
@@ -1272,9 +1676,7 @@ Respond in JSON format:
 
             # Observe habits from execution
             observations = await observer.observe_agent_execution(
-                profile_id=profile_id,
-                execution=execution,
-                profile=profile
+                profile_id=profile_id, execution=execution, profile=profile
             )
 
             # For each observation, check if we should generate a candidate
@@ -1285,12 +1687,16 @@ Respond in JSON format:
                         profile_id=obs.profile_id,
                         habit_key=obs.habit_key,
                         habit_value=obs.habit_value,
-                        habit_category=obs.habit_category
+                        habit_category=obs.habit_category,
                     )
                 except Exception as e:
                     logger.warning(f"Failed to process observation {obs.id}: {e}")
 
         except ImportError:
-            logger.debug("Habit learning modules not available, skipping habit observation")
+            logger.debug(
+                "Habit learning modules not available, skipping habit observation"
+            )
         except Exception as e:
-            logger.warning(f"Failed to observe habits from execution: {e}", exc_info=True)
+            logger.warning(
+                f"Failed to observe habits from execution: {e}", exc_info=True
+            )

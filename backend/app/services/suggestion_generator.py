@@ -11,6 +11,7 @@ from backend.app.capabilities.registry import get_registry
 from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.conversation.plan_builder import PlanBuilder
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 
 logger = logging.getLogger(__name__)
 
@@ -115,43 +116,35 @@ class SuggestionGenerator:
     def _get_installed_packs(self) -> List[Dict[str, Any]]:
         """Get list of installed capability packs with metadata"""
         try:
-            import sqlite3
-            import os
-            import json
-
-            db_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-                "data", "mindscape.db"
-            )
-
-            if not os.path.exists(db_path):
-                return []
-
             installed_packs = []
-            with sqlite3.connect(db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute('SELECT pack_id, metadata FROM installed_packs')
-                for row in cursor.fetchall():
-                    pack_id = row['pack_id']
-                    metadata_str = row['metadata']
-                    metadata = json.loads(metadata_str) if metadata_str else {}
+            store = InstalledPacksStore()
+            rows = store.list_installed_metadata()
+            for row in rows:
+                pack_id = row.get("pack_id")
+                metadata = row.get("metadata") or {}
 
-                    capability_info = self.registry.capabilities.get(pack_id)
-                    if capability_info:
-                        manifest = capability_info.get('manifest', {})
-                        side_effect_level = manifest.get('side_effect_level', 'readonly')
-                        tools_configured = self.plan_builder.check_pack_tools_configured(pack_id)
+                capability_info = self.registry.capabilities.get(pack_id)
+                if capability_info:
+                    manifest = capability_info.get("manifest", {})
+                    side_effect_level = (
+                        metadata.get("side_effect_level")
+                        or manifest.get("side_effect_level", "readonly")
+                    )
+                    tools_configured = self.plan_builder.check_pack_tools_configured(
+                        pack_id
+                    )
 
-                        installed_packs.append({
-                            'pack_id': pack_id,
-                            'manifest': manifest,
-                            'side_effect_level': side_effect_level,
-                            'tools_configured': tools_configured,
-                            'display_name': manifest.get('display_name', pack_id),
-                            'description': manifest.get('description', ''),
-                            'tools': manifest.get('tools', [])
-                        })
+                    installed_packs.append(
+                        {
+                            "pack_id": pack_id,
+                            "manifest": manifest,
+                            "side_effect_level": side_effect_level,
+                            "tools_configured": tools_configured,
+                            "display_name": manifest.get("display_name", pack_id),
+                            "description": manifest.get("description", ""),
+                            "tools": manifest.get("tools", []),
+                        }
+                    )
 
             return installed_packs
         except Exception as e:
@@ -702,4 +695,3 @@ Important: Use semantic understanding, not keyword matching. Understand what the
         """Convert priority to numeric score for sorting"""
         scores = {'high': 3, 'medium': 2, 'low': 1}
         return scores.get(priority, 0)
-

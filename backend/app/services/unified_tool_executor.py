@@ -10,10 +10,20 @@ Provides unified tool execution interface supporting three tool types:
 from typing import Dict, Any, Optional, List
 import logging
 from datetime import datetime
+from pathlib import Path
+import importlib
+import inspect
 
 from backend.app.models.playbook import ToolDependency
 from backend.app.services.tools.base import MindscapeTool
-from backend.app.services.tools.registry import get_mindscape_tool
+from backend.app.services.tools.registry import get_mindscape_tool, register_mindscape_tool
+from backend.app.services.tools.schemas import (
+    ToolMetadata,
+    ToolInputSchema,
+    ToolSourceType,
+    ToolCategory,
+    ToolDangerLevel,
+)
 from backend.app.services.tools.adapters import (
     is_langchain_available,
     is_mcp_available,
@@ -23,6 +33,10 @@ from backend.app.services.playbook_tool_resolver import ToolDependencyResolver
 
 logger = logging.getLogger(__name__)
 
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover
+    yaml = None
 
 class ToolExecutionResult:
     """
@@ -211,7 +225,23 @@ class UnifiedToolExecutor:
             Tool instance or None
         """
         if tool_type == "builtin":
-            return get_mindscape_tool(tool_name)
+            tool = get_mindscape_tool(tool_name)
+            if tool:
+                return tool
+
+            # Fallback: capability tools (installed packs) can be executed directly by tool_id
+            # using manifest backend resolution. This makes `/api/v1/tools/execute` usable for
+            # `capability.tool_code` style tools (e.g., `walkto_lab.walkto_create_lens_card`).
+            cap_tool = self._resolve_capability_tool(tool_name)
+            if cap_tool:
+                try:
+                    register_mindscape_tool(tool_name, cap_tool)
+                except Exception:
+                    # Best-effort caching; execution can still proceed without caching.
+                    pass
+                return cap_tool
+
+            return None
 
         elif tool_type == "langchain":
             if not is_langchain_available():
@@ -244,6 +274,78 @@ class UnifiedToolExecutor:
 
         else:
             logger.error(f"Unsupported tool type: {tool_type}")
+            return None
+
+    def _resolve_capability_tool(self, tool_id: str) -> Optional[MindscapeTool]:
+        """
+        Resolve a capability tool by tool_id using installed manifest.yaml backend mapping.
+
+        Expected tool_id format: "{capability_code}.{tool_code}"
+        """
+        try:
+            if "." not in tool_id:
+                return None
+            cap_code, tool_code = tool_id.split(".", 1)
+            if not cap_code or not tool_code:
+                return None
+
+            if yaml is None:
+                return None
+
+            # Resolve `backend/app` directory from this file: backend/app/services/unified_tool_executor.py
+            app_dir = Path(__file__).resolve().parents[1]  # .../backend/app
+            capabilities_dir = app_dir / "capabilities"
+            manifest_path = capabilities_dir / cap_code / "manifest.yaml"
+            if not manifest_path.exists():
+                return None
+
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+            backend = None
+            tool_desc = ""
+            for tool_cfg in manifest.get("tools", []) or []:
+                if not isinstance(tool_cfg, dict):
+                    continue
+                if (tool_cfg.get("code") or tool_cfg.get("name")) == tool_code:
+                    backend = tool_cfg.get("backend")
+                    tool_desc = tool_cfg.get("description") or ""
+                    break
+
+            if not backend or ":" not in backend:
+                return None
+
+            module_path, target = backend.rsplit(":", 1)
+            module = importlib.import_module(module_path)
+            fn = getattr(module, target, None)
+            if fn is None:
+                return None
+
+            class CapabilityToolWrapper(MindscapeTool):
+                def __init__(self, _fn):
+                    metadata = ToolMetadata(
+                        name=tool_code,
+                        description=(tool_desc or f"Capability tool '{tool_id}' wrapper."),
+                        input_schema=ToolInputSchema(type="object", properties={}, required=[]),
+                        category=ToolCategory.AUTOMATION,
+                        source_type=ToolSourceType.CUSTOM,
+                        provider=cap_code,
+                        danger_level=ToolDangerLevel.LOW,
+                    )
+                    super().__init__(metadata)
+                    self._fn = _fn
+
+                # Capability tools often accept flexible kwargs; do not drop unknown args.
+                def validate_input(self, **kwargs) -> Dict[str, Any]:  # type: ignore[override]
+                    return kwargs
+
+                async def execute(self, **kwargs) -> Any:  # type: ignore[override]
+                    result = self._fn(**kwargs)
+                    if inspect.isawaitable(result):
+                        return await result
+                    return result
+
+            return CapabilityToolWrapper(fn)
+        except Exception as e:
+            logger.debug(f"Capability tool resolve failed for {tool_id}: {e}", exc_info=True)
             return None
 
     async def execute_tool_dependency(

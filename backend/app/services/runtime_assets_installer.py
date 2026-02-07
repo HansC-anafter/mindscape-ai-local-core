@@ -384,9 +384,13 @@ class RuntimeAssetsInstaller:
         if not migrations_dir.exists():
             return
 
-        # Target: alembic/postgres/versions/
+        # Target: alembic_migrations/postgres/versions/
         alembic_versions_dir = (
-            self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+            self.local_core_root
+            / "backend"
+            / "alembic_migrations"
+            / "postgres"
+            / "versions"
         )
         if not alembic_versions_dir.exists():
             error_msg = f"Alembic versions directory not found: {alembic_versions_dir}"
@@ -434,7 +438,7 @@ class RuntimeAssetsInstaller:
 
     def execute_migrations(self, capability_code: str, result: InstallResult):
         """Execute database migrations for a specific capability only"""
-        alembic_config = self.local_core_root / "backend" / "alembic.postgres.ini"
+        alembic_config = self.local_core_root / "backend" / "alembic.ini"
         if not alembic_config.exists():
             logger.warning(
                 f"Alembic config not found: {alembic_config}, skipping migration execution"
@@ -473,7 +477,11 @@ class RuntimeAssetsInstaller:
             # Validate revision IDs for uniqueness across all installed migrations
             # Only check for conflicts with OTHER capabilities, not the same capability
             alembic_versions_dir = (
-                self.local_core_root / "backend" / "alembic" / "postgres" / "versions"
+                self.local_core_root
+                / "backend"
+                / "alembic_migrations"
+                / "postgres"
+                / "versions"
             )
             if alembic_versions_dir.exists():
                 existing_revisions = {}
@@ -562,9 +570,9 @@ class RuntimeAssetsInstaller:
             # Check if revisions are already applied but tables might be missing
             # This can happen if migration was marked as applied but failed to create tables
             from sqlalchemy import create_engine, text, inspect
-            from app.database.config import get_postgres_url
+            from app.database.config import get_postgres_url_core
 
-            engine = create_engine(get_postgres_url())
+            engine = create_engine(get_postgres_url_core())
 
             # Build expected_tables map for all revisions (needed for verification)
             revision_expected_tables = {}

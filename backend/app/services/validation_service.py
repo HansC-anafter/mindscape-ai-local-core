@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -24,6 +23,10 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 from packaging import version
+from sqlalchemy import text
+
+from backend.app.services.stores.installed_packs_store import InstalledPacksStore
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
 
@@ -171,11 +174,9 @@ class ValidationService:
         """Check database connection"""
         errors = []
         try:
-            db_path = self.local_core_root / "data" / "mindscape.db"
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(db_path))
-            conn.execute("SELECT 1")
-            conn.close()
+            store = PostgresStoreBase()
+            with store.get_connection() as conn:
+                conn.execute(text("SELECT 1"))
         except Exception as e:
             errors.append(f"Database connection failed: {e}")
         return len(errors) == 0, errors
@@ -524,12 +525,8 @@ class ValidationService:
     def _get_installed_packs(self) -> List[str]:
         """Get list of installed pack IDs"""
         try:
-            db_path = self.local_core_root / "data" / "mindscape.db"
-            if db_path.exists():
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                cursor.execute("SELECT pack_id FROM installed_packs")
-                return [row[0] for row in cursor.fetchall()]
+            store = InstalledPacksStore()
+            return store.list_installed_pack_ids()
         except Exception:
             pass
         return []
@@ -632,4 +629,3 @@ class ValidationService:
                 warnings.append(f"Required API key not configured: {key_name}")
 
         return len(errors) == 0, errors, warnings
-

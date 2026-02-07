@@ -5,14 +5,16 @@ Service for migrating embeddings from one model to another.
 Handles batch processing, error recovery, and progress tracking.
 """
 
-import os
 import logging
+import os
 import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
+
+from app.database.config import get_vector_postgres_config
 
 from backend.app.models.embedding_migration import (
     EmbeddingMigration,
@@ -42,13 +44,7 @@ class EmbeddingMigrationService:
 
     def _get_postgres_config(self):
         """Get PostgreSQL config from environment"""
-        return {
-            "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-            "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-            "user": os.getenv("POSTGRES_USER", "mindscape"),
-            "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-        }
+        return get_vector_postgres_config()
 
     def _get_connection(self):
         """Get PostgreSQL connection"""
@@ -724,4 +720,3 @@ class EmbeddingMigrationService:
             True if deleted, False if not found
         """
         return self.store.delete_migration(migration_id)
-

@@ -2,6 +2,7 @@
 端口配置服务
 提供统一的端口配置管理接口
 """
+
 import os
 import json
 import logging
@@ -20,22 +21,24 @@ class PortConfigService:
 
     # 默认端口配置（新端口规划）
     DEFAULT_PORTS = {
-        'backend_api': 8200,
-        'frontend': 8300,
-        'ocr_service': 8400,
-        'postgres': 5440,
-        'cloud_api': 8500,
-        'site_hub_api': 8102,
+        "backend_api": 8200,
+        "frontend": 8300,
+        "ocr_service": 8400,
+        "postgres": 5440,
+        "cloud_api": 8500,
+        "site_hub_api": 8102,
+        "media_proxy": 8202,
     }
 
     # 环境变量映射（向后兼容）
     ENV_VAR_MAPPING = {
-        'backend_api': 'BACKEND_PORT',
-        'frontend': 'FRONTEND_PORT',
-        'ocr_service': 'OCR_PORT',
-        'postgres': 'POSTGRES_PORT',
-        'cloud_api': 'CLOUD_API_PORT',
-        'site_hub_api': 'SITE_HUB_API_PORT',
+        "backend_api": "BACKEND_PORT",
+        "frontend": "FRONTEND_PORT",
+        "ocr_service": "OCR_PORT",
+        "postgres": "POSTGRES_PORT",
+        "cloud_api": "CLOUD_API_PORT",
+        "site_hub_api": "SITE_HUB_API_PORT",
+        "media_proxy": "MEDIA_PROXY_PORT",
     }
 
     def __init__(self):
@@ -47,7 +50,7 @@ class PortConfigService:
         cluster: Optional[str] = None,
         environment: Optional[str] = None,
         site: Optional[str] = None,
-        force_reload: bool = False
+        force_reload: bool = False,
     ) -> PortConfig:
         """
         获取端口配置（支持集群/环境/站点作用域）
@@ -85,7 +88,9 @@ class PortConfigService:
 
             # 最具体：cluster + environment + site
             if cluster and environment and site:
-                setting_keys.append(f"system.ports.{cluster}.{environment}.{site}.{key}")
+                setting_keys.append(
+                    f"system.ports.{cluster}.{environment}.{site}.{key}"
+                )
 
             # cluster + environment
             if cluster and environment:
@@ -119,10 +124,14 @@ class PortConfigService:
                 if setting and setting.value is not None:
                     try:
                         port_value = int(setting.value)
-                        logger.debug(f"从系统设置读取端口配置: {setting_key} = {port_value}")
+                        logger.debug(
+                            f"从系统设置读取端口配置: {setting_key} = {port_value}"
+                        )
                         break
                     except (ValueError, TypeError):
-                        logger.warning(f"系统设置中的端口值无效: {setting_key} = {setting.value}")
+                        logger.warning(
+                            f"系统设置中的端口值无效: {setting_key} = {setting.value}"
+                        )
 
             # 2. 如果系统设置未找到，尝试从环境变量读取
             if port_value is None:
@@ -132,9 +141,13 @@ class PortConfigService:
                     if env_value:
                         try:
                             port_value = int(env_value)
-                            logger.debug(f"从环境变量读取端口配置: {env_var} = {port_value}")
+                            logger.debug(
+                                f"从环境变量读取端口配置: {env_var} = {port_value}"
+                            )
                         except (ValueError, TypeError):
-                            logger.warning(f"环境变量中的端口值无效: {env_var} = {env_value}")
+                            logger.warning(
+                                f"环境变量中的端口值无效: {env_var} = {env_value}"
+                            )
 
             # 3. 使用默认值
             config_dict[key] = port_value if port_value is not None else default_port
@@ -142,9 +155,9 @@ class PortConfigService:
                 logger.debug(f"使用默认端口配置: {key} = {default_port}")
 
         # 添加作用域信息（保留原始传入值，不添加默认值）
-        config_dict['cluster'] = cluster
-        config_dict['environment'] = environment
-        config_dict['site'] = site
+        config_dict["cluster"] = cluster
+        config_dict["environment"] = environment
+        config_dict["site"] = site
 
         self._config_cache = PortConfig(**config_dict)
         self._cache_key = cache_key
@@ -158,25 +171,30 @@ class PortConfigService:
             (is_valid, conflict_messages)
         """
         import socket
+
         conflicts = []
 
         # 检查端口是否重复
         port_values = {
-            'backend_api': config.backend_api,
-            'frontend': config.frontend,
-            'ocr_service': config.ocr_service,
-            'postgres': config.postgres,
+            "backend_api": config.backend_api,
+            "frontend": config.frontend,
+            "ocr_service": config.ocr_service,
+            "postgres": config.postgres,
         }
         if config.cloud_api:
-            port_values['cloud_api'] = config.cloud_api
+            port_values["cloud_api"] = config.cloud_api
         if config.site_hub_api:
-            port_values['site_hub_api'] = config.site_hub_api
+            port_values["site_hub_api"] = config.site_hub_api
+        if getattr(config, "media_proxy", None):
+            port_values["media_proxy"] = config.media_proxy
 
         # 检查内部端口重复
         seen_ports = {}
         for service, port in port_values.items():
             if port in seen_ports:
-                conflicts.append(f"端口 {port} 被 {seen_ports[port]} 和 {service} 重复使用")
+                conflicts.append(
+                    f"端口 {port} 被 {seen_ports[port]} 和 {service} 重复使用"
+                )
             else:
                 seen_ports[port] = service
 
@@ -185,7 +203,7 @@ class PortConfigService:
             for service, port in port_values.items():
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1)
-                result = sock.connect_ex(('127.0.0.1', port))
+                result = sock.connect_ex(("127.0.0.1", port))
                 sock.close()
                 if result == 0:
                     conflicts.append(f"端口 {port} ({service}) 已被占用")
@@ -226,7 +244,7 @@ class PortConfigService:
             updates = {}
             for key, value in config.dict(exclude_none=True).items():
                 # 跳过作用域字段
-                if key in ['cluster', 'environment', 'site']:
+                if key in ["cluster", "environment", "site"]:
                     continue
 
                 setting_key = f"system.ports.{scope_prefix}{key}"
@@ -252,7 +270,9 @@ class PortConfigService:
             if config.postgres:
                 restart_services.append("PostgreSQL（需要更新连接字符串）")
 
-            restart_message = f"端口配置已保存。需要重启以下服务: {', '.join(restart_services)}"
+            restart_message = (
+                f"端口配置已保存。需要重启以下服务: {', '.join(restart_services)}"
+            )
             return True, restart_message
         except Exception as e:
             logger.error(f"更新端口配置失败: {e}", exc_info=True)
@@ -271,11 +291,11 @@ class PortConfigService:
 
         # 从系统设置读取主机名配置
         host_keys = {
-            'backend_api_host': 'backend_api',
-            'frontend_host': 'frontend',
-            'ocr_service_host': 'ocr_service',
-            'cloud_api_host': 'cloud_api',
-            'site_hub_api_host': 'site_hub_api',
+            "backend_api_host": "backend_api",
+            "frontend_host": "frontend",
+            "ocr_service_host": "ocr_service",
+            "cloud_api_host": "cloud_api",
+            "site_hub_api_host": "site_hub_api",
         }
 
         for host_key, service_key in host_keys.items():
@@ -293,11 +313,11 @@ class PortConfigService:
         cors_setting = settings_store.get_setting("system.cors.origins")
         if cors_setting and cors_setting.value:
             try:
-                host_dict['cors_origins'] = json.loads(cors_setting.value)
+                host_dict["cors_origins"] = json.loads(cors_setting.value)
             except:
-                host_dict['cors_origins'] = []
+                host_dict["cors_origins"] = []
         else:
-            host_dict['cors_origins'] = []
+            host_dict["cors_origins"] = []
 
         return HostConfig(**host_dict)
 
@@ -307,7 +327,7 @@ class PortConfigService:
         cluster: Optional[str] = None,
         environment: Optional[str] = None,
         site: Optional[str] = None,
-        protocol: str = "http"
+        protocol: str = "http",
     ) -> str:
         """
         获取服务 URL（自动从配置读取主机名和端口，支持作用域）
@@ -320,7 +340,9 @@ class PortConfigService:
             protocol: 协议 (默认: http)
         """
         # 使用作用域参数获取端口配置
-        config = self.get_port_config(cluster=cluster, environment=environment, site=site)
+        config = self.get_port_config(
+            cluster=cluster, environment=environment, site=site
+        )
         port = getattr(config, service, None)
 
         if port is None:
@@ -338,7 +360,7 @@ class PortConfigService:
         cluster: Optional[str] = None,
         environment: Optional[str] = None,
         site: Optional[str] = None,
-        protocol: str = "http"
+        protocol: str = "http",
     ) -> ServiceURLConfig:
         """
         获取所有服务 URL（自动从配置读取主机名）
@@ -349,18 +371,27 @@ class PortConfigService:
             site: 站点标识
             protocol: 协议 (默认: http)
         """
-        config = self.get_port_config(cluster=cluster, environment=environment, site=site)
+        config = self.get_port_config(
+            cluster=cluster, environment=environment, site=site
+        )
         host_config = self.get_host_config()
 
         return ServiceURLConfig(
             backend_api_url=f"{protocol}://{host_config.backend_api_host}:{config.backend_api}",
             frontend_url=f"{protocol}://{host_config.frontend_host}:{config.frontend}",
             ocr_service_url=f"{protocol}://{host_config.ocr_service_host}:{config.ocr_service}",
-            cloud_api_url=f"{protocol}://{host_config.cloud_api_host}:{config.cloud_api}" if config.cloud_api and host_config.cloud_api_host else None,
-            site_hub_api_url=f"{protocol}://{host_config.site_hub_api_host}:{config.site_hub_api}" if config.site_hub_api and host_config.site_hub_api_host else None,
+            cloud_api_url=(
+                f"{protocol}://{host_config.cloud_api_host}:{config.cloud_api}"
+                if config.cloud_api and host_config.cloud_api_host
+                else None
+            ),
+            site_hub_api_url=(
+                f"{protocol}://{host_config.site_hub_api_host}:{config.site_hub_api}"
+                if config.site_hub_api and host_config.site_hub_api_host
+                else None
+            ),
         )
 
 
 # 全局单例
 port_config_service = PortConfigService()
-

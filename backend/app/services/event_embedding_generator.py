@@ -6,11 +6,13 @@ Stores embeddings in mindscape_personal table for semantic search.
 """
 
 import logging
+import os
 from typing import Optional, List
 from datetime import datetime
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
+from app.database.config import get_vector_postgres_config
 
 logger = logging.getLogger(__name__)
 
@@ -231,13 +233,7 @@ class EventEmbeddingGenerator:
             import os
             import psycopg2
 
-            postgres_config = {
-                "host": os.getenv("POSTGRES_HOST", "postgres"),
-                "port": int(os.getenv("POSTGRES_PORT", "5432")),
-                "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-                "user": os.getenv("POSTGRES_USER", "mindscape"),
-                "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-            }
+            postgres_config = get_vector_postgres_config()
 
             conn = psycopg2.connect(**postgres_config)
             cursor = conn.cursor()
@@ -281,32 +277,8 @@ class EventEmbeddingGenerator:
             return None
 
         except Exception as e:
-            logger.warning(f"Failed to check existing embedding in PostgreSQL: {e}, trying SQLite fallback")
-            try:
-                import sqlite3
-                from pathlib import Path
-
-                db_path = Path("./data/mindscape.db")
-                if not db_path.exists():
-                    return None
-
-                conn = sqlite3.connect(db_path)
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-
-                cursor.execute("""
-                    SELECT id FROM mindscape_personal
-                    WHERE source_type = 'mind_event' AND source_id = ?
-                    LIMIT 1
-                """, (event.id,))
-
-                row = cursor.fetchone()
-                conn.close()
-
-                return row["id"] if row else None
-            except Exception as fallback_error:
-                logger.warning(f"SQLite fallback also failed: {fallback_error}")
-                return None
+            logger.warning(f"Failed to check existing embedding in PostgreSQL: {e}")
+            return None
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text"""
@@ -425,13 +397,7 @@ class EventEmbeddingGenerator:
             import psycopg2
             from psycopg2.extras import Json
 
-            postgres_config = {
-                "host": os.getenv("POSTGRES_HOST", "postgres"),
-                "port": int(os.getenv("POSTGRES_PORT", "5432")),
-                "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-                "user": os.getenv("POSTGRES_USER", "mindscape"),
-                "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-            }
+            postgres_config = get_vector_postgres_config()
 
             conn = psycopg2.connect(**postgres_config)
             cursor = conn.cursor()
@@ -552,83 +518,7 @@ class EventEmbeddingGenerator:
 
         except Exception as e:
             logger.error(f"Failed to store embedding: {e}", exc_info=True)
-            try:
-                return self._store_embedding_sqlite_fallback(event, text, embedding)
-            except Exception as fallback_error:
-                logger.error(f"Fallback to SQLite also failed: {fallback_error}", exc_info=True)
-                raise
-
-    def _store_embedding_sqlite_fallback(self, event: MindEvent, text: str, embedding: List[float]) -> str:
-        """Fallback method to store embedding in SQLite (for backward compatibility)"""
-        import sqlite3
-        import json
-        from pathlib import Path
-
-        db_path = Path("./data/mindscape.db")
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # Ensure mindscape_personal table exists (legacy SQLite schema)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS mindscape_personal (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                seed_type TEXT NOT NULL,
-                seed_text TEXT NOT NULL,
-                source_type TEXT NOT NULL,
-                source_id TEXT,
-                confidence REAL DEFAULT 1.0,
-                weight REAL DEFAULT 1.0,
-                embedding TEXT,
-                metadata TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        seed_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
-
-        seed_type = self._map_event_type_to_seed_type(event.event_type)
-
-        from backend.app.services.system_settings_store import SystemSettingsStore
-        settings_store = SystemSettingsStore()
-        embedding_setting = settings_store.get_setting("embedding_model")
-        embedding_model_name = str(embedding_setting.value) if embedding_setting else "unknown"
-        embedding_provider = embedding_setting.metadata.get("provider", "openai") if embedding_setting else "unknown"
-
-        cursor.execute("""
-            INSERT INTO mindscape_personal
-            (id, user_id, seed_type, seed_text, source_type, source_id, confidence, weight, embedding, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            seed_id,
-            event.profile_id,
-            seed_type,
-            text,
-            "mind_event",
-            event.id,
-            1.0,
-            1.0,
-            json.dumps(embedding),
-            json.dumps({
-                "event_type": event.event_type.value,
-                "actor": event.actor.value,
-                "channel": event.channel,
-                "embedding_model": embedding_model_name,
-                "embedding_provider": embedding_provider,
-                "embedding_dimension": len(embedding)
-            }),
-            now,
-            now
-        ))
-
-        conn.commit()
-        conn.close()
-
-        return seed_id
+            raise
 
     def _map_event_type_to_seed_type(self, event_type: EventType) -> str:
         """Map event type to seed type for mindscape_personal"""

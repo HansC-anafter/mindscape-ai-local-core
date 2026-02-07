@@ -47,7 +47,7 @@ class IntentInfraService:
         self,
         store: MindscapeStore,
         default_locale: str = "zh-TW",
-        semantic_backend: Optional[Any] = None
+        semantic_backend: Optional[Any] = None,
     ):
         """
         Initialize Intent Infrastructure Service
@@ -64,10 +64,7 @@ class IntentInfraService:
         self.i18n = get_i18n_service(default_locale=default_locale)
 
     async def handle_extraction_task(
-        self,
-        ctx: LocalDomainContext,
-        task: Any,
-        original_message_id: str
+        self, ctx: LocalDomainContext, task: Any, original_message_id: str
     ) -> Dict[str, Any]:
         """
         Handle intent_extraction task execution
@@ -98,16 +95,14 @@ class IntentInfraService:
             ctx=ctx,
             intent_candidates=intents,
             task_id=task.id,
-            workspace_id=ctx.workspace_id
+            workspace_id=ctx.workspace_id,
         )
 
         # Create project from intents if we have valid intents
         project_id = None
         if intents_added > 0 and intents:
             project_id = await self._create_project_from_intent(
-                ctx=ctx,
-                intent_candidates=intents,
-                workspace_id=ctx.workspace_id
+                ctx=ctx, intent_candidates=intents, workspace_id=ctx.workspace_id
             )
 
         timeline_item = await self._create_timeline_for_extraction(
@@ -116,21 +111,17 @@ class IntentInfraService:
             task_id=task.id,
             intents=intents,
             themes=themes,
-            intents_added=intents_added
+            intents_added=intents_added,
         )
 
         if self.semantic_backend:
-            await self._sync_to_semantic_hub(
-                ctx=ctx,
-                intents=intents,
-                themes=themes
-            )
+            await self._sync_to_semantic_hub(ctx=ctx, intents=intents, themes=themes)
 
         return {
             "pack_id": "intent_extraction",
             "intents_added": intents_added,
             "timeline_item_id": timeline_item.id if timeline_item else None,
-            "project_id": project_id
+            "project_id": project_id,
         }
 
     async def _create_intent_cards_from_candidates(
@@ -138,7 +129,7 @@ class IntentInfraService:
         ctx: LocalDomainContext,
         intent_candidates: List[Any],
         task_id: str,
-        workspace_id: str
+        workspace_id: str,
     ) -> int:
         """
         Create IntentCards from intent candidates
@@ -156,22 +147,28 @@ class IntentInfraService:
 
         for intent_item in intent_candidates[:3]:
             if isinstance(intent_item, dict):
-                intent_text = intent_item.get("title") or intent_item.get("text") or str(intent_item)
+                intent_text = (
+                    intent_item.get("title")
+                    or intent_item.get("text")
+                    or str(intent_item)
+                )
             else:
                 intent_text = str(intent_item) if intent_item else None
 
-            if not intent_text or not isinstance(intent_text, str) or len(intent_text.strip()) == 0:
+            if (
+                not intent_text
+                or not isinstance(intent_text, str)
+                or len(intent_text.strip()) == 0
+            ):
                 continue
 
             try:
                 existing_intents = self.store.list_intents(
-                    profile_id=ctx.actor_id,
-                    status=None,
-                    priority=None
+                    profile_id=ctx.actor_id, status=None, priority=None
                 )
                 intent_exists = any(
-                    intent.title == intent_text.strip() or
-                    intent_text.strip() in intent.title
+                    intent.title == intent_text.strip()
+                    or intent_text.strip() in intent.title
                     for intent in existing_intents
                 )
 
@@ -196,12 +193,14 @@ class IntentInfraService:
                         metadata={
                             "source": "intent_extraction_task",
                             "workspace_id": workspace_id,
-                            "task_id": task_id
-                        }
+                            "task_id": task_id,
+                        },
                     )
                     self.store.create_intent(new_intent)
                     intents_added += 1
-                    logger.info(f"Created IntentCard from extraction task: {intent_text[:50]}")
+                    logger.info(
+                        f"Created IntentCard from extraction task: {intent_text[:50]}"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to create IntentCard from candidate: {e}")
 
@@ -214,7 +213,7 @@ class IntentInfraService:
         task_id: str,
         intents: List[Any],
         themes: List[Any],
-        intents_added: int
+        intents_added: int,
     ) -> Optional[TimelineItem]:
         """
         Create TimelineItem for intent extraction activity
@@ -239,37 +238,54 @@ class IntentInfraService:
                 type=TimelineItemType.INTENT_SEEDS,
                 title=self.i18n.t(
                     "conversation_orchestrator",
-                    "timeline.intents_added_title" if intents_added > 0 else "timeline.no_intents_added_title",
+                    (
+                        "timeline.intents_added_title"
+                        if intents_added > 0
+                        else "timeline.no_intents_added_title"
+                    ),
                     count=intents_added,
-                    default=f"Added {intents_added} intent(s) to Mindscape" if intents_added > 0 else "No new intents"
+                    default=(
+                        f"Added {intents_added} intent(s) to Mindscape"
+                        if intents_added > 0
+                        else "No new intents"
+                    ),
                 ),
                 summary=self.i18n.t(
                     "conversation_orchestrator",
-                    "timeline.intents_added_summary" if intents_added > 0 else "timeline.all_intents_exist_summary",
+                    (
+                        "timeline.intents_added_summary"
+                        if intents_added > 0
+                        else "timeline.all_intents_exist_summary"
+                    ),
                     count=intents_added,
-                    default=f"Added {intents_added} intent(s) from message" if intents_added > 0 else "All intents already exist"
+                    default=(
+                        f"Added {intents_added} intent(s) from message"
+                        if intents_added > 0
+                        else "All intents already exist"
+                    ),
                 ),
                 data={
                     "intents": intents,
                     "themes": themes,
                     "source": "intent_extraction_task",
-                    "intents_added": intents_added
+                    "intents_added": intents_added,
                 },
                 cta=None,
-                created_at=datetime.utcnow()
+                created_at=datetime.utcnow(),
             )
             self.timeline_items_store.create_timeline_item(timeline_item)
-            logger.info(f"Created TimelineItem for intent extraction: {timeline_item.id}")
+            logger.info(
+                f"Created TimelineItem for intent extraction: {timeline_item.id}"
+            )
             return timeline_item
         except Exception as e:
-            logger.error(f"Failed to create TimelineItem for extraction: {e}", exc_info=True)
+            logger.error(
+                f"Failed to create TimelineItem for extraction: {e}", exc_info=True
+            )
             return None
 
     async def _create_project_from_intent(
-        self,
-        ctx: LocalDomainContext,
-        intent_candidates: List[Any],
-        workspace_id: str
+        self, ctx: LocalDomainContext, intent_candidates: List[Any], workspace_id: str
     ) -> Optional[str]:
         """
         Create project from intent candidates
@@ -289,13 +305,17 @@ class IntentInfraService:
             # Get primary intent (highest confidence or first)
             primary_intent = max(
                 intent_candidates,
-                key=lambda x: x.get('confidence', 0.0) if isinstance(x, dict) else 0.0,
-                default=intent_candidates[0]
+                key=lambda x: x.get("confidence", 0.0) if isinstance(x, dict) else 0.0,
+                default=intent_candidates[0],
             )
 
             if isinstance(primary_intent, dict):
-                intent_title = primary_intent.get('title') or primary_intent.get('text') or str(primary_intent)
-                intent_confidence = primary_intent.get('confidence', 0.0)
+                intent_title = (
+                    primary_intent.get("title")
+                    or primary_intent.get("text")
+                    or str(primary_intent)
+                )
+                intent_confidence = primary_intent.get("confidence", 0.0)
             else:
                 intent_title = str(primary_intent)
                 intent_confidence = 0.0
@@ -305,9 +325,11 @@ class IntentInfraService:
             from backend.app.services.project.project_manager import ProjectManager
             from backend.app.models.workspace import Workspace
 
-            workspace = self.store.get_workspace(workspace_id)
+            workspace = await self.store.get_workspace(workspace_id)
             if not workspace:
-                logger.warning(f"Workspace {workspace_id} not found, cannot create project")
+                logger.warning(
+                    f"Workspace {workspace_id} not found, cannot create project"
+                )
                 return None
 
             # Create ProjectDetector with store
@@ -317,14 +339,33 @@ class IntentInfraService:
             # Build simplified context for project detection
             # Use intent title as the message
             context = [{"role": "user", "content": intent_title}]
+            # Load available playbooks to pass to detector for better suggestions
+            from backend.app.services.playbook_service import PlaybookService
+
+            playbook_service = PlaybookService(store=self.store)
+            available_playbooks_metadata = await playbook_service.list_playbooks(
+                workspace_id=workspace_id, locale=self.default_locale or "zh-TW"
+            )
+            available_playbooks = [
+                {
+                    "playbook_code": pb.playbook_code,
+                    "name": pb.name,
+                    "description": pb.description,
+                }
+                for pb in available_playbooks_metadata
+            ]
+
             suggestion = await project_detector.detect(
                 message=intent_title,
                 conversation_context=context,
-                workspace=workspace
+                workspace=workspace,
+                available_playbooks=available_playbooks,
             )
 
             if not suggestion or suggestion.mode != "project":
-                logger.info(f"Project detection returned mode={suggestion.mode if suggestion else 'None'}, skipping project creation")
+                logger.info(
+                    f"Project detection returned mode={suggestion.mode if suggestion else 'None'}, skipping project creation"
+                )
                 return None
             else:
                 project_type = suggestion.project_type
@@ -332,13 +373,14 @@ class IntentInfraService:
                 project_title = suggestion.project_title or intent_title[:100]
 
                 if not project_type or not project_title:
-                    logger.warning("Project suggestion missing required fields (project_type or project_title)")
+                    logger.warning(
+                        "Project suggestion missing required fields (project_type or project_title)"
+                    )
                     return None
 
             # Check for duplicate projects using LLM
             existing_projects = await project_manager.list_projects(
-                workspace_id=workspace_id,
-                state="open"
+                workspace_id=workspace_id, state="open"
             )
 
             duplicate_project = None
@@ -346,72 +388,110 @@ class IntentInfraService:
                 duplicate_project = await project_detector.check_duplicate(
                     suggested_project=suggestion,
                     existing_projects=existing_projects,
-                    workspace=workspace
+                    workspace=workspace,
                 )
 
             if duplicate_project:
-                logger.info(f"LLM detected duplicate project: {duplicate_project.id}, using existing project")
+                logger.info(
+                    f"LLM detected duplicate project: {duplicate_project.id}, using existing project"
+                )
                 # Even for duplicate projects, check if we should execute playbook flow
                 # Get playbook_sequence from suggestion
-                playbook_sequence = suggestion.playbook_sequence if suggestion and hasattr(suggestion, 'playbook_sequence') else None
+                playbook_sequence = (
+                    suggestion.playbook_sequence
+                    if suggestion and hasattr(suggestion, "playbook_sequence")
+                    else None
+                )
                 if playbook_sequence and len(playbook_sequence) > 0:
                     try:
-                        from backend.app.services.project.flow_executor import FlowExecutor
-                        flow_executor = FlowExecutor(store=self.store, project_manager=project_manager)
+                        from backend.app.services.project.flow_executor import (
+                            FlowExecutor,
+                        )
+
+                        flow_executor = FlowExecutor(
+                            store=self.store, project_manager=project_manager
+                        )
 
                         # Execute flow in background to avoid blocking
                         import asyncio
+
                         asyncio.create_task(
                             self._execute_playbook_flow_async(
                                 flow_executor=flow_executor,
                                 project_id=duplicate_project.id,
                                 workspace_id=workspace_id,
-                                profile_id=ctx.actor_id
+                                profile_id=ctx.actor_id,
                             )
                         )
-                        logger.info(f"Scheduled playbook flow execution for duplicate project {duplicate_project.id} with {len(playbook_sequence)} playbooks")
+                        logger.info(
+                            f"Scheduled playbook flow execution for duplicate project {duplicate_project.id} with {len(playbook_sequence)} playbooks"
+                        )
                     except Exception as e:
-                        logger.error(f"Failed to schedule playbook flow execution for duplicate project {duplicate_project.id}: {e}", exc_info=True)
+                        logger.error(
+                            f"Failed to schedule playbook flow execution for duplicate project {duplicate_project.id}: {e}",
+                            exc_info=True,
+                        )
                 return duplicate_project.id
 
             # Get flow_id from suggestion if available
-            flow_id = getattr(suggestion, 'flow_id', None) if suggestion else None
+            flow_id = getattr(suggestion, "flow_id", None) if suggestion else None
 
             # Ensure flow exists, create if not
             if flow_id:
-                from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
+                from backend.app.services.stores.playbook_flows_store import (
+                    PlaybookFlowsStore,
+                )
                 from backend.app.models.playbook_flow import PlaybookFlow
+
                 flows_store = PlaybookFlowsStore(self.store.db_path)
                 flow = flows_store.get_flow(flow_id)
 
                 if not flow:
                     logger.info(f"Flow {flow_id} not found, creating flow")
                     # Use playbook_sequence from suggestion if available, and validate it
-                    from backend.app.services.project.playbook_validator import validate_playbook_sequence
+                    from backend.app.services.project.playbook_validator import (
+                        validate_playbook_sequence,
+                    )
                     from pathlib import Path
 
-                    raw_playbook_sequence = suggestion.playbook_sequence if suggestion and hasattr(suggestion, 'playbook_sequence') else []
+                    raw_playbook_sequence = (
+                        suggestion.playbook_sequence
+                        if suggestion and hasattr(suggestion, "playbook_sequence")
+                        else []
+                    )
                     base_dir = Path(__file__).parent.parent.parent.parent
-                    validated_playbook_sequence = validate_playbook_sequence(raw_playbook_sequence, base_dir)
+                    validated_playbook_sequence = validate_playbook_sequence(
+                        raw_playbook_sequence, base_dir
+                    )
 
                     flow = PlaybookFlow(
                         id=flow_id,
                         name=f"{project_type} Flow" if project_type else "Flow",
-                        description=f"Flow for {project_type} projects" if project_type else "Default flow",
+                        description=(
+                            f"Flow for {project_type} projects"
+                            if project_type
+                            else "Default flow"
+                        ),
                         flow_definition={
                             "nodes": [],
                             "edges": [],
-                            "playbook_sequence": validated_playbook_sequence
+                            "playbook_sequence": validated_playbook_sequence,
                         },
                         created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        updated_at=datetime.utcnow(),
                     )
                     flows_store.create_flow(flow)
-                    logger.info(f"Created flow: {flow_id} with {len(validated_playbook_sequence)} validated playbooks")
+                    logger.info(
+                        f"Created flow: {flow_id} with {len(validated_playbook_sequence)} validated playbooks"
+                    )
 
             # flow_id will be auto-generated by ProjectManager if not provided
             # Create project
-            playbook_sequence = suggestion.playbook_sequence if suggestion and hasattr(suggestion, 'playbook_sequence') else None
+            playbook_sequence = (
+                suggestion.playbook_sequence
+                if suggestion and hasattr(suggestion, "playbook_sequence")
+                else None
+            )
             project = await project_manager.create_project(
                 project_type=project_type,
                 title=project_title,
@@ -421,38 +501,51 @@ class IntentInfraService:
                 metadata={
                     "created_from": "intent_extraction",
                     "primary_intent": intent_title,
-                    "intent_confidence": intent_confidence
+                    "intent_confidence": intent_confidence,
                 },
-                playbook_sequence=playbook_sequence
+                playbook_sequence=playbook_sequence,
             )
 
             # Update workspace primary_project_id if not set
             if not workspace.primary_project_id:
                 workspace.primary_project_id = project.id
-                self.store.update_workspace(workspace)
-                logger.info(f"Set workspace {workspace_id} primary_project_id to {project.id}")
+                await self.store.update_workspace(workspace)
+                logger.info(
+                    f"Set workspace {workspace_id} primary_project_id to {project.id}"
+                )
 
-            logger.info(f"Created project {project.id} from intent extraction: {project_title}")
+            logger.info(
+                f"Created project {project.id} from intent extraction: {project_title}"
+            )
 
             # Execute playbook flow if playbook_sequence exists
             if playbook_sequence and len(playbook_sequence) > 0:
                 try:
                     from backend.app.services.project.flow_executor import FlowExecutor
-                    flow_executor = FlowExecutor(store=self.store, project_manager=project_manager)
+
+                    flow_executor = FlowExecutor(
+                        store=self.store, project_manager=project_manager
+                    )
 
                     # Execute flow in background to avoid blocking
                     import asyncio
+
                     asyncio.create_task(
                         self._execute_playbook_flow_async(
                             flow_executor=flow_executor,
                             project_id=project.id,
                             workspace_id=workspace_id,
-                            profile_id=ctx.actor_id
+                            profile_id=ctx.actor_id,
                         )
                     )
-                    logger.info(f"Scheduled playbook flow execution for project {project.id} with {len(playbook_sequence)} playbooks")
+                    logger.info(
+                        f"Scheduled playbook flow execution for project {project.id} with {len(playbook_sequence)} playbooks"
+                    )
                 except Exception as e:
-                    logger.error(f"Failed to schedule playbook flow execution for project {project.id}: {e}", exc_info=True)
+                    logger.error(
+                        f"Failed to schedule playbook flow execution for project {project.id}: {e}",
+                        exc_info=True,
+                    )
                     # Don't fail project creation if playbook execution scheduling fails
 
             return project.id
@@ -462,11 +555,7 @@ class IntentInfraService:
             return None
 
     async def _execute_playbook_flow_async(
-        self,
-        flow_executor,
-        project_id: str,
-        workspace_id: str,
-        profile_id: str
+        self, flow_executor, project_id: str, workspace_id: str, profile_id: str
     ):
         """
         Execute playbook flow asynchronously after project creation
@@ -480,19 +569,19 @@ class IntentInfraService:
         try:
             logger.info(f"Starting playbook flow execution for project {project_id}")
             execution_result = await flow_executor.execute_flow(
-                project_id=project_id,
-                workspace_id=workspace_id,
-                profile_id=profile_id
+                project_id=project_id, workspace_id=workspace_id, profile_id=profile_id
             )
-            logger.info(f"Completed playbook flow execution for project {project_id}: {execution_result}")
+            logger.info(
+                f"Completed playbook flow execution for project {project_id}: {execution_result}"
+            )
         except Exception as e:
-            logger.error(f"Failed to execute playbook flow for project {project_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to execute playbook flow for project {project_id}: {e}",
+                exc_info=True,
+            )
 
     async def _sync_to_semantic_hub(
-        self,
-        ctx: LocalDomainContext,
-        intents: List[Any],
-        themes: List[Any]
+        self, ctx: LocalDomainContext, intents: List[Any], themes: List[Any]
     ):
         """
         Sync intents to semantic-hub Intent Infra (L1)
@@ -513,16 +602,14 @@ class IntentInfraService:
                 workspace_id=ctx.workspace_id,
                 profile_id=ctx.actor_id,
                 intents=intents,
-                themes=themes
+                themes=themes,
             )
             logger.info(f"Synced {len(intents)} intents to semantic-hub")
         except Exception as e:
             logger.warning(f"Failed to sync intents to semantic-hub: {e}")
 
     async def create_intent_card(
-        self,
-        ctx: LocalDomainContext,
-        payload: Dict[str, Any]
+        self, ctx: LocalDomainContext, payload: Dict[str, Any]
     ) -> Optional[IntentCard]:
         """
         Create an IntentCard from payload
@@ -554,7 +641,7 @@ class IntentInfraService:
                 due_date=None,
                 parent_intent_id=None,
                 child_intent_ids=[],
-                metadata=payload.get("metadata", {})
+                metadata=payload.get("metadata", {}),
             )
             created = self.store.create_intent(intent_card)
             logger.info(f"Created IntentCard via IntentInfraService: {created.id}")
@@ -564,9 +651,7 @@ class IntentInfraService:
             return None
 
     async def list_intents(
-        self,
-        ctx: LocalDomainContext,
-        filters: Optional[Dict[str, Any]] = None
+        self, ctx: LocalDomainContext, filters: Optional[Dict[str, Any]] = None
     ) -> List[IntentCard]:
         """
         List intents with optional filters
@@ -586,9 +671,7 @@ class IntentInfraService:
             category = filters.get("category") if filters else None
 
             intents = self.store.list_intents(
-                profile_id=ctx.actor_id,
-                status=status,
-                priority=priority
+                profile_id=ctx.actor_id, status=status, priority=priority
             )
 
             if category:
@@ -598,4 +681,3 @@ class IntentInfraService:
         except Exception as e:
             logger.error(f"Failed to list intents: {e}", exc_info=True)
             return []
-

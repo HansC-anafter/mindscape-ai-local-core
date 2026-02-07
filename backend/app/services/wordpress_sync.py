@@ -15,6 +15,8 @@ import requests
 from html import unescape
 import re
 
+from app.database.config import get_vector_postgres_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,13 +28,7 @@ class WordPressSync:
 
     def _get_postgres_config(self):
         """Get PostgreSQL config from environment"""
-        return {
-            "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-            "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-            "user": os.getenv("POSTGRES_USER", "mindscape"),
-            "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-        }
+        return get_vector_postgres_config()
 
     def _get_connection(self):
         """Get PostgreSQL connection"""

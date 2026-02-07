@@ -140,24 +140,65 @@ async def generate_execution_plan(
         raise ValueError(error_msg)
 
     # Use effective_playbooks if provided, fallback to available_playbooks for backward compatibility
-    playbooks_to_use = effective_playbooks if effective_playbooks is not None else available_playbooks
+    playbooks_to_use = (
+        effective_playbooks if effective_playbooks is not None else available_playbooks
+    )
+
+    # DEBUG: Log available playbooks to a file we can read
+    try:
+        log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+        with open(log_path, "a") as f:
+            f.write(f"\n==== EXECUTION PLAN GENERATOR TRACE {datetime.utcnow()} ====\n")
+            f.write(f"Workspace: {workspace_id}\n")
+            f.write(f"Message: {user_request}\n")
+            f.write(
+                f"Playbooks to use count: {len(playbooks_to_use) if playbooks_to_use else 0}\n"
+            )
+            f.write(
+                f"effective_playbooks count: {len(effective_playbooks) if effective_playbooks else 'None'}\n"
+            )
+            f.write(
+                f"available_playbooks count: {len(available_playbooks) if available_playbooks else 'None'}\n"
+            )
+            # Trace ig_analyze_following specifically
+            if playbooks_to_use:
+                for pb in playbooks_to_use:
+                    if "ig_analyze_following" in str(
+                        pb.get("playbook_code", pb.get("code", ""))
+                    ):
+                        f.write(f"[TRACE] ig_analyze_following in playbooks_to_use:\n")
+                        f.write(
+                            f"  code: {pb.get('playbook_code', pb.get('code', 'N/A'))}\n"
+                        )
+                        f.write(f"  name: {pb.get('name', 'N/A')}\n")
+                        f.write(
+                            f"  description: {pb.get('description', '(EMPTY)')[:100] if pb.get('description') else '(EMPTY)'}\n"
+                        )
+            f.write("==========================================\n")
+    except Exception:
+        pass
 
     playbooks_str = "None available"
     playbook_codes_list = []
     if playbooks_to_use:
         playbooks_list = []
         for pb in playbooks_to_use:
-            code = pb.get('playbook_code', pb.get('code', 'unknown'))
-            name = pb.get('name', code)
-            desc = pb.get('description', '')[:100]
-            outputs = pb.get('output_types', [])
+            code = pb.get("playbook_code", pb.get("code", "unknown"))
+            name = pb.get("name", code)
+            desc = pb.get("description", "")[:100]
+            outputs = pb.get("output_types", [])
             playbooks_list.append(f"- {code}: {name} (outputs: {outputs}) - {desc}")
-            if code and code != 'unknown':
+            if code and code != "unknown":
                 playbook_codes_list.append(code)
-        playbooks_str = "\n".join(playbooks_list) if playbooks_list else "None available"
+        playbooks_str = (
+            "\n".join(playbooks_list) if playbooks_list else "None available"
+        )
 
         if playbook_codes_list:
-            playbooks_str += f"\n\n## Valid Playbook Codes (use EXACTLY these codes, case-sensitive):\n" + ", ".join(sorted(playbook_codes_list))
+            playbooks_str += (
+                f"\n\n## Valid Playbook Codes (use EXACTLY these codes, case-sensitive):\n"
+                + ", ".join(sorted(playbook_codes_list))
+            )
 
     project_context_str = ""
     if project_id and project_assignment_decision:
@@ -167,23 +208,39 @@ async def generate_execution_plan(
 
             store = MindscapeStore()
             project_manager = ProjectManager(store)
-            project = await project_manager.get_project(project_id, workspace_id=workspace_id)
+            project = await project_manager.get_project(
+                project_id, workspace_id=workspace_id
+            )
 
             if project:
                 recent_phases_str = ""
                 try:
-                    from backend.app.services.project.project_phase_manager import ProjectPhaseManager
-                    phase_manager = ProjectPhaseManager(store=store)
-                    recent_phases = await phase_manager.get_recent_phases(project_id=project_id, limit=3)
-                    if recent_phases:
-                        phase_lines = [f"  {i+1}. Phase {p.kind}: {p.summary[:80]}" for i, p in enumerate(recent_phases)]
-                        recent_phases_str = "\n- Related previous phases:\n" + "\n".join(phase_lines)
-                except Exception as e:
-                    logger.debug(f"Failed to load recent phases for project {project_id}: {e}")
+                    from backend.app.services.project.project_phase_manager import (
+                        ProjectPhaseManager,
+                    )
 
-                assignment_relation = project_assignment_decision.get('relation', 'unknown')
-                confidence = project_assignment_decision.get('confidence', 0.0)
-                reasoning = project_assignment_decision.get('reasoning', 'N/A')
+                    phase_manager = ProjectPhaseManager(store=store)
+                    recent_phases = await phase_manager.get_recent_phases(
+                        project_id=project_id, limit=3
+                    )
+                    if recent_phases:
+                        phase_lines = [
+                            f"  {i+1}. Phase {p.kind}: {p.summary[:80]}"
+                            for i, p in enumerate(recent_phases)
+                        ]
+                        recent_phases_str = (
+                            "\n- Related previous phases:\n" + "\n".join(phase_lines)
+                        )
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to load recent phases for project {project_id}: {e}"
+                    )
+
+                assignment_relation = project_assignment_decision.get(
+                    "relation", "unknown"
+                )
+                confidence = project_assignment_decision.get("confidence", 0.0)
+                reasoning = project_assignment_decision.get("reasoning", "N/A")
 
                 project_context_str = f"""
 [PROJECT CONTEXT]
@@ -208,26 +265,55 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
 {planning_context}
 """
 
-    prompt = EXECUTION_PLAN_PROMPT.format(
-        project_context=project_context_str,
-        context_section=context_section,
-        user_request=user_request,
-        execution_mode=execution_mode,
-        expected_artifacts=expected_artifacts or ["various"],
-        available_playbooks=playbooks_str
-    )
-
     try:
+        try:
+            prompt = EXECUTION_PLAN_PROMPT.format(
+                project_context=project_context_str,
+                context_section=context_section,
+                user_request=user_request,
+                execution_mode=execution_mode,
+                expected_artifacts=expected_artifacts or ["various"],
+                available_playbooks=playbooks_str,
+            )
+        except KeyError as e:
+            logger.error(
+                f"[ExecutionPlanGenerator] Template formatting failed due to missing key: {e}"
+            )
+            # Fallback to a safer formatting if needed, but here we expect placeholders to match
+            raise
+
         from backend.app.shared.llm_utils import build_prompt
+
         messages = build_prompt(
-            system_prompt="You are an Execution Planning Agent that outputs JSON.",
-            user_prompt=prompt
+            system_prompt="You are an Execution Planning Agent that outputs JSON. Respond in zh-TW for any reasoning fields.",
+            user_prompt=prompt,
         )
+
+        # Evidence Logging
+        try:
+            from datetime import datetime
+            import os
+
+            log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n==== PLAN EVIDENCE {datetime.utcnow()} ====\n")
+                f.write(f"Workspace: {workspace_id}\n")
+                f.write(
+                    f"Playbooks to use: {len(playbooks_to_use) if playbooks_to_use else 0}\n"
+                )
+                f.write(f"Prompt (User Side):\n{prompt}\n")
+                f.write("==========================================\n")
+        except Exception:
+            pass
 
         provider_name = None
         if "gemini" in model_name.lower():
             provider_name = "vertex-ai"
-        elif "gpt" in model_name.lower() or "o1" in model_name.lower() or "o3" in model_name.lower():
+        elif (
+            "gpt" in model_name.lower()
+            or "o1" in model_name.lower()
+            or "o3" in model_name.lower()
+        ):
             provider_name = "openai"
         elif "claude" in model_name.lower():
             provider_name = "anthropic"
@@ -243,7 +329,7 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        if not hasattr(provider, 'chat_completion'):
+        if not hasattr(provider, "chat_completion"):
             error_msg = f"Provider '{provider_name}' does not support chat_completion"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -252,11 +338,27 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             messages=messages,
             model=model_name,
             temperature=0.3,  # Lower temperature for more consistent plans
-            max_tokens=4000  # Increased to handle complex execution plans
+            max_tokens=4000,  # Increased to handle complex execution plans
         )
 
-        logger.info(f"[ExecutionPlanGenerator] Received LLM response, length: {len(response)} chars")
-        logger.debug(f"[ExecutionPlanGenerator] Response preview (first 500 chars): {response[:500]}")
+        # Evidence Logging
+        try:
+            from datetime import datetime
+
+            log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n==== PLAN RESPONSE {datetime.utcnow()} ====\n")
+                f.write(f"Response:\n{response}\n")
+                f.write("==========================================\n")
+        except Exception:
+            pass
+
+        logger.info(
+            f"[ExecutionPlanGenerator] Received LLM response, length: {len(response)} chars"
+        )
+        logger.debug(
+            f"[ExecutionPlanGenerator] Response preview (first 500 chars): {response[:500]}"
+        )
 
         plan_data = _parse_plan_json(response)
         if not plan_data:
@@ -266,13 +368,13 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
 
         plan_data = await _validate_and_reevaluate_plan(
             plan_data=plan_data,
-            available_playbooks=available_playbooks,
+            available_playbooks=playbooks_to_use,  # Fixed: use playbooks_to_use
             user_request=user_request,
             execution_mode=execution_mode,
             expected_artifacts=expected_artifacts,
             llm_provider=llm_provider,
             model_name=model_name,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
         )
 
         execution_plan = _create_execution_plan(
@@ -280,7 +382,7 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             workspace_id=workspace_id,
             message_id=message_id,
             execution_mode=execution_mode,
-            available_playbooks=available_playbooks
+            available_playbooks=playbooks_to_use,  # Fixed: use playbooks_to_use
         )
 
         if project_id:
@@ -291,7 +393,20 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
         return execution_plan
 
     except Exception as e:
-        logger.error(f"[ExecutionPlanGenerator] Failed to generate plan: {e}", exc_info=True)
+        logger.error(
+            f"[ExecutionPlanGenerator] Failed to generate plan: {e}", exc_info=True
+        )
+        # Evidence Logging
+        try:
+            from datetime import datetime
+
+            log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n==== PLAN EXCEPTION {datetime.utcnow()} ====\n")
+                f.write(f"Error: {str(e)}\n")
+                f.write("==========================================\n")
+        except Exception:
+            pass
         raise
 
 
@@ -305,32 +420,40 @@ def _parse_plan_json(response: str) -> Optional[Dict[str, Any]]:
         try:
             # Remove markdown code block markers (```json ... ```)
             cleaned = response.strip()
-            if cleaned.startswith('```'):
+            if cleaned.startswith("```"):
                 # Find the first newline after ```
-                first_newline = cleaned.find('\n')
+                first_newline = cleaned.find("\n")
                 if first_newline > 0:
                     cleaned = cleaned[first_newline:].strip()
                 # Remove trailing ```
-                if cleaned.endswith('```'):
+                if cleaned.endswith("```"):
                     cleaned = cleaned[:-3].strip()
 
             # Find JSON object in response
-            start = cleaned.find('{')
-            end = cleaned.rfind('}') + 1
+            start = cleaned.find("{")
+            end = cleaned.rfind("}") + 1
             if start >= 0 and end > start:
                 json_str = cleaned[start:end]
                 try:
                     return json.loads(json_str)
                 except json.JSONDecodeError as e:
-                    logger.warning(f"[ExecutionPlanGenerator] JSON parse error at position {e.pos}: {e.msg}")
-                    logger.warning(f"[ExecutionPlanGenerator] JSON snippet around error: {json_str[max(0, e.pos-50):e.pos+50]}")
+                    logger.warning(
+                        f"[ExecutionPlanGenerator] JSON parse error at position {e.pos}: {e.msg}"
+                    )
+                    logger.warning(
+                        f"[ExecutionPlanGenerator] JSON snippet around error: {json_str[max(0, e.pos-50):e.pos+50]}"
+                    )
                     # Try to fix common issues: incomplete JSON (missing closing braces)
                     # This is a fallback - if JSON is incomplete, we can't reliably parse it
                     pass
         except Exception as e:
-            logger.warning(f"[ExecutionPlanGenerator] Error during JSON extraction: {e}")
+            logger.warning(
+                f"[ExecutionPlanGenerator] Error during JSON extraction: {e}"
+            )
 
-    logger.warning(f"[ExecutionPlanGenerator] Failed to parse JSON from response (first 500 chars): {response[:500]}")
+    logger.warning(
+        f"[ExecutionPlanGenerator] Failed to parse JSON from response (first 500 chars): {response[:500]}"
+    )
     logger.warning(f"[ExecutionPlanGenerator] Response length: {len(response)} chars")
     return None
 
@@ -343,7 +466,7 @@ async def _validate_and_reevaluate_plan(
     expected_artifacts: Optional[List[str]],
     llm_provider: Any,
     model_name: str,
-    progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Validate playbook codes and re-evaluate if invalid codes are found.
@@ -357,38 +480,40 @@ async def _validate_and_reevaluate_plan(
     valid_playbook_codes = set()
     playbook_code_to_info = {}
     for pb in available_playbooks:
-        code = pb.get('playbook_code', pb.get('code', ''))
+        code = pb.get("playbook_code", pb.get("code", ""))
         if code:
             valid_playbook_codes.add(code.lower())
             playbook_code_to_info[code.lower()] = {
-                'code': code,
-                'name': pb.get('name', code),
-                'description': pb.get('description', '')[:100]
+                "code": code,
+                "name": pb.get("name", code),
+                "description": pb.get("description", "")[:100],
             }
 
     # Special packs that are always valid
     special_packs = {"intent_extraction", "semantic_seeds"}
 
     invalid_steps = []
-    steps = plan_data.get('steps', [])
+    steps = plan_data.get("steps", [])
 
     for i, step in enumerate(steps):
-        playbook_code = step.get('playbook_code')
+        playbook_code = step.get("playbook_code")
         if playbook_code:
             playbook_code_lower = playbook_code.lower()
             is_valid = (
-                playbook_code_lower in valid_playbook_codes or
-                playbook_code_lower in special_packs
+                playbook_code_lower in valid_playbook_codes
+                or playbook_code_lower in special_packs
             )
 
             if not is_valid:
-                invalid_steps.append({
-                    'index': i,
-                    'step_id': step.get('step_id', f'S{i+1}'),
-                    'intent': step.get('intent', ''),
-                    'invalid_playbook_code': playbook_code,
-                    'reasoning': step.get('reasoning', '')
-                })
+                invalid_steps.append(
+                    {
+                        "index": i,
+                        "step_id": step.get("step_id", f"S{i+1}"),
+                        "intent": step.get("intent", ""),
+                        "invalid_playbook_code": playbook_code,
+                        "reasoning": step.get("reasoning", ""),
+                    }
+                )
 
     # If no invalid codes, return original plan
     if not invalid_steps:
@@ -400,30 +525,33 @@ async def _validate_and_reevaluate_plan(
     )
     print(
         f"[ExecutionPlanGenerator] WARNING: Found {len(invalid_steps)} invalid playbook codes, re-evaluating...",
-        file=sys.stderr
+        file=sys.stderr,
     )
 
     # Notify user about re-evaluation
     if progress_callback:
-        invalid_codes = [s['invalid_playbook_code'] for s in invalid_steps]
-        progress_callback('reevaluation_started', {
-            'message_key': 'execution_plan.reevaluation_started',
-            'message_params': {
-                'count': len(invalid_steps)
+        invalid_codes = [s["invalid_playbook_code"] for s in invalid_steps]
+        progress_callback(
+            "reevaluation_started",
+            {
+                "message_key": "execution_plan.reevaluation_started",
+                "message_params": {"count": len(invalid_steps)},
+                "invalid_codes": invalid_codes,
+                "invalid_steps": [
+                    {
+                        "step_id": s["step_id"],
+                        "intent": s["intent"],
+                        "invalid_code": s["invalid_playbook_code"],
+                    }
+                    for s in invalid_steps
+                ],
+                "available_playbook_count": (
+                    len(available_playbooks) if available_playbooks else 0
+                ),
             },
-            'invalid_codes': invalid_codes,
-            'invalid_steps': [
-                {
-                    'step_id': s['step_id'],
-                    'intent': s['intent'],
-                    'invalid_code': s['invalid_playbook_code']
-                }
-                for s in invalid_steps
-            ],
-            'available_playbook_count': len(available_playbooks) if available_playbooks else 0
-        })
+        )
 
-    valid_codes_list = sorted([info['code'] for info in playbook_code_to_info.values()])
+    valid_codes_list = sorted([info["code"] for info in playbook_code_to_info.values()])
 
     reevaluation_prompt = f"""You previously generated an execution plan, but some steps used invalid playbook codes that are not in the available list.
 
@@ -450,53 +578,75 @@ Return the CORRECTED execution plan as JSON with the same structure. Only fix th
 
     try:
         from backend.app.shared.llm_utils import build_prompt
+
         messages = build_prompt(
             system_prompt="You are an Execution Planning Agent that corrects invalid playbook codes. Output only valid JSON.",
-            user_prompt=reevaluation_prompt
+            user_prompt=reevaluation_prompt,
         )
 
         provider_name = None
         if "gemini" in model_name.lower():
             provider_name = "vertex-ai"
-        elif "gpt" in model_name.lower() or "o1" in model_name.lower() or "o3" in model_name.lower():
+        elif (
+            "gpt" in model_name.lower()
+            or "o1" in model_name.lower()
+            or "o3" in model_name.lower()
+        ):
             provider_name = "openai"
         elif "claude" in model_name.lower():
             provider_name = "anthropic"
 
         if provider_name:
             provider = llm_provider.get_provider(provider_name)
-            if provider and hasattr(provider, 'chat_completion'):
+            if provider and hasattr(provider, "chat_completion"):
                 response = await provider.chat_completion(
                     messages=messages,
                     model=model_name,
                     temperature=0.2,  # Lower temperature for corrections
-                    max_tokens=4000
+                    max_tokens=4000,
                 )
 
                 corrected_plan_data = _parse_plan_json(response)
                 if corrected_plan_data:
-                    logger.info(f"[ExecutionPlanGenerator] Successfully re-evaluated plan, corrected {len(invalid_steps)} invalid playbook codes")
-                    print(f"[ExecutionPlanGenerator] Successfully corrected {len(invalid_steps)} invalid playbook codes", file=sys.stderr)
+                    logger.info(
+                        f"[ExecutionPlanGenerator] Successfully re-evaluated plan, corrected {len(invalid_steps)} invalid playbook codes"
+                    )
+                    print(
+                        f"[ExecutionPlanGenerator] Successfully corrected {len(invalid_steps)} invalid playbook codes",
+                        file=sys.stderr,
+                    )
 
                     # Notify user about successful correction
                     if progress_callback:
-                        progress_callback('reevaluation_completed', {
-                            'message_key': 'execution_plan.reevaluation_completed',
-                            'message_params': {
-                                'count': len(invalid_steps)
+                        progress_callback(
+                            "reevaluation_completed",
+                            {
+                                "message_key": "execution_plan.reevaluation_completed",
+                                "message_params": {"count": len(invalid_steps)},
+                                "corrected_count": len(invalid_steps),
                             },
-                            'corrected_count': len(invalid_steps)
-                        })
+                        )
 
                     return corrected_plan_data
                 else:
-                    logger.warning(f"[ExecutionPlanGenerator] Failed to parse re-evaluation response, using original plan with filtered steps")
+                    logger.warning(
+                        f"[ExecutionPlanGenerator] Failed to parse re-evaluation response, using original plan with filtered steps"
+                    )
     except Exception as e:
-        logger.warning(f"[ExecutionPlanGenerator] Re-evaluation failed: {e}, using original plan with filtered steps", exc_info=True)
+        logger.warning(
+            f"[ExecutionPlanGenerator] Re-evaluation failed: {e}, using original plan with filtered steps",
+            exc_info=True,
+        )
 
-    logger.info(f"[ExecutionPlanGenerator] Removing {len(invalid_steps)} steps with invalid playbook codes")
-    valid_steps = [step for i, step in enumerate(steps) if i not in [s['index'] for s in invalid_steps]]
-    plan_data['steps'] = valid_steps
+    logger.info(
+        f"[ExecutionPlanGenerator] Removing {len(invalid_steps)} steps with invalid playbook codes"
+    )
+    valid_steps = [
+        step
+        for i, step in enumerate(steps)
+        if i not in [s["index"] for s in invalid_steps]
+    ]
+    plan_data["steps"] = valid_steps
 
     return plan_data
 
@@ -504,7 +654,7 @@ Return the CORRECTED execution plan as JSON with the same structure. Only fix th
 def _convert_steps_to_tasks(
     steps: List[ExecutionStep],
     plan_confidence: float = 0.7,
-    available_playbooks: Optional[List[Dict[str, Any]]] = None
+    available_playbooks: Optional[List[Dict[str, Any]]] = None,
 ) -> List[TaskPlan]:
     """
     Convert ExecutionStep list to TaskPlan list for execution.
@@ -519,7 +669,7 @@ def _convert_steps_to_tasks(
     valid_playbook_codes = set()
     if available_playbooks:
         for pb in available_playbooks:
-            code = pb.get('playbook_code', pb.get('code', ''))
+            code = pb.get("playbook_code", pb.get("code", ""))
             if code:
                 valid_playbook_codes.add(code.lower())
 
@@ -532,8 +682,8 @@ def _convert_steps_to_tasks(
         if step.playbook_code:
             playbook_code_lower = step.playbook_code.lower()
             is_valid = (
-                playbook_code_lower in valid_playbook_codes or
-                playbook_code_lower in special_packs
+                playbook_code_lower in valid_playbook_codes
+                or playbook_code_lower in special_packs
             )
 
             if not is_valid:
@@ -545,7 +695,7 @@ def _convert_steps_to_tasks(
                 print(
                     f"[ExecutionPlanGenerator] WARNING: Step {step.step_id} skipped - "
                     f"invalid playbook_code='{step.playbook_code}' not in playbook list, intent={step.intent}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
                 continue
 
@@ -569,7 +719,7 @@ def _convert_steps_to_tasks(
             print(
                 f"[ExecutionPlanGenerator] WARNING: Step {step.step_id} skipped - "
                 f"playbook_code={step.playbook_code}, tool_name={step.tool_name}, intent={step.intent}",
-                file=sys.stderr
+                file=sys.stderr,
             )
             continue
 
@@ -590,16 +740,16 @@ def _convert_steps_to_tasks(
                 "artifacts": step.artifacts,
                 "step_id": step.step_id,
                 "depends_on": step.depends_on,
-                "llm_analysis": {
-                    "confidence": plan_confidence
-                }
+                "llm_analysis": {"confidence": plan_confidence},
             },
             side_effect_level=step.side_effect_level or "readonly",
             auto_execute=not step.requires_confirmation,
-            requires_cta=step.requires_confirmation
+            requires_cta=step.requires_confirmation,
         )
         tasks.append(task_plan)
-        logger.info(f"[ExecutionPlanGenerator] Converted step {step.step_id} to TaskPlan: pack_id={pack_id}, task_type={task_type}")
+        logger.info(
+            f"[ExecutionPlanGenerator] Converted step {step.step_id} to TaskPlan: pack_id={pack_id}, task_type={task_type}"
+        )
 
     return tasks
 
@@ -609,27 +759,29 @@ def _create_execution_plan(
     workspace_id: str,
     message_id: str,
     execution_mode: str,
-    available_playbooks: Optional[List[Dict[str, Any]]] = None
+    available_playbooks: Optional[List[Dict[str, Any]]] = None,
 ) -> ExecutionPlan:
     """Create ExecutionPlan from parsed JSON data"""
     steps = []
-    for step_data in plan_data.get('steps', []):
+    for step_data in plan_data.get("steps", []):
         step = ExecutionStep(
-            step_id=step_data.get('step_id', f"S{len(steps)+1}"),
-            intent=step_data.get('intent', 'Execute task'),
-            playbook_code=step_data.get('playbook_code'),
-            tool_name=step_data.get('tool_name'),
-            artifacts=step_data.get('artifacts', []),
-            reasoning=step_data.get('reasoning'),
-            depends_on=step_data.get('depends_on', []),
-            requires_confirmation=step_data.get('requires_confirmation', False),
-            side_effect_level=step_data.get('side_effect_level', 'readonly'),
-            estimated_duration=step_data.get('estimated_duration')
+            step_id=step_data.get("step_id", f"S{len(steps)+1}"),
+            intent=step_data.get("intent", "Execute task"),
+            playbook_code=step_data.get("playbook_code"),
+            tool_name=step_data.get("tool_name"),
+            artifacts=step_data.get("artifacts", []),
+            reasoning=step_data.get("reasoning"),
+            depends_on=step_data.get("depends_on", []),
+            requires_confirmation=step_data.get("requires_confirmation", False),
+            side_effect_level=step_data.get("side_effect_level", "readonly"),
+            estimated_duration=step_data.get("estimated_duration"),
         )
         steps.append(step)
 
-    plan_confidence = plan_data.get('confidence', 0.7)
-    tasks = _convert_steps_to_tasks(steps, plan_confidence=plan_confidence, available_playbooks=available_playbooks)
+    plan_confidence = plan_data.get("confidence", 0.7)
+    tasks = _convert_steps_to_tasks(
+        steps, plan_confidence=plan_confidence, available_playbooks=available_playbooks
+    )
 
     logger.info(
         f"[ExecutionPlanGenerator] Created ExecutionPlan: {len(steps)} steps, {len(tasks)} tasks. "
@@ -639,23 +791,23 @@ def _create_execution_plan(
     print(
         f"[ExecutionPlanGenerator] ExecutionPlan created: {len(steps)} steps -> {len(tasks)} tasks. "
         f"Missing playbook_code in {len(steps) - len(tasks)} steps.",
-        file=sys.stderr
+        file=sys.stderr,
     )
 
     return ExecutionPlan(
         id=str(uuid.uuid4()),
         message_id=message_id,
         workspace_id=workspace_id,
-        user_request_summary=plan_data.get('user_request_summary'),
-        reasoning=plan_data.get('reasoning'),
-        plan_summary=plan_data.get('plan_summary'),
+        user_request_summary=plan_data.get("user_request_summary"),
+        reasoning=plan_data.get("reasoning"),
+        plan_summary=plan_data.get("plan_summary"),
         steps=steps,
         tasks=tasks,  # Now includes tasks for execution
         execution_mode=execution_mode,
-        confidence=plan_data.get('confidence', 0.7),
+        confidence=plan_data.get("confidence", 0.7),
         created_at=datetime.utcnow(),
         project_id=None,  # Will be set by caller if needed
-        project_assignment_decision=None  # Will be set by caller if needed
+        project_assignment_decision=None,  # Will be set by caller if needed
     )
 
 
@@ -664,7 +816,7 @@ def _create_minimal_plan(
     workspace_id: str,
     message_id: str,
     execution_mode: str,
-    expected_artifacts: Optional[List[str]] = None
+    expected_artifacts: Optional[List[str]] = None,
 ) -> ExecutionPlan:
     """Create minimal plan without LLM (fallback)"""
     step = ExecutionStep(
@@ -676,7 +828,7 @@ def _create_minimal_plan(
         reasoning="No specific playbook matched, using generic drafting",
         depends_on=[],
         requires_confirmation=False,
-        side_effect_level="soft_write"
+        side_effect_level="soft_write",
     )
 
     tasks = _convert_steps_to_tasks([step], plan_confidence=0.5)
@@ -692,14 +844,12 @@ def _create_minimal_plan(
         tasks=tasks,  # Now includes tasks for execution
         execution_mode=execution_mode,
         confidence=0.5,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
 
 
 async def record_execution_plan_event(
-    plan: ExecutionPlan,
-    profile_id: str,
-    project_id: Optional[str] = None
+    plan: ExecutionPlan, profile_id: str, project_id: Optional[str] = None
 ) -> None:
     """
     Record ExecutionPlan as EXECUTION_PLAN MindEvent
@@ -731,12 +881,14 @@ async def record_execution_plan_event(
             metadata={
                 "execution_mode": plan.execution_mode,
                 "step_count": len(plan.steps),
-                "confidence": plan.confidence
-            }
+                "confidence": plan.confidence,
+            },
         )
 
         store.create_event(event, generate_embedding=True)
-        logger.info(f"[ExecutionPlanGenerator] Recorded EXECUTION_PLAN event: {plan.id}")
+        logger.info(
+            f"[ExecutionPlanGenerator] Recorded EXECUTION_PLAN event: {plan.id}"
+        )
 
     except Exception as e:
         logger.warning(f"[ExecutionPlanGenerator] Failed to record plan event: {e}")
