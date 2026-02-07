@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from backend.app.services.stores.graph_store import GraphStore
 from backend.app.models.lens_package import LensPresetPackage
 from backend.app.models.graph import MindLensProfile, LensProfileNode
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +24,7 @@ class PresetPackageService:
         if graph_store:
             self.graph_store = graph_store
         else:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-                data_dir = os.path.join(base_dir, "data")
-                os.makedirs(data_dir, exist_ok=True)
-                db_path = os.path.join(data_dir, "mindscape.db")
-            self.graph_store = GraphStore(db_path)
+            self.graph_store = GraphStore()
 
     def package(self, preset_id: str, author: str, license: str = "MIT") -> LensPresetPackage:
         """
@@ -128,4 +120,3 @@ class PresetPackageService:
             )
 
         return self.graph_store.get_lens_profile(created_preset.id)
-

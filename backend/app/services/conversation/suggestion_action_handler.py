@@ -745,15 +745,16 @@ class SuggestionActionHandler:
 
                     # Clear execution_id if set
                     try:
-                        with self.task_manager.tasks_store.get_connection() as conn:
-                            conn.execute(
-                                "UPDATE tasks SET execution_id = NULL WHERE id = ?",
-                                (task.id,)
-                            )
-                            conn.commit()
-                        logger.info(f"Cleared execution_id for intent_extraction task {task.id}")
+                        self.task_manager.tasks_store.update_task(
+                            task.id, execution_id=None
+                        )
+                        logger.info(
+                            f"Cleared execution_id for intent_extraction task {task.id}"
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to clear execution_id for intent_extraction task: {e}")
+                        logger.warning(
+                            f"Failed to clear execution_id for intent_extraction task: {e}"
+                        )
 
                     logger.info(f"Intent extraction task {task.id} completed via IntentInfraService")
 

@@ -115,7 +115,9 @@ class SuggestionCardCreator:
             )
 
             if existing_tasks:
-                if not self._should_create_new_suggestion_task(existing_tasks, task_plan):
+                if not self._should_create_new_suggestion_task(
+                    existing_tasks, task_plan
+                ):
                     existing_task = existing_tasks[0]
                     logger.info(
                         f"SuggestionCardCreator: Reusing existing suggestion task {existing_task.id} for pack {pack_id}"
@@ -172,7 +174,10 @@ class SuggestionCardCreator:
             }
 
         except Exception as e:
-            logger.error(f"SuggestionCardCreator: Failed to create suggestion card: {e}", exc_info=True)
+            logger.error(
+                f"SuggestionCardCreator: Failed to create suggestion card: {e}",
+                exc_info=True,
+            )
             return None
 
     async def create_playbook_suggestion(
@@ -204,7 +209,9 @@ class SuggestionCardCreator:
             # Extract LLM analysis from playbook_context
             llm_analysis = playbook_context.get("llm_analysis", {})
             if not llm_analysis and isinstance(playbook_context.get("context"), dict):
-                llm_analysis = playbook_context.get("context", {}).get("llm_analysis", {})
+                llm_analysis = playbook_context.get("context", {}).get(
+                    "llm_analysis", {}
+                )
 
             # Check if this is a background playbook
             background_playbooks = ["habit_learning"]
@@ -213,7 +220,9 @@ class SuggestionCardCreator:
             ]
 
             # Ensure llm_analysis has all required fields
-            llm_analysis = self._normalize_llm_analysis(llm_analysis, is_background_playbook)
+            llm_analysis = self._normalize_llm_analysis(
+                llm_analysis, is_background_playbook
+            )
 
             # Create suggestion task
             suggestion_task = Task(
@@ -256,11 +265,16 @@ class SuggestionCardCreator:
                 "playbook_code": playbook_code,
                 "task_id": suggestion_task.id,
                 "timeline_item_id": None,
-                "message": i18n.t("conversation_orchestrator", "suggestion.add_to_mindscape"),
+                "message": i18n.t(
+                    "conversation_orchestrator", "suggestion.add_to_mindscape"
+                ),
             }
 
         except Exception as e:
-            logger.error(f"SuggestionCardCreator: Failed to create playbook suggestion: {e}", exc_info=True)
+            logger.error(
+                f"SuggestionCardCreator: Failed to create playbook suggestion: {e}",
+                exc_info=True,
+            )
             return {"status": "error", "error": str(e)}
 
     async def _validate_playbook(
@@ -291,9 +305,13 @@ class SuggestionCardCreator:
                 )
                 if playbook:
                     is_valid = True
-                    logger.info(f"SuggestionCardCreator: Pack {pack_id} validated as playbook")
+                    logger.info(
+                        f"SuggestionCardCreator: Pack {pack_id} validated as playbook"
+                    )
             except Exception as e:
-                logger.debug(f"SuggestionCardCreator: Pack {pack_id} not found in PlaybookService: {e}")
+                logger.debug(
+                    f"SuggestionCardCreator: Pack {pack_id} not found in PlaybookService: {e}"
+                )
 
         # If not a playbook, check CapabilityRegistry
         if not is_valid:
@@ -311,9 +329,14 @@ class SuggestionCardCreator:
         pack_id_lower = pack_id.lower()
         if pack_id_lower in ["intent_extraction", "semantic_seeds"]:
             is_valid = True
-            logger.info(f"SuggestionCardCreator: Pack {pack_id} validated as special pack")
+            logger.info(
+                f"SuggestionCardCreator: Pack {pack_id} validated as special pack"
+            )
 
-        return {"is_valid": is_valid, "reason": None if is_valid else "invalid_playbook_code"}
+        return {
+            "is_valid": is_valid,
+            "reason": None if is_valid else "invalid_playbook_code",
+        }
 
     async def _check_user_preference(
         self, task_plan, workspace_id: str
@@ -335,7 +358,7 @@ class SuggestionCardCreator:
             store = MindscapeStore()
             preference_store = TaskPreferenceStore(store.db_path)
 
-            workspace = store.get_workspace(workspace_id)
+            workspace = await store.get_workspace(workspace_id)
             if workspace:
                 should_auto_suggest = preference_store.should_auto_suggest(
                     workspace_id=workspace_id,
@@ -345,10 +368,14 @@ class SuggestionCardCreator:
                 )
                 return {"should_auto_suggest": should_auto_suggest}
 
-            return {"should_auto_suggest": True}  # Default to True if workspace not found
+            return {
+                "should_auto_suggest": True
+            }  # Default to True if workspace not found
 
         except Exception as e:
-            logger.warning(f"SuggestionCardCreator: Failed to check user preference: {e}")
+            logger.warning(
+                f"SuggestionCardCreator: Failed to check user preference: {e}"
+            )
             return {"should_auto_suggest": True}  # Default to True on error
 
     def _should_create_new_suggestion_task(
@@ -367,7 +394,9 @@ class SuggestionCardCreator:
         if not existing_tasks:
             return True
 
-        new_params_source = task_plan.params.get("source", "") if task_plan.params else ""
+        new_params_source = (
+            task_plan.params.get("source", "") if task_plan.params else ""
+        )
         new_params_files = task_plan.params.get("files", []) if task_plan.params else []
 
         for existing_task in existing_tasks:

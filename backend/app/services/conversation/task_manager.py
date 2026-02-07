@@ -11,10 +11,17 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import uuid
 
-from ...models.workspace import Task, TaskStatus, TimelineItem, TimelineItemType, SideEffectLevel
+from ...models.workspace import (
+    Task,
+    TaskStatus,
+    TimelineItem,
+    TimelineItemType,
+    SideEffectLevel,
+)
 from ...services.stores.tasks_store import TasksStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...services.stores.artifacts_store import ArtifactsStore
+from ...services.stores.graph_changelog_store import GraphChangelogStore
 from ...services.i18n_service import get_i18n_service
 from backend.app.services.artifact_extractor import ArtifactExtractor
 
@@ -34,9 +41,16 @@ class TaskManager:
     - Async playbook execution status polling
     """
 
-    def __init__(self, tasks_store: TasksStore, timeline_items_store: TimelineItemsStore,
-                 plan_builder, playbook_runner, default_locale: str = "en", artifacts_store: ArtifactsStore = None,
-                 store=None):
+    def __init__(
+        self,
+        tasks_store: TasksStore,
+        timeline_items_store: TimelineItemsStore,
+        plan_builder,
+        playbook_runner,
+        default_locale: str = "en",
+        artifacts_store: ArtifactsStore = None,
+        store=None,
+    ):
         """
         Initialize TaskManager
 
@@ -58,11 +72,8 @@ class TaskManager:
         self.store = store
         self.artifact_extractor = ArtifactExtractor(store)
 
-    def create_timeline_item_from_task(
-        self,
-        task: Task,
-        execution_result: Dict[str, Any],
-        playbook_code: str
+    async def create_timeline_item_from_task(
+        self, task: Task, execution_result: Dict[str, Any], playbook_code: str
     ) -> Optional[TimelineItem]:
         """
         Create TimelineItem from completed task
@@ -84,7 +95,11 @@ class TaskManager:
             if execution_result.get("error") or "error" in playbook_lower:
                 item_type = TimelineItemType.ERROR
             # Check for specific pack types
-            elif "semantic_seeds" in playbook_lower or "intent" in playbook_lower or "seed" in playbook_lower:
+            elif (
+                "semantic_seeds" in playbook_lower
+                or "intent" in playbook_lower
+                or "seed" in playbook_lower
+            ):
                 item_type = TimelineItemType.INTENT_SEEDS
             elif "draft" in playbook_lower or "content_drafting" in playbook_lower:
                 item_type = TimelineItemType.DRAFT
@@ -99,10 +114,16 @@ class TaskManager:
 
             # Extract title and summary from execution result
             title = execution_result.get("title") or playbook_code
-            summary = execution_result.get("summary") or execution_result.get("message") or f"Completed {playbook_code}"
+            summary = (
+                execution_result.get("summary")
+                or execution_result.get("message")
+                or f"Completed {playbook_code}"
+            )
 
             # Determine side effect level for CTA generation
-            side_effect_level = self.plan_builder.determine_side_effect_level(playbook_code)
+            side_effect_level = self.plan_builder.determine_side_effect_level(
+                playbook_code
+            )
             cta = None
 
             # Determine CTA label based on task type
@@ -110,7 +131,11 @@ class TaskManager:
             view_result_label = "View Result"  # Default label
 
             # Customize label based on task type
-            if "draft" in playbook_lower or "content" in playbook_lower or "writing" in playbook_lower:
+            if (
+                "draft" in playbook_lower
+                or "content" in playbook_lower
+                or "writing" in playbook_lower
+            ):
                 view_result_label = "View File"
             elif "plan" in playbook_lower or "planning" in playbook_lower:
                 view_result_label = "View Plan"
@@ -132,38 +157,44 @@ class TaskManager:
                 else:
                     action_type = "add_to_intents"  # Default
 
-                cta = [{
-                    "label": self.i18n.t("conversation_orchestrator", "suggestion.cta_add"),
-                    "action": action_type
-                }, {
-                    "label": view_result_label,
-                    "action": "view_result"
-                }]
+                cta = [
+                    {
+                        "label": self.i18n.t(
+                            "conversation_orchestrator", "suggestion.cta_add"
+                        ),
+                        "action": action_type,
+                    },
+                    {"label": view_result_label, "action": "view_result"},
+                ]
             elif side_effect_level == SideEffectLevel.EXTERNAL_WRITE:
                 # Generate CTA for external_write actions (requires confirmation)
                 # Determine action type from playbook_code or execution_result
-                action_type = execution_result.get("action_type") or "publish_to_wordpress"
-                if "wordpress" in playbook_code.lower() or "wp" in playbook_code.lower():
+                action_type = (
+                    execution_result.get("action_type") or "publish_to_wordpress"
+                )
+                if (
+                    "wordpress" in playbook_code.lower()
+                    or "wp" in playbook_code.lower()
+                ):
                     action_type = "publish_to_wordpress"
                 elif "export" in playbook_code.lower():
                     action_type = "export_document"
                 else:
                     action_type = "execute_external_action"
 
-                cta = [{
-                    "label": self.i18n.t("conversation_orchestrator", "confirmation.button_confirm"),
-                    "action": action_type,
-                    "requires_confirm": True
-                }, {
-                    "label": view_result_label,
-                    "action": "view_result"
-                }]
+                cta = [
+                    {
+                        "label": self.i18n.t(
+                            "conversation_orchestrator", "confirmation.button_confirm"
+                        ),
+                        "action": action_type,
+                        "requires_confirm": True,
+                    },
+                    {"label": view_result_label, "action": "view_result"},
+                ]
             else:
                 # For READONLY tasks, add view_result CTA
-                cta = [{
-                    "label": view_result_label,
-                    "action": "view_result"
-                }]
+                cta = [{"label": view_result_label, "action": "view_result"}]
 
             # Create TimelineItem
             timeline_item = TimelineItem(
@@ -176,7 +207,7 @@ class TaskManager:
                 summary=summary,
                 data=execution_result,
                 cta=cta,
-                created_at=datetime.utcnow()
+                created_at=datetime.utcnow(),
             )
 
             self.timeline_items_store.create_timeline_item(timeline_item)
@@ -188,20 +219,24 @@ class TaskManager:
             if self.artifacts_store:
                 try:
                     # Pre-execution safety check: verify workspace storage_base_path is configured and writable
-                    workspace = self.store.workspaces.get_workspace(task.workspace_id)
+                    workspace = await self.store.workspaces.get_workspace(
+                        task.workspace_id
+                    )
                     if not workspace:
                         artifact_warning = {
                             "type": "workspace_not_found",
                             "message": "Workspace not found, artifact creation skipped",
-                            "action_required": "Please check workspace configuration"
+                            "action_required": "Please check workspace configuration",
                         }
-                        logger.warning(f"Workspace {task.workspace_id} not found, skipping artifact creation")
+                        logger.warning(
+                            f"Workspace {task.workspace_id} not found, skipping artifact creation"
+                        )
                     elif not workspace.storage_base_path:
                         artifact_warning = {
                             "type": "storage_path_not_configured",
                             "message": "Workspace storage path not configured. Artifact creation skipped.",
                             "action_required": "Please set storage path in workspace settings",
-                            "storage_path_missing": True
+                            "storage_path_missing": True,
                         }
                         logger.warning(
                             f"Workspace {task.workspace_id} has no storage_base_path configured. "
@@ -209,18 +244,22 @@ class TaskManager:
                         )
                     else:
                         # Check if path exists and is writable
-                        storage_path = Path(workspace.storage_base_path).expanduser().resolve()
+                        storage_path = (
+                            Path(workspace.storage_base_path).expanduser().resolve()
+                        )
                         if not storage_path.exists():
                             # Try to create the directory automatically
                             try:
                                 storage_path.mkdir(parents=True, exist_ok=True)
-                                logger.info(f"Created storage directory: {storage_path}")
+                                logger.info(
+                                    f"Created storage directory: {storage_path}"
+                                )
                             except Exception as e:
                                 artifact_warning = {
                                     "type": "storage_path_not_exists",
                                     "message": f"Storage path does not exist and cannot be created: {storage_path}",
                                     "action_required": f"Please check workspace storage configuration or create the directory: {str(e)}",
-                                    "storage_path": str(storage_path)
+                                    "storage_path": str(storage_path),
                                 }
                                 logger.warning(
                                     f"Storage path does not exist and creation failed: {storage_path}. Error: {e}"
@@ -230,7 +269,7 @@ class TaskManager:
                                 "type": "storage_path_not_writable",
                                 "message": f"Storage path is not writable: {storage_path}",
                                 "action_required": "Please check directory permissions",
-                                "storage_path": str(storage_path)
+                                "storage_path": str(storage_path),
                             }
                             logger.warning(
                                 f"Storage path is not writable: {storage_path}. "
@@ -240,9 +279,13 @@ class TaskManager:
                             # Path validation passed, proceed with artifact extraction
                             # Extract intent_id from execution_result or task
                             intent_id = execution_result.get("intent_id")
-                            if not intent_id and hasattr(task, 'intent_id'):
+                            if not intent_id and hasattr(task, "intent_id"):
                                 intent_id = task.intent_id
-                            if not intent_id and hasattr(task, 'metadata') and isinstance(task.metadata, dict):
+                            if (
+                                not intent_id
+                                and hasattr(task, "metadata")
+                                and isinstance(task.metadata, dict)
+                            ):
                                 intent_id = task.metadata.get("intent_id")
 
                             # Extract artifact from execution result
@@ -250,17 +293,24 @@ class TaskManager:
                                 task=task,
                                 execution_result=execution_result,
                                 playbook_code=playbook_code,
-                                intent_id=intent_id
+                                intent_id=intent_id,
                             )
 
                             # Check if artifact extraction succeeded but file write failed (handled in extractor)
-                            if artifact and hasattr(artifact, 'metadata') and artifact.metadata:
-                                if artifact.metadata.get('write_failed'):
+                            if (
+                                artifact
+                                and hasattr(artifact, "metadata")
+                                and artifact.metadata
+                            ):
+                                if artifact.metadata.get("write_failed"):
                                     artifact_warning = {
                                         "type": "artifact_write_failed",
-                                        "message": artifact.metadata.get('write_error', 'Failed to write artifact file'),
+                                        "message": artifact.metadata.get(
+                                            "write_error",
+                                            "Failed to write artifact file",
+                                        ),
                                         "action_required": "Artifact content is available but file write failed. Please check storage configuration.",
-                                        "fallback_path": artifact.storage_ref
+                                        "fallback_path": artifact.storage_ref,
                                     }
 
                     if artifact:
@@ -268,14 +318,16 @@ class TaskManager:
                         version = self.artifact_extractor._get_next_version(
                             workspace_id=task.workspace_id,
                             playbook_code=playbook_code,
-                            artifact_type=artifact.artifact_type.value
+                            artifact_type=artifact.artifact_type.value,
                         )
 
                         # Set version and is_latest in metadata
                         if artifact.metadata is None:
                             artifact.metadata = {}
-                        artifact.metadata['version'] = version
-                        artifact.metadata['is_latest'] = True  # Will be updated after creation
+                        artifact.metadata["version"] = version
+                        artifact.metadata["is_latest"] = (
+                            True  # Will be updated after creation
+                        )
 
                         # Set sync state if cloud sync is enabled
                         # sync_state: None (disabled) | "pending" (pending sync) | "synced" (synced) | "failed" (sync failed)
@@ -284,58 +336,70 @@ class TaskManager:
                                 storage_config = workspace.storage_config or {}
                                 if isinstance(storage_config, str):
                                     import json
+
                                     storage_config = json.loads(storage_config)
 
-                                cloud_enabled = storage_config.get("cloud_enabled", False)
+                                cloud_enabled = storage_config.get(
+                                    "cloud_enabled", False
+                                )
                                 if not cloud_enabled:
-                                    cloud_enabled = os.getenv("CLOUD_SYNC_ENABLED", "false").lower() == "true"
+                                    cloud_enabled = (
+                                        os.getenv("CLOUD_SYNC_ENABLED", "false").lower()
+                                        == "true"
+                                    )
 
                                 if cloud_enabled:
                                     artifact.sync_state = "pending"
-                                    logger.info(f"Artifact {artifact.id} marked as pending sync")
+                                    logger.info(
+                                        f"Artifact {artifact.id} marked as pending sync"
+                                    )
                             except Exception as e:
-                                logger.warning(f"Failed to check cloud sync configuration: {e}, defaulting to None")
+                                logger.warning(
+                                    f"Failed to check cloud sync configuration: {e}, defaulting to None"
+                                )
                                 artifact.sync_state = None
 
                         # Create artifact record
                         artifact = self.artifacts_store.create_artifact(artifact)
-                        logger.info(f"Created artifact: {artifact.id} for task {task.id}")
+                        logger.info(
+                            f"Created artifact: {artifact.id} for task {task.id}"
+                        )
 
                         # Update is_latest markers
                         self._update_artifact_latest_markers(
                             workspace_id=task.workspace_id,
                             playbook_code=playbook_code,
                             artifact_type=artifact.artifact_type.value,
-                            new_artifact_id=artifact.id
+                            new_artifact_id=artifact.id,
                         )
 
                         # Add artifact_id to timeline_item.data
                         if timeline_item.data:
-                            timeline_item.data['artifact_id'] = artifact.id
+                            timeline_item.data["artifact_id"] = artifact.id
                         else:
-                            timeline_item.data = {'artifact_id': artifact.id}
+                            timeline_item.data = {"artifact_id": artifact.id}
 
                         # Update timeline item with artifact_id
                         self.timeline_items_store.update_timeline_item(
-                            item_id=timeline_item.id,
-                            data=timeline_item.data
+                            item_id=timeline_item.id, data=timeline_item.data
                         )
 
                         # Create MindEvent for artifact (for embedding and external sync)
-                        self._create_artifact_mind_event(artifact, task, execution_result)
+                        await self._create_artifact_mind_event(
+                            artifact, task, execution_result
+                        )
 
                     # Record warning in TimelineItem if artifact creation failed
                     if artifact_warning:
                         # Update TimelineItem data with artifact_warning
                         if not timeline_item.data:
                             timeline_item.data = {}
-                        timeline_item.data['artifact_warning'] = artifact_warning
-                        timeline_item.data['artifact_creation_failed'] = True
+                        timeline_item.data["artifact_warning"] = artifact_warning
+                        timeline_item.data["artifact_creation_failed"] = True
 
                         # Update TimelineItem to persist warning information
                         self.timeline_items_store.update_timeline_item(
-                            item_id=timeline_item.id,
-                            data=timeline_item.data
+                            item_id=timeline_item.id, data=timeline_item.data
                         )
 
                         logger.warning(
@@ -343,30 +407,43 @@ class TaskManager:
                             f"Warning recorded in timeline item {timeline_item.id}."
                         )
                 except Exception as e:
-                    logger.error(f"Error during artifact creation for task {task.id}: {e}", exc_info=True)
+                    logger.error(
+                        f"Error during artifact creation for task {task.id}: {e}",
+                        exc_info=True,
+                    )
                     # Record error in timeline_item
                     if not timeline_item.data:
                         timeline_item.data = {}
-                    timeline_item.data['artifact_warning'] = {
+                    timeline_item.data["artifact_warning"] = {
                         "type": "artifact_creation_error",
                         "message": f"Unexpected error during artifact creation: {str(e)}",
-                        "action_required": "Please check logs and try again"
+                        "action_required": "Please check logs and try again",
                     }
-                    timeline_item.data['artifact_creation_failed'] = True
+                    timeline_item.data["artifact_creation_failed"] = True
                     self.timeline_items_store.update_timeline_item(
-                        item_id=timeline_item.id,
-                        data=timeline_item.data
+                        item_id=timeline_item.id, data=timeline_item.data
                     )
 
                 except Exception as e:
-                    logger.warning(f"Failed to create artifact for task {task.id}: {e}", exc_info=True)
+                    logger.warning(
+                        f"Failed to create artifact for task {task.id}: {e}",
+                        exc_info=True,
+                    )
 
             # Update task status to succeeded
             self.tasks_store.update_task_status(
                 task_id=task.id,
                 status=TaskStatus.SUCCEEDED,
                 result=execution_result,
-                completed_at=datetime.utcnow()
+                completed_at=datetime.utcnow(),
+            )
+
+            # Create graph node for completed task (Task → Graph integration)
+            await self._create_graph_node_for_task(
+                task=task,
+                timeline_item=timeline_item,
+                playbook_code=playbook_code,
+                execution_result=execution_result,
             )
 
             # Mark task as notification sent (for completion notification)
@@ -375,14 +452,16 @@ class TaskManager:
             return timeline_item
 
         except Exception as e:
-            logger.error(f"Failed to create TimelineItem from task {task.id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to create TimelineItem from task {task.id}: {e}", exc_info=True
+            )
             # Update task status to failed
             try:
                 self.tasks_store.update_task_status(
                     task_id=task.id,
                     status=TaskStatus.FAILED,
                     error=str(e),
-                    completed_at=datetime.utcnow()
+                    completed_at=datetime.utcnow(),
                 )
             except Exception as update_error:
                 logger.error(f"Failed to update task status: {update_error}")
@@ -399,24 +478,140 @@ class TaskManager:
             task_id: Task ID
         """
         try:
-            import sqlite3
-            import os
-
-            db_path = self.tasks_store.db_path
-            if db_path and os.path.exists(db_path):
-                conn = sqlite3.connect(db_path)
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        'UPDATE tasks SET notification_sent_at = ? WHERE id = ?',
-                        (datetime.utcnow().isoformat(), task_id)
-                    )
-                    conn.commit()
-                    logger.debug(f"Marked task {task_id} as notification sent")
-                finally:
-                    conn.close()
+            self.tasks_store.update_task(
+                task_id, notification_sent_at=datetime.utcnow()
+            )
+            logger.debug(f"Marked task {task_id} as notification sent")
         except Exception as e:
             logger.warning(f"Failed to mark task {task_id} as notification sent: {e}")
+
+    async def _create_graph_node_for_task(
+        self,
+        task: Task,
+        timeline_item: TimelineItem,
+        playbook_code: str,
+        execution_result: Dict[str, Any],
+    ) -> None:
+        """
+        Update planned graph node to completed status (Task → Graph integration).
+
+        This implements the "draw dashed line first" pattern:
+        - Node was created with status="planned" when task started (by TaskCreator)
+        - This method updates it to status="completed" and applies the change
+
+        If no pending_graph_node_id exists (task created without graph node),
+        falls back to creating a new node.
+
+        Args:
+            task: Completed Task object
+            timeline_item: Created TimelineItem
+            playbook_code: Playbook code that was executed
+            execution_result: Execution result data
+        """
+        try:
+            # Extract execution context for Intent/Lens binding
+            execution_context = {}
+            if hasattr(task, "execution_context") and task.execution_context:
+                execution_context = task.execution_context
+            elif hasattr(task, "metadata") and task.metadata:
+                execution_context = task.metadata.get("execution_context", {})
+
+            # Check if we have a pending graph node created by TaskCreator
+            pending_graph_node_id = execution_context.get("pending_graph_node_id")
+
+            graph_store = GraphChangelogStore()
+
+            if pending_graph_node_id:
+                # Update existing planned node to completed and apply
+                try:
+                    result = graph_store.apply_change(
+                        change_id=pending_graph_node_id,
+                        applied_by="system:task_completion",
+                    )
+                    if result.get("success"):
+                        logger.info(
+                            f"Applied graph node {pending_graph_node_id} for completed task {task.id}"
+                        )
+                        return
+                    else:
+                        logger.warning(
+                            f"Failed to apply graph node {pending_graph_node_id}: {result.get('error')}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Error applying graph node: {e}")
+
+            # Fallback: create new node if no pending node exists
+            # Extract Intent binding (retrospective)
+            origin_intent_id = execution_context.get("origin_intent_id")
+            origin_intent_label = execution_context.get("origin_intent_label")
+            intent_confidence = execution_context.get("intent_confidence")
+
+            # Extract Lens binding (retrospective)
+            lens_snapshot_hash = execution_context.get("effective_lens_hash")
+
+            # Build node metadata with all bindings
+            node_metadata = {
+                "playbook_code": playbook_code,
+                "timeline_item_id": timeline_item.id,
+                "task_id": task.id,
+                "message_id": task.message_id,
+                # Intent binding (retrospective)
+                "origin_intent_id": origin_intent_id,
+                "origin_intent_label": origin_intent_label,
+                "intent_confidence": intent_confidence,
+                # Lens binding (retrospective)
+                "lens_snapshot_hash": lens_snapshot_hash,
+                # Execution metadata
+                "completed_at": (
+                    task.completed_at.isoformat()
+                    if hasattr(task, "completed_at") and task.completed_at
+                    else datetime.utcnow().isoformat()
+                ),
+                "timeline_item_type": (
+                    timeline_item.type.value
+                    if hasattr(timeline_item.type, "value")
+                    else str(timeline_item.type)
+                ),
+                # Artifact reference (if exists)
+                "artifact_id": (
+                    timeline_item.data.get("artifact_id")
+                    if timeline_item.data
+                    else None
+                ),
+            }
+
+            # Create and auto-apply completed node (no pending node existed)
+            change_id = graph_store.create_pending_change(
+                workspace_id=task.workspace_id,
+                operation="create_node",
+                target_type="node",  # Must be: node, edge, overlay, or batch
+                target_id=task.id,
+                after_state={
+                    "id": task.id,
+                    "node_type": "task",  # Distinguishes from intent/lens nodes
+                    "label": timeline_item.title or playbook_code,
+                    "status": "completed",
+                    "metadata": node_metadata,
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+                actor="system",
+                actor_context="task_completion",
+            )
+
+            # Auto-apply system-created nodes
+            graph_store.apply_change(change_id, applied_by="system:auto_apply")
+
+            logger.info(
+                f"Created and applied graph node for task {task.id} "
+                f"(intent: {origin_intent_id}, lens: {lens_snapshot_hash})"
+            )
+
+        except Exception as e:
+            # Graph node creation is non-critical, don't fail the task
+            logger.warning(
+                f"Failed to handle graph node for task {task.id}: {e}",
+                exc_info=True,
+            )
 
     def mark_task_as_displayed(self, task_id: str) -> None:
         """
@@ -428,30 +623,13 @@ class TaskManager:
             task_id: Task ID
         """
         try:
-            import sqlite3
-            import os
-
-            db_path = self.tasks_store.db_path
-            if db_path and os.path.exists(db_path):
-                conn = sqlite3.connect(db_path)
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        'UPDATE tasks SET displayed_at = ? WHERE id = ?',
-                        (datetime.utcnow().isoformat(), task_id)
-                    )
-                    conn.commit()
-                    logger.debug(f"Marked task {task_id} as displayed")
-                finally:
-                    conn.close()
+            self.tasks_store.update_task(task_id, displayed_at=datetime.utcnow())
+            logger.debug(f"Marked task {task_id} as displayed")
         except Exception as e:
             logger.warning(f"Failed to mark task {task_id} as displayed: {e}")
 
-    def _create_artifact_mind_event(
-        self,
-        artifact,
-        task: Task,
-        execution_result: Dict[str, Any]
+    async def _create_artifact_mind_event(
+        self, artifact, task: Task, execution_result: Dict[str, Any]
     ) -> None:
         """
         Create MindEvent for artifact (for embedding and external sync)
@@ -462,16 +640,20 @@ class TaskManager:
             execution_result: Execution result dict
         """
         if not self.store:
-            logger.debug("Store not available, skipping MindEvent creation for artifact")
+            logger.debug(
+                "Store not available, skipping MindEvent creation for artifact"
+            )
             return
 
         try:
             from ...models.mindscape import MindEvent, EventType, EventActor
 
             # Get workspace to get owner_user_id
-            workspace = self.store.get_workspace(task.workspace_id)
+            workspace = await self.store.get_workspace(task.workspace_id)
             if not workspace:
-                logger.warning(f"Workspace {task.workspace_id} not found, cannot create MindEvent for artifact")
+                logger.warning(
+                    f"Workspace {task.workspace_id} not found, cannot create MindEvent for artifact"
+                )
                 return
 
             # Build entity_ids (include artifact_id and intent_id)
@@ -490,21 +672,31 @@ class TaskManager:
                 event_type=EventType.ARTIFACT_CREATED,  # Use unified event type
                 payload={
                     "artifact_id": artifact.id,
-                    "artifact_type": artifact.artifact_type.value if hasattr(artifact.artifact_type, 'value') else str(artifact.artifact_type),
+                    "artifact_type": (
+                        artifact.artifact_type.value
+                        if hasattr(artifact.artifact_type, "value")
+                        else str(artifact.artifact_type)
+                    ),
                     "title": artifact.title,
                     "summary": artifact.summary,
                     "playbook_code": artifact.playbook_code,
                     "task_id": task.id,
-                    "execution_id": task.execution_id if hasattr(task, 'execution_id') else None,
+                    "execution_id": (
+                        task.execution_id if hasattr(task, "execution_id") else None
+                    ),
                     "intent_id": artifact.intent_id,
-                    "file_path": artifact.metadata.get("file_path") if artifact.metadata else None,
+                    "file_path": (
+                        artifact.metadata.get("file_path")
+                        if artifact.metadata
+                        else None
+                    ),
                     "storage_ref": artifact.storage_ref,
                 },
                 entity_ids=entity_ids,
                 metadata={
                     "is_artifact": True,
-                    "artifact_type": artifact.artifact_type.value
-                }
+                    "artifact_type": artifact.artifact_type.value,
+                },
             )
 
             # Write to events store
@@ -512,12 +704,11 @@ class TaskManager:
             logger.info(f"Created MindEvent for artifact {artifact.id}")
 
         except Exception as e:
-            logger.warning(f"Failed to create MindEvent for artifact: {e}", exc_info=True)
+            logger.warning(
+                f"Failed to create MindEvent for artifact: {e}", exc_info=True
+            )
 
-    def retry_artifact_creation(
-        self,
-        timeline_item_id: str
-    ) -> Dict[str, Any]:
+    async def retry_artifact_creation(self, timeline_item_id: str) -> Dict[str, Any]:
         """
         Retry creating artifact (from timeline_item)
 
@@ -532,17 +723,28 @@ class TaskManager:
         """
         try:
             # Get timeline_item
-            timeline_item = self.timeline_items_store.get_timeline_item(timeline_item_id)
+            timeline_item = self.timeline_items_store.get_timeline_item(
+                timeline_item_id
+            )
             if not timeline_item:
                 return {"success": False, "error": "Timeline item not found"}
 
             # Check if artifact_creation_failed flag exists
-            if not (timeline_item.data and timeline_item.data.get('artifact_creation_failed')):
-                return {"success": False, "error": "No artifact creation failure recorded for this timeline item"}
+            if not (
+                timeline_item.data
+                and timeline_item.data.get("artifact_creation_failed")
+            ):
+                return {
+                    "success": False,
+                    "error": "No artifact creation failure recorded for this timeline item",
+                }
 
             # Get task
             if not timeline_item.task_id:
-                return {"success": False, "error": "Timeline item has no associated task"}
+                return {
+                    "success": False,
+                    "error": "Timeline item has no associated task",
+                }
 
             task = self.tasks_store.get_task(timeline_item.task_id)
             if not task:
@@ -554,13 +756,20 @@ class TaskManager:
                 execution_result = task.result
 
             if not execution_result:
-                return {"success": False, "error": "No execution result available for artifact creation"}
+                return {
+                    "success": False,
+                    "error": "No execution result available for artifact creation",
+                }
 
             # Get playbook_code (from task.pack_id or execution_result)
-            playbook_code = execution_result.get("playbook_code") or task.pack_id or "unknown"
+            playbook_code = (
+                execution_result.get("playbook_code") or task.pack_id or "unknown"
+            )
 
             # Check workspace storage configuration
-            workspace = self.store.workspaces.get_workspace(timeline_item.workspace_id)
+            workspace = await self.store.workspaces.get_workspace(
+                timeline_item.workspace_id
+            )
             if not workspace:
                 return {"success": False, "error": "Workspace not found"}
 
@@ -568,7 +777,7 @@ class TaskManager:
                 return {
                     "success": False,
                     "error": "Workspace storage path not configured",
-                    "action_required": "Please set storage path in workspace settings"
+                    "action_required": "Please set storage path in workspace settings",
                 }
 
             # Check if path exists and is writable
@@ -581,21 +790,25 @@ class TaskManager:
                     return {
                         "success": False,
                         "error": f"Failed to create storage path {storage_path}: {str(e)}",
-                        "action_required": "Please check workspace storage configuration or create the directory"
+                        "action_required": "Please check workspace storage configuration or create the directory",
                     }
 
             if not os.access(storage_path, os.W_OK):
                 return {
                     "success": False,
                     "error": f"Storage path is not writable: {storage_path}",
-                    "action_required": "Please check directory permissions"
+                    "action_required": "Please check directory permissions",
                 }
 
             # Extract intent_id
             intent_id = execution_result.get("intent_id")
-            if not intent_id and hasattr(task, 'intent_id'):
+            if not intent_id and hasattr(task, "intent_id"):
                 intent_id = task.intent_id
-            if not intent_id and hasattr(task, 'metadata') and isinstance(task.metadata, dict):
+            if (
+                not intent_id
+                and hasattr(task, "metadata")
+                and isinstance(task.metadata, dict)
+            ):
                 intent_id = task.metadata.get("intent_id")
 
             # Re-extract artifact
@@ -604,14 +817,16 @@ class TaskManager:
                     task=task,
                     execution_result=execution_result,
                     playbook_code=playbook_code,
-                    intent_id=intent_id
+                    intent_id=intent_id,
                 )
             except Exception as e:
-                logger.error(f"Error extracting artifact during retry: {e}", exc_info=True)
+                logger.error(
+                    f"Error extracting artifact during retry: {e}", exc_info=True
+                )
                 return {
                     "success": False,
                     "error": f"Failed to extract artifact: {str(e)}",
-                    "action_required": "Please check execution result format and try again"
+                    "action_required": "Please check execution result format and try again",
                 }
 
             if not artifact:
@@ -622,65 +837,71 @@ class TaskManager:
                 return {
                     "success": False,
                     "error": "Failed to extract artifact from execution result. The execution result may not contain artifact data.",
-                    "action_required": "Please check if the task execution completed successfully"
+                    "action_required": "Please check if the task execution completed successfully",
                 }
 
             # Check if file write failed
-            if artifact.metadata and artifact.metadata.get('write_failed'):
+            if artifact.metadata and artifact.metadata.get("write_failed"):
                 return {
                     "success": False,
-                    "error": artifact.metadata.get('write_error', 'Failed to write artifact file'),
-                    "action_required": "Artifact content is available but file write failed. Please check storage configuration."
+                    "error": artifact.metadata.get(
+                        "write_error", "Failed to write artifact file"
+                    ),
+                    "action_required": "Artifact content is available but file write failed. Please check storage configuration.",
                 }
 
             # Get version number
             version = self.artifact_extractor._get_next_version(
                 workspace_id=timeline_item.workspace_id,
                 playbook_code=playbook_code,
-                artifact_type=artifact.artifact_type.value
+                artifact_type=artifact.artifact_type.value,
             )
 
             # Set version and is_latest
             if artifact.metadata is None:
                 artifact.metadata = {}
-            artifact.metadata['version'] = version
-            artifact.metadata['is_latest'] = True
+            artifact.metadata["version"] = version
+            artifact.metadata["is_latest"] = True
 
             # Create artifact record
             artifact = self.artifacts_store.create_artifact(artifact)
-            logger.info(f"Retry created artifact: {artifact.id} for timeline item {timeline_item_id}")
+            logger.info(
+                f"Retry created artifact: {artifact.id} for timeline item {timeline_item_id}"
+            )
 
             # Update is_latest marker
             self._update_artifact_latest_markers(
                 workspace_id=timeline_item.workspace_id,
                 playbook_code=playbook_code,
                 artifact_type=artifact.artifact_type.value,
-                new_artifact_id=artifact.id
+                new_artifact_id=artifact.id,
             )
 
             # Update timeline_item, remove warning info, add artifact_id
             if not timeline_item.data:
                 timeline_item.data = {}
-            timeline_item.data['artifact_id'] = artifact.id
-            timeline_item.data.pop('artifact_warning', None)
-            timeline_item.data.pop('artifact_creation_failed', None)
+            timeline_item.data["artifact_id"] = artifact.id
+            timeline_item.data.pop("artifact_warning", None)
+            timeline_item.data.pop("artifact_creation_failed", None)
 
             self.timeline_items_store.update_timeline_item(
-                item_id=timeline_item.id,
-                data=timeline_item.data
+                item_id=timeline_item.id, data=timeline_item.data
             )
 
             # Create MindEvent
-            self._create_artifact_mind_event(artifact, task, execution_result)
+            await self._create_artifact_mind_event(artifact, task, execution_result)
 
             return {
                 "success": True,
                 "artifact_id": artifact.id,
-                "message": "Artifact created successfully"
+                "message": "Artifact created successfully",
             }
 
         except Exception as e:
-            logger.error(f"Failed to retry artifact creation for timeline item {timeline_item_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to retry artifact creation for timeline item {timeline_item_id}: {e}",
+                exc_info=True,
+            )
             return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
     def _update_artifact_latest_markers(
@@ -688,7 +909,7 @@ class TaskManager:
         workspace_id: str,
         playbook_code: str,
         artifact_type: str,
-        new_artifact_id: str
+        new_artifact_id: str,
     ) -> None:
         """
         Update artifact is_latest marker
@@ -710,8 +931,12 @@ class TaskManager:
 
             # Filter artifacts with same artifact_type (exclude new artifact)
             same_type_artifacts = [
-                a for a in artifacts
-                if (a.artifact_type.value == artifact_type or str(a.artifact_type) == artifact_type)
+                a
+                for a in artifacts
+                if (
+                    a.artifact_type.value == artifact_type
+                    or str(a.artifact_type) == artifact_type
+                )
                 and a.id != new_artifact_id
             ]
 
@@ -721,8 +946,7 @@ class TaskManager:
                 if old_metadata.get("is_latest", False):
                     updated_metadata = {**old_metadata, "is_latest": False}
                     self.artifacts_store.update_artifact(
-                        old_artifact.id,
-                        metadata=updated_metadata
+                        old_artifact.id, metadata=updated_metadata
                     )
                     logger.debug(
                         f"Updated artifact {old_artifact.id} is_latest to False "
@@ -736,22 +960,20 @@ class TaskManager:
                 if not new_metadata.get("is_latest", True):
                     updated_metadata = {**new_metadata, "is_latest": True}
                     self.artifacts_store.update_artifact(
-                        new_artifact_id,
-                        metadata=updated_metadata
+                        new_artifact_id, metadata=updated_metadata
                     )
-                    logger.debug(f"Updated artifact {new_artifact_id} is_latest to True")
+                    logger.debug(
+                        f"Updated artifact {new_artifact_id} is_latest to True"
+                    )
 
         except Exception as e:
             logger.warning(
                 f"Failed to update artifact latest markers for {new_artifact_id}: {e}",
-                exc_info=True
+                exc_info=True,
             )
 
     async def check_and_update_task_status(
-        self,
-        task: Task,
-        execution_id: Optional[str],
-        playbook_code: str
+        self, task: Task, execution_id: Optional[str], playbook_code: str
     ) -> None:
         """
         Check playbook execution status and update task/timeline accordingly
@@ -775,51 +997,87 @@ class TaskManager:
             # Try to get execution result from playbook runner
             try:
                 # Check if playbook_runner has get_playbook_execution_result method
-                if hasattr(self.playbook_runner, 'get_playbook_execution_result'):
+                if hasattr(self.playbook_runner, "get_playbook_execution_result"):
                     try:
-                        execution_result_data = await self.playbook_runner.get_playbook_execution_result(execution_id)
+                        execution_result_data = (
+                            await self.playbook_runner.get_playbook_execution_result(
+                                execution_id
+                            )
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to get execution result for {execution_id}: {e}, falling back to active executions check")
+                        logger.warning(
+                            f"Failed to get execution result for {execution_id}: {e}, falling back to active executions check"
+                        )
                         execution_result_data = None
                 else:
                     # Fallback: check if execution is still active
-                    logger.warning(f"playbook_runner.get_playbook_execution_result not available, checking active executions")
+                    logger.warning(
+                        f"playbook_runner.get_playbook_execution_result not available, checking active executions"
+                    )
                     execution_result_data = None
 
                 # If no result from get_playbook_execution_result, try fallback methods
                 if execution_result_data is None:
                     # Check if execution is still active
-                    if hasattr(self.playbook_runner, 'list_active_executions'):
+                    if hasattr(self.playbook_runner, "list_active_executions"):
                         try:
-                            active_executions = self.playbook_runner.list_active_executions()
+                            active_executions = (
+                                self.playbook_runner.list_active_executions()
+                            )
                             if execution_id not in active_executions:
                                 # Execution is no longer active but no result method
                                 # Try to get result from task.result if it was already set (e.g., by playbook runner callback)
                                 if task.result:
                                     # Task result already available, use it
-                                    execution_result_data = task.result if isinstance(task.result, dict) else {"result": task.result, "status": "completed"}
-                                    logger.info(f"Using task.result for completed execution {execution_id}")
+                                    execution_result_data = (
+                                        task.result
+                                        if isinstance(task.result, dict)
+                                        else {
+                                            "result": task.result,
+                                            "status": "completed",
+                                        }
+                                    )
+                                    logger.info(
+                                        f"Using task.result for completed execution {execution_id}"
+                                    )
                                 else:
                                     # No result available - mark as completed with unknown result
                                     # This creates a TimelineItem so user can see the execution completed
-                                    execution_result_data = {"status": "completed", "note": "Execution completed but result retrieval not available"}
-                                    logger.warning(f"Execution {execution_id} completed but no result available, creating placeholder TimelineItem")
+                                    execution_result_data = {
+                                        "status": "completed",
+                                        "note": "Execution completed but result retrieval not available",
+                                    }
+                                    logger.warning(
+                                        f"Execution {execution_id} completed but no result available, creating placeholder TimelineItem"
+                                    )
                             else:
                                 # Still running
                                 execution_result_data = None
                         except Exception as e:
-                            logger.warning(f"Failed to check active executions: {e}, task {task.id} remains RUNNING")
+                            logger.warning(
+                                f"Failed to check active executions: {e}, task {task.id} remains RUNNING"
+                            )
                             execution_result_data = None
                     else:
                         # No list_active_executions method available
-                        logger.warning(f"playbook_runner.list_active_executions not available, cannot determine execution status for {execution_id}")
+                        logger.warning(
+                            f"playbook_runner.list_active_executions not available, cannot determine execution status for {execution_id}"
+                        )
                         # Check if task.result is available as last resort
                         if task.result:
-                            execution_result_data = task.result if isinstance(task.result, dict) else {"result": task.result, "status": "completed"}
-                            logger.info(f"Using task.result as fallback for execution {execution_id}")
+                            execution_result_data = (
+                                task.result
+                                if isinstance(task.result, dict)
+                                else {"result": task.result, "status": "completed"}
+                            )
+                            logger.info(
+                                f"Using task.result as fallback for execution {execution_id}"
+                            )
                         else:
                             # Cannot determine status, task remains RUNNING
-                            logger.warning(f"Cannot determine execution status for {execution_id}, task {task.id} remains RUNNING")
+                            logger.warning(
+                                f"Cannot determine execution status for {execution_id}, task {task.id} remains RUNNING"
+                            )
                             execution_result_data = None
 
                 if execution_result_data:
@@ -829,33 +1087,41 @@ class TaskManager:
                         task_id=task.id,
                         status=TaskStatus.SUCCEEDED,
                         result=execution_result_data,
-                        completed_at=datetime.utcnow()
+                        completed_at=datetime.utcnow(),
                     )
 
                     # Create timeline item
                     timeline_item = self.create_timeline_item_from_task(
                         task=task,
                         execution_result=execution_result_data,
-                        playbook_code=playbook_code
+                        playbook_code=playbook_code,
                     )
 
                     if timeline_item:
-                        logger.info(f"Updated task {task.id} from async execution {execution_id}, created timeline item {timeline_item.id}")
+                        logger.info(
+                            f"Updated task {task.id} from async execution {execution_id}, created timeline item {timeline_item.id}"
+                        )
 
                         # Mark task as notification sent (for completion notification)
                         self._mark_task_notification_sent(task.id)
                     else:
-                        logger.warning(f"Failed to create timeline item for task {task.id}")
+                        logger.warning(
+                            f"Failed to create timeline item for task {task.id}"
+                        )
                 else:
                     # Check if execution is still active in playbook runner
-                    active_executions = self.playbook_runner.list_active_executions() if hasattr(self.playbook_runner, 'list_active_executions') else []
+                    active_executions = (
+                        self.playbook_runner.list_active_executions()
+                        if hasattr(self.playbook_runner, "list_active_executions")
+                        else []
+                    )
                     if execution_id not in active_executions:
                         # Execution is no longer active but no result - mark as failed
                         self.tasks_store.update_task_status(
                             task_id=task.id,
                             status=TaskStatus.FAILED,
                             error="Execution completed but no result available",
-                            completed_at=datetime.utcnow()
+                            completed_at=datetime.utcnow(),
                         )
 
                         # Create error TimelineItem for failed execution
@@ -869,25 +1135,35 @@ class TaskManager:
                             summary="Execution completed but no result available",
                             data={
                                 "playbook_code": playbook_code,
-                                "error": "Execution completed but no result available"
+                                "error": "Execution completed but no result available",
                             },
                             cta=None,
-                            created_at=datetime.utcnow()
+                            created_at=datetime.utcnow(),
                         )
-                        self.timeline_items_store.create_timeline_item(error_timeline_item)
+                        self.timeline_items_store.create_timeline_item(
+                            error_timeline_item
+                        )
 
-                        logger.warning(f"Task {task.id} execution {execution_id} no longer active, marked as failed, created error timeline item")
+                        logger.warning(
+                            f"Task {task.id} execution {execution_id} no longer active, marked as failed, created error timeline item"
+                        )
                     else:
                         # Execution still in progress, task remains RUNNING
-                        logger.debug(f"Task {task.id} execution {execution_id} still in progress")
+                        logger.debug(
+                            f"Task {task.id} execution {execution_id} still in progress"
+                        )
             except Exception as e:
-                logger.warning(f"Failed to check execution status for task {task.id}: {e}")
+                logger.warning(
+                    f"Failed to check execution status for task {task.id}: {e}"
+                )
                 # Task remains RUNNING, will be checked on next poll
 
         except Exception as e:
             logger.error(f"Failed to check and update task status: {e}", exc_info=True)
 
-    def check_and_timeout_tasks(self, timeout_minutes: int = TASK_TIMEOUT_MINUTES) -> List[str]:
+    def check_and_timeout_tasks(
+        self, timeout_minutes: int = TASK_TIMEOUT_MINUTES
+    ) -> List[str]:
         """
         Check for tasks that have been running too long and mark them as failed
 
@@ -906,7 +1182,7 @@ class TaskManager:
             running_tasks = self.tasks_store.list_tasks_by_workspace(
                 workspace_id=None,  # Get all workspaces
                 status=TaskStatus.RUNNING,
-                limit=1000  # Large limit to check all running tasks
+                limit=1000,  # Large limit to check all running tasks
             )
 
             if not running_tasks:
@@ -935,22 +1211,23 @@ class TaskManager:
                                 "execution_id": execution_id,
                                 "started_at": start_time.isoformat(),
                                 "timeout_after_minutes": timeout_minutes,
-                                "current_time": datetime.utcnow().isoformat()
+                                "current_time": datetime.utcnow().isoformat(),
                             }
 
                             # Check if there are any execution steps
                             try:
                                 from ...services.mindscape_store import MindscapeStore
+
                                 store = MindscapeStore()
                                 from ...models.mindscape import EventType
 
                                 # Get playbook step events
                                 events = store.get_events_by_workspace(
-                                    workspace_id=task.workspace_id,
-                                    limit=100
+                                    workspace_id=task.workspace_id, limit=100
                                 )
                                 step_events = [
-                                    e for e in events
+                                    e
+                                    for e in events
                                     if e.event_type == EventType.PLAYBOOK_STEP
                                     and execution_id in (e.entity_ids or [])
                                 ]
@@ -958,18 +1235,36 @@ class TaskManager:
                                 if step_events:
                                     diagnostic_info["steps_found"] = len(step_events)
                                     # Get last step info
-                                    last_step = max(step_events, key=lambda e: e.timestamp)
-                                    last_step_payload = last_step.payload if isinstance(last_step.payload, dict) else {}
+                                    last_step = max(
+                                        step_events, key=lambda e: e.timestamp
+                                    )
+                                    last_step_payload = (
+                                        last_step.payload
+                                        if isinstance(last_step.payload, dict)
+                                        else {}
+                                    )
                                     diagnostic_info["last_step"] = {
-                                        "step_name": last_step_payload.get("step_name", "unknown"),
-                                        "status": last_step_payload.get("status", "unknown"),
-                                        "timestamp": last_step.timestamp.isoformat() if hasattr(last_step.timestamp, 'isoformat') else str(last_step.timestamp)
+                                        "step_name": last_step_payload.get(
+                                            "step_name", "unknown"
+                                        ),
+                                        "status": last_step_payload.get(
+                                            "status", "unknown"
+                                        ),
+                                        "timestamp": (
+                                            last_step.timestamp.isoformat()
+                                            if hasattr(last_step.timestamp, "isoformat")
+                                            else str(last_step.timestamp)
+                                        ),
                                     }
                                 else:
                                     diagnostic_info["steps_found"] = 0
-                                    diagnostic_info["diagnosis"] = "No execution steps found - playbook may not have started or is stuck at initialization"
+                                    diagnostic_info["diagnosis"] = (
+                                        "No execution steps found - playbook may not have started or is stuck at initialization"
+                                    )
                             except Exception as diag_error:
-                                logger.warning(f"Failed to gather diagnostic info for timed out task {task.id}: {diag_error}")
+                                logger.warning(
+                                    f"Failed to gather diagnostic info for timed out task {task.id}: {diag_error}"
+                                )
                                 diagnostic_info["diagnosis_error"] = str(diag_error)
 
                             timeout_error = (
@@ -993,11 +1288,13 @@ class TaskManager:
                                 task_id=task.id,
                                 status=TaskStatus.FAILED,
                                 error=timeout_error,
-                                completed_at=datetime.utcnow()
+                                completed_at=datetime.utcnow(),
                             )
 
                             # Update execution_context
-                            self.tasks_store.update_task(task.id, execution_context=execution_context)
+                            self.tasks_store.update_task(
+                                task.id, execution_context=execution_context
+                            )
 
                             # Create error TimelineItem for timed out task
                             error_timeline_item = TimelineItem(
@@ -1009,30 +1306,37 @@ class TaskManager:
                                 title=self.i18n.t(
                                     "conversation_orchestrator",
                                     "timeline.task_timeout_title",
-                                    default="Task Timed Out"
+                                    default="Task Timed Out",
                                 ),
                                 summary=self.i18n.t(
                                     "conversation_orchestrator",
                                     "timeline.task_timeout_summary",
                                     timeout_minutes=timeout_minutes,
-                                    default=f"Task timed out after {timeout_minutes} minutes"
+                                    default=f"Task timed out after {timeout_minutes} minutes",
                                 ),
                                 data={
                                     "error": timeout_error,
                                     "task_id": task.id,
                                     "pack_id": task.pack_id,
-                                    "timeout_minutes": timeout_minutes
+                                    "timeout_minutes": timeout_minutes,
                                 },
                                 cta=None,
-                                created_at=datetime.utcnow()
+                                created_at=datetime.utcnow(),
                             )
-                            self.timeline_items_store.create_timeline_item(error_timeline_item)
+                            self.timeline_items_store.create_timeline_item(
+                                error_timeline_item
+                            )
 
                             timed_out_task_ids.append(task.id)
-                            logger.info(f"Task {task.id} marked as timed out and failed")
+                            logger.info(
+                                f"Task {task.id} marked as timed out and failed"
+                            )
 
                         except Exception as e:
-                            logger.error(f"Failed to mark task {task.id} as timed out: {e}", exc_info=True)
+                            logger.error(
+                                f"Failed to mark task {task.id} as timed out: {e}",
+                                exc_info=True,
+                            )
 
         except Exception as e:
             logger.error(f"Failed to check for timed out tasks: {e}", exc_info=True)
@@ -1043,7 +1347,7 @@ class TaskManager:
             running_tasks = self.tasks_store.list_tasks_by_workspace(
                 workspace_id=None,  # Get all workspaces
                 status=TaskStatus.RUNNING,
-                limit=1000  # Large limit to check all running tasks
+                limit=1000,  # Large limit to check all running tasks
             )
 
             if not running_tasks:
@@ -1063,14 +1367,16 @@ class TaskManager:
                         # Task has timed out
                         try:
                             timeout_error = f"Task timed out after {timeout_minutes} minutes. Started at {start_time.isoformat()}"
-                            logger.warning(f"Task {task.id} timed out, marking as failed: {timeout_error}")
+                            logger.warning(
+                                f"Task {task.id} timed out, marking as failed: {timeout_error}"
+                            )
 
                             # Update task status to FAILED
                             self.tasks_store.update_task_status(
                                 task_id=task.id,
                                 status=TaskStatus.FAILED,
                                 error=timeout_error,
-                                completed_at=datetime.utcnow()
+                                completed_at=datetime.utcnow(),
                             )
 
                             # Create error TimelineItem for timed out task
@@ -1083,30 +1389,37 @@ class TaskManager:
                                 title=self.i18n.t(
                                     "conversation_orchestrator",
                                     "timeline.task_timeout_title",
-                                    default="Task Timed Out"
+                                    default="Task Timed Out",
                                 ),
                                 summary=self.i18n.t(
                                     "conversation_orchestrator",
                                     "timeline.task_timeout_summary",
                                     timeout_minutes=timeout_minutes,
-                                    default=f"Task timed out after {timeout_minutes} minutes"
+                                    default=f"Task timed out after {timeout_minutes} minutes",
                                 ),
                                 data={
                                     "error": timeout_error,
                                     "task_id": task.id,
                                     "pack_id": task.pack_id,
-                                    "timeout_minutes": timeout_minutes
+                                    "timeout_minutes": timeout_minutes,
                                 },
                                 cta=None,
-                                created_at=datetime.utcnow()
+                                created_at=datetime.utcnow(),
                             )
-                            self.timeline_items_store.create_timeline_item(error_timeline_item)
+                            self.timeline_items_store.create_timeline_item(
+                                error_timeline_item
+                            )
 
                             timed_out_task_ids.append(task.id)
-                            logger.info(f"Task {task.id} marked as timed out and failed")
+                            logger.info(
+                                f"Task {task.id} marked as timed out and failed"
+                            )
 
                         except Exception as e:
-                            logger.error(f"Failed to mark task {task.id} as timed out: {e}", exc_info=True)
+                            logger.error(
+                                f"Failed to mark task {task.id} as timed out: {e}",
+                                exc_info=True,
+                            )
 
         except Exception as e:
             logger.error(f"Failed to check for timed out tasks: {e}", exc_info=True)

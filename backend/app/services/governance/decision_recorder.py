@@ -5,9 +5,9 @@ Records governance decisions to database for Cloud environment.
 """
 
 import logging
-import uuid
 from typing import Optional, Dict, Any
-from datetime import datetime
+
+from backend.app.services.governance.governance_store import GovernanceStore
 
 logger = logging.getLogger(__name__)
 
@@ -15,18 +15,14 @@ logger = logging.getLogger(__name__)
 class GovernanceDecisionRecorder:
     """Service for recording governance decisions to database"""
 
-    def __init__(self, db_connection=None):
+    def __init__(self, store: Optional[GovernanceStore] = None):
         """
         Initialize GovernanceDecisionRecorder
 
         Args:
-            db_connection: Database connection (None for Local-Core)
+            store: GovernanceStore instance (optional)
         """
-        self.db_connection = db_connection
-
-    def _is_cloud_environment(self) -> bool:
-        """Check if running in Cloud environment"""
-        return self.db_connection is not None
+        self.store = store or GovernanceStore()
 
     async def record_decision(
         self,
@@ -53,58 +49,19 @@ class GovernanceDecisionRecorder:
         Returns:
             Decision ID if recorded, None otherwise
         """
-        if not self._is_cloud_environment():
-            # Local-Core: Don't record (no database)
-            return None
-
         try:
-            decision_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow().isoformat()
-
-            # Prepare metadata as JSON string
-            metadata_json = None
-            if metadata:
-                import json
-                metadata_json = json.dumps(metadata)
-
-            # Insert into database
-            # Support both SQLite and PostgreSQL
-            if hasattr(self.db_connection, 'execute'):
-                # SQLite
-                query = """
-                    INSERT INTO governance_decisions (
-                        decision_id, workspace_id, execution_id, timestamp,
-                        layer, approved, reason, playbook_code, metadata,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                params = (
-                    decision_id, workspace_id, execution_id, timestamp,
-                    layer, 1 if approved else 0, reason, playbook_code, metadata_json,
-                    timestamp, timestamp
-                )
-                cursor = self.db_connection.cursor()
-                cursor.execute(query, params)
-                self.db_connection.commit()
-            else:
-                # PostgreSQL (using parameterized query)
-                query = """
-                    INSERT INTO governance_decisions (
-                        decision_id, workspace_id, execution_id, timestamp,
-                        layer, approved, reason, playbook_code, metadata,
-                        created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """
-                params = (
-                    decision_id, workspace_id, execution_id, timestamp,
-                    layer, approved, reason, playbook_code, metadata_json,
-                    timestamp, timestamp
-                )
-                cursor = self.db_connection.cursor()
-                cursor.execute(query, params)
-                self.db_connection.commit()
-
-            logger.info(f"Recorded governance decision: {decision_id} for layer {layer}")
+            decision_id = self.store.record_decision(
+                workspace_id=workspace_id,
+                execution_id=execution_id,
+                layer=layer,
+                approved=approved,
+                reason=reason,
+                playbook_code=playbook_code,
+                metadata=metadata,
+            )
+            logger.info(
+                "Recorded governance decision: %s for layer %s", decision_id, layer
+            )
             return decision_id
 
         except Exception as e:
@@ -134,57 +91,20 @@ class GovernanceDecisionRecorder:
         Returns:
             Cost usage ID if recorded, None otherwise
         """
-        # Check if database connection is available (Local-Core SQLite or Cloud PostgreSQL)
-        if not self.db_connection:
-            # No database connection available, skip recording
-            return None
-
         try:
-            usage_id = str(uuid.uuid4())
-            date = datetime.utcnow().date().isoformat()
-            timestamp = datetime.utcnow().isoformat()
-
-            # Insert into database
-            # Support both SQLite and PostgreSQL
-            if hasattr(self.db_connection, 'execute'):
-                # SQLite
-                query = """
-                    INSERT INTO cost_usage (
-                        id, workspace_id, execution_id, date, cost,
-                        playbook_code, model_name, token_count,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                params = (
-                    usage_id, workspace_id, execution_id, date, cost,
-                    playbook_code, model_name, token_count,
-                    timestamp, timestamp
-                )
-                cursor = self.db_connection.cursor()
-                cursor.execute(query, params)
-                self.db_connection.commit()
-            else:
-                # PostgreSQL
-                query = """
-                    INSERT INTO cost_usage (
-                        id, workspace_id, execution_id, date, cost,
-                        playbook_code, model_name, token_count,
-                        created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """
-                params = (
-                    usage_id, workspace_id, execution_id, date, cost,
-                    playbook_code, model_name, token_count,
-                    timestamp, timestamp
-                )
-                cursor = self.db_connection.cursor()
-                cursor.execute(query, params)
-                self.db_connection.commit()
-
-            logger.info(f"Recorded cost usage: {usage_id} for workspace {workspace_id}")
+            usage_id = self.store.record_cost_usage(
+                workspace_id=workspace_id,
+                execution_id=execution_id,
+                cost=cost,
+                playbook_code=playbook_code,
+                model_name=model_name,
+                token_count=token_count,
+            )
+            logger.info(
+                "Recorded cost usage: %s for workspace %s", usage_id, workspace_id
+            )
             return usage_id
 
         except Exception as e:
             logger.error(f"Failed to record cost usage: {e}", exc_info=True)
             return None
-

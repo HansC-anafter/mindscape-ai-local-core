@@ -11,7 +11,6 @@ from backend.app.services.lens.lens_receipt_store import LensReceiptStore
 from backend.app.services.stores.graph_store import GraphStore
 from backend.app.models.evidence import Evidence, DriftReport
 from backend.app.models.lens_receipt import LensReceipt, TriggeredNode
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -27,26 +26,12 @@ class EvidenceService:
         if receipt_store:
             self.receipt_store = receipt_store
         else:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-                data_dir = os.path.join(base_dir, "data")
-                os.makedirs(data_dir, exist_ok=True)
-                db_path = os.path.join(data_dir, "mindscape.db")
-            self.receipt_store = LensReceiptStore(db_path)
+            self.receipt_store = LensReceiptStore()
 
         if graph_store:
             self.graph_store = graph_store
         else:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-                data_dir = os.path.join(base_dir, "data")
-                os.makedirs(data_dir, exist_ok=True)
-                db_path = os.path.join(data_dir, "mindscape.db")
-            self.graph_store = GraphStore(db_path)
+            self.graph_store = GraphStore()
 
     def get_node_evidence(
         self,
@@ -151,8 +136,8 @@ class EvidenceService:
 
     def _get_all_workspace_ids(self) -> List[str]:
         """Get all workspace IDs from receipts"""
-        with self.receipt_store.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT DISTINCT workspace_id FROM lens_receipts')
-            return [row['workspace_id'] for row in cursor.fetchall()]
+        from sqlalchemy import text
 
+        with self.receipt_store.get_connection() as conn:
+            rows = conn.execute(text("SELECT DISTINCT workspace_id FROM lens_receipts")).fetchall()
+            return [row._mapping["workspace_id"] for row in rows]

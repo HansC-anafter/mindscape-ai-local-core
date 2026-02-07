@@ -18,7 +18,6 @@ from app.models.lens_kernel import EffectiveLens
 from app.models.lens_snapshot import LensSnapshot
 from app.models.lens_receipt import LensReceipt, TriggeredNode
 from app.core.feature_flags import FeatureFlags
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +26,12 @@ class LensExecutionInjector:
     """Inject lens into execution and generate receipts"""
 
     def __init__(self):
-        if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-            db_path = '/app/data/mindscape.db'
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            data_dir = os.path.join(base_dir, "data")
-            os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, "mindscape.db")
-
-        self.graph_store = GraphStore(db_path)
+        self.graph_store = GraphStore()
         self.session_store = InMemorySessionStore()
         self.resolver = EffectiveLensResolver(self.graph_store, self.session_store)
         self.compiler = GraphToCompositionCompiler()
-        self.snapshot_store = LensSnapshotStore(db_path)
-        self.receipt_store = LensReceiptStore(db_path)
+        self.snapshot_store = LensSnapshotStore()
+        self.receipt_store = LensReceiptStore()
 
     def prepare_lens_context(
         self,
@@ -139,4 +130,3 @@ class LensExecutionInjector:
         except Exception as e:
             logger.error(f"Failed to generate receipt: {e}", exc_info=True)
             return None
-

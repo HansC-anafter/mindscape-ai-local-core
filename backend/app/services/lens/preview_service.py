@@ -12,7 +12,6 @@ from app.services.lens.effective_lens_resolver import EffectiveLensResolver
 from app.services.lens.graph_to_composition_compiler import GraphToCompositionCompiler
 from app.services.stores.graph_store import GraphStore
 from app.services.lens.session_override_store import InMemorySessionStore
-import os
 import hashlib
 import json
 
@@ -38,15 +37,7 @@ class PreviewService:
     """Preview dual output service"""
 
     def __init__(self):
-        if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-            db_path = '/app/data/mindscape.db'
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            data_dir = os.path.join(base_dir, "data")
-            os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, "mindscape.db")
-
-        self.graph_store = GraphStore(db_path)
+        self.graph_store = GraphStore()
         self.session_store = InMemorySessionStore()
         self.resolver = EffectiveLensResolver(self.graph_store, self.session_store)
         self.compiler = GraphToCompositionCompiler()
@@ -136,4 +127,3 @@ class PreviewService:
             for node in effective_lens.nodes
             if node.state.value != "off"
         ]
-

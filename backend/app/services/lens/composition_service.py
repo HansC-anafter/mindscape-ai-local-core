@@ -2,7 +2,6 @@
 from typing import Optional, List
 from datetime import datetime
 import logging
-import os
 
 from ...models.lens_composition import LensComposition
 from ...services.stores.lens_composition_store import LensCompositionStore
@@ -20,17 +19,7 @@ class CompositionService:
         Args:
             db_path: Optional database path (defaults to standard location)
         """
-        if db_path is None:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                from pathlib import Path
-                base_dir = Path(__file__).parent.parent.parent.parent.parent
-                data_dir = base_dir / "data"
-                data_dir.mkdir(exist_ok=True)
-                db_path = str(data_dir / "mindscape.db")
-
-        self.store = LensCompositionStore(db_path)
+        self.store = LensCompositionStore()
 
     def create_composition(self, composition: LensComposition) -> LensComposition:
         """
@@ -101,4 +90,3 @@ class CompositionService:
             List of compositions
         """
         return self.store.list_compositions(workspace_id=workspace_id, limit=limit)
-

@@ -10,6 +10,7 @@ import sys
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 import uuid
+import re
 
 from ...models.workspace import (
     Task,
@@ -37,6 +38,49 @@ from .suggestion_card_creator import SuggestionCardCreator
 from .special_pack_executors import SpecialPackExecutors
 
 logger = logging.getLogger(__name__)
+
+
+_IG_PROFILE_PATH_BLOCKLIST = {
+    "p",
+    "reel",
+    "reels",
+    "tv",
+    "stories",
+    "explore",
+    "accounts",
+    "about",
+    "help",
+}
+
+
+def _extract_instagram_username(text: str) -> Optional[str]:
+    """
+    Extract an Instagram username from a user message.
+
+    Supports:
+    - https://www.instagram.com/<username>/
+    - instagram.com/<username>
+    - @<username>
+    """
+    s = (text or "").strip()
+    if not s:
+        return None
+
+    m = re.search(
+        r"(?:https?://)?(?:www\.)?instagram\.com/([^/?#\s]+)/?",
+        s,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        candidate = (m.group(1) or "").strip().strip("/")
+        if candidate and candidate.lower() not in _IG_PROFILE_PATH_BLOCKLIST:
+            return candidate
+
+    m2 = re.search(r"@([A-Za-z0-9._]{1,30})", s)
+    if m2:
+        return m2.group(1)
+
+    return None
 
 
 class CoordinatorFacade:
@@ -209,7 +253,7 @@ class CoordinatorFacade:
         event_emitter = TaskEventsEmitter(callback=task_event_callback)
 
         # Get workspace
-        workspace = self.store.workspaces.get_workspace(ctx.workspace_id)
+        workspace = await self.store.workspaces.get_workspace(ctx.workspace_id)
 
         # Use PlanExecutor to execute plan
         return await self.plan_executor.execute_plan(
@@ -268,7 +312,6 @@ class CoordinatorFacade:
         except Exception as e:
             # Mind Lens not available, continue without it
             logger.debug(f"Mind Lens not available: {e}")
-
 
     async def _execute_readonly_task(
         self,
@@ -387,9 +430,11 @@ class CoordinatorFacade:
                             task_id=task.id,
                             pack_id=pack_id,
                             playbook_code=resolved_playbook.code,
-                            status=task.status.value
-                            if hasattr(task.status, "value")
-                            else str(task.status),
+                            status=(
+                                task.status.value
+                                if hasattr(task.status, "value")
+                                else str(task.status)
+                            ),
                             task_type=task.task_type,
                             workspace_id=ctx.workspace_id,
                             execution_id=execution_id,
@@ -562,6 +607,25 @@ class CoordinatorFacade:
             playbook_inputs = playbook_context.copy()
             playbook_inputs["workspace_id"] = ctx.workspace_id
 
+            # Best-effort parameter hydration for playbooks that require structured inputs.
+            # Prevents running a workflow with missing required inputs and failing deep inside tools.
+            if playbook_code == "ig_analyze_following":
+                existing = str(playbook_inputs.get("target_username") or "").strip()
+                if not existing:
+                    inferred = _extract_instagram_username(
+                        str(playbook_inputs.get("message") or "")
+                    )
+                    if inferred:
+                        playbook_inputs["target_username"] = inferred
+                        logger.info(
+                            f"CoordinatorFacade: Inferred ig_analyze_following.target_username={inferred}"
+                        )
+                if not str(playbook_inputs.get("target_username") or "").strip():
+                    raise ValueError(
+                        "ig_analyze_following requires target_username. Provide an Instagram profile URL like "
+                        "'https://www.instagram.com/<username>/' or a handle like '@username'."
+                    )
+
             # Load project metadata if project_id is provided
             project_meta = None
             if project_id:
@@ -647,9 +711,11 @@ class CoordinatorFacade:
             event_emitter.emit_task_created(
                 task_id=task.id,
                 pack_id=playbook_code,
-                status=task.status.value
-                if hasattr(task.status, "value")
-                else str(task.status),
+                status=(
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                ),
                 task_type=task.task_type,
                 workspace_id=ctx.workspace_id,
             )
@@ -667,7 +733,9 @@ class CoordinatorFacade:
             }
 
         except Exception as e:
-            self.error_policy.handle_execution_error(f"start playbook {playbook_code}", e)
+            self.error_policy.handle_execution_error(
+                f"start playbook {playbook_code}", e
+            )
             from ...services.i18n_service import get_i18n_service
 
             i18n = get_i18n_service(default_locale=self.default_locale)
@@ -682,5 +750,3 @@ class CoordinatorFacade:
                     error=str(e),
                 ),
             }
-
-

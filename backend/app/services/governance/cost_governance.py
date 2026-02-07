@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, date
 
 from backend.app.services.governance.stubs import CostGovernanceDecision
+from backend.app.services.governance.governance_store import GovernanceStore
 from backend.app.services.system_settings_store import SystemSettingsStore
 from backend.app.services.model_utility_config_store import ModelUtilityConfigStore
 from backend.app.core.runtime_port import ExecutionProfile
@@ -35,6 +36,7 @@ class CostGovernance:
         self.model_config_store = model_config_store or ModelUtilityConfigStore(
             settings_store=self.settings_store
         )
+        self.governance_store = GovernanceStore()
 
     def _get_quota_settings(self, workspace_id: str) -> Dict[str, Any]:
         """
@@ -132,34 +134,10 @@ class CostGovernance:
             Today's cost usage in USD
         """
         try:
-            from pathlib import Path
-            import sqlite3
-            from datetime import date
-
-            # Try to query from SQLite database (Local-Core)
-            db_path = Path("./data/mindscape.db")
-            if db_path.exists():
-                conn = sqlite3.connect(str(db_path))
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-
-                today = date.today().isoformat()
-                query = """
-                    SELECT SUM(cost) as total_cost
-                    FROM cost_usage
-                    WHERE workspace_id = ? AND date = ?
-                """
-                cursor.execute(query, (workspace_id, today))
-                row = cursor.fetchone()
-                conn.close()
-
-                if row and row['total_cost']:
-                    return float(row['total_cost'])
+            return self.governance_store.get_today_usage(workspace_id)
         except Exception as e:
             logger.warning(f"Failed to query current cost usage: {e}")
-
-        # Fallback: return 0 if database not available or query failed
-        return 0.0
+            return 0.0
 
     def _check_quota(
         self,
@@ -293,4 +271,3 @@ class CostGovernance:
             logger.error(f"Cost governance check failed: {e}", exc_info=True)
             # On error, approve to avoid blocking execution
             return CostGovernanceDecision(approved=True, reason=f"Cost check error: {str(e)}")
-

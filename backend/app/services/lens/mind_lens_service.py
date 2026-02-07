@@ -1,11 +1,10 @@
 """Mind Lens service for CRUD operations."""
 import logging
-import os
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 from ...models.mind_lens import MindLensSchema, MindLensInstance, RuntimeMindLens
-from ...services.stores.mind_lens_store import MindLensStore
+from ...services.stores.postgres.mind_lens_store import PostgresMindLensStore
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +19,7 @@ class MindLensService:
         Args:
             db_path: Optional database path (defaults to standard location)
         """
-        if db_path is None:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                from pathlib import Path
-                base_dir = Path(__file__).parent.parent.parent.parent.parent
-                data_dir = base_dir / "data"
-                data_dir.mkdir(exist_ok=True)
-                db_path = str(data_dir / "mindscape.db")
-
-        self.store = MindLensStore(db_path)
+        self.store = PostgresMindLensStore()
 
     def create_schema(self, schema: MindLensSchema) -> MindLensSchema:
         """
@@ -168,7 +157,6 @@ class MindLensService:
             values=instance.values,
             created_at=datetime.utcnow()
         )
-
 
 
 
