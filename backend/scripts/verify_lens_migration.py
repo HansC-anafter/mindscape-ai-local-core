@@ -113,7 +113,7 @@ def check_postgres_migration():
     """Check PostgreSQL migration status (if available)"""
     logger.info("\n=== Checking PostgreSQL Migrations ===")
 
-    alembic_config = backend_dir / "alembic.postgres.ini"
+    alembic_config = backend_dir / "alembic.ini"
 
     try:
         result = subprocess.run(
@@ -149,7 +149,7 @@ def check_migration_orchestrator():
         capabilities_root = backend_dir / "app" / "capabilities"
         alembic_configs = {
             "sqlite": backend_dir / "alembic.sqlite.ini",
-            "postgres": backend_dir / "alembic.postgres.ini",
+            "postgres": backend_dir / "alembic.ini",
         }
 
         orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
@@ -262,4 +262,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

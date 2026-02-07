@@ -1,4 +1,8 @@
 """
+DEPRECATED: This script uses legacy SQLite database access (sqlite3.connect).
+PostgreSQL is now the primary database. This script is retained for historical reference only.
+Last updated: 2026-01-27
+
 Tool Connection Migration Script
 
 Migrates tool connections from old system (ToolConnectionStore/SQLite - DEPRECATED)
@@ -50,14 +54,32 @@ def load_old_connections(db_path: str) -> List[ToolConnection]:
         try:
             # Parse JSON fields
             config = json.loads(row["config"]) if row["config"] else {}
-            associated_roles = json.loads(row["associated_roles"]) if row["associated_roles"] else []
+            associated_roles = (
+                json.loads(row["associated_roles"]) if row["associated_roles"] else []
+            )
             x_platform = json.loads(row["x_platform"]) if row["x_platform"] else None
 
             # Parse datetime fields
-            created_at = datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow()
-            updated_at = datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow()
-            last_validated_at = datetime.fromisoformat(row["last_validated_at"]) if row["last_validated_at"] else None
-            last_used_at = datetime.fromisoformat(row["last_used_at"]) if row["last_used_at"] else None
+            created_at = (
+                datetime.fromisoformat(row["created_at"])
+                if row["created_at"]
+                else datetime.utcnow()
+            )
+            updated_at = (
+                datetime.fromisoformat(row["updated_at"])
+                if row["updated_at"]
+                else datetime.utcnow()
+            )
+            last_validated_at = (
+                datetime.fromisoformat(row["last_validated_at"])
+                if row["last_validated_at"]
+                else None
+            )
+            last_used_at = (
+                datetime.fromisoformat(row["last_used_at"])
+                if row["last_used_at"]
+                else None
+            )
 
             connection = ToolConnection(
                 id=row["id"],
@@ -151,9 +173,7 @@ def convert_to_new_model(old_conn: ToolConnection) -> ToolConnectionModel:
 
 
 def migrate_connections(
-    db_path: str,
-    data_dir: str,
-    dry_run: bool = False
+    db_path: str, data_dir: str, dry_run: bool = False
 ) -> Dict[str, Any]:
     """
     Migrate connections from old system to new system
@@ -179,7 +199,7 @@ def migrate_connections(
             "total": len(old_connections),
             "migrated": 0,
             "errors": 0,
-            "dry_run": True
+            "dry_run": True,
         }
 
     # Initialize new system
@@ -205,26 +225,26 @@ def migrate_connections(
         "total": len(old_connections),
         "migrated": migrated,
         "errors": errors,
-        "dry_run": False
+        "dry_run": False,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Migrate tool connections from old to new system")
+    parser = argparse.ArgumentParser(
+        description="Migrate tool connections from old to new system"
+    )
     parser.add_argument(
         "--db-path",
         default="data/my_agent_console.db",
-        help="Path to old SQLite database"
+        help="Path to old SQLite database",
     )
     parser.add_argument(
-        "--data-dir",
-        default="./data",
-        help="Data directory for new system"
+        "--data-dir", default="./data", help="Data directory for new system"
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Perform a dry run without actually migrating"
+        help="Perform a dry run without actually migrating",
     )
 
     args = parser.parse_args()
@@ -236,9 +256,7 @@ def main():
 
     # Run migration
     stats = migrate_connections(
-        db_path=args.db_path,
-        data_dir=args.data_dir,
-        dry_run=args.dry_run
+        db_path=args.db_path, data_dir=args.data_dir, dry_run=args.dry_run
     )
 
     if stats["errors"] > 0:
@@ -247,4 +265,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
