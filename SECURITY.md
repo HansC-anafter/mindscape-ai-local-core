@@ -26,7 +26,7 @@ We will respond within **48 hours** and work with you to resolve the issue respo
 
 ### Current (v0.1)
 
-- **Local-First Design**: All data stored locally in SQLite
+- **Local-First Design**: All data stored locally in PostgreSQL
 - **No Network Exposure**: Default configuration is localhost-only
 - **Input Validation**: All API inputs validated using Pydantic models
 - **SQL Injection Prevention**: Parameterized queries
@@ -39,8 +39,8 @@ We will respond within **48 hours** and work with you to resolve the issue respo
    - **Mitigation**: Run locally only, use firewall rules
    - **Future**: JWT-based authentication (v1+)
 
-2. **No Encryption**: Database stored in plain SQLite
-   - **Mitigation**: Use filesystem encryption, restrict file permissions
+2. **No Encryption**: Database stored in plain PostgreSQL
+   - **Mitigation**: Use filesystem encryption, restrict database permissions
    - **Future**: Encryption at rest (v1+)
 
 3. **Basic Rate Limiting**: Simple per-IP limits
@@ -56,18 +56,17 @@ We will respond within **48 hours** and work with you to resolve the issue respo
    - Use environment variables, not hardcoded keys
    - Rotate keys if compromised
 
-2. **Database Backup**: Regularly backup `data/mindscape.db`
-   - This file contains all your personal data
+2. **Database Backup**: Regularly backup your PostgreSQL database
+   - Use `pg_dump` to create backups of your mindscape_core database
    - Store backups securely
 
 3. **Local Network**: If exposing to network, use firewall rules
    - Default configuration is localhost-only
    - Only expose if necessary
 
-4. **File Permissions**: Restrict database file permissions
-   ```bash
-   chmod 600 data/mindscape.db
-   ```
+4. **Database Permissions**: Secure PostgreSQL access
+   - Use strong passwords for database users
+   - Restrict network access to PostgreSQL port (5432)
 
 ### For Developers
 

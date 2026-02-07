@@ -75,11 +75,9 @@ OPENAI_API_KEY=your_openai_api_key_here
 # or
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# Database
-DATABASE_URL=sqlite:///./data/mindscape.db
-
-# PostgreSQL (optional, for vector storage)
-POSTGRES_DB=mindscape_vectors
+# PostgreSQL (primary database - required)
+POSTGRES_CORE_DB=mindscape_core
+POSTGRES_VECTOR_DB=mindscape_vectors
 POSTGRES_USER=mindscape
 POSTGRES_PASSWORD=mindscape_password
 
