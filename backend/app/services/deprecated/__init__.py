@@ -1,10 +1,13 @@
 """
-Deprecated services module
+Deprecated Services
 
-This module contains deprecated services that are no longer in use.
-These files are kept for reference and migration purposes only.
+This directory contains deprecated services that are kept for backward compatibility
+but should not be used in new code.
 
-Deprecated services:
-- tool_connection_store_deprecated.py: Replaced by ToolRegistryService
-- conversation_orchestrator_deprecated.py: Replaced by backend.app.services.conversation_orchestrator
+- capability_installer.py: Old unified installer, replaced by modular installers:
+  - MindpackExtractor
+  - ManifestValidator
+  - PlaybookInstaller
+  - RuntimeAssetsInstaller
+  - PostInstallHandler
 """

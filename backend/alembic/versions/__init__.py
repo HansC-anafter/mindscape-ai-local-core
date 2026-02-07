@@ -1,4 +1,0 @@
-"""
-Alembic migration versions
-"""
-
