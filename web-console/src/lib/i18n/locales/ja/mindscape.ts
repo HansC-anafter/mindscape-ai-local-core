@@ -164,6 +164,13 @@ export const mindscapeJa = {
   graphNodeWorkspaceIdPlaceholder: 'ワークスペース ID を入力',
   graphNodeWorkspaceIdHint: '開くワークスペースの ID',
 
+  // Graph Empty State
+  graphEmptyTitle: 'グラフが空です',
+  graphEmptyDescription: 'まだノードが作成されていません',
+  graphEmptyHint: '下のボタンをクリックしてサンプルノードを素早く初期化するか、右上の「ノードを作成」ボタンをクリックして手動で構築してください',
+  graphInitializeButton: 'サンプルノードを初期化',
+  graphInitializeFailed: '初期化に失敗しました。後でもう一度お試しください',
+
   // Common actions
   link: 'リンク',
   linking: 'リンク中...',

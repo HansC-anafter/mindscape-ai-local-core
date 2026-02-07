@@ -20,5 +20,6 @@ export const navigationKeys = {
   returnToWorkspaceOverview: true,
   switchToLightMode: true,
   switchToDarkMode: true,
+  backToWorkspace: true,
 } as const;
 

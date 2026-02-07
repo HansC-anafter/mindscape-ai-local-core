@@ -22,5 +22,6 @@ export const navigationEn = {
   switchToLightMode: 'Switch to Light Mode',
   switchToDarkMode: 'Switch to Dark Mode',
   workspaceList: 'Workspace List',
+  backToWorkspace: 'Back to Workspace',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

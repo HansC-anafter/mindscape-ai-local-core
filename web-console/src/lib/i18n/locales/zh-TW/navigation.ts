@@ -22,5 +22,6 @@ export const navigationZhTW = {
   switchToLightMode: '切換至日間模式',
   switchToDarkMode: '切換至夜間模式',
   workspaceList: '工作區列表',
+  backToWorkspace: '返回工作區',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

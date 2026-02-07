@@ -164,6 +164,13 @@ export const mindscapeZhTW = {
   graphNodeWorkspaceIdPlaceholder: '輸入工作區 ID',
   graphNodeWorkspaceIdHint: '要開啟的工作區 ID',
 
+  // Graph Empty State
+  graphEmptyTitle: '圖譜為空',
+  graphEmptyDescription: '尚未創建任何節點',
+  graphEmptyHint: '點擊下方按鈕快速初始化示例節點，或點擊右上角的「創建節點」按鈕手動建立',
+  graphInitializeButton: '初始化示例節點',
+  graphInitializeFailed: '初始化失敗，請稍後再試',
+
   // Common actions
   link: '連結',
   linking: '連結中...',

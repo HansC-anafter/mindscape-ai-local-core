@@ -25,6 +25,7 @@ export const workspaceKeys = {
   appendWorkspaceName: true,
   appendWorkspaceNameTooltip: true,
   workspaceSelectChatModel: true,
+  workspaceSelectAgent: true,
   workspaceSendMessageFailed: true,
   workspaceAnalysisCompleted: true,
   workspaceAnalysisFailed: true,

@@ -164,6 +164,13 @@ export const mindscapeEn = {
   graphNodeWorkspaceIdPlaceholder: 'Enter workspace ID',
   graphNodeWorkspaceIdHint: 'The ID of the workspace to open',
 
+  // Graph Empty State
+  graphEmptyTitle: 'Graph is Empty',
+  graphEmptyDescription: 'No nodes have been created yet',
+  graphEmptyHint: 'Click the button below to quickly initialize sample nodes, or click "Create Node" in the top right to manually build',
+  graphInitializeButton: 'Initialize Sample Nodes',
+  graphInitializeFailed: 'Initialization failed, please try again later',
+
   // Common actions
   link: 'Link',
   linking: 'Linking...',

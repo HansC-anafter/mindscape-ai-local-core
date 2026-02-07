@@ -59,7 +59,7 @@ export const systemEn = {
   connectionName: 'Connection Name',
   discoverAndRegister: 'Discover & Register',
   capabilitiesDiscovered: 'Capabilities Discovered',
-  toolsRegistered: 'Tools Registered',
+  toolsRegisteredLabel: 'Tools Registered',
   discoveryMethod: 'Discovery Method',
   discoveryMethodPlugin: 'Plugin',
   discoveryMethodFallback: 'Fallback',

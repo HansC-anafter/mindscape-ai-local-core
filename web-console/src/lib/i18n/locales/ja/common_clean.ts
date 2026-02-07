@@ -3,7 +3,7 @@
  * Shared across all modules
  */
 
-import type { MessageKey } from '../keys';
+import type { MessageKey } from '../../keys';
 
 export const commonJa = {
   // Status

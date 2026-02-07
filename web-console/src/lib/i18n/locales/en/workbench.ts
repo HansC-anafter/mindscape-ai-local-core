@@ -192,6 +192,7 @@ export const workbenchEn = {
   workspaceAnalysisCompleted: 'Analysis completed',
   workspaceAnalysisFailed: 'Analysis failed',
   workspaceSelectChatModel: 'Select Chat Model',
+  workspaceSelectAgent: 'Select Agent',
   workspaceRename: 'Rename Workspace',
   workspaceRenameFailed: 'Failed to rename workspace',
   workspaceDelete: 'Delete Workspace',

@@ -59,7 +59,7 @@ export const systemZhTW = {
   connectionName: '連接名稱',
   discoverAndRegister: '發現並註冊能力',
   capabilitiesDiscovered: '已發現能力',
-  toolsRegistered: '已註冊工具',
+  toolsRegisteredLabel: '已註冊工具',
   discoveryMethod: '發現方式',
   discoveryMethodPlugin: 'Plugin',
   discoveryMethodFallback: 'Fallback',

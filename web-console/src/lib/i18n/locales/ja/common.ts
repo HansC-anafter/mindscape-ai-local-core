@@ -123,6 +123,11 @@ export const commonJa = {
   tabOutcomesSubtitle: '成果概要',
   tabBackgroundTasks: '思考',
   tabBackgroundTasksSubtitle: '概要 & 戦略',
+  tabPack: 'Pack',
+  tabPackSubtitle: '能力 & 思考',
+  packPanel: 'Pack パネル',
+  installedCapabilities: 'インストール済み能力',
+  packUIEntryPoints: 'Pack UI エントリーポイント',
   backgroundTasksPanel: 'バックグラウンドタスクパネル',
 
   // Copy actions

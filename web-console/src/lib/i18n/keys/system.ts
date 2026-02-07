@@ -41,6 +41,7 @@ export const systemKeys = {
   systemTools: true,
   systemTool: true,
   systemToolsDescription: true,
+  toolsRegisteredLabel: true,
   backgroundRoutines: true,
   noBackgroundTasks: true,
   developerOption: true,

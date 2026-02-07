@@ -187,6 +187,7 @@ export const workbenchZhTW = {
   workspaceAnalysisCompleted: '分析完成',
   workspaceAnalysisFailed: '分析失败',
   workspaceSelectChatModel: '選擇對話模型',
+  workspaceSelectAgent: '選擇 Agent',
   workspaceRename: '重命名工作區',
   workspaceRenameFailed: '重命名工作區失敗',
   workspaceDelete: '刪除工作區',
