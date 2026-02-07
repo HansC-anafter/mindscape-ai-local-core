@@ -1,71 +1,52 @@
-"""PostgreSQL database session management for FastAPI dependency injection.
-
-This module provides get_db() function for FastAPI dependency injection.
-It is specifically for PostgreSQL models that require PostgreSQL-specific types.
-
-For SQLite workspace state, use StoreBase instead.
-"""
+"""PostgreSQL database session management for FastAPI dependency injection."""
 
 import logging
 from typing import Generator
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from .engine import SessionLocalPostgres
+from .engine import SessionLocalCore, SessionLocalVector
 
 logger = logging.getLogger(__name__)
 
 
-def get_db_postgres() -> Generator[Session, None, None]:
-    """Get PostgreSQL database session for FastAPI dependency injection.
-
-    This function is specifically for PostgreSQL models that require
-    PostgreSQL-specific types (UUID, JSONB, ARRAY, etc.).
-
-    For SQLite workspace state, use StoreBase instead.
-
-    Yields:
-        SQLAlchemy Session object (PostgreSQL)
-
-    Raises:
-        HTTPException: If PostgreSQL connection is not available
-
-    Example:
-        ```python
-        from fastapi import Depends
-        from app.database import get_db
-        from sqlalchemy.orm import Session
-
-        @router.get("/items")
-        def get_items(db: Session = Depends(get_db)):
-            items = db.query(Item).all()
-            return items
-        ```
-    """
-    if SessionLocalPostgres is None:
+def _yield_session(session_factory, role: str) -> Generator[Session, None, None]:
+    if session_factory is None:
         raise HTTPException(
             status_code=503,
             detail=(
-                "PostgreSQL database not configured. "
-                "Sonic Space requires PostgreSQL with pgvector extension. "
-                "Please configure POSTGRES_HOST environment variable."
-            )
+                f"PostgreSQL {role} database not configured. "
+                f"Please configure DATABASE_URL_{role.upper()} or POSTGRES_{role.upper()}_*."
+            ),
         )
 
-    db = SessionLocalPostgres()
+    db = session_factory()
     try:
         yield db
+    except HTTPException:
+        # Preserve FastAPI HTTP exceptions (do not mask as 503)
+        db.rollback()
+        raise
     except Exception as e:
         logger.error(f"PostgreSQL session error: {e}", exc_info=True)
         db.rollback()
         raise HTTPException(
-            status_code=503,
-            detail=f"PostgreSQL database error: {str(e)}"
+            status_code=503, detail=f"PostgreSQL {role} database error: {str(e)}"
         )
     finally:
         db.close()
 
 
-# Alias for convenience (matches Sonic Space usage)
-get_db = get_db_postgres
+def get_db_core() -> Generator[Session, None, None]:
+    """Get PostgreSQL core database session."""
+    return _yield_session(SessionLocalCore, "core")
 
+
+def get_db_vector() -> Generator[Session, None, None]:
+    """Get PostgreSQL vector database session."""
+    return _yield_session(SessionLocalVector, "vector")
+
+
+# Backward-compatible aliases
+get_db_postgres = get_db_core
+get_db = get_db_core

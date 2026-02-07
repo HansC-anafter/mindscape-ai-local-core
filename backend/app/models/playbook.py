@@ -530,6 +530,21 @@ class ToolPolicy(BaseModel):
     )
 
 
+class GateSpec(BaseModel):
+    """
+    Gate specification for a playbook step.
+
+    Used by workflow runtimes to pause execution for human approval.
+    """
+    required: bool = Field(default=False, description="Whether this step requires human approval")
+    type: Literal["validation", "modification"] = Field(default="validation", description="Gate type")
+    operation: Optional[str] = Field(default=None, description="Operation name (e.g., 'batch_update', 'publish')")
+    checkpoint_required: Optional[bool] = Field(
+        default=None,
+        description="Whether checkpoint is required for rollback (typically for modification gates)",
+    )
+
+
 class PlaybookStep(BaseModel):
     """
     Step definition in playbook.json
@@ -606,6 +621,11 @@ class PlaybookStep(BaseModel):
                 raise ValueError("Cannot specify both 'tool' and 'tool_slot'. Use 'tool_slot' for new playbooks.")
 
         return values
+
+    gate: Optional[GateSpec] = Field(
+        default=None,
+        description="Optional gate configuration for human approval (pause/resume support)",
+    )
 
 
 class PlaybookJson(BaseModel):

@@ -25,6 +25,7 @@ else:
 
 # ==================== Enums ====================
 
+
 class SideEffectLevel(str, Enum):
     """
     Side effect level for capability packs and tools
@@ -34,6 +35,7 @@ class SideEffectLevel(str, Enum):
     - SOFT_WRITE: Internal state writes, requires CTA confirmation
     - EXTERNAL_WRITE: External system writes, requires explicit confirmation
     """
+
     READONLY = "readonly"
     SOFT_WRITE = "soft_write"
     EXTERNAL_WRITE = "external_write"
@@ -41,6 +43,7 @@ class SideEffectLevel(str, Enum):
 
 class TaskStatus(str, Enum):
     """Task execution status"""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -51,6 +54,7 @@ class TaskStatus(str, Enum):
 
 class TimelineItemType(str, Enum):
     """Timeline item type"""
+
     INTENT_SEEDS = "INTENT_SEEDS"
     PLAN = "PLAN"
     SUMMARY = "SUMMARY"
@@ -61,6 +65,7 @@ class TimelineItemType(str, Enum):
 
 class ArtifactType(str, Enum):
     """Artifact type for playbook outputs"""
+
     CHECKLIST = "checklist"
     DRAFT = "draft"
     CONFIG = "config"
@@ -78,6 +83,7 @@ class ArtifactType(str, Enum):
 
 class PrimaryActionType(str, Enum):
     """Primary action type for artifact operations"""
+
     COPY = "copy"
     DOWNLOAD = "download"
     OPEN_EXTERNAL = "open_external"
@@ -97,6 +103,7 @@ class ExecutionChatMessageType(str, Enum):
     - route_proposal: AI proposing next route/branch
     - system_hint: System-generated hint or suggestion
     """
+
     QUESTION = "question"
     NOTE = "note"
     ROUTE_PROPOSAL = "route_proposal"
@@ -112,6 +119,7 @@ class ExecutionMode(str, Enum):
     - EXECUTION: Action-first, produce artifacts immediately
     - HYBRID: Balanced between chat and execution
     """
+
     QA = "qa"
     EXECUTION = "execution"
     HYBRID = "hybrid"
@@ -126,6 +134,7 @@ class ExecutionPriority(str, Enum):
     - MEDIUM: Balanced, default threshold (0.8)
     - HIGH: Aggressive, lower threshold (0.6), readonly tasks auto-execute
     """
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -140,6 +149,7 @@ class ProjectAssignmentMode(str, Enum):
     - assistive: Auto-assign with confirmation prompts for medium/low confidence
     - manual_first: Require user selection (for power users)
     """
+
     AUTO_SILENT = "auto_silent"
     ASSISTIVE = "assistive"
     MANUAL_FIRST = "manual_first"
@@ -156,6 +166,7 @@ class WorkspaceType(str, Enum):
     - course: Course creation workspace (future)
     - research: Research workspace (future)
     """
+
     PERSONAL = "personal"
     BRAND = "brand"
     TEAM = "team"
@@ -170,12 +181,14 @@ class LaunchStatus(str, Enum):
     - ready: Blueprint + intents + first_playbook written
     - active: At least one execution / recent work point
     """
+
     PENDING = "pending"
     READY = "ready"
     ACTIVE = "active"
 
 
 # ==================== Workspace Models ====================
+
 
 class Workspace(BaseModel):
     """
@@ -198,211 +211,305 @@ class Workspace(BaseModel):
     # Workspace type for vertical domain support
     workspace_type: Optional[WorkspaceType] = Field(
         default=WorkspaceType.PERSONAL,
-        description="Workspace type: personal (default) | brand | team | course | research"
+        description="Workspace type: personal (default) | brand | team | course | research",
     )
 
     # Owner and primary associations
     owner_user_id: str = Field(..., description="Owner profile ID")
     primary_project_id: Optional[str] = Field(
-        None,
-        description="Primary associated project ID (if applicable)"
+        None, description="Primary associated project ID (if applicable)"
     )
 
     # Optional configuration
     default_playbook_id: Optional[str] = Field(
-        None,
-        description="Default playbook to use for this workspace"
+        None, description="Default playbook to use for this workspace"
     )
     default_locale: Optional[str] = Field(
-        None,
-        description="Default locale for this workspace (e.g., 'zh-TW', 'en')"
+        None, description="Default locale for this workspace (e.g., 'zh-TW', 'en')"
     )
     mode: Optional[str] = Field(
         None,
-        description="Workspace mode: 'research' | 'publishing' | 'planning' | null"
+        description="Workspace mode: 'research' | 'publishing' | 'planning' | null",
     )
     data_sources: Optional[Dict[str, Any]] = Field(
         None,
-        description="Data sources configuration: local_folder, obsidian_vault, wordpress, rag_source"
+        description="Data sources configuration: local_folder, obsidian_vault, wordpress, rag_source",
     )
     playbook_auto_execution_config: Optional[Dict[str, Any]] = Field(
         None,
-        description="Playbook auto-execution configuration: {playbook_code: {confidence_threshold: float, auto_execute: bool}}"
+        description="Playbook auto-execution configuration: {playbook_code: {confidence_threshold: float, auto_execute: bool}}",
     )
     suggestion_history: Optional[List[Dict[str, Any]]] = Field(
         None,
-        description="Suggestion history (last 3 rounds): [{round_id, timestamp, suggestions: [...]}]"
+        description="Suggestion history (last 3 rounds): [{round_id, timestamp, suggestions: [...]}]",
     )
 
     # Storage configuration
     storage_base_path: Optional[str] = Field(
         None,
-        description="Workspace base storage path (e.g., ~/Documents/Mindscape/workspace_name)"
+        description="Workspace base storage path (e.g., ~/Documents/Mindscape/workspace_name)",
     )
     artifacts_dir: Optional[str] = Field(
-        "artifacts",
-        description="Artifacts subdirectory (default: 'artifacts')"
+        "artifacts", description="Artifacts subdirectory (default: 'artifacts')"
     )
     uploads_dir: Optional[str] = Field(
-        "uploads",
-        description="Uploads subdirectory (default: 'uploads')"
+        "uploads", description="Uploads subdirectory (default: 'uploads')"
     )
     storage_config: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Storage configuration (bucket rules, naming rules, etc.)"
+        None, description="Storage configuration (bucket rules, naming rules, etc.)"
     )
     playbook_storage_config: Optional[Dict[str, Dict[str, Any]]] = Field(
         None,
         description="Playbook-specific storage configuration: "
-                    "{playbook_code: {base_path: str, artifacts_dir: str}}"
+        "{playbook_code: {base_path: str, artifacts_dir: str}}",
     )
 
     # Execution mode configuration
     execution_mode: Optional[str] = Field(
         default="qa",
-        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid'"
+        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid'",
     )
     expected_artifacts: Optional[List[str]] = Field(
         default=None,
-        description="Expected artifact types for this workspace (e.g., ['pptx', 'xlsx', 'docx'])"
+        description="Expected artifact types for this workspace (e.g., ['pptx', 'xlsx', 'docx'])",
     )
     execution_priority: Optional[str] = Field(
-        default="medium",
-        description="Execution priority: 'low' | 'medium' | 'high'"
+        default="medium", description="Execution priority: 'low' | 'medium' | 'high'"
     )
 
     # Project assignment configuration
     project_assignment_mode: Optional[ProjectAssignmentMode] = Field(
         default=ProjectAssignmentMode.AUTO_SILENT,
-        description="Project assignment automation level"
+        description="Project assignment automation level",
     )
 
     # Capability profile override for staged model switching
     capability_profile: Optional[str] = Field(
         None,
         description="Workspace-level capability profile override (fast/standard/precise/tool_strict/safe_write). "
-                    "Overrides system default for this workspace."
+        "Overrides system default for this workspace.",
+    )
+
+    # External Agent configuration (unified for all workspaces)
+    # Users explicitly choose which agent to use; governance applies automatically
+    preferred_agent: Optional[str] = Field(
+        None,
+        description="Currently selected external agent for task execution (e.g., 'moltbot', 'aider'). "
+        "When set, tasks are routed to this agent instead of Mindscape LLM. "
+        "All workspaces can use external agents - governance/sandbox applies automatically.",
+    )
+    sandbox_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sandbox configuration for external agent execution: "
+        "{filesystem_scope: [...], network_allowlist: [...], tool_policies: {...}, max_execution_time_seconds: int}. "
+        "Applied automatically when using external agents.",
+    )
+    agent_fallback_enabled: bool = Field(
+        default=True,
+        description="If preferred_agent fails or is unavailable, fallback to Mindscape LLM",
     )
 
     # Extensible metadata for features (core_memory, preferences, etc.)
     metadata: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
-        description="Extensible metadata storage for workspace features (core_memory, preferences, etc.)"
+        description="Extensible metadata storage for workspace features (core_memory, preferences, etc.)",
     )
 
     # Workspace launch enhancement fields
-    workspace_blueprint: Optional["WorkspaceBlueprint"] = Field(
+    workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
         None,
-        description="Workspace blueprint configuration: goals, initial_intents, ai_team, playbooks, tool_connections"
+        description="Workspace blueprint configuration: goals, initial_intents, ai_team, playbooks, tool_connections",
     )
     launch_status: "LaunchStatus" = Field(
         default=LaunchStatus.PENDING,
-        description="Launch status: pending / ready / active"
+        description="Launch status: pending / ready / active",
     )
     starter_kit_type: Optional[str] = Field(
         None,
-        description="Starter kit type: content_generation / client_delivery / knowledge_base / custom"
+        description="Starter kit type: content_generation / client_delivery / knowledge_base / custom",
     )
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = {
+        "from_attributes": True,
+        "json_encoders": {datetime: lambda v: v.isoformat()},
+    }
 
 
 # ==================== API Request/Response Models ====================
 
+
 class CreateWorkspaceRequest(BaseModel):
     """Request to create a new workspace"""
+
     title: str = Field(..., description="Workspace title")
     description: Optional[str] = Field(None, description="Workspace description")
     workspace_type: Optional[WorkspaceType] = Field(
         default=WorkspaceType.PERSONAL,
-        description="Workspace type: personal (default) | brand | team"
+        description="Workspace type: personal (default) | brand | team",
     )
-    primary_project_id: Optional[str] = Field(None, description="Primary project ID to associate")
+    primary_project_id: Optional[str] = Field(
+        None, description="Primary project ID to associate"
+    )
     default_playbook_id: Optional[str] = Field(None, description="Default playbook ID")
     default_locale: Optional[str] = Field(None, description="Default locale")
-    storage_base_path: Optional[str] = Field(None, description="Storage base path (allows manual specification)")
-    artifacts_dir: Optional[str] = Field(None, description="Artifacts directory name (default: 'artifacts')")
-    execution_mode: Optional[str] = Field(None, description="Execution mode: 'qa' | 'execution' | 'hybrid'")
-    expected_artifacts: Optional[List[str]] = Field(None, description="Expected artifact types")
-    execution_priority: Optional[str] = Field(None, description="Execution priority: 'low' | 'medium' | 'high'")
+    storage_base_path: Optional[str] = Field(
+        None, description="Storage base path (allows manual specification)"
+    )
+    artifacts_dir: Optional[str] = Field(
+        None, description="Artifacts directory name (default: 'artifacts')"
+    )
+    execution_mode: Optional[str] = Field(
+        None, description="Execution mode: 'qa' | 'execution' | 'hybrid'"
+    )
+    expected_artifacts: Optional[List[str]] = Field(
+        None, description="Expected artifact types"
+    )
+    execution_priority: Optional[str] = Field(
+        None, description="Execution priority: 'low' | 'medium' | 'high'"
+    )
+    # External Agent configuration (unified for all workspaces)
+    preferred_agent: Optional[str] = Field(
+        None,
+        description="Selected external agent (e.g., 'moltbot'). Null = Mindscape LLM",
+    )
+    sandbox_config: Optional[Dict[str, Any]] = Field(
+        None, description="Sandbox configuration for agent execution"
+    )
+    agent_fallback_enabled: bool = Field(
+        default=True, description="Fallback to Mindscape LLM if agent fails"
+    )
     # Workspace launch enhancement fields (optional, can be set via seed/blueprint flow)
-    workspace_blueprint: Optional["WorkspaceBlueprint"] = Field(None, description="Workspace blueprint configuration")
+    workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
+        None, description="Workspace blueprint configuration"
+    )
     starter_kit_type: Optional[str] = Field(None, description="Starter kit type")
 
 
 class UpdateWorkspaceRequest(BaseModel):
     """Request to update an existing workspace"""
+
     title: Optional[str] = Field(None, description="Workspace title")
     description: Optional[str] = Field(None, description="Workspace description")
-    workspace_type: Optional[WorkspaceType] = Field(None, description="Workspace type: personal | brand | team")
+    workspace_type: Optional[WorkspaceType] = Field(
+        None, description="Workspace type: personal | brand | team"
+    )
     primary_project_id: Optional[str] = Field(None, description="Primary project ID")
     default_playbook_id: Optional[str] = Field(None, description="Default playbook ID")
     default_locale: Optional[str] = Field(None, description="Default locale")
-    mode: Optional[str] = Field(None, description="Workspace mode: 'research' | 'publishing' | 'planning' | null")
-    storage_base_path: Optional[str] = Field(None, description="Storage base path (Changing this may affect existing artifacts)")
-    artifacts_dir: Optional[str] = Field(None, description="Artifacts directory name (Changing this may affect existing artifacts)")
+    mode: Optional[str] = Field(
+        None,
+        description="Workspace mode: 'research' | 'publishing' | 'planning' | null",
+    )
+    storage_base_path: Optional[str] = Field(
+        None,
+        description="Storage base path (Changing this may affect existing artifacts)",
+    )
+    artifacts_dir: Optional[str] = Field(
+        None,
+        description="Artifacts directory name (Changing this may affect existing artifacts)",
+    )
     playbook_storage_config: Optional[Dict[str, Dict[str, Any]]] = Field(
         None,
         description="Playbook-specific storage configuration: "
-                    "{playbook_code: {base_path: str, artifacts_dir: str}}"
+        "{playbook_code: {base_path: str, artifacts_dir: str}}",
     )
-    execution_mode: Optional[str] = Field(None, description="Execution mode: 'qa' | 'execution' | 'hybrid'")
-    expected_artifacts: Optional[List[str]] = Field(None, description="Expected artifact types")
-    execution_priority: Optional[str] = Field(None, description="Execution priority: 'low' | 'medium' | 'high'")
+    execution_mode: Optional[str] = Field(
+        None, description="Execution mode: 'qa' | 'execution' | 'hybrid'"
+    )
+    expected_artifacts: Optional[List[str]] = Field(
+        None, description="Expected artifact types"
+    )
+    execution_priority: Optional[str] = Field(
+        None, description="Execution priority: 'low' | 'medium' | 'high'"
+    )
     capability_profile: Optional[str] = Field(
         None,
         description="Workspace-level capability profile override (fast/standard/precise/tool_strict/safe_write). "
-                    "Overrides system default for this workspace."
+        "Overrides system default for this workspace.",
+    )
+    # External Agent configuration (unified for all workspaces)
+    preferred_agent: Optional[str] = Field(
+        None,
+        description="Selected external agent (e.g., 'moltbot'). Null = Mindscape LLM",
+    )
+    sandbox_config: Optional[Dict[str, Any]] = Field(
+        None, description="Sandbox configuration for agent execution"
+    )
+    agent_fallback_enabled: Optional[bool] = Field(
+        None, description="Fallback to Mindscape LLM if agent fails"
     )
     # Workspace launch enhancement fields (optional)
-    workspace_blueprint: Optional["WorkspaceBlueprint"] = Field(None, description="Workspace blueprint configuration")
-    launch_status: Optional["LaunchStatus"] = Field(None, description="Launch status: pending / ready / active")
+    workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
+        None, description="Workspace blueprint configuration"
+    )
+    launch_status: Optional[LaunchStatus] = Field(
+        None, description="Launch status: pending / ready / active"
+    )
     starter_kit_type: Optional[str] = Field(None, description="Starter kit type")
 
 
 class WorkspaceChatRequest(BaseModel):
     """Request for workspace chat interaction"""
+
     message: Optional[str] = Field(None, description="User message")
-    files: list[str] = Field(default_factory=list, description="List of uploaded file IDs")
+    files: list[str] = Field(
+        default_factory=list, description="List of uploaded file IDs"
+    )
     mode: str = Field(
         default="auto",
-        description="Interaction mode: 'auto' | 'qa_only' | 'force_playbook'"
+        description="Interaction mode: 'auto' | 'qa_only' | 'force_playbook'",
     )
     stream: bool = Field(default=True, description="Enable streaming response (SSE)")
-    project_id: Optional[str] = Field(None, description="Project ID for project context")
-    thread_id: Optional[str] = Field(None, description="Conversation thread ID for conversation threading")
+    project_id: Optional[str] = Field(
+        None, description="Project ID for project context"
+    )
+    thread_id: Optional[str] = Field(
+        None, description="Conversation thread ID for conversation threading"
+    )
     # CTA trigger fields
-    timeline_item_id: Optional[str] = Field(None, description="Timeline item ID for CTA action")
-    action: Optional[str] = Field(None, description="Action type: 'add_to_intents' | 'add_to_tasks' | 'publish_to_wordpress' | 'execute_playbook' | 'use_tool' | 'create_intent' | 'start_chat' | 'upload_file'")
-    confirm: Optional[bool] = Field(None, description="Confirmation flag for external_write actions")
-    action_params: Optional[Dict[str, Any]] = Field(None, description="Action parameters (for dynamic suggestions)")
+    timeline_item_id: Optional[str] = Field(
+        None, description="Timeline item ID for CTA action"
+    )
+    action: Optional[str] = Field(
+        None,
+        description="Action type: 'add_to_intents' | 'add_to_tasks' | 'publish_to_wordpress' | 'execute_playbook' | 'use_tool' | 'create_intent' | 'start_chat' | 'upload_file'",
+    )
+    confirm: Optional[bool] = Field(
+        None, description="Confirmation flag for external_write actions"
+    )
+    model_name: Optional[str] = Field(
+        None, description="Override LLM model name (e.g. 'gemini-2.5-pro')"
+    )
+    action_params: Optional[Dict[str, Any]] = Field(
+        None, description="Action parameters (for dynamic suggestions)"
+    )
 
 
 class WorkspaceChatResponse(BaseModel):
     """Response from workspace chat interaction"""
+
     workspace_id: str = Field(..., description="Workspace ID")
     display_events: list[dict] = Field(
-        default_factory=list,
-        description="Recent events to display in timeline"
+        default_factory=list, description="Recent events to display in timeline"
     )
     triggered_playbook: Optional[dict] = Field(
-        None,
-        description="Triggered playbook information (if any)"
+        None, description="Triggered playbook information (if any)"
     )
     pending_tasks: list[dict] = Field(
-        default_factory=list,
-        description="Pending task status cards"
+        default_factory=list, description="Pending task status cards"
     )
 
 
 # ==================== Execution Plan Models (Internal) ====================
+
 
 class ExecutionStep(BaseModel):
     """
@@ -413,16 +520,32 @@ class ExecutionStep(BaseModel):
     - Why it chose this approach
     - What artifacts will be produced
     """
+
     step_id: str = Field(..., description="Unique step identifier (e.g., 'S1', 'S2')")
     intent: str = Field(..., description="Intent/purpose of this step")
-    playbook_code: Optional[str] = Field(None, description="Playbook to execute (if applicable)")
+    playbook_code: Optional[str] = Field(
+        None, description="Playbook to execute (if applicable)"
+    )
     tool_name: Optional[str] = Field(None, description="Tool to use (if applicable)")
-    artifacts: List[str] = Field(default_factory=list, description="Expected artifact types (e.g., ['pptx', 'docx'])")
-    reasoning: Optional[str] = Field(None, description="Why this step was chosen (CoT reasoning)")
-    depends_on: List[str] = Field(default_factory=list, description="Step IDs this depends on")
-    requires_confirmation: bool = Field(False, description="Whether user confirmation is needed")
-    side_effect_level: Optional[str] = Field(None, description="Side effect level: readonly/soft_write/external_write")
-    estimated_duration: Optional[str] = Field(None, description="Estimated duration (e.g., '30s', '2m')")
+    artifacts: List[str] = Field(
+        default_factory=list,
+        description="Expected artifact types (e.g., ['pptx', 'docx'])",
+    )
+    reasoning: Optional[str] = Field(
+        None, description="Why this step was chosen (CoT reasoning)"
+    )
+    depends_on: List[str] = Field(
+        default_factory=list, description="Step IDs this depends on"
+    )
+    requires_confirmation: bool = Field(
+        False, description="Whether user confirmation is needed"
+    )
+    side_effect_level: Optional[str] = Field(
+        None, description="Side effect level: readonly/soft_write/external_write"
+    )
+    estimated_duration: Optional[str] = Field(
+        None, description="Estimated duration (e.g., '30s', '2m')"
+    )
 
 
 class TaskPlan(BaseModel):
@@ -432,8 +555,11 @@ class TaskPlan(BaseModel):
     Used internally by ConversationOrchestrator to plan task execution
     based on side_effect_level and user intent.
     """
+
     pack_id: str = Field(..., description="Pack identifier")
-    task_type: str = Field(..., description="Task type (e.g., 'extract_intents', 'generate_tasks')")
+    task_type: str = Field(
+        ..., description="Task type (e.g., 'extract_intents', 'generate_tasks')"
+    )
     params: Dict[str, Any] = Field(default_factory=dict, description="Task parameters")
     side_effect_level: Optional[str] = Field(None, description="Side effect level")
     auto_execute: bool = Field(False, description="Whether to execute automatically")
@@ -451,40 +577,56 @@ class ExecutionPlan(BaseModel):
 
     See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
     """
-    id: str = Field(default_factory=lambda: str(__import__('uuid').uuid4()), description="Plan ID")
+
+    id: str = Field(
+        default_factory=lambda: str(__import__("uuid").uuid4()), description="Plan ID"
+    )
     message_id: str = Field(..., description="Associated message/event ID")
     workspace_id: str = Field(..., description="Workspace ID")
 
     # Chain-of-Thought fields
-    user_request_summary: Optional[str] = Field(None, description="Summary of what user asked for")
-    reasoning: Optional[str] = Field(None, description="Overall reasoning for the plan (CoT)")
-    plan_summary: Optional[str] = Field(None, description="Human-readable summary for display")
-    steps: List[ExecutionStep] = Field(default_factory=list, description="Execution steps (CoT)")
+    user_request_summary: Optional[str] = Field(
+        None, description="Summary of what user asked for"
+    )
+    reasoning: Optional[str] = Field(
+        None, description="Overall reasoning for the plan (CoT)"
+    )
+    plan_summary: Optional[str] = Field(
+        None, description="Human-readable summary for display"
+    )
+    steps: List[ExecutionStep] = Field(
+        default_factory=list, description="Execution steps (CoT)"
+    )
 
     # Legacy compatibility - kept for backward compatibility
-    tasks: List[TaskPlan] = Field(default_factory=list, description="Planned tasks (legacy)")
+    tasks: List[TaskPlan] = Field(
+        default_factory=list, description="Planned tasks (legacy)"
+    )
 
     # Metadata
     execution_mode: Optional[str] = Field(None, description="qa/execution/hybrid")
-    confidence: Optional[float] = Field(None, description="LLM confidence in this plan (0-1)")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    confidence: Optional[float] = Field(
+        None, description="LLM confidence in this plan (0-1)"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
 
     # Project and Phase association
     project_id: Optional[str] = Field(None, description="Associated Project ID")
     phase_id: Optional[str] = Field(None, description="Associated Project Phase ID")
     project_assignment_decision: Optional[Dict[str, Any]] = Field(
         None,
-        description="Project assignment decision: {project_id, relation, confidence, reasoning, candidates}"
+        description="Project assignment decision: {project_id, relation, confidence, reasoning, candidates}",
     )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
     def to_event_payload(self) -> Dict[str, Any]:
         """Convert to payload for EXECUTION_PLAN MindEvent"""
         import logging
+
         logger = logging.getLogger(__name__)
 
         payload = {
@@ -497,10 +639,12 @@ class ExecutionPlan(BaseModel):
             "execution_mode": self.execution_mode,
             "confidence": self.confidence,
             "step_count": len(self.steps),
-            "artifact_count": sum(len(s.artifacts) for s in self.steps)
+            "artifact_count": sum(len(s.artifacts) for s in self.steps),
         }
 
-        metadata = getattr(self, "_metadata", None) or getattr(self, "metadata", None) or {}
+        metadata = (
+            getattr(self, "_metadata", None) or getattr(self, "metadata", None) or {}
+        )
         effective_playbooks = metadata.get("effective_playbooks")
         if effective_playbooks is not None:
             payload["effective_playbooks"] = effective_playbooks
@@ -509,54 +653,74 @@ class ExecutionPlan(BaseModel):
         # Extract AI team members from tasks or steps (for tool-based plans)
         ai_team_members = []
         try:
-            from backend.app.services.ai_team_service import get_members_from_tasks, get_member_info
+            from backend.app.services.ai_team_service import (
+                get_members_from_tasks,
+                get_member_info,
+            )
 
             playbook_code = None
             if self.steps and len(self.steps) > 0:
-                playbook_code = getattr(self.steps[0], 'playbook_code', None)
+                playbook_code = getattr(self.steps[0], "playbook_code", None)
 
             # First, try to get members from tasks (for playbook-based plans)
             if self.tasks:
                 if not playbook_code and self.tasks and len(self.tasks) > 0:
                     first_task = self.tasks[0]
-                    if hasattr(first_task, 'playbook_code') and first_task.playbook_code:
+                    if (
+                        hasattr(first_task, "playbook_code")
+                        and first_task.playbook_code
+                    ):
                         playbook_code = first_task.playbook_code
-                    elif hasattr(first_task, 'params') and isinstance(first_task.params, dict):
-                        playbook_code = first_task.params.get('playbook_code')
+                    elif hasattr(first_task, "params") and isinstance(
+                        first_task.params, dict
+                    ):
+                        playbook_code = first_task.params.get("playbook_code")
 
                 ai_team_members = get_members_from_tasks(self.tasks, playbook_code)
-                logger.info(f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.tasks)} tasks, playbook_code={playbook_code}")
+                logger.info(
+                    f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.tasks)} tasks, playbook_code={playbook_code}"
+                )
 
             # If no members from tasks, try to get from steps (for tool-based plans)
             if not ai_team_members and self.steps:
                 seen_pack_ids = set()
                 for step in self.steps:
                     # Try tool_name as pack_id (tools can be AI team members too)
-                    tool_name = getattr(step, 'tool_name', None)
+                    tool_name = getattr(step, "tool_name", None)
                     if tool_name and tool_name not in seen_pack_ids:
                         seen_pack_ids.add(tool_name)
                         member_info = get_member_info(tool_name, playbook_code)
                         if member_info and member_info.get("visible", True):
                             ai_team_members.append(member_info)
-                            logger.info(f"[ExecutionPlan] Added tool-based member: {member_info.get('name_zh') or member_info.get('name')}")
+                            logger.info(
+                                f"[ExecutionPlan] Added tool-based member: {member_info.get('name_zh') or member_info.get('name')}"
+                            )
 
                     # Also try playbook_code as pack_id
-                    step_playbook_code = getattr(step, 'playbook_code', None)
+                    step_playbook_code = getattr(step, "playbook_code", None)
                     if step_playbook_code and step_playbook_code not in seen_pack_ids:
                         seen_pack_ids.add(step_playbook_code)
                         member_info = get_member_info(step_playbook_code, playbook_code)
                         if member_info and member_info.get("visible", True):
                             ai_team_members.append(member_info)
-                            logger.info(f"[ExecutionPlan] Added playbook-based member: {member_info.get('name_zh') or member_info.get('name')}")
+                            logger.info(
+                                f"[ExecutionPlan] Added playbook-based member: {member_info.get('name_zh') or member_info.get('name')}"
+                            )
 
                 if ai_team_members:
-                    logger.info(f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.steps)} steps")
+                    logger.info(
+                        f"[ExecutionPlan] Extracted {len(ai_team_members)} AI team members from {len(self.steps)} steps"
+                    )
 
             if ai_team_members:
                 payload["ai_team_members"] = ai_team_members
-                logger.info(f"[ExecutionPlan] Added ai_team_members to payload: {[m.get('name_zh') or m.get('name') for m in ai_team_members]}")
+                logger.info(
+                    f"[ExecutionPlan] Added ai_team_members to payload: {[m.get('name_zh') or m.get('name') for m in ai_team_members]}"
+                )
             else:
-                logger.warning(f"[ExecutionPlan] No AI team members extracted from tasks or steps")
+                logger.warning(
+                    f"[ExecutionPlan] No AI team members extracted from tasks or steps"
+                )
         except Exception as e:
             logger.warning(f"Failed to extract AI team members: {e}", exc_info=True)
 
@@ -565,6 +729,7 @@ class ExecutionPlan(BaseModel):
 
 # ==================== Task Models ====================
 
+
 class Task(BaseModel):
     """
     Task model - represents a single execution task from a Pack
@@ -572,42 +737,46 @@ class Task(BaseModel):
     Tasks are derived from MindEvents and stored in the tasks table.
     They represent the execution state of a Pack within a workspace.
     """
+
     id: str = Field(..., description="Unique task identifier")
     workspace_id: str = Field(..., description="Workspace ID")
     message_id: str = Field(..., description="Associated message/event ID")
     execution_id: Optional[str] = Field(
-        None,
-        description="Associated playbook execution ID (if applicable)"
+        None, description="Associated playbook execution ID (if applicable)"
     )
     project_id: Optional[str] = Field(
-        None,
-        description="Associated project ID (if applicable)"
+        None, description="Associated project ID (if applicable)"
     )
     pack_id: str = Field(..., description="Pack identifier")
-    task_type: str = Field(..., description="Task type (e.g., 'extract_intents', 'generate_tasks')")
+    task_type: str = Field(
+        ..., description="Task type (e.g., 'extract_intents', 'generate_tasks')"
+    )
     status: TaskStatus = Field(..., description="Task execution status")
     params: Dict[str, Any] = Field(default_factory=dict, description="Task parameters")
     result: Optional[Dict[str, Any]] = Field(None, description="Task execution result")
     execution_context: Optional[Dict[str, Any]] = Field(
         None,
-        description="Execution context (playbook_code, trigger_source, current_step_index, etc.)"
+        description="Execution context (playbook_code, trigger_source, current_step_index, etc.)",
     )
     storyline_tags: List[str] = Field(
         default_factory=list,
-        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)"
+        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
     started_at: Optional[datetime] = Field(None, description="Task start timestamp")
-    completed_at: Optional[datetime] = Field(None, description="Task completion timestamp")
+    completed_at: Optional[datetime] = Field(
+        None, description="Task completion timestamp"
+    )
     error: Optional[str] = Field(None, description="Error message if task failed")
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 # ==================== Execution Models ====================
+
 
 class ExecutionSession(BaseModel):
     """
@@ -616,43 +785,54 @@ class ExecutionSession(BaseModel):
     ExecutionSession is a view model based on Task + execution_context.
     It does not have its own table but is constructed from Task records.
     """
+
     execution_id: str = Field(..., description="Execution ID (same as Task.id)")
     workspace_id: str = Field(..., description="Workspace ID")
     task: Task = Field(..., description="Underlying Task record")
     playbook_code: Optional[str] = Field(None, description="Playbook code")
     playbook_version: Optional[str] = Field(None, description="Playbook version")
-    trigger_source: Optional[str] = Field(None, description="Trigger source: auto/suggestion/manual")
-    current_step_index: int = Field(default=0, description="Current step index (0-based)")
+    trigger_source: Optional[str] = Field(
+        None, description="Trigger source: auto/suggestion/manual"
+    )
+    current_step_index: int = Field(
+        default=0, description="Current step index (0-based)"
+    )
     total_steps: int = Field(default=0, description="Total number of steps")
     paused_at: Optional[datetime] = Field(None, description="Pause timestamp")
-    origin_intent_id: Optional[str] = Field(None, description="Origin intent ID reference")
+    origin_intent_id: Optional[str] = Field(
+        None, description="Origin intent ID reference"
+    )
     origin_intent_label: Optional[str] = Field(None, description="Origin intent label")
-    intent_confidence: Optional[float] = Field(None, description="Intent confidence (0-1)")
-    origin_suggestion_id: Optional[str] = Field(None, description="Origin suggestion ID")
+    intent_confidence: Optional[float] = Field(
+        None, description="Intent confidence (0-1)"
+    )
+    origin_suggestion_id: Optional[str] = Field(
+        None, description="Origin suggestion ID"
+    )
     initiator_user_id: Optional[str] = Field(None, description="Initiator user ID")
     failure_type: Optional[str] = Field(None, description="Failure type if failed")
     failure_reason: Optional[str] = Field(None, description="Failure reason if failed")
-    default_cluster: Optional[str] = Field(None, description="Default cluster identifier for tool execution (e.g., 'local_mcp' or custom cluster name)")
+    default_cluster: Optional[str] = Field(
+        None,
+        description="Default cluster identifier for tool execution (e.g., 'local_mcp' or custom cluster name)",
+    )
 
     last_checkpoint: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Last checkpoint data (JSON snapshot of execution state)"
+        None, description="Last checkpoint data (JSON snapshot of execution state)"
     )
     phase_summaries: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Phase summaries written to external memory"
+        default_factory=list, description="Phase summaries written to external memory"
     )
     supports_resume: bool = Field(
         default=True,
-        description="Whether this execution supports resume from checkpoint"
+        description="Whether this execution supports resume from checkpoint",
     )
     storyline_tags: List[str] = Field(
         default_factory=list,
-        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)"
+        description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)",
     )
     sandbox_id: Optional[str] = Field(
-        None,
-        description="Sandbox ID associated with this execution (if any)"
+        None, description="Sandbox ID associated with this execution (if any)"
     )
 
     @classmethod
@@ -668,7 +848,11 @@ class ExecutionSession(BaseModel):
             trigger_source=execution_context.get("trigger_source"),
             current_step_index=execution_context.get("current_step_index", 0),
             total_steps=execution_context.get("total_steps", 0),
-            paused_at=datetime.fromisoformat(execution_context["paused_at"]) if execution_context.get("paused_at") else None,
+            paused_at=(
+                datetime.fromisoformat(execution_context["paused_at"])
+                if execution_context.get("paused_at")
+                else None
+            ),
             origin_intent_id=execution_context.get("origin_intent_id"),
             origin_intent_label=execution_context.get("origin_intent_label"),
             intent_confidence=execution_context.get("intent_confidence"),
@@ -681,7 +865,7 @@ class ExecutionSession(BaseModel):
             phase_summaries=execution_context.get("phase_summaries", []),
             supports_resume=execution_context.get("supports_resume", True),
             storyline_tags=task.storyline_tags or [],
-            sandbox_id=execution_context.get("sandbox_id")
+            sandbox_id=execution_context.get("sandbox_id"),
         )
 
 
@@ -694,22 +878,42 @@ class PlaybookExecutionStep(BaseModel):
 
     Note: This is different from ExecutionStep (used in ExecutionPlan for Chain-of-Thought).
     """
+
     id: str = Field(..., description="Step ID (same as MindEvent.id)")
     execution_id: str = Field(..., description="Associated execution ID")
     step_index: int = Field(..., description="Step index (1-based for display)")
     step_name: str = Field(..., description="Step name")
-    total_steps: Optional[int] = Field(None, description="Total number of steps in this execution")
-    status: str = Field(..., description="Status: pending/running/completed/failed/waiting_confirmation")
-    step_type: str = Field(..., description="Step type: agent_action/tool_call/agent_collaboration/user_confirmation")
-    agent_type: Optional[str] = Field(None, description="Agent type: researcher/editor/engineer")
-    used_tools: Optional[List[str]] = Field(None, description="List of tools used in this step")
+    total_steps: Optional[int] = Field(
+        None, description="Total number of steps in this execution"
+    )
+    status: str = Field(
+        ..., description="Status: pending/running/completed/failed/waiting_confirmation"
+    )
+    step_type: str = Field(
+        ...,
+        description="Step type: agent_action/tool_call/agent_collaboration/user_confirmation",
+    )
+    agent_type: Optional[str] = Field(
+        None, description="Agent type: researcher/editor/engineer"
+    )
+    used_tools: Optional[List[str]] = Field(
+        None, description="List of tools used in this step"
+    )
     assigned_agent: Optional[str] = Field(None, description="Assigned agent")
-    collaborating_agents: Optional[List[str]] = Field(None, description="Collaborating agents")
+    collaborating_agents: Optional[List[str]] = Field(
+        None, description="Collaborating agents"
+    )
     description: Optional[str] = Field(None, description="Step description")
     log_summary: Optional[str] = Field(None, description="One-line log summary")
-    requires_confirmation: bool = Field(default=False, description="Whether step requires user confirmation")
-    confirmation_prompt: Optional[str] = Field(None, description="Confirmation prompt text")
-    confirmation_status: Optional[str] = Field(None, description="Confirmation status: pending/confirmed/rejected")
+    requires_confirmation: bool = Field(
+        default=False, description="Whether step requires user confirmation"
+    )
+    confirmation_prompt: Optional[str] = Field(
+        None, description="Confirmation prompt text"
+    )
+    confirmation_status: Optional[str] = Field(
+        None, description="Confirmation status: pending/confirmed/rejected"
+    )
     intent_id: Optional[str] = Field(None, description="Associated intent ID")
     started_at: Optional[datetime] = Field(None, description="Start timestamp")
     completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
@@ -717,7 +921,9 @@ class PlaybookExecutionStep(BaseModel):
     failure_type: Optional[str] = Field(None, description="Failure type if failed")
 
     @classmethod
-    def from_mind_event(cls, event: Union["MindEvent", Dict[str, Any]]) -> "PlaybookExecutionStep":
+    def from_mind_event(
+        cls, event: Union["MindEvent", Dict[str, Any]]
+    ) -> "PlaybookExecutionStep":
         """Create PlaybookExecutionStep from MindEvent"""
         if hasattr(event, "payload"):
             payload = event.payload
@@ -747,10 +953,18 @@ class PlaybookExecutionStep(BaseModel):
             confirmation_prompt=payload.get("confirmation_prompt"),
             confirmation_status=payload.get("confirmation_status"),
             intent_id=payload.get("intent_id"),
-            started_at=datetime.fromisoformat(payload["started_at"]) if payload.get("started_at") else None,
-            completed_at=datetime.fromisoformat(payload["completed_at"]) if payload.get("completed_at") else None,
+            started_at=(
+                datetime.fromisoformat(payload["started_at"])
+                if payload.get("started_at")
+                else None
+            ),
+            completed_at=(
+                datetime.fromisoformat(payload["completed_at"])
+                if payload.get("completed_at")
+                else None
+            ),
             error=payload.get("error"),
-            failure_type=payload.get("failure_type")
+            failure_type=payload.get("failure_type"),
         )
 
 
@@ -760,24 +974,32 @@ class PlaybookExecution(BaseModel):
 
     This is the persistent record for playbook executions with checkpoint/resume support.
     """
+
     id: str = Field(..., description="Execution ID")
     workspace_id: str = Field(..., description="Workspace ID")
     playbook_code: str = Field(..., description="Playbook code")
-    intent_instance_id: Optional[str] = Field(None, description="Origin intent instance ID")
-    thread_id: Optional[str] = Field(None, description="Associated conversation thread ID")
+    intent_instance_id: Optional[str] = Field(
+        None, description="Origin intent instance ID"
+    )
+    thread_id: Optional[str] = Field(
+        None, description="Associated conversation thread ID"
+    )
     status: str = Field(..., description="Execution status: running/paused/done/failed")
     phase: Optional[str] = Field(None, description="Current phase ID")
-    last_checkpoint: Optional[str] = Field(None, description="Last checkpoint data (JSON)")
+    last_checkpoint: Optional[str] = Field(
+        None, description="Last checkpoint data (JSON)"
+    )
     progress_log_path: Optional[str] = Field(None, description="Progress log file path")
     feature_list_path: Optional[str] = Field(None, description="Feature list file path")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Execution metadata (BYOP/BYOL fields: pack_id, card_id, scope, playbook_version)")
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Execution metadata (BYOP/BYOL fields: pack_id, card_id, scope, playbook_version)",
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class ExecutionChatMessage(BaseModel):
@@ -787,20 +1009,28 @@ class ExecutionChatMessage(BaseModel):
     Built from MindEvent(event_type=EXECUTION_CHAT).
     It does not have its own table but is constructed from MindEvent records.
     """
+
     id: str = Field(..., description="Message ID (same as MindEvent.id)")
     execution_id: str = Field(..., description="Associated execution ID")
-    step_id: Optional[str] = Field(None, description="Optional: step ID this message is about")
+    step_id: Optional[str] = Field(
+        None, description="Optional: step ID this message is about"
+    )
     role: Literal["user", "assistant", "agent"] = Field(..., description="Message role")
-    speaker: Optional[str] = Field(None, description="Speaker name (e.g., 'Hans', 'Researcher', 'Script Assistant')")
+    speaker: Optional[str] = Field(
+        None,
+        description="Speaker name (e.g., 'Hans', 'Researcher', 'Script Assistant')",
+    )
     content: str = Field(..., description="Message content")
     message_type: ExecutionChatMessageType = Field(
         default=ExecutionChatMessageType.QUESTION,
-        description="Message type: question/note/route_proposal/system_hint"
+        description="Message type: question/note/route_proposal/system_hint",
     )
     created_at: datetime = Field(..., description="Creation timestamp")
 
     @classmethod
-    def from_mind_event(cls, event: Union["MindEvent", Dict[str, Any]]) -> "ExecutionChatMessage":
+    def from_mind_event(
+        cls, event: Union["MindEvent", Dict[str, Any]]
+    ) -> "ExecutionChatMessage":
         """Create ExecutionChatMessage from MindEvent"""
         if hasattr(event, "payload"):
             payload = event.payload
@@ -833,16 +1063,15 @@ class ExecutionChatMessage(BaseModel):
             speaker=payload.get("speaker"),
             content=payload.get("content", ""),
             message_type=message_type,
-            created_at=timestamp
+            created_at=timestamp,
         )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 # ==================== TimelineItem Models ====================
+
 
 class TimelineItem(BaseModel):
     """
@@ -851,27 +1080,30 @@ class TimelineItem(BaseModel):
     TimelineItems are derived from MindEvents and stored in the timeline_items table.
     They represent the results of Pack executions and are displayed in the right panel.
     """
+
     id: str = Field(..., description="Unique timeline item identifier")
     workspace_id: str = Field(..., description="Workspace ID")
     message_id: str = Field(..., description="Associated message/event ID")
-    task_id: Optional[str] = Field(None, description="Associated task ID (optional for file analysis items)")
+    task_id: Optional[str] = Field(
+        None, description="Associated task ID (optional for file analysis items)"
+    )
     type: TimelineItemType = Field(..., description="Timeline item type")
     title: str = Field(..., description="Display title")
     summary: str = Field(..., description="Summary text")
     data: Dict[str, Any] = Field(default_factory=dict, description="Additional data")
     cta: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="Call-to-action buttons (if applicable)"
+        None, description="Call-to-action buttons (if applicable)"
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 # ==================== Artifact Models ====================
+
 
 class ConversationThread(BaseModel):
     """
@@ -880,22 +1112,38 @@ class ConversationThread(BaseModel):
     Threads allow users to organize conversations into separate streams,
     similar to ChatGPT's conversation threads or Cursor's "new agent" feature.
     """
+
     id: str = Field(..., description="Unique thread identifier")
     workspace_id: str = Field(..., description="Workspace ID this thread belongs to")
     title: str = Field(..., description="Thread title")
-    project_id: Optional[str] = Field(None, description="Optional associated project ID")
-    pinned_scope: Optional[str] = Field(None, description="Optional pinned scope for this thread")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
-    last_message_at: datetime = Field(default_factory=datetime.utcnow, description="Last message timestamp")
-    message_count: int = Field(default=0, description="Number of messages in this thread")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Extensible metadata")
-    is_default: bool = Field(default=False, description="Whether this is the default thread for the workspace")
+    project_id: Optional[str] = Field(
+        None, description="Optional associated project ID"
+    )
+    pinned_scope: Optional[str] = Field(
+        None, description="Optional pinned scope for this thread"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
+    last_message_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last message timestamp"
+    )
+    message_count: int = Field(
+        default=0, description="Number of messages in this thread"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Extensible metadata"
+    )
+    is_default: bool = Field(
+        default=False,
+        description="Whether this is the default thread for the workspace",
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class Artifact(BaseModel):
@@ -906,37 +1154,47 @@ class Artifact(BaseModel):
     They represent the tangible outputs (checklists, drafts, configs, etc.)
     that users can view, copy, download, or publish.
     """
+
     id: str = Field(..., description="Unique artifact identifier")
     workspace_id: str = Field(..., description="Workspace ID")
     intent_id: Optional[str] = Field(
-        None,
-        description="Associated Intent ID (supports driver-led experience)"
+        None, description="Associated Intent ID (supports driver-led experience)"
     )
     task_id: Optional[str] = Field(None, description="Associated task ID")
     execution_id: Optional[str] = Field(None, description="Associated execution ID")
-    thread_id: Optional[str] = Field(None, description="Associated conversation thread ID")
+    thread_id: Optional[str] = Field(
+        None, description="Associated conversation thread ID"
+    )
     playbook_code: str = Field(..., description="Source playbook code")
     artifact_type: ArtifactType = Field(..., description="Artifact type")
     title: str = Field(..., description="Artifact title")
     summary: str = Field(..., description="Artifact summary")
-    content: Dict[str, Any] = Field(default_factory=dict, description="Artifact content (JSON)")
+    content: Dict[str, Any] = Field(
+        default_factory=dict, description="Artifact content (JSON)"
+    )
     storage_ref: Optional[str] = Field(
         None,
-        description="Storage location: DB/file path/external URL (supports external sync)"
+        description="Storage location: DB/file path/external URL (supports external sync)",
     )
     sync_state: Optional[str] = Field(
         None,
-        description="Sync state: None (local) / pending / synced / failed (for external sync)"
+        description="Sync state: None (local) / pending / synced / failed (for external sync)",
     )
-    primary_action_type: PrimaryActionType = Field(..., description="Primary action type")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    primary_action_type: PrimaryActionType = Field(
+        ..., description="Primary action type"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class ThreadReference(BaseModel):
@@ -946,27 +1204,33 @@ class ThreadReference(BaseModel):
     References are external resources (Obsidian notes, Notion pages, WordPress posts,
     local files, URLs) that are associated with a thread for context and retrieval.
     """
+
     id: str = Field(..., description="Unique reference identifier")
     workspace_id: str = Field(..., description="Workspace ID")
     thread_id: str = Field(..., description="Conversation thread ID")
-    source_type: Literal['obsidian', 'notion', 'wordpress', 'local_file', 'url', 'google_drive'] = Field(
-        ..., description="Source connector type"
-    )
+    source_type: Literal[
+        "obsidian", "notion", "wordpress", "local_file", "url", "google_drive"
+    ] = Field(..., description="Source connector type")
     uri: str = Field(..., description="Real URI (clickable, can navigate back)")
     title: str = Field(..., description="Reference title")
     snippet: Optional[str] = Field(None, description="Short summary snippet")
     reason: Optional[str] = Field(None, description="Reason for pinning (optional)")
-    pinned_by: Literal['user', 'ai'] = Field(default='user', description="Who pinned this reference")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    pinned_by: Literal["user", "ai"] = Field(
+        default="user", description="Who pinned this reference"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 # ==================== Background Routine Models ====================
+
 
 class BackgroundRoutine(BaseModel):
     """
@@ -976,46 +1240,56 @@ class BackgroundRoutine(BaseModel):
     Once enabled, they run automatically without requiring user confirmation for each execution.
     Examples: habit_learning, daily_reminders
     """
+
     id: str = Field(..., description="Unique background routine identifier")
     workspace_id: str = Field(..., description="Workspace ID")
     playbook_code: str = Field(..., description="Playbook code to run")
     enabled: bool = Field(default=False, description="Whether the routine is enabled")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Schedule and condition configuration")
-    last_run_at: Optional[datetime] = Field(None, description="Last execution timestamp")
-    next_run_at: Optional[datetime] = Field(None, description="Next scheduled execution timestamp")
-    last_status: Optional[str] = Field(None, description="Last execution status: 'ok' | 'failed'")
+    config: Dict[str, Any] = Field(
+        default_factory=dict, description="Schedule and condition configuration"
+    )
+    last_run_at: Optional[datetime] = Field(
+        None, description="Last execution timestamp"
+    )
+    next_run_at: Optional[datetime] = Field(
+        None, description="Next scheduled execution timestamp"
+    )
+    last_status: Optional[str] = Field(
+        None, description="Last execution status: 'ok' | 'failed'"
+    )
 
     # Tool dependency readiness status (system-managed, stored as separate columns)
     readiness_status: Optional[str] = Field(
-        default=None,
-        description="Readiness status: ready / needs_setup / unsupported"
+        default=None, description="Readiness status: ready / needs_setup / unsupported"
     )
     tool_statuses: Optional[Dict[str, str]] = Field(
         default=None,
-        description="Status of required tools: tool_type -> status (JSON string in DB)"
+        description="Status of required tools: tool_type -> status (JSON string in DB)",
     )
     error_count: int = Field(
-        default=0,
-        description="Consecutive error count (for auto-pause)"
+        default=0, description="Consecutive error count (for auto-pause)"
     )
     auto_paused: bool = Field(
-        default=False,
-        description="Whether routine was auto-paused due to errors"
+        default=False, description="Whether routine was auto-paused due to errors"
     )
 
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 # ==================== Task Feedback Models ====================
 
+
 class TaskFeedbackAction(str, Enum):
     """Task feedback action type"""
+
     ACCEPT = "accept"
     REJECT = "reject"
     DISMISS = "dismiss"
@@ -1023,6 +1297,7 @@ class TaskFeedbackAction(str, Enum):
 
 class TaskFeedbackReasonCode(str, Enum):
     """Task feedback reason code"""
+
     IRRELEVANT = "irrelevant"
     DUPLICATE = "duplicate"
     TOO_MANY = "too_many"
@@ -1038,31 +1313,34 @@ class TaskFeedback(BaseModel):
     Used to track user rejections, dismissals, and acceptances of tasks
     to improve task recommendation strategies and personalize preferences.
     """
+
     id: str = Field(..., description="Unique feedback identifier")
     task_id: str = Field(..., description="Associated task ID")
     workspace_id: str = Field(..., description="Workspace ID")
     user_id: str = Field(..., description="User profile ID")
-    action: TaskFeedbackAction = Field(..., description="Feedback action: accept/reject/dismiss")
+    action: TaskFeedbackAction = Field(
+        ..., description="Feedback action: accept/reject/dismiss"
+    )
     reason_code: Optional[TaskFeedbackReasonCode] = Field(
-        None,
-        description="Reason code for rejection/dismissal (optional)"
+        None, description="Reason code for rejection/dismissal (optional)"
     )
     comment: Optional[str] = Field(
-        None,
-        description="Optional user comment explaining the feedback"
+        None, description="Optional user comment explaining the feedback"
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 # ==================== Task Preference Models ====================
 
+
 class TaskPreferenceAction(str, Enum):
     """Task preference action type"""
+
     ENABLE = "enable"
     DISABLE = "disable"
     AUTO_SUGGEST = "auto_suggest"
@@ -1076,41 +1354,40 @@ class TaskPreference(BaseModel):
     Used to personalize task recommendations by tracking which packs/task_types
     the user prefers, rejects, or wants to see less frequently.
     """
+
     id: str = Field(..., description="Unique preference identifier")
     workspace_id: str = Field(..., description="Workspace ID")
     user_id: str = Field(..., description="User profile ID")
     pack_id: Optional[str] = Field(
-        None,
-        description="Pack ID (if preference is pack-level)"
+        None, description="Pack ID (if preference is pack-level)"
     )
     task_type: Optional[str] = Field(
         None,
-        description="Task type (if preference is task-level, more specific than pack_id)"
+        description="Task type (if preference is task-level, more specific than pack_id)",
     )
     action: TaskPreferenceAction = Field(
-        ...,
-        description="Preference action: enable/disable/auto_suggest/manual_only"
+        ..., description="Preference action: enable/disable/auto_suggest/manual_only"
     )
     auto_suggest: bool = Field(
         default=True,
-        description="Whether to auto-suggest this pack/task_type (default: True)"
+        description="Whether to auto-suggest this pack/task_type (default: True)",
     )
     last_feedback: Optional[TaskFeedbackAction] = Field(
         None,
-        description="Last feedback action (accept/reject/dismiss) for this pack/task_type"
+        description="Last feedback action (accept/reject/dismiss) for this pack/task_type",
     )
     reject_count_30d: int = Field(
-        default=0,
-        description="Number of rejections in the last 30 days"
+        default=0, description="Number of rejections in the last 30 days"
     )
     accept_count_30d: int = Field(
-        default=0,
-        description="Number of acceptances in the last 30 days"
+        default=0, description="Number of acceptances in the last 30 days"
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
