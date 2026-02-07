@@ -10,8 +10,16 @@ from typing import Dict, List, Optional
 from pathlib import Path
 from enum import Enum
 
-from backend.app.models.playbook import Playbook, PlaybookMetadata
-from backend.app.services.playbook_loaders import PlaybookFileLoader, PlaybookDatabaseLoader
+from backend.app.models.playbook import (
+    Playbook,
+    PlaybookMetadata,
+    PlaybookOwnerType,
+    PlaybookVisibility,
+)
+from backend.app.services.playbook_loaders import (
+    PlaybookFileLoader,
+    PlaybookDatabaseLoader,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +32,7 @@ except ImportError:
 
 class PlaybookSource(str, Enum):
     """Playbook source type"""
+
     SYSTEM = "system"  # System-level playbooks
     CAPABILITY = "capability"  # Capability pack playbooks
     USER = "user"  # User-defined playbooks
@@ -52,7 +61,9 @@ class PlaybookRegistry:
         elif cloud_client:
             # Legacy support: try to get extension manager from cloud_client
             self.cloud_extension_manager = None
-            logger.warning("Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager.")
+            logger.warning(
+                "Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager."
+            )
         else:
             self.cloud_extension_manager = None
 
@@ -88,8 +99,10 @@ class PlaybookRegistry:
         if self.store:
             self._load_user_playbooks()
 
-        logger.info(f"Loaded {len(self.system_playbooks)} system playbook locales, "
-                   f"{len(self.capability_playbooks)} capability packs")
+        logger.info(
+            f"Loaded {len(self.system_playbooks)} system playbook locales, "
+            f"{len(self.capability_playbooks)} capability packs"
+        )
 
     def _load_system_playbooks(self):
         """
@@ -99,10 +112,13 @@ class PlaybookRegistry:
         """
         # First try loading from NPM packages
         try:
-            from backend.app.services.playbook_loaders.npm_loader import PlaybookNpmLoader
+            from backend.app.services.playbook_loaders.npm_loader import (
+                PlaybookNpmLoader,
+            )
+
             packages = PlaybookNpmLoader.find_playbook_packages()
 
-            supported_locales = ['zh-TW', 'en', 'ja']
+            supported_locales = ["zh-TW", "en", "ja"]
 
             for package in packages:
                 playbook_code = package["playbook_code"]
@@ -112,7 +128,9 @@ class PlaybookRegistry:
                         self.system_playbooks[locale] = {}
 
                     # Try to load i18n from NPM package
-                    i18n_content = PlaybookNpmLoader.load_playbook_i18n(playbook_code, locale)
+                    i18n_content = PlaybookNpmLoader.load_playbook_i18n(
+                        playbook_code, locale
+                    )
                     if i18n_content:
                         try:
                             from io import StringIO
@@ -120,21 +138,32 @@ class PlaybookRegistry:
                             # Create a temporary file-like object for PlaybookFileLoader
                             # PlaybookFileLoader expects a Path, so we need to write to temp file
                             import tempfile
-                            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp_file:
+
+                            with tempfile.NamedTemporaryFile(
+                                mode="w", suffix=".md", delete=False, encoding="utf-8"
+                            ) as tmp_file:
                                 tmp_file.write(i18n_content)
                                 tmp_path = Path(tmp_file.name)
 
-                            playbook = PlaybookFileLoader.load_playbook_from_file(tmp_path)
+                            playbook = PlaybookFileLoader.load_playbook_from_file(
+                                tmp_path
+                            )
                             if playbook:
                                 playbook.metadata.locale = locale
                                 if playbook_code not in self.system_playbooks[locale]:
-                                    self.system_playbooks[locale][playbook_code] = playbook
-                                    logger.debug(f"Loaded playbook from NPM package: {playbook_code} ({locale})")
+                                    self.system_playbooks[locale][
+                                        playbook_code
+                                    ] = playbook
+                                    logger.debug(
+                                        f"Loaded playbook from NPM package: {playbook_code} ({locale})"
+                                    )
 
                             # Clean up temp file
                             tmp_path.unlink()
                         except Exception as e:
-                            logger.warning(f"Failed to load playbook from NPM package {package['name']}: {e}")
+                            logger.warning(
+                                f"Failed to load playbook from NPM package {package['name']}: {e}"
+                            )
         except Exception as e:
             logger.debug(f"Failed to load playbooks from NPM packages: {e}")
 
@@ -147,7 +176,7 @@ class PlaybookRegistry:
             return
 
         # Supported locales
-        supported_locales = ['zh-TW', 'en', 'ja']
+        supported_locales = ["zh-TW", "en", "ja"]
 
         for locale in supported_locales:
             locale_dir = i18n_dir / locale
@@ -158,8 +187,8 @@ class PlaybookRegistry:
                 self.system_playbooks[locale] = {}
 
             # Load .md files from locale directory
-            for md_file in locale_dir.glob('*.md'):
-                if md_file.name == 'README.md':
+            for md_file in locale_dir.glob("*.md"):
+                if md_file.name == "README.md":
                     continue
 
                 try:
@@ -167,13 +196,55 @@ class PlaybookRegistry:
                     if playbook:
                         # Ensure locale matches directory
                         playbook.metadata.locale = locale
+                        playbook.metadata.owner_type = PlaybookOwnerType.SYSTEM
+                        playbook.metadata.owner_id = "system"
+                        playbook.metadata.visibility = (
+                            PlaybookVisibility.WORKSPACE_SHARED
+                        )
                         playbook_code = playbook.metadata.playbook_code
+
+                        # Try to enrich from capability directory if applicable
+                        # Dynamically discover capability directories - NO HARDCODED PACK NAMES
+                        app_dir = Path(__file__).parent.parent
+                        caps_dir = app_dir / "capabilities"
+
+                        # Try to infer capability from playbook_code prefix (e.g., "ig_analyze_following" -> "ig")
+                        # Scan all capability directories, no hardcoded list
+                        if caps_dir.exists():
+                            for cap_dir in caps_dir.iterdir():
+                                if not cap_dir.is_dir():
+                                    continue
+                                cap_name = cap_dir.name
+                                # Check if playbook_code starts with this capability name
+                                if playbook_code.startswith(
+                                    f"{cap_name}_"
+                                ) or playbook_code.startswith(f"{cap_name}."):
+                                    self._enrich_playbook_metadata(
+                                        playbook, cap_dir, playbook_code, locale
+                                    )
+                                    if playbook.metadata.description:
+                                        break
+                            else:
+                                # Fallback: search all capability dirs for matching JSON spec
+                                for cap_dir in caps_dir.iterdir():
+                                    if not cap_dir.is_dir():
+                                        continue
+                                    self._enrich_playbook_metadata(
+                                        playbook, cap_dir, playbook_code, locale
+                                    )
+                                    if playbook.metadata.description:
+                                        break
+
                         # Only add if not already loaded from NPM package
                         if playbook_code not in self.system_playbooks[locale]:
                             self.system_playbooks[locale][playbook_code] = playbook
-                            logger.debug(f"Loaded system playbook: {playbook_code} ({locale})")
+                            logger.debug(
+                                f"Loaded system playbook: {playbook_code} ({locale})"
+                            )
                 except Exception as e:
-                    logger.warning(f"Failed to load system playbook from {md_file}: {e}")
+                    logger.warning(
+                        f"Failed to load system playbook from {md_file}: {e}"
+                    )
 
     def _load_capability_playbooks(self):
         """
@@ -192,12 +263,18 @@ class PlaybookRegistry:
         # parent = services/, parent.parent = app/, so app/capabilities
         app_dir = Path(__file__).parent.parent  # app/
         local_capabilities_dir = app_dir / "capabilities"  # app/capabilities
-        logger.info(f"Checking capabilities directory: {local_capabilities_dir} (exists: {local_capabilities_dir.exists()})")
+        logger.info(
+            f"Checking capabilities directory: {local_capabilities_dir} (exists: {local_capabilities_dir.exists()})"
+        )
         if local_capabilities_dir.exists():
-            logger.info(f"Loading local capability playbooks from {local_capabilities_dir}")
+            logger.info(
+                f"Loading local capability playbooks from {local_capabilities_dir}"
+            )
             self._load_playbooks_from_directory(local_capabilities_dir)
         else:
-            logger.warning(f"Local capabilities directory does not exist: {local_capabilities_dir}")
+            logger.warning(
+                f"Local capabilities directory does not exist: {local_capabilities_dir}"
+            )
 
     def _load_playbooks_from_directory(self, capabilities_dir: Path):
         """Load playbooks from a capabilities directory"""
@@ -209,16 +286,20 @@ class PlaybookRegistry:
 
             manifest_path = capability_dir / "manifest.yaml"
             if not manifest_path.exists():
-                logger.debug(f"No manifest.yaml found in {capability_dir.name}, skipping")
+                logger.debug(
+                    f"No manifest.yaml found in {capability_dir.name}, skipping"
+                )
                 continue
 
             try:
-                with open(manifest_path, 'r', encoding='utf-8') as f:
+                with open(manifest_path, "r", encoding="utf-8") as f:
                     manifest = yaml.safe_load(f)
 
-                capability_code = manifest.get('code')
+                capability_code = manifest.get("code")
                 if not capability_code:
-                    logger.warning(f"Manifest in {capability_dir.name} missing 'code' field, skipping")
+                    logger.warning(
+                        f"Manifest in {capability_dir.name} missing 'code' field, skipping"
+                    )
                     continue
 
                 logger.info(f"Loading capability pack: {capability_code}")
@@ -226,19 +307,20 @@ class PlaybookRegistry:
                 if capability_code not in self.capability_playbooks:
                     self.capability_playbooks[capability_code] = {}
 
-                playbooks_config = manifest.get('playbooks', [])
+                playbooks_config = manifest.get("playbooks", [])
                 for playbook_config in playbooks_config:
-                    playbook_code = playbook_config.get('code')
+                    playbook_code = playbook_config.get("code")
                     if not playbook_code:
                         continue
 
-                    locales = playbook_config.get('locales', ['zh-TW', 'en'])
-                    path_template = playbook_config.get('path', 'playbooks/{locale}/{code}.md')
+                    locales = playbook_config.get("locales", ["zh-TW", "en"])
+                    path_template = playbook_config.get(
+                        "path", "playbooks/{locale}/{code}.md"
+                    )
 
                     for locale in locales:
                         playbook_path = capability_dir / path_template.format(
-                            locale=locale,
-                            code=playbook_code
+                            locale=locale, code=playbook_code
                         )
 
                         if not playbook_path.exists():
@@ -246,33 +328,126 @@ class PlaybookRegistry:
                             continue
 
                         try:
-                            playbook = PlaybookFileLoader.load_playbook_from_file(playbook_path)
+                            playbook = PlaybookFileLoader.load_playbook_from_file(
+                                playbook_path
+                            )
                             if playbook:
                                 playbook.metadata.locale = locale
                                 playbook.metadata.capability_code = capability_code
+                                playbook.metadata.owner_type = PlaybookOwnerType.SYSTEM
+                                playbook.metadata.owner_id = "system"
+                                playbook.metadata.visibility = (
+                                    PlaybookVisibility.WORKSPACE_SHARED
+                                )
+
+                                # Enrich metadata from JSON spec if available
+                                self._enrich_playbook_metadata(
+                                    playbook, capability_dir, playbook_code, locale
+                                )
+
                                 full_code = f"{capability_code}.{playbook_code}"
                                 # Store with locale-specific key to avoid overwriting
                                 locale_key = f"{playbook_code}:{locale}"
-                                self.capability_playbooks[capability_code][full_code] = playbook
-                                self.capability_playbooks[capability_code][locale_key] = playbook
+                                self.capability_playbooks[capability_code][
+                                    full_code
+                                ] = playbook
+                                self.capability_playbooks[capability_code][
+                                    locale_key
+                                ] = playbook
                                 # Also store without locale for backward compatibility (prefer zh-TW, then en, then any)
-                                if playbook_code not in self.capability_playbooks[capability_code]:
-                                    self.capability_playbooks[capability_code][playbook_code] = playbook
+                                if (
+                                    playbook_code
+                                    not in self.capability_playbooks[capability_code]
+                                ):
+                                    self.capability_playbooks[capability_code][
+                                        playbook_code
+                                    ] = playbook
                                 else:
                                     # Prefer zh-TW > en > others
-                                    existing = self.capability_playbooks[capability_code][playbook_code]
+                                    existing = self.capability_playbooks[
+                                        capability_code
+                                    ][playbook_code]
                                     existing_locale = existing.metadata.locale
-                                    locale_priority = {'zh-TW': 3, 'en': 2, 'ja': 1}
-                                    if locale_priority.get(locale, 0) > locale_priority.get(existing_locale, 0):
-                                        self.capability_playbooks[capability_code][playbook_code] = playbook
-                                logger.debug(f"Loaded capability playbook: {full_code} ({locale}) from {capability_code}")
+                                    locale_priority = {"zh-TW": 3, "en": 2, "ja": 1}
+                                    if locale_priority.get(
+                                        locale, 0
+                                    ) > locale_priority.get(existing_locale, 0):
+                                        self.capability_playbooks[capability_code][
+                                            playbook_code
+                                        ] = playbook
+                                logger.debug(
+                                    f"Loaded capability playbook: {full_code} ({locale}) from {capability_code}"
+                                )
                         except Exception as e:
-                            logger.warning(f"Failed to load playbook {playbook_code} ({locale}) from {capability_code}: {e}")
+                            logger.warning(
+                                f"Failed to load playbook {playbook_code} ({locale}) from {capability_code}: {e}"
+                            )
 
-                logger.info(f"Loaded {len(self.capability_playbooks[capability_code])} playbooks from {capability_code}")
+                logger.info(
+                    f"Loaded {len(self.capability_playbooks[capability_code])} playbooks from {capability_code}"
+                )
 
             except Exception as e:
-                logger.warning(f"Failed to load capability pack from {capability_dir.name}: {e}", exc_info=True)
+                logger.warning(
+                    f"Failed to load capability pack from {capability_dir.name}: {e}",
+                    exc_info=True,
+                )
+
+    def _enrich_playbook_metadata(
+        self, playbook, capability_dir: Path, playbook_code: str, locale: str
+    ):
+        """Try to enrich playbook metadata from coordinate JSON spec file"""
+        import json
+
+        possible_json_paths = [
+            capability_dir / "playbooks" / "specs" / f"{playbook_code}.json",
+            capability_dir / "playbooks" / f"{playbook_code}.json",
+            capability_dir / "specs" / f"{playbook_code}.json",  # For system playbooks
+            capability_dir / f"{playbook_code}.json",  # For system playbooks
+        ]
+
+        for json_path in possible_json_paths:
+            if json_path.exists():
+                try:
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        spec = json.load(f)
+
+                    # Extract display name for the locale
+                    display_names = spec.get("display_name", {})
+                    if isinstance(display_names, dict):
+                        # Try current locale, then fallback to en, then first available
+                        name = (
+                            display_names.get(locale)
+                            or display_names.get("en")
+                            or next(iter(display_names.values()))
+                            if display_names
+                            else None
+                        )
+                        if name:
+                            playbook.metadata.name = name
+
+                    # Extract description
+                    description = spec.get("description")
+                    if description:
+                        # If description is localized (dict), handle it similarly
+                        if isinstance(description, dict):
+                            description = (
+                                description.get(locale)
+                                or description.get("en")
+                                or next(iter(description.values()))
+                                if description
+                                else None
+                            )
+
+                        if description:
+                            playbook.metadata.description = description
+
+                    logger.debug(
+                        f"Enriched metadata for {playbook_code} from {json_path.name}"
+                    )
+                    return
+                except Exception as e:
+                    logger.debug(f"Failed to enrich metadata from {json_path}: {e}")
 
     def _load_user_playbooks(self):
         """Load user-defined playbooks from database"""
@@ -281,7 +456,7 @@ class PlaybookRegistry:
 
         try:
             # Get database path from store
-            db_path = self.store.db_path if hasattr(self.store, 'db_path') else None
+            db_path = self.store.db_path if hasattr(self.store, "db_path") else None
             if not db_path:
                 logger.warning("Cannot load user playbooks: store has no db_path")
                 return
@@ -299,9 +474,13 @@ class PlaybookRegistry:
                 locale = playbook.metadata.locale
 
                 self.user_playbooks[workspace_key][playbook_code] = playbook
-                logger.debug(f"Loaded user playbook: {playbook_code} (locale: {locale})")
+                logger.debug(
+                    f"Loaded user playbook: {playbook_code} (locale: {locale})"
+                )
 
-            logger.info(f"Loaded {sum(len(pbs) for pbs in self.user_playbooks.values())} user playbooks from database")
+            logger.info(
+                f"Loaded {sum(len(pbs) for pbs in self.user_playbooks.values())} user playbooks from database"
+            )
         except Exception as e:
             logger.warning(f"Failed to load user playbooks: {e}", exc_info=True)
 
@@ -310,7 +489,7 @@ class PlaybookRegistry:
         playbook_code: str,
         locale: str = "zh-TW",
         workspace_id: Optional[str] = None,
-        capability_code: Optional[str] = None
+        capability_code: Optional[str] = None,
     ) -> Optional[Playbook]:
         """
         Unified lookup interface
@@ -345,24 +524,36 @@ class PlaybookRegistry:
                     if not capability_code:
                         capability_code = potential_capability_code
                         playbook_code = actual_playbook_code
-                        logger.debug(f"Extracted capability_code={capability_code}, playbook_code={playbook_code} from combined code")
+                        logger.debug(
+                            f"Extracted capability_code={capability_code}, playbook_code={playbook_code} from combined code"
+                        )
                     elif capability_code == potential_capability_code:
                         # Capability code matches, use the extracted playbook_code
                         playbook_code = actual_playbook_code
-                        logger.debug(f"Extracted playbook_code={playbook_code} from combined code (capability_code already provided)")
+                        logger.debug(
+                            f"Extracted playbook_code={playbook_code} from combined code (capability_code already provided)"
+                        )
                     else:
                         # Capability code mismatch, keep original playbook_code
-                        logger.debug(f"Capability code mismatch: provided={capability_code}, extracted={potential_capability_code}, keeping original playbook_code")
+                        logger.debug(
+                            f"Capability code mismatch: provided={capability_code}, extracted={potential_capability_code}, keeping original playbook_code"
+                        )
 
-        logger.debug(f"PlaybookRegistry.get_playbook: code={playbook_code}, locale={locale}, workspace_id={workspace_id}, capability_code={capability_code}")
+        logger.debug(
+            f"PlaybookRegistry.get_playbook: code={playbook_code}, locale={locale}, workspace_id={workspace_id}, capability_code={capability_code}"
+        )
         logger.debug(f"Available system locales: {list(self.system_playbooks.keys())}")
-        logger.debug(f"Available capability packs: {list(self.capability_playbooks.keys())}")
+        logger.debug(
+            f"Available capability packs: {list(self.capability_playbooks.keys())}"
+        )
         logger.debug(f"Available user workspaces: {list(self.user_playbooks.keys())}")
 
         # 1. Check user playbooks
         if workspace_id and workspace_id in self.user_playbooks:
             if playbook_code in self.user_playbooks[workspace_id]:
-                logger.debug(f"Found playbook {playbook_code} in user playbooks for workspace {workspace_id}")
+                logger.debug(
+                    f"Found playbook {playbook_code} in user playbooks for workspace {workspace_id}"
+                )
                 return self.user_playbooks[workspace_id][playbook_code]
 
         # 2. Check local capability playbooks
@@ -371,7 +562,9 @@ class PlaybookRegistry:
             # First try locale-specific key
             locale_key = f"{playbook_code}:{locale}"
             if locale_key in self.capability_playbooks[capability_code]:
-                logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {capability_code}")
+                logger.debug(
+                    f"Found playbook {playbook_code} ({locale}) in capability {capability_code}"
+                )
                 return self.capability_playbooks[capability_code][locale_key]
             # Then try full_code
             full_code = f"{capability_code}.{playbook_code}"
@@ -379,43 +572,59 @@ class PlaybookRegistry:
                 found_playbook = self.capability_playbooks[capability_code][full_code]
                 # Check if locale matches
                 if found_playbook.metadata.locale == locale:
-                    logger.debug(f"Found playbook {full_code} ({locale}) in capability {capability_code}")
+                    logger.debug(
+                        f"Found playbook {full_code} ({locale}) in capability {capability_code}"
+                    )
                     return found_playbook
             # Fallback to playbook_code without locale
             if playbook_code in self.capability_playbooks[capability_code]:
-                found_playbook = self.capability_playbooks[capability_code][playbook_code]
+                found_playbook = self.capability_playbooks[capability_code][
+                    playbook_code
+                ]
                 # Check if locale matches
                 if found_playbook.metadata.locale == locale:
-                    logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {capability_code}")
+                    logger.debug(
+                        f"Found playbook {playbook_code} ({locale}) in capability {capability_code}"
+                    )
                     return found_playbook
         # Otherwise, check all capabilities
         for cap_code, playbooks in self.capability_playbooks.items():
             # Try locale-specific key first
             locale_key = f"{playbook_code}:{locale}"
             if locale_key in playbooks:
-                logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {cap_code}")
+                logger.debug(
+                    f"Found playbook {playbook_code} ({locale}) in capability {cap_code}"
+                )
                 return playbooks[locale_key]
             # Then try full_code
             full_code = f"{cap_code}.{playbook_code}"
             if full_code in playbooks:
                 found_playbook = playbooks[full_code]
                 if found_playbook.metadata.locale == locale:
-                    logger.debug(f"Found playbook {full_code} ({locale}) in capability {cap_code}")
+                    logger.debug(
+                        f"Found playbook {full_code} ({locale}) in capability {cap_code}"
+                    )
                     return found_playbook
             # Fallback to playbook_code
             if playbook_code in playbooks:
                 found_playbook = playbooks[playbook_code]
                 if found_playbook.metadata.locale == locale:
-                    logger.debug(f"Found playbook {playbook_code} ({locale}) in capability {cap_code}")
+                    logger.debug(
+                        f"Found playbook {playbook_code} ({locale}) in capability {cap_code}"
+                    )
                     return found_playbook
 
         # 3. Check system playbooks
         if locale in self.system_playbooks:
             if playbook_code in self.system_playbooks[locale]:
-                logger.debug(f"Found playbook {playbook_code} in system playbooks for locale {locale}")
+                logger.debug(
+                    f"Found playbook {playbook_code} in system playbooks for locale {locale}"
+                )
                 return self.system_playbooks[locale][playbook_code]
             else:
-                logger.debug(f"Playbook {playbook_code} not found in system playbooks for locale {locale}, available codes: {list(self.system_playbooks[locale].keys())}")
+                logger.debug(
+                    f"Playbook {playbook_code} not found in system playbooks for locale {locale}, available codes: {list(self.system_playbooks[locale].keys())}"
+                )
         else:
             logger.debug(f"Locale {locale} not found in system playbooks")
 
@@ -423,8 +632,10 @@ class PlaybookRegistry:
         if capability_code and self.cloud_extension_manager:
             # Try to get playbook from any configured provider
             try:
-                playbook_data = await self.cloud_extension_manager.get_playbook_from_any_provider(
-                    capability_code, playbook_code, locale
+                playbook_data = (
+                    await self.cloud_extension_manager.get_playbook_from_any_provider(
+                        capability_code, playbook_code, locale
+                    )
                 )
 
                 if playbook_data:
@@ -432,9 +643,7 @@ class PlaybookRegistry:
                     content = playbook_data.get("content")
                     if content:
                         playbook = PlaybookFileLoader.load_playbook_from_content(
-                            content,
-                            playbook_code=playbook_code,
-                            locale=locale
+                            content, playbook_code=playbook_code, locale=locale
                         )
 
                         if playbook:
@@ -443,12 +652,18 @@ class PlaybookRegistry:
                             provider_id = playbook_data.get("provider_id", "unknown")
                             cache_key = f"{provider_id}:{capability_code}:{playbook_code}:{locale}"
                             self.cloud_playbooks[cache_key] = playbook
-                            logger.info(f"Loaded cloud playbook: {capability_code}.{playbook_code} ({locale}) from {provider_id}")
+                            logger.info(
+                                f"Loaded cloud playbook: {capability_code}.{playbook_code} ({locale}) from {provider_id}"
+                            )
                             return playbook
             except Exception as e:
-                logger.warning(f"Failed to load cloud playbook {capability_code}.{playbook_code}: {e}")
+                logger.warning(
+                    f"Failed to load cloud playbook {capability_code}.{playbook_code}: {e}"
+                )
 
-        logger.warning(f"Playbook {playbook_code} not found (locale={locale}, workspace_id={workspace_id}, capability_code={capability_code})")
+        logger.warning(
+            f"Playbook {playbook_code} not found (locale={locale}, workspace_id={workspace_id}, capability_code={capability_code})"
+        )
         return None
 
     async def list_playbooks(
@@ -457,7 +672,7 @@ class PlaybookRegistry:
         locale: Optional[str] = None,
         category: Optional[str] = None,
         source: Optional[PlaybookSource] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
     ) -> List[PlaybookMetadata]:
         """
         List all available playbooks with filtering
@@ -474,35 +689,56 @@ class PlaybookRegistry:
         """
         await self._ensure_loaded()
 
-        playbooks: List[PlaybookMetadata] = []
-        locales_to_check = [locale] if locale else ['zh-TW', 'en', 'ja']
+        playbooks_map: Dict[str, PlaybookMetadata] = {}
+        locales_to_check = [locale] if locale else ["zh-TW", "en", "ja"]
 
+        # 1. Capability Playbooks FIRST (they have enriched descriptions from JSON specs)
+        if (
+            not source
+            or source == PlaybookSource.CAPABILITY
+            or source == PlaybookSource.SYSTEM
+        ):
+            for playbooks_dict in self.capability_playbooks.values():
+                for playbook in playbooks_dict.values():
+                    if self._matches_filters(playbook, category, tags):
+                        # Filter by requested locale if necessary
+                        if locale and playbook.metadata.locale != locale:
+                            continue
+
+                        key = f"{playbook.metadata.playbook_code}:{playbook.metadata.locale}"
+                        if key not in playbooks_map:
+                            playbooks_map[key] = playbook.metadata
+
+        # 2. System Playbooks (from i18n dir, may have less metadata)
+        # Only add if not already loaded from capability packs
         if not source or source == PlaybookSource.SYSTEM:
             for loc in locales_to_check:
                 if loc in self.system_playbooks:
                     for playbook in self.system_playbooks[loc].values():
                         if self._matches_filters(playbook, category, tags):
-                            playbooks.append(playbook.metadata)
+                            # Dedupe by playbook_code and locale
+                            key = f"{playbook.metadata.playbook_code}:{playbook.metadata.locale}"
+                            if key not in playbooks_map:
+                                playbooks_map[key] = playbook.metadata
 
-        if not source or source == PlaybookSource.CAPABILITY:
-            for playbooks_dict in self.capability_playbooks.values():
-                for playbook in playbooks_dict.values():
-                    if self._matches_filters(playbook, category, tags):
-                        playbooks.append(playbook.metadata)
-
+        # 3. User Playbooks
         if not source or source == PlaybookSource.USER:
             if workspace_id and workspace_id in self.user_playbooks:
                 for playbook in self.user_playbooks[workspace_id].values():
                     if self._matches_filters(playbook, category, tags):
-                        playbooks.append(playbook.metadata)
+                        if locale and playbook.metadata.locale != locale:
+                            continue
+                        key = f"{playbook.metadata.playbook_code}:{playbook.metadata.locale}"
+                        if key not in playbooks_map:
+                            playbooks_map[key] = playbook.metadata
 
-        return playbooks
+        return list(playbooks_map.values())
 
     def _matches_filters(
         self,
         playbook: Playbook,
         category: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
     ) -> bool:
         """Check if playbook matches the given filters"""
         if category:
@@ -515,7 +751,9 @@ class PlaybookRegistry:
 
         return True
 
-    def invalidate_cache(self, playbook_code: Optional[str] = None, locale: Optional[str] = None):
+    def invalidate_cache(
+        self, playbook_code: Optional[str] = None, locale: Optional[str] = None
+    ):
         """
         Invalidate playbook cache
 
@@ -526,15 +764,22 @@ class PlaybookRegistry:
         if playbook_code:
             # Invalidate specific playbook
             if locale:
-                if locale in self.system_playbooks and playbook_code in self.system_playbooks[locale]:
+                if (
+                    locale in self.system_playbooks
+                    and playbook_code in self.system_playbooks[locale]
+                ):
                     del self.system_playbooks[locale][playbook_code]
-                    logger.info(f"Invalidated cache for playbook {playbook_code} (locale: {locale})")
+                    logger.info(
+                        f"Invalidated cache for playbook {playbook_code} (locale: {locale})"
+                    )
             else:
                 # Invalidate for all locales
                 for loc in self.system_playbooks:
                     if playbook_code in self.system_playbooks[loc]:
                         del self.system_playbooks[loc][playbook_code]
-                logger.info(f"Invalidated cache for playbook {playbook_code} (all locales)")
+                logger.info(
+                    f"Invalidated cache for playbook {playbook_code} (all locales)"
+                )
         else:
             # Invalidate all caches
             self._loaded = False
@@ -564,8 +809,8 @@ class PlaybookRegistry:
                 self.system_playbooks[locale] = {}
 
             # Find and reload the playbook file
-            for md_file in locale_dir.glob('*.md'):
-                if md_file.name == 'README.md':
+            for md_file in locale_dir.glob("*.md"):
+                if md_file.name == "README.md":
                     continue
 
                 try:
@@ -581,3 +826,17 @@ class PlaybookRegistry:
         logger.warning(f"Failed to reload playbook {playbook_code} (locale: {locale})")
         return False
 
+
+# Global singleton instance
+_playbook_registry_instance: Optional["PlaybookRegistry"] = None
+
+
+def get_playbook_registry() -> "PlaybookRegistry":
+    """
+    Get global singleton instance of PlaybookRegistry
+    This ensures we only load/scan playbooks once per process
+    """
+    global _playbook_registry_instance
+    if _playbook_registry_instance is None:
+        _playbook_registry_instance = PlaybookRegistry()
+    return _playbook_registry_instance

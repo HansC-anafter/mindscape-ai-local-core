@@ -10,11 +10,12 @@ import logging
 from typing import Optional, List, Dict, Any
 from backend.app.models.project import ProjectSuggestion
 from backend.app.models.workspace import Workspace
-from backend.app.services.agent_runner import LLMProviderManager
+
+# from backend.app.services.agent_runner import LLMProviderManager  # Moved to inside detect to avoid circular import
 from backend.app.shared.llm_provider_helper import (
     get_llm_provider_from_settings,
     create_llm_provider_manager,
-    get_model_name_from_chat_model
+    get_model_name_from_chat_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,13 @@ class ProjectDetector:
         """
         self.llm_provider = llm_provider
         if llm_provider is None:
+            # Import here to avoid circular dependencies
+            from backend.app.services.agent_runner import LLMProviderManager
+            from backend.app.shared.llm_provider_helper import (
+                get_llm_provider_from_settings,
+                create_llm_provider_manager,
+            )
+
             llm_manager = create_llm_provider_manager()
             self.llm_provider = get_llm_provider_from_settings(llm_manager)
 
@@ -44,7 +52,8 @@ class ProjectDetector:
         self,
         message: str,
         conversation_context: List[Dict[str, str]],
-        workspace: Workspace
+        workspace: Workspace,
+        available_playbooks: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[ProjectSuggestion]:
         """
         Detect if message suggests creating a Project
@@ -61,6 +70,16 @@ class ProjectDetector:
             # Format conversation context
             context_str = self._format_conversation_context(conversation_context)
 
+            # Format available playbooks for prompt
+            playbooks_str = "No available playbooks."
+            if available_playbooks:
+                playbooks_str = "\n".join(
+                    [
+                        f"- {pb.get('playbook_code')}: {pb.get('name')} - {pb.get('description')}"
+                        for pb in available_playbooks
+                    ]
+                )
+
             # Build detection prompt
             prompt = f"""
 Analyze the following conversation and determine if a new Project should be created.
@@ -71,57 +90,133 @@ User message: {message}
 Recent conversation:
 {context_str}
 
-Determine:
-1. mode: One of:
-   - "quick_task": Simple query that can be handled quickly without a project
-   - "micro_flow": Small task sequence that doesn't require full project setup
-   - "project": Requires creating a dedicated project with its own sandbox and flow
+## Available Playbooks (Capabilities):
+{playbooks_str}
 
-2. If mode is "project", provide:
-   - project_type: A descriptive project type identifier appropriate for the work item (e.g., "web_page", "book", "course", "campaign", "video_series", "knowledge_base", "digital_garden", etc.)
-   - project_title: Suggested project title
-   - playbook_sequence: Array of playbook codes that should be executed for this project. Based on the project requirements, user intent, and initial_spec, suggest which playbooks are needed and in what order. Example: ["page_outline", "hero_threejs", "sections_react"] for a web page project, or ["yearly_personal_book"] for a book project.
-   - initial_spec_md: Initial specification in markdown format
-   - confidence: Confidence score (0.0-1.0)
+## Instructions:
+Determine the best way to handle this request. Choose one of the following modes:
+- "quick_task": Simple query that can be answered immediately (e.g., "What time is it?", "Hello").
+- "micro_flow": Brief task sequence that doesn't need full project setup.
+- "project": Requires a dedicated project with a flow of tasks. **Almost all complex requests like "analyze something", "generate a plan", "execute a campaign" should be projects.**
 
-Note: flow_id will be automatically generated as a unique identifier for each project. Do not suggest flow_id.
+If mode is "project", provide:
+1. `project_type`: Use a descriptive ID (e.g., "market_analysis", "content_generation", "ig_analysis").
+2. `project_title`: A concise name for the project.
+3. `playbook_sequence`: An array of playbook codes from the "Available Playbooks" list above that should be executed. **If the user's request matches any available playbook capability, INCLUDE IT in the sequence.**
+4. `initial_spec_md`: Initial specification in markdown format.
+5. `confidence`: Your confidence (0.0-1.0).
 
-Note: project_type should be descriptive and appropriate for the work item. Use any type that best matches the user's intent.
+## Rules:
+- **playbook_sequence MUST ONLY contain codes from the "Available Playbooks" list.**
+- If no playbook matches, set `playbook_sequence` to an empty list `[]`, but keep mode as "project" if it's a complex multi-step request.
+- Respond in {workspace.default_locale or 'zh-TW'}.
 
 Respond in JSON format:
 {{
     "mode": "quick_task|micro_flow|project",
-    "project_type": "descriptive_project_type",
-    "project_title": "Project title",
-    "playbook_sequence": ["playbook_code1", "playbook_code2", ...],
-    "initial_spec_md": "Markdown specification",
+    "project_type": "string",
+    "project_title": "string",
+    "playbook_sequence": ["code1", "code2", ...],
+    "initial_spec_md": "string",
     "confidence": 0.0-1.0
 }}
 """
+
+            # Evidence Logging
+            try:
+                log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n==== DETECT EVIDENCE {datetime.utcnow()} ====\n")
+                    f.write(f"Workspace: {workspace.id}\n")
+                    f.write(
+                        f"Available Playbooks: {len(available_playbooks) if available_playbooks else 0}\n"
+                    )
+                    f.write(f"Prompt:\n{prompt}\n")
+                    f.write("==========================================\n")
+            except Exception:
+                pass
 
             # Call LLM
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a project detection assistant. Analyze conversations to determine if a new project should be created. Return only valid JSON."
+                    "content": "You are a project detection assistant. Analyze conversations to determine if a new project should be created. Return only valid JSON.",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "user", "content": prompt},
             ]
 
             # Get model name from system settings
             model_name = get_model_name_from_chat_model() or "gemini-pro"
-            response = await self.llm_provider.chat_completion(messages, model=model_name)
-            result_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Evidence Logging
+            try:
+                from datetime import datetime
+
+                log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n==== DETECT LLM CALL START {datetime.utcnow()} ====\n")
+                    f.write(f"Model: {model_name}\n")
+                    f.write("==========================================\n")
+            except Exception:
+                pass
+
+            response = await self.llm_provider.chat_completion(
+                messages, model=model_name
+            )
+
+            # Evidence Logging
+            try:
+                from datetime import datetime
+
+                log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(
+                        f"\n==== DETECT LLM CALL SUCCESS {datetime.utcnow()} ====\n"
+                    )
+                    f.write("==========================================\n")
+            except Exception:
+                pass
+
+            result_text = (
+                response.content if hasattr(response, "content") else str(response)
+            )
 
             # Parse response
             suggestion = self._parse_response(result_text)
+
+            # Evidence Logging
+            try:
+                from datetime import datetime
+
+                log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n==== DETECT RESPONSE {datetime.utcnow()} ====\n")
+                    f.write(f"Response:\n{result_text}\n")
+                    f.write(
+                        f"Parsed Mode: {suggestion.mode if suggestion else 'None'}\n"
+                    )
+                    f.write(
+                        f"Parsed Sequence: {suggestion.playbook_sequence if suggestion else '[]'}\n"
+                    )
+                    f.write("==========================================\n")
+            except Exception:
+                pass
+
             return suggestion
 
         except Exception as e:
             logger.error(f"Project detection failed: {e}", exc_info=True)
+            # Evidence Logging
+            try:
+                from datetime import datetime
+
+                log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n==== DETECT EXCEPTION {datetime.utcnow()} ====\n")
+                    f.write(f"Error: {str(e)}\n")
+                    f.write("==========================================\n")
+            except Exception:
+                pass
             return None
 
     def _format_conversation_context(self, context: List[Dict[str, str]]) -> str:
@@ -142,7 +237,7 @@ Respond in JSON format:
         self,
         suggested_project: ProjectSuggestion,
         existing_projects: List[Any],
-        workspace: Workspace
+        workspace: Workspace,
     ) -> Optional[Any]:
         """
         Use LLM to check if suggested project is a duplicate of existing projects
@@ -160,10 +255,12 @@ Respond in JSON format:
 
         try:
             # Format existing projects for LLM
-            existing_projects_str = "\n".join([
-                f"- {p.title} (type: {p.type}, id: {p.id})"
-                for p in existing_projects[:10]  # Limit to 10 for context
-            ])
+            existing_projects_str = "\n".join(
+                [
+                    f"- {p.title} (type: {p.type}, id: {p.id})"
+                    for p in existing_projects[:10]  # Limit to 10 for context
+                ]
+            )
 
             prompt = f"""
 Analyze if the suggested project is a duplicate of any existing project.
@@ -193,17 +290,18 @@ Respond in JSON format:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a project duplicate detection assistant. Analyze if a suggested project is a duplicate of existing projects. Return only valid JSON."
+                    "content": "You are a project duplicate detection assistant. Analyze if a suggested project is a duplicate of existing projects. Return only valid JSON.",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "user", "content": prompt},
             ]
 
             model_name = get_model_name_from_chat_model() or "gemini-pro"
-            response = await self.llm_provider.chat_completion(messages, model=model_name)
-            result_text = response.content if hasattr(response, 'content') else str(response)
+            response = await self.llm_provider.chat_completion(
+                messages, model=model_name
+            )
+            result_text = (
+                response.content if hasattr(response, "content") else str(response)
+            )
 
             # Parse response
             text = result_text.strip()
@@ -223,9 +321,13 @@ Respond in JSON format:
                 # Find the project in existing_projects
                 for p in existing_projects:
                     if p.id == project_id:
-                        logger.info(f"LLM detected duplicate project: {project_id} - {data.get('reasoning', '')}")
+                        logger.info(
+                            f"LLM detected duplicate project: {project_id} - {data.get('reasoning', '')}"
+                        )
                         return p
-                logger.warning(f"LLM returned duplicate_project_id {project_id} but project not found in existing_projects")
+                logger.warning(
+                    f"LLM returned duplicate_project_id {project_id} but project not found in existing_projects"
+                )
 
             return None
 
@@ -269,10 +371,9 @@ Respond in JSON format:
                 project_title=data.get("project_title"),
                 playbook_sequence=playbook_sequence,
                 initial_spec_md=data.get("initial_spec_md"),
-                confidence=data.get("confidence", 0.0)
+                confidence=data.get("confidence", 0.0),
             )
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning(f"Failed to parse project detection response: {e}")
             return None
-

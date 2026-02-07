@@ -1,267 +1,235 @@
 """
 Model Config Store
 
-Manages model provider and model configuration storage in SQLite database.
+Manages model provider and model configuration storage in PostgreSQL.
 """
 
 import json
-import sqlite3
-from typing import Optional, Dict, Any, List
-from pathlib import Path
+from typing import Optional, List
 from datetime import datetime
 import logging
 
-from backend.app.models.model_provider import ModelConfig, ModelProviderConfig, ModelType
+from sqlalchemy import text
+
+from backend.app.models.model_provider import ModelConfig, ModelType
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
 
 
-class ModelConfigStore:
-    """SQLite-based model configuration store"""
+class ModelConfigStore(PostgresStoreBase):
+    """PostgreSQL-based model configuration store"""
 
     def __init__(self, db_path: Optional[str] = None):
-        """
-        Initialize model config store
-
-        Args:
-            db_path: Path to SQLite database (default: ./data/mindscape.db)
-        """
-        if db_path is None:
-            db_path = Path("./data/mindscape.db")
-        else:
-            db_path = Path(db_path)
-
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        """Initialize model_providers and model_configs tables"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Create model_providers table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS model_providers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                provider_name TEXT NOT NULL UNIQUE,
-                api_key_setting_key TEXT NOT NULL,
-                base_url TEXT,
-                enabled BOOLEAN DEFAULT 1,
-                metadata TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        super().__init__()
+        if db_path is not None:
+            logger.warning("ModelConfigStore ignores db_path in Postgres-only mode.")
+        if self.factory.get_db_type(self.db_role) != "postgres":
+            raise RuntimeError(
+                "SQLite is no longer supported for ModelConfigStore. Configure PostgreSQL."
             )
-        """)
+        self._ensure_schema()
 
-        # Create model_configs table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS model_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                model_name TEXT NOT NULL,
-                provider_name TEXT NOT NULL,
-                model_type TEXT NOT NULL,
-                display_name TEXT NOT NULL,
-                description TEXT,
-                enabled BOOLEAN DEFAULT 0,
-                is_latest BOOLEAN DEFAULT 0,
-                is_recommended BOOLEAN DEFAULT 0,
-                is_deprecated BOOLEAN DEFAULT 0,
-                deprecation_date TEXT,
-                dimensions INTEGER,
-                context_window INTEGER,
-                icon TEXT,
-                metadata TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(model_name, provider_name, model_type)
+    def _ensure_schema(self):
+        """Ensure model_providers/model_configs tables exist (managed by Alembic)."""
+        with self.get_connection() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public' AND table_name IN ('model_providers', 'model_configs')"
+                )
             )
-        """)
+            existing = {row[0] for row in result.fetchall()}
 
-        conn.commit()
-        conn.close()
+        missing = {"model_providers", "model_configs"} - existing
+        if missing:
+            missing_list = ", ".join(sorted(missing))
+            raise RuntimeError(
+                f"Missing PostgreSQL tables: {missing_list}. "
+                "Run: alembic -c backend/alembic.ini upgrade head"
+            )
 
     def get_all_models(
         self,
         model_type: Optional[ModelType] = None,
         enabled: Optional[bool] = None,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
     ) -> List[ModelConfig]:
-        """
-        Get all models with optional filters
-
-        Args:
-            model_type: Filter by model type (chat or embedding)
-            enabled: Filter by enabled status
-            provider: Filter by provider name
-
-        Returns:
-            List of ModelConfig objects
-        """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
         query = "SELECT * FROM model_configs WHERE 1=1"
-        params = []
+        params = {}
 
         if model_type:
-            query += " AND model_type = ?"
-            params.append(model_type.value)
+            query += " AND model_type = :model_type"
+            params["model_type"] = model_type.value
 
         if enabled is not None:
-            query += " AND enabled = ?"
-            params.append(1 if enabled else 0)
+            query += " AND enabled = :enabled"
+            params["enabled"] = enabled
 
         if provider:
-            query += " AND provider_name = ?"
-            params.append(provider)
+            query += " AND provider_name = :provider"
+            params["provider"] = provider
 
         query += " ORDER BY provider_name, model_type, is_latest DESC, model_name"
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
+        with self.get_connection() as conn:
+            rows = conn.execute(text(query), params).mappings().fetchall()
 
-        models = []
-        for row in rows:
-            model = self._row_to_model(row)
-            models.append(model)
-
-        return models
+        return [self._row_to_model(row) for row in rows]
 
     def get_model_by_id(self, model_id: int) -> Optional[ModelConfig]:
-        """Get model by ID"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT * FROM model_configs WHERE id = ?", (model_id,))
-        row = cursor.fetchone()
-        conn.close()
-
-        if row:
-            return self._row_to_model(row)
-        return None
+        with self.get_connection() as conn:
+            row = (
+                conn.execute(
+                    text("SELECT * FROM model_configs WHERE id = :id"),
+                    {"id": model_id},
+                )
+                .mappings()
+                .fetchone()
+            )
+        return self._row_to_model(row) if row else None
 
     def get_model_by_name_and_provider(
-        self,
-        model_name: str,
-        provider_name: str,
-        model_type: ModelType
+        self, model_name: str, provider_name: str, model_type: ModelType
     ) -> Optional[ModelConfig]:
-        """Get model by name, provider, and type"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT * FROM model_configs WHERE model_name = ? AND provider_name = ? AND model_type = ?",
-            (model_name, provider_name, model_type.value)
-        )
-        row = cursor.fetchone()
-        conn.close()
-
-        if row:
-            return self._row_to_model(row)
-        return None
+        with self.get_connection() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT * FROM model_configs
+                    WHERE model_name = :model_name
+                      AND provider_name = :provider_name
+                      AND model_type = :model_type
+                    """
+                    ),
+                    {
+                        "model_name": model_name,
+                        "provider_name": provider_name,
+                        "model_type": model_type.value,
+                    },
+                )
+                .mappings()
+                .fetchone()
+            )
+        return self._row_to_model(row) if row else None
 
     def create_or_update_model(self, model: ModelConfig) -> ModelConfig:
-        """Create or update a model configuration"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         metadata_json = json.dumps(model.metadata) if model.metadata else "{}"
 
-        if model.id:
-            cursor.execute("""
-                UPDATE model_configs SET
-                    model_name = ?,
-                    provider_name = ?,
-                    model_type = ?,
-                    display_name = ?,
-                    description = ?,
-                    enabled = ?,
-                    is_latest = ?,
-                    is_recommended = ?,
-                    is_deprecated = ?,
-                    deprecation_date = ?,
-                    dimensions = ?,
-                    context_window = ?,
-                    icon = ?,
-                    metadata = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (
-                model.model_name,
-                model.provider_name,
-                model.model_type.value,
-                model.display_name,
-                model.description,
-                1 if model.enabled else 0,
-                1 if model.is_latest else 0,
-                1 if model.is_recommended else 0,
-                1 if model.is_deprecated else 0,
-                model.deprecation_date,
-                model.dimensions,
-                model.context_window,
-                model.icon,
-                metadata_json,
-                model.id
-            ))
-        else:
-            cursor.execute("""
-                INSERT INTO model_configs (
-                    model_name, provider_name, model_type, display_name, description,
-                    enabled, is_latest, is_recommended, is_deprecated, deprecation_date,
-                    dimensions, context_window, icon, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                model.model_name,
-                model.provider_name,
-                model.model_type.value,
-                model.display_name,
-                model.description,
-                1 if model.enabled else 0,
-                1 if model.is_latest else 0,
-                1 if model.is_recommended else 0,
-                1 if model.is_deprecated else 0,
-                model.deprecation_date,
-                model.dimensions,
-                model.context_window,
-                model.icon,
-                metadata_json
-            ))
-            model.id = cursor.lastrowid
+        with self.transaction() as conn:
+            if model.id:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE model_configs SET
+                            model_name = :model_name,
+                            provider_name = :provider_name,
+                            model_type = :model_type,
+                            display_name = :display_name,
+                            description = :description,
+                            enabled = :enabled,
+                            is_latest = :is_latest,
+                            is_recommended = :is_recommended,
+                            is_deprecated = :is_deprecated,
+                            deprecation_date = :deprecation_date,
+                            dimensions = :dimensions,
+                            context_window = :context_window,
+                            icon = :icon,
+                            metadata = :metadata,
+                            updated_at = :updated_at
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "id": model.id,
+                        "model_name": model.model_name,
+                        "provider_name": model.provider_name,
+                        "model_type": model.model_type.value,
+                        "display_name": model.display_name,
+                        "description": model.description,
+                        "enabled": model.enabled,
+                        "is_latest": model.is_latest,
+                        "is_recommended": model.is_recommended,
+                        "is_deprecated": model.is_deprecated,
+                        "deprecation_date": model.deprecation_date,
+                        "dimensions": model.dimensions,
+                        "context_window": model.context_window,
+                        "icon": model.icon,
+                        "metadata": metadata_json,
+                        "updated_at": datetime.utcnow(),
+                    },
+                )
+                model_id = model.id
+            else:
+                row = conn.execute(
+                    text(
+                        """
+                        INSERT INTO model_configs (
+                            model_name, provider_name, model_type, display_name, description,
+                            enabled, is_latest, is_recommended, is_deprecated, deprecation_date,
+                            dimensions, context_window, icon, metadata
+                        ) VALUES (
+                            :model_name, :provider_name, :model_type, :display_name, :description,
+                            :enabled, :is_latest, :is_recommended, :is_deprecated, :deprecation_date,
+                            :dimensions, :context_window, :icon, :metadata
+                        )
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "model_name": model.model_name,
+                        "provider_name": model.provider_name,
+                        "model_type": model.model_type.value,
+                        "display_name": model.display_name,
+                        "description": model.description,
+                        "enabled": model.enabled,
+                        "is_latest": model.is_latest,
+                        "is_recommended": model.is_recommended,
+                        "is_deprecated": model.is_deprecated,
+                        "deprecation_date": model.deprecation_date,
+                        "dimensions": model.dimensions,
+                        "context_window": model.context_window,
+                        "icon": model.icon,
+                        "metadata": metadata_json,
+                    },
+                ).fetchone()
+                model_id = row[0] if row else model.id
 
-        conn.commit()
-        conn.close()
+        if model_id:
+            model.id = model_id
+        return self.get_model_by_id(model_id) or model
 
-        return self.get_model_by_id(model.id) or model
-
-    def toggle_model_enabled(self, model_id: int, enabled: bool) -> Optional[ModelConfig]:
-        """Enable or disable a model"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "UPDATE model_configs SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (1 if enabled else 0, model_id)
-        )
-
-        conn.commit()
-        conn.close()
-
+    def toggle_model_enabled(
+        self, model_id: int, enabled: bool
+    ) -> Optional[ModelConfig]:
+        with self.transaction() as conn:
+            conn.execute(
+                text(
+                    "UPDATE model_configs SET enabled = :enabled, updated_at = :updated_at WHERE id = :id"
+                ),
+                {
+                    "enabled": enabled,
+                    "updated_at": datetime.utcnow(),
+                    "id": model_id,
+                },
+            )
         return self.get_model_by_id(model_id)
 
-    def _row_to_model(self, row: sqlite3.Row) -> ModelConfig:
-        """Convert database row to ModelConfig"""
-        metadata = {}
-        if row["metadata"]:
+    def _row_to_model(self, row) -> ModelConfig:
+        metadata = self.deserialize_json(row["metadata"], default={})
+        created_at = row["created_at"]
+        updated_at = row["updated_at"]
+        if isinstance(created_at, str):
             try:
-                metadata = json.loads(row["metadata"])
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse metadata for model {row['id']}")
+                created_at = datetime.fromisoformat(created_at)
+            except ValueError:
+                created_at = None
+        if isinstance(updated_at, str):
+            try:
+                updated_at = datetime.fromisoformat(updated_at)
+            except ValueError:
+                updated_at = None
 
         return ModelConfig(
             id=row["id"],
@@ -279,15 +247,14 @@ class ModelConfigStore:
             context_window=row["context_window"],
             icon=row["icon"],
             metadata=metadata,
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
     def initialize_default_models(self):
-        """Initialize default models from hardcoded list"""
         from backend.app.routes.core.system_settings.constants import (
             DEFAULT_CHAT_MODELS,
-            DEFAULT_EMBEDDING_MODELS
+            DEFAULT_EMBEDDING_MODELS,
         )
 
         existing_models = self.get_all_models()
@@ -330,4 +297,3 @@ class ModelConfigStore:
             self.create_or_update_model(model)
 
         logger.info("Default models initialized")
-

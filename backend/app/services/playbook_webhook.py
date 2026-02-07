@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import uuid
 
+from app.database.config import get_vector_postgres_config
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.mindscape_onboarding import MindscapeOnboardingService
@@ -270,14 +271,9 @@ class PlaybookWebhookHandler:
         """Create a single seed in the database"""
         try:
             import psycopg2
-            import os
 
             postgres_config = {
-                "host": os.getenv("POSTGRES_HOST", "postgres"),
-                "port": int(os.getenv("POSTGRES_PORT", "5432")),
-                "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-                "user": os.getenv("POSTGRES_USER", "mindscape"),
-                "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+                **get_vector_postgres_config(),
             }
 
             with psycopg2.connect(**postgres_config) as conn:

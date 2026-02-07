@@ -26,6 +26,7 @@ class ProjectAssignmentResult:
     This class represents a SUGGESTION, not a final decision.
     The frontend decides whether to adopt it based on project_assignment_mode + confidence.
     """
+
     def __init__(
         self,
         project_id: Optional[str],
@@ -34,7 +35,7 @@ class ProjectAssignmentResult:
         confidence: float,
         reasoning: str,
         candidates: list,
-        assignment_mode: Optional[str] = None
+        assignment_mode: Optional[str] = None,
     ):
         self.project_id = project_id
         self.phase_id = phase_id
@@ -46,7 +47,9 @@ class ProjectAssignmentResult:
         # Calculate requires_ui_confirmation based on mode + confidence
         self.requires_ui_confirmation = False
         if assignment_mode:
-            self.requires_ui_confirmation = self.should_require_ui_confirmation(assignment_mode)
+            self.requires_ui_confirmation = self.should_require_ui_confirmation(
+                assignment_mode
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -76,17 +79,18 @@ class ProjectAssignmentResult:
             "candidates": [
                 {
                     "project_id": c.get("project_id"),
-                    "project": c.get("project").dict() if hasattr(c.get("project"), "dict") else c.get("project"),
-                    "similarity": c.get("similarity", 0.0)
+                    "project": (
+                        c.get("project").dict()
+                        if hasattr(c.get("project"), "dict")
+                        else c.get("project")
+                    ),
+                    "similarity": c.get("similarity", 0.0),
                 }
                 for c in self.candidates
-            ]
+            ],
         }
 
-    def should_require_ui_confirmation(
-        self,
-        assignment_mode: str
-    ) -> bool:
+    def should_require_ui_confirmation(self, assignment_mode: str) -> bool:
         """
         Determine if UI confirmation is needed based on mode and confidence
 
@@ -126,18 +130,14 @@ class ProjectAssignmentService:
 
         # Statistics counters
         self._stats = {
-            "relation_counts": {
-                "same_project": 0,
-                "new_project": 0,
-                "ambiguous": 0
-            },
+            "relation_counts": {"same_project": 0, "new_project": 0, "ambiguous": 0},
             "confidence_buckets": {
-                "low": 0,      # < 0.5
-                "medium": 0,   # 0.5 - 0.8
-                "high": 0      # >= 0.8
+                "low": 0,  # < 0.5
+                "medium": 0,  # 0.5 - 0.8
+                "high": 0,  # >= 0.8
             },
             "ui_overrides": 0,
-            "total_assignments": 0
+            "total_assignments": 0,
         }
 
     async def assign_project(
@@ -146,7 +146,7 @@ class ProjectAssignmentService:
         workspace_id: str,
         message_id: str,
         conversation_id: Optional[str] = None,
-        ui_selected_project_id: Optional[str] = None
+        ui_selected_project_id: Optional[str] = None,
     ) -> ProjectAssignmentResult:
         """
         Assign project for a message
@@ -162,7 +162,7 @@ class ProjectAssignmentService:
             ProjectAssignmentResult
         """
         # Get workspace to determine assignment mode
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         assignment_mode = "auto_silent"
         if workspace:
             assignment_mode_enum = getattr(workspace, "project_assignment_mode", None)
@@ -187,7 +187,7 @@ class ProjectAssignmentService:
                 confidence=1.0,
                 reasoning="User explicitly selected this project in UI",
                 candidates=[],
-                assignment_mode=assignment_mode
+                assignment_mode=assignment_mode,
             )
             self._log_statistics()
             return result
@@ -196,18 +196,20 @@ class ProjectAssignmentService:
         last_project_id = await self._get_conversation_primary_project(conversation_id)
         if last_project_id:
             # Check if project still exists and is active
-            project = await self.project_manager.get_project(last_project_id, workspace_id=workspace_id)
+            project = await self.project_manager.get_project(
+                last_project_id, workspace_id=workspace_id
+            )
             if project and project.state == "open":
-                logger.info(f"Using conversation-level bound project: {last_project_id}")
+                logger.info(
+                    f"Using conversation-level bound project: {last_project_id}"
+                )
                 # Still run LLM to check if user wants to switch, but bias towards same project
                 pass
 
         # Decision 3: LLM judgment with ProjectIndex retrieval
         # Get candidate projects using vector search
         candidates = await self.project_index.top_k_similar(
-            workspace_id=workspace_id,
-            text=message,
-            k=3
+            workspace_id=workspace_id, text=message, k=3
         )
 
         # Get conversation context if available
@@ -219,7 +221,7 @@ class ProjectAssignmentService:
             workspace_id=workspace_id,
             project_candidates=candidates,
             last_project_id=last_project_id,
-            conversation_context=conversation_context
+            conversation_context=conversation_context,
         )
 
         # Create result (this is a SUGGESTION, not a final decision)
@@ -230,14 +232,16 @@ class ProjectAssignmentService:
             confidence=decision.get("confidence", 0.0),
             reasoning=decision.get("reasoning", ""),
             candidates=candidates,
-            assignment_mode=assignment_mode
+            assignment_mode=assignment_mode,
         )
 
         # Update conversation-level binding if confidence is high
-        if decision.get("relation") == "same_project" and decision.get("confidence", 0.0) >= 0.8:
+        if (
+            decision.get("relation") == "same_project"
+            and decision.get("confidence", 0.0) >= 0.8
+        ):
             await self._set_conversation_primary_project(
-                conversation_id,
-                decision.get("project_id")
+                conversation_id, decision.get("project_id")
             )
 
         # Update statistics
@@ -251,8 +255,7 @@ class ProjectAssignmentService:
         return result
 
     async def _get_conversation_primary_project(
-        self,
-        conversation_id: Optional[str]
+        self, conversation_id: Optional[str]
     ) -> Optional[str]:
         """
         Get conversation-level primary project ID
@@ -270,9 +273,7 @@ class ProjectAssignmentService:
         return None
 
     async def _set_conversation_primary_project(
-        self,
-        conversation_id: Optional[str],
-        project_id: Optional[str]
+        self, conversation_id: Optional[str], project_id: Optional[str]
     ) -> None:
         """
         Set conversation-level primary project ID
@@ -286,8 +287,7 @@ class ProjectAssignmentService:
         pass
 
     async def _get_conversation_context(
-        self,
-        conversation_id: Optional[str]
+        self, conversation_id: Optional[str]
     ) -> Optional[list]:
         """
         Get recent conversation context
@@ -356,4 +356,3 @@ class ProjectAssignmentService:
             Statistics dictionary
         """
         return self._stats.copy()
-

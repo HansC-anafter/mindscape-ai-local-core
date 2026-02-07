@@ -16,7 +16,6 @@ from backend.app.services.project.project_manager import ProjectManager
 from backend.app.services.project.artifact_registry_service import ArtifactRegistryService
 from backend.app.services.playbook_runner import PlaybookRunner
 from backend.app.services.playbook_checkpoint_manager import PlaybookCheckpointManager
-from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
 from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
 from backend.app.services.mindscape_store import MindscapeStore
 
@@ -60,8 +59,7 @@ class FlowExecutor:
         self.artifact_registry = artifact_registry or ArtifactRegistryService(store)
         self.playbook_runner = playbook_runner or PlaybookRunner()
 
-        executions_store = PlaybookExecutionsStore(db_path=store.db_path)
-        self.checkpoint_manager = PlaybookCheckpointManager(executions_store)
+        self.checkpoint_manager = PlaybookCheckpointManager(store.playbook_executions)
         self.flows_store = PlaybookFlowsStore(db_path=store.db_path)
 
     async def execute_flow(
@@ -601,4 +599,3 @@ class FlowExecutor:
                 )
 
         return None
-

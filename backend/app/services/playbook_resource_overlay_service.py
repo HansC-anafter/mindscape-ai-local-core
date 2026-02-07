@@ -23,7 +23,9 @@ from backend.app.models.workspace import Workspace
 from backend.app.models.playbook import Playbook, PlaybookMetadata
 from backend.app.models.workspace_resource_binding import ResourceType
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.stores.workspace_resource_binding_store import WorkspaceResourceBindingStore
+from backend.app.services.stores.workspace_resource_binding_store import (
+    WorkspaceResourceBindingStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +49,7 @@ class PlaybookResourceOverlayService:
         self,
         playbook: Playbook,
         resource_type: str,
-        workspace: Optional[Workspace] = None
+        workspace: Optional[Workspace] = None,
     ) -> Optional[Path]:
         """
         Get shared resource path based on playbook scope
@@ -71,32 +73,63 @@ class PlaybookResourceOverlayService:
             # System playbooks are typically in backend/i18n/playbooks or NPM packages
             # For resources, we'll use a shared system directory
             base_dir = Path(__file__).parent.parent.parent.parent
-            shared_path = base_dir / "data" / "shared" / "playbooks" / playbook.metadata.playbook_code / "resources" / resource_type
+            shared_path = (
+                base_dir
+                / "data"
+                / "shared"
+                / "playbooks"
+                / playbook.metadata.playbook_code
+                / "resources"
+                / resource_type
+            )
             return shared_path
 
         # Tenant scope: use tenant shared directory
         if scope_level == "tenant" and workspace:
-            tenant_id = workspace.tenant_id if hasattr(workspace, 'tenant_id') and workspace.tenant_id else None
+            tenant_id = (
+                workspace.tenant_id
+                if hasattr(workspace, "tenant_id") and workspace.tenant_id
+                else None
+            )
             if tenant_id:
                 base_dir = Path(__file__).parent.parent.parent.parent
-                shared_path = base_dir / "data" / "tenants" / tenant_id / "playbooks" / playbook.metadata.playbook_code / "resources" / resource_type
+                shared_path = (
+                    base_dir
+                    / "data"
+                    / "tenants"
+                    / tenant_id
+                    / "playbooks"
+                    / playbook.metadata.playbook_code
+                    / "resources"
+                    / resource_type
+                )
                 return shared_path
 
         # Profile scope: use profile shared directory
         if scope_level == "profile" and workspace:
-            profile_id = workspace.profile_id if hasattr(workspace, 'profile_id') and workspace.profile_id else None
+            profile_id = (
+                workspace.profile_id
+                if hasattr(workspace, "profile_id") and workspace.profile_id
+                else None
+            )
             if profile_id:
                 base_dir = Path(__file__).parent.parent.parent.parent
-                shared_path = base_dir / "data" / "profiles" / profile_id / "playbooks" / playbook.metadata.playbook_code / "resources" / resource_type
+                shared_path = (
+                    base_dir
+                    / "data"
+                    / "profiles"
+                    / profile_id
+                    / "playbooks"
+                    / playbook.metadata.playbook_code
+                    / "resources"
+                    / resource_type
+                )
                 return shared_path
 
         return None
 
     def _get_workspace_resource_path(
-        self,
-        workspace: Workspace,
-        playbook_code: str,
-        resource_type: str
+        self, workspace: Workspace, playbook_code: str, resource_type: str
     ) -> Path:
         """
         Get workspace-specific resource path (old path for backward compatibility)
@@ -113,16 +146,16 @@ class PlaybookResourceOverlayService:
             base_path = Path(workspace.storage_base_path)
         else:
             import os
+
             base_path = Path(os.path.expanduser("~/Documents/Mindscape"))
 
-        resource_path = base_path / "playbooks" / playbook_code / "resources" / resource_type
+        resource_path = (
+            base_path / "playbooks" / playbook_code / "resources" / resource_type
+        )
         return resource_path
 
     def _get_overlay_path(
-        self,
-        workspace: Workspace,
-        playbook_code: str,
-        resource_type: str
+        self, workspace: Workspace, playbook_code: str, resource_type: str
     ) -> Path:
         """
         Get workspace overlay path for resources
@@ -139,15 +172,21 @@ class PlaybookResourceOverlayService:
             base_path = Path(workspace.storage_base_path)
         else:
             import os
+
             base_path = Path(os.path.expanduser("~/Documents/Mindscape"))
 
-        overlay_path = base_path / "workspace_overlays" / "playbooks" / playbook_code / "resources" / resource_type
+        overlay_path = (
+            base_path
+            / "workspace_overlays"
+            / "playbooks"
+            / playbook_code
+            / "resources"
+            / resource_type
+        )
         return overlay_path
 
     def _merge_resource_with_overlay(
-        self,
-        base_resource: Dict[str, Any],
-        overlay: Dict[str, Any]
+        self, base_resource: Dict[str, Any], overlay: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Merge base resource with overlay
@@ -177,7 +216,7 @@ class PlaybookResourceOverlayService:
         workspace_id: str,
         playbook_code: str,
         resource_type: str,
-        resource_id: str
+        resource_id: str,
     ) -> Optional[Dict[str, Any]]:
         """
         Get a resource with overlay support
@@ -196,15 +235,18 @@ class PlaybookResourceOverlayService:
         Returns:
             Resource data with overlay applied, or None if not found
         """
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             logger.warning(f"Workspace {workspace_id} not found")
             return None
 
         # Get playbook to determine scope
         from backend.app.services.playbook_service import PlaybookService
+
         playbook_service = PlaybookService(store=self.store)
-        playbook = await playbook_service.get_playbook(playbook_code, workspace_id=workspace_id)
+        playbook = await playbook_service.get_playbook(
+            playbook_code, workspace_id=workspace_id
+        )
         if not playbook:
             logger.warning(f"Playbook {playbook_code} not found")
             return None
@@ -214,12 +256,14 @@ class PlaybookResourceOverlayService:
         overlay_file = overlay_path / f"{resource_id}.json"
         if overlay_file.exists():
             try:
-                with open(overlay_file, 'r', encoding='utf-8') as f:
+                with open(overlay_file, "r", encoding="utf-8") as f:
                     overlay_data = json.load(f)
                     logger.debug(f"Found resource in overlay path: {overlay_file}")
                     return overlay_data
             except Exception as e:
-                logger.warning(f"Failed to load resource from overlay path {overlay_file}: {e}")
+                logger.warning(
+                    f"Failed to load resource from overlay path {overlay_file}: {e}"
+                )
 
         # Strategy 2: Check shared resource path (if template playbook)
         shared_path = self._get_shared_resource_path(playbook, resource_type, workspace)
@@ -227,33 +271,43 @@ class PlaybookResourceOverlayService:
             shared_file = shared_path / f"{resource_id}.json"
             if shared_file.exists():
                 try:
-                    with open(shared_file, 'r', encoding='utf-8') as f:
+                    with open(shared_file, "r", encoding="utf-8") as f:
                         shared_data = json.load(f)
 
                     # Apply overlay from workspace_resource_binding
                     binding = self.binding_store.get_binding_by_resource(
                         workspace_id=workspace_id,
                         resource_type=ResourceType.PLAYBOOK,
-                        resource_id=playbook_code
+                        resource_id=playbook_code,
                     )
 
                     if binding and binding.overrides:
                         # Check if there's a resource-specific overlay
-                        resource_overlay = binding.overrides.get("resources", {}).get(resource_type, {}).get(resource_id, {})
+                        resource_overlay = (
+                            binding.overrides.get("resources", {})
+                            .get(resource_type, {})
+                            .get(resource_id, {})
+                        )
                         if resource_overlay:
-                            shared_data = self._merge_resource_with_overlay(shared_data, resource_overlay)
+                            shared_data = self._merge_resource_with_overlay(
+                                shared_data, resource_overlay
+                            )
 
                     logger.debug(f"Found resource in shared path: {shared_file}")
                     return shared_data
                 except Exception as e:
-                    logger.warning(f"Failed to load resource from shared path {shared_file}: {e}")
+                    logger.warning(
+                        f"Failed to load resource from shared path {shared_file}: {e}"
+                    )
 
         # Strategy 3: Fallback to old workspace path (backward compatibility)
-        old_path = self._get_workspace_resource_path(workspace, playbook_code, resource_type)
+        old_path = self._get_workspace_resource_path(
+            workspace, playbook_code, resource_type
+        )
         old_file = old_path / f"{resource_id}.json"
         if old_file.exists():
             try:
-                with open(old_file, 'r', encoding='utf-8') as f:
+                with open(old_file, "r", encoding="utf-8") as f:
                     old_data = json.load(f)
                     logger.debug(f"Found resource in old workspace path: {old_file}")
                     return old_data
@@ -263,10 +317,7 @@ class PlaybookResourceOverlayService:
         return None
 
     async def list_resources(
-        self,
-        workspace_id: str,
-        playbook_code: str,
-        resource_type: str
+        self, workspace_id: str, playbook_code: str, resource_type: str
     ) -> List[Dict[str, Any]]:
         """
         List all resources of a type with overlay support
@@ -279,15 +330,18 @@ class PlaybookResourceOverlayService:
         Returns:
             List of resources with overlay applied
         """
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             logger.warning(f"Workspace {workspace_id} not found")
             return []
 
         # Get playbook to determine scope
         from backend.app.services.playbook_service import PlaybookService
+
         playbook_service = PlaybookService(store=self.store)
-        playbook = await playbook_service.get_playbook(playbook_code, workspace_id=workspace_id)
+        playbook = await playbook_service.get_playbook(
+            playbook_code, workspace_id=workspace_id
+        )
         if not playbook:
             logger.warning(f"Playbook {playbook_code} not found")
             return []
@@ -301,7 +355,7 @@ class PlaybookResourceOverlayService:
             for resource_file in shared_path.glob("*.json"):
                 try:
                     resource_id = resource_file.stem
-                    with open(resource_file, 'r', encoding='utf-8') as f:
+                    with open(resource_file, "r", encoding="utf-8") as f:
                         resource_data = json.load(f)
                         resources[resource_id] = resource_data
                         resource_ids.add(resource_id)
@@ -314,7 +368,7 @@ class PlaybookResourceOverlayService:
             for resource_file in overlay_path.glob("*.json"):
                 try:
                     resource_id = resource_file.stem
-                    with open(resource_file, 'r', encoding='utf-8') as f:
+                    with open(resource_file, "r", encoding="utf-8") as f:
                         overlay_data = json.load(f)
                         # If exists in shared, merge; otherwise use overlay as base
                         if resource_id in resources:
@@ -328,14 +382,16 @@ class PlaybookResourceOverlayService:
                     logger.warning(f"Failed to load resource {resource_file}: {e}")
 
         # Strategy 3: Fallback to old workspace path (backward compatibility)
-        old_path = self._get_workspace_resource_path(workspace, playbook_code, resource_type)
+        old_path = self._get_workspace_resource_path(
+            workspace, playbook_code, resource_type
+        )
         if old_path.exists():
             for resource_file in old_path.glob("*.json"):
                 try:
                     resource_id = resource_file.stem
                     # Only add if not already found in new paths
                     if resource_id not in resource_ids:
-                        with open(resource_file, 'r', encoding='utf-8') as f:
+                        with open(resource_file, "r", encoding="utf-8") as f:
                             old_data = json.load(f)
                             resources[resource_id] = old_data
                             resource_ids.add(resource_id)
@@ -346,11 +402,13 @@ class PlaybookResourceOverlayService:
         binding = self.binding_store.get_binding_by_resource(
             workspace_id=workspace_id,
             resource_type=ResourceType.PLAYBOOK,
-            resource_id=playbook_code
+            resource_id=playbook_code,
         )
 
         if binding and binding.overrides:
-            resource_overlays = binding.overrides.get("resources", {}).get(resource_type, {})
+            resource_overlays = binding.overrides.get("resources", {}).get(
+                resource_type, {}
+            )
             for resource_id, overlay in resource_overlays.items():
                 if resource_id in resources:
                     resources[resource_id] = self._merge_resource_with_overlay(
@@ -359,14 +417,16 @@ class PlaybookResourceOverlayService:
 
         # Convert to list and sort
         resource_list = list(resources.values())
-        return sorted(resource_list, key=lambda x: x.get('created_at', ''), reverse=True)
+        return sorted(
+            resource_list, key=lambda x: x.get("created_at", ""), reverse=True
+        )
 
     async def save_resource(
         self,
         workspace_id: str,
         playbook_code: str,
         resource_type: str,
-        resource: Dict[str, Any]
+        resource: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Save a resource (only to new path)
@@ -384,11 +444,11 @@ class PlaybookResourceOverlayService:
         Returns:
             Saved resource data
         """
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
-        resource_id = resource.get('id')
+        resource_id = resource.get("id")
         if not resource_id:
             raise ValueError("Resource must have an 'id' field")
 
@@ -401,21 +461,26 @@ class PlaybookResourceOverlayService:
         # Preserve timestamps if updating
         if overlay_file.exists():
             try:
-                with open(overlay_file, 'r', encoding='utf-8') as f:
+                with open(overlay_file, "r", encoding="utf-8") as f:
                     existing_data = json.load(f)
-                    resource['created_at'] = resource.get('created_at', existing_data.get('created_at'))
+                    resource["created_at"] = resource.get(
+                        "created_at", existing_data.get("created_at")
+                    )
             except:
                 pass
 
         # Update updated_at
         from datetime import datetime
-        resource['updated_at'] = datetime.utcnow().isoformat()
+
+        resource["updated_at"] = datetime.utcnow().isoformat()
 
         # Write to overlay path
-        with open(overlay_file, 'w', encoding='utf-8') as f:
+        with open(overlay_file, "w", encoding="utf-8") as f:
             json.dump(resource, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Saved resource {resource_type}/{resource_id} to overlay path: {overlay_file}")
+        logger.info(
+            f"Saved resource {resource_type}/{resource_id} to overlay path: {overlay_file}"
+        )
         return resource
 
     async def delete_resource(
@@ -423,7 +488,7 @@ class PlaybookResourceOverlayService:
         workspace_id: str,
         playbook_code: str,
         resource_type: str,
-        resource_id: str
+        resource_id: str,
     ) -> bool:
         """
         Delete a resource
@@ -437,7 +502,7 @@ class PlaybookResourceOverlayService:
         Returns:
             True if deleted, False if not found
         """
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             return False
 
@@ -446,11 +511,15 @@ class PlaybookResourceOverlayService:
         overlay_file = overlay_path / f"{resource_id}.json"
         if overlay_file.exists():
             overlay_file.unlink()
-            logger.info(f"Deleted resource {resource_type}/{resource_id} from overlay path")
+            logger.info(
+                f"Deleted resource {resource_type}/{resource_id} from overlay path"
+            )
             return True
 
         # Try to delete from old workspace path (backward compatibility)
-        old_path = self._get_workspace_resource_path(workspace, playbook_code, resource_type)
+        old_path = self._get_workspace_resource_path(
+            workspace, playbook_code, resource_type
+        )
         old_file = old_path / f"{resource_id}.json"
         if old_file.exists():
             old_file.unlink()
@@ -458,4 +527,3 @@ class PlaybookResourceOverlayService:
             return True
 
         return False
-

@@ -16,7 +16,7 @@ from backend.app.models.playbook import (
     InvocationStrategy,
     InvocationTolerance,
     PlaybookOwnerType,
-    PlaybookVisibility
+    PlaybookVisibility,
 )
 from backend.app.services.playbook_registry import PlaybookRegistry, PlaybookSource
 from backend.app.services.playbook_loaders import PlaybookJsonLoader
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class ExecutionMode(str, Enum):
     """Execution mode"""
+
     SYNC = "sync"  # Synchronous execution, wait for completion
     ASYNC = "async"  # Asynchronous execution, return execution_id immediately
     STREAM = "stream"  # Stream execution, return events in real-time
@@ -33,13 +34,14 @@ class ExecutionMode(str, Enum):
 
 class ExecutionResult:
     """Execution result (simplified for now)"""
+
     def __init__(
         self,
         execution_id: str,
         status: str,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
-        progress: float = 0.0
+        progress: float = 0.0,
     ):
         self.execution_id = execution_id
         self.status = status
@@ -74,14 +76,23 @@ class PlaybookService:
             from ...services.cloud_providers.generic_http import GenericHttpProvider
 
             self.cloud_extension_manager = CloudExtensionManager.instance()
-            logger.warning("Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager.")
+            logger.warning(
+                "Using deprecated cloud_client parameter. Please migrate to cloud_extension_manager."
+            )
         else:
             self.cloud_extension_manager = None
 
-        self.registry = PlaybookRegistry(store, cloud_extension_manager=self.cloud_extension_manager)
+        self.registry = PlaybookRegistry(
+            store, cloud_extension_manager=self.cloud_extension_manager
+        )
 
         # Initialize Graph components for variant selection
-        from backend.app.core.graph import GraphVariantRegistry, GraphSelector, GraphExecutor
+        from backend.app.core.graph import (
+            GraphVariantRegistry,
+            GraphSelector,
+            GraphExecutor,
+        )
+
         self.graph_registry = GraphVariantRegistry()
         self.graph_selector = GraphSelector(self.graph_registry)
         self.graph_executor = GraphExecutor()
@@ -105,18 +116,27 @@ class PlaybookService:
         Returns:
             Playbook object or None
         """
-        logger.info(f"PlaybookService.get_playbook called: code={playbook_code}, locale={locale}, workspace_id={workspace_id}")
+        logger.info(
+            f"PlaybookService.get_playbook called: code={playbook_code}, locale={locale}, workspace_id={workspace_id}"
+        )
         if locale is None:
             import traceback
-            logger.error(f"PlaybookService.get_playbook: locale is None for {playbook_code}! Stack trace:\n{traceback.format_stack()}")
-            raise ValueError(f"locale cannot be None when calling get_playbook for {playbook_code}")
+
+            logger.error(
+                f"PlaybookService.get_playbook: locale is None for {playbook_code}! Stack trace:\n{traceback.format_stack()}"
+            )
+            raise ValueError(
+                f"locale cannot be None when calling get_playbook for {playbook_code}"
+            )
 
         playbook = await self.registry.get_playbook(playbook_code, locale, workspace_id)
 
         if playbook and runtime_tier:
-            playbook_runtime_tier = getattr(playbook.metadata, 'runtime_tier', None)
+            playbook_runtime_tier = getattr(playbook.metadata, "runtime_tier", None)
             if playbook_runtime_tier == "cloud_only" and runtime_tier == "local":
-                logger.warning(f"Playbook {playbook_code} requires cloud execution but local was requested")
+                logger.warning(
+                    f"Playbook {playbook_code} requires cloud execution but local was requested"
+                )
                 return None  # Cloud-only playbook not available for local execution
 
         return playbook
@@ -149,13 +169,13 @@ class PlaybookService:
             locale=locale,
             category=category,
             source=source,
-            tags=tags
+            tags=tags,
         )
 
         if runtime_tier:
             filtered_playbooks = []
             for playbook in playbooks:
-                playbook_runtime_tier = getattr(playbook, 'runtime_tier', None)
+                playbook_runtime_tier = getattr(playbook, "runtime_tier", None)
                 if runtime_tier == "local":
                     # Local execution: exclude cloud_only playbooks
                     if playbook_runtime_tier != "cloud_only":
@@ -177,7 +197,7 @@ class PlaybookService:
         target_playbook_code: str,
         workspace_id: str,
         profile_id: str,
-        locale: str = "zh-TW"
+        locale: str = "zh-TW",
     ) -> Optional[Playbook]:
         """
         Fork a playbook from template to workspace instance
@@ -196,7 +216,9 @@ class PlaybookService:
             Forked Playbook instance or None if failed
         """
         try:
-            source_playbook = await self.get_playbook(source_playbook_code, locale, workspace_id)
+            source_playbook = await self.get_playbook(
+                source_playbook_code, locale, workspace_id
+            )
             if not source_playbook:
                 logger.error(f"Source playbook not found: {source_playbook_code}")
                 return None
@@ -232,7 +254,11 @@ class PlaybookService:
                 interaction_mode=source_playbook.metadata.interaction_mode.copy(),
                 visible_in=source_playbook.metadata.visible_in.copy(),
                 scope={"visibility": "workspace", "editable": True},
-                owner={"type": "workspace", "workspace_id": workspace_id, "profile_id": profile_id},
+                owner={
+                    "type": "workspace",
+                    "workspace_id": workspace_id,
+                    "profile_id": profile_id,
+                },
                 runtime_handler=source_playbook.metadata.runtime_handler,
                 runtime_tier=source_playbook.metadata.runtime_tier,
                 runtime=source_playbook.metadata.runtime,
@@ -241,12 +267,15 @@ class PlaybookService:
             forked_playbook = Playbook(
                 metadata=new_metadata,
                 sop_content=source_playbook.sop_content,
-                user_notes=f"Forked from {source_playbook_code}"
+                user_notes=f"Forked from {source_playbook_code}",
             )
 
             # Save forked playbook to database (user playbooks)
             if self.store:
-                from backend.app.services.playbook_loaders.database_loader import PlaybookDatabaseLoader
+                from backend.app.services.playbook_loaders.database_loader import (
+                    PlaybookDatabaseLoader,
+                )
+
                 logger.info(
                     f"Forked playbook {source_playbook_code} -> {target_playbook_code} "
                     f"for workspace {workspace_id}"
@@ -258,7 +287,9 @@ class PlaybookService:
             return forked_playbook
 
         except Exception as e:
-            logger.error(f"Failed to fork playbook {source_playbook_code}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to fork playbook {source_playbook_code}: {e}", exc_info=True
+            )
             return None
 
     async def validate_playbook_slots(
@@ -266,7 +297,7 @@ class PlaybookService:
         playbook_code: str,
         workspace_id: str,
         locale: str = "zh-TW",
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
     ) -> tuple[bool, List[str], Dict[str, str]]:
         """
         Validate that all tool slots in playbook.json have mappings
@@ -284,8 +315,13 @@ class PlaybookService:
             - slot_mappings: Dict mapping slot -> tool_id (for resolved slots)
         """
         try:
-            from backend.app.services.playbook_loaders.json_loader import PlaybookJsonLoader
-            from backend.app.services.tool_slot_resolver import get_tool_slot_resolver, SlotNotFoundError
+            from backend.app.services.playbook_loaders.json_loader import (
+                PlaybookJsonLoader,
+            )
+            from backend.app.services.tool_slot_resolver import (
+                get_tool_slot_resolver,
+                SlotNotFoundError,
+            )
 
             # Load playbook.json
             playbook_json = PlaybookJsonLoader.load_playbook_json(playbook_code)
@@ -296,7 +332,7 @@ class PlaybookService:
             # Collect all tool_slots from steps
             slots = []
             for step in playbook_json.steps:
-                if hasattr(step, 'tool_slot') and step.tool_slot:
+                if hasattr(step, "tool_slot") and step.tool_slot:
                     slots.append(step.tool_slot)
 
             if not slots:
@@ -311,9 +347,7 @@ class PlaybookService:
             for slot in slots:
                 try:
                     tool_id = await resolver.resolve(
-                        slot=slot,
-                        workspace_id=workspace_id,
-                        project_id=project_id
+                        slot=slot, workspace_id=workspace_id, project_id=project_id
                     )
                     slot_mappings[slot] = tool_id
                 except SlotNotFoundError:
@@ -323,14 +357,15 @@ class PlaybookService:
             return is_valid, missing_slots, slot_mappings
 
         except Exception as e:
-            logger.error(f"Failed to validate playbook slots for {playbook_code}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to validate playbook slots for {playbook_code}: {e}",
+                exc_info=True,
+            )
             # On error, assume invalid (safer)
             return False, [], {}
 
     def validate_edit_permission(
-        self,
-        playbook: Playbook,
-        edit_type: str = "sop"
+        self, playbook: Playbook, edit_type: str = "sop"
     ) -> tuple[bool, Optional[str]]:
         """
         Validate if a playbook can be edited
@@ -374,7 +409,7 @@ class PlaybookService:
         execution_mode: ExecutionMode = ExecutionMode.ASYNC,
         locale: str = "zh-TW",
         context: Optional[PlaybookInvocationContext] = None,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
     ) -> ExecutionResult:
         """
         Execute playbook
@@ -392,15 +427,18 @@ class PlaybookService:
         Returns:
             ExecutionResult object
         """
-        playbook = await self.get_playbook(playbook_code, locale=locale, workspace_id=workspace_id)
+        playbook = await self.get_playbook(
+            playbook_code, locale=locale, workspace_id=workspace_id
+        )
         if not playbook:
             raise ValueError(f"Playbook not found: {playbook_code}")
 
         # Check if playbook has Graph IR support (optional integration)
         graph_ir = None
-        if hasattr(playbook.metadata, 'graph_ir') and playbook.metadata.graph_ir:
+        if hasattr(playbook.metadata, "graph_ir") and playbook.metadata.graph_ir:
             try:
                 from backend.app.core.ir.graph_ir import GraphIR
+
                 graph_ir = GraphIR.from_dict(playbook.metadata.graph_ir)
 
                 # Select appropriate variant based on context
@@ -410,35 +448,53 @@ class PlaybookService:
                     "cost_constraint": inputs.get("cost_constraint", "normal"),
                 }
                 selected_graph = self.graph_selector.select_variant(
-                    graph_id=graph_ir.graph_id,
-                    context=selection_context
+                    graph_id=graph_ir.graph_id, context=selection_context
                 )
                 if selected_graph:
                     graph_ir = selected_graph
-                    logger.info(f"PlaybookService: Selected graph variant '{selected_graph.variant_name}' for playbook {playbook_code}")
+                    logger.info(
+                        f"PlaybookService: Selected graph variant '{selected_graph.variant_name}' for playbook {playbook_code}"
+                    )
             except Exception as e:
-                logger.warning(f"PlaybookService: Failed to process Graph IR for playbook {playbook_code}: {e}", exc_info=True)
+                logger.warning(
+                    f"PlaybookService: Failed to process Graph IR for playbook {playbook_code}: {e}",
+                    exc_info=True,
+                )
 
         from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 
         playbook_run_executor = PlaybookRunExecutor()
         executor_inputs = inputs or {}
-        executor_locale = locale or executor_inputs.get('locale') or 'zh-TW'
+        executor_locale = locale or executor_inputs.get("locale") or "zh-TW"
 
         try:
             # Priority: explicit project_id parameter > inputs.project_id > workspace.primary_project_id
             project_id_to_use = project_id
             if not project_id_to_use:
-                project_id_to_use = executor_inputs.get('project_id') if executor_inputs else None
+                project_id_to_use = (
+                    executor_inputs.get("project_id") if executor_inputs else None
+                )
             if not project_id_to_use:
                 # Fallback to workspace.primary_project_id
                 try:
-                    workspace = self.store.get_workspace(workspace_id) if self.store else None
-                    if workspace and hasattr(workspace, 'primary_project_id') and workspace.primary_project_id:
+                    workspace = (
+                        await self.store.get_workspace(workspace_id)
+                        if self.store
+                        else None
+                    )
+                    if (
+                        workspace
+                        and hasattr(workspace, "primary_project_id")
+                        and workspace.primary_project_id
+                    ):
                         project_id_to_use = workspace.primary_project_id
-                        logger.info(f"PlaybookService: Using workspace.primary_project_id={project_id_to_use} for playbook {playbook_code}")
+                        logger.info(
+                            f"PlaybookService: Using workspace.primary_project_id={project_id_to_use} for playbook {playbook_code}"
+                        )
                 except Exception as e:
-                    logger.warning(f"PlaybookService: Failed to get workspace.primary_project_id: {e}")
+                    logger.warning(
+                        f"PlaybookService: Failed to get workspace.primary_project_id: {e}"
+                    )
 
             execution_result_dict = await playbook_run_executor.execute_playbook_run(
                 playbook_code=playbook_code,
@@ -446,37 +502,49 @@ class PlaybookService:
                 inputs=executor_inputs,
                 workspace_id=workspace_id,
                 project_id=project_id_to_use,
-                target_language=executor_inputs.get('target_language'),
+                target_language=executor_inputs.get("target_language"),
                 locale=executor_locale,
-                context=context
+                context=context,
             )
 
             execution_id = (
-                execution_result_dict.get('execution_id') or
-                execution_result_dict.get('result', {}).get('execution_id') if isinstance(execution_result_dict.get('result'), dict) else None
+                execution_result_dict.get("execution_id")
+                or execution_result_dict.get("result", {}).get("execution_id")
+                if isinstance(execution_result_dict.get("result"), dict)
+                else None
             )
             if not execution_id:
                 import uuid
+
                 execution_id = str(uuid.uuid4())
-                logger.warning(f"PlaybookService: No execution_id found in result, generated new one: {execution_id}")
+                logger.warning(
+                    f"PlaybookService: No execution_id found in result, generated new one: {execution_id}"
+                )
             else:
-                logger.info(f"PlaybookService: Extracted execution_id={execution_id} from result")
+                logger.info(
+                    f"PlaybookService: Extracted execution_id={execution_id} from result"
+                )
 
-            status = execution_result_dict.get('status', 'running')
-            if 'execution_mode' in execution_result_dict:
-                status = 'running'
+            status = execution_result_dict.get("status", "running")
+            if "execution_mode" in execution_result_dict:
+                status = "running"
 
-            logger.info(f"PlaybookService: Executed playbook {playbook_code}, execution_id={execution_id}, status={status}")
+            logger.info(
+                f"PlaybookService: Executed playbook {playbook_code}, execution_id={execution_id}, status={status}"
+            )
 
             return ExecutionResult(
                 execution_id=execution_id,
                 status=status,
                 result=execution_result_dict,
-                progress=execution_result_dict.get('progress', 0.0)
+                progress=execution_result_dict.get("progress", 0.0),
             )
 
         except Exception as e:
-            logger.error(f"PlaybookService: Failed to execute playbook {playbook_code}: {e}", exc_info=True)
+            logger.error(
+                f"PlaybookService: Failed to execute playbook {playbook_code}: {e}",
+                exc_info=True,
+            )
             import uuid
             from backend.app.shared.error_handler import parse_api_error
 
@@ -488,13 +556,10 @@ class PlaybookService:
                 status="error",
                 result=None,
                 error=error_info.user_message,
-                progress=0.0
+                progress=0.0,
             )
 
-    async def get_execution_status(
-        self,
-        execution_id: str
-    ) -> Optional[str]:
+    async def get_execution_status(self, execution_id: str) -> Optional[str]:
         """
         Get execution status
 
@@ -521,18 +586,20 @@ class PlaybookService:
                     TaskStatus.RUNNING: "running",
                     TaskStatus.SUCCEEDED: "completed",
                     TaskStatus.FAILED: "failed",
-                    TaskStatus.CANCELLED: "cancelled"
+                    TaskStatus.CANCELLED: "cancelled",
                 }
                 return status_map.get(task.status, "unknown")
 
             return None
         except Exception as e:
-            logger.error(f"PlaybookService: Failed to get execution status for {execution_id}: {e}", exc_info=True)
+            logger.error(
+                f"PlaybookService: Failed to get execution status for {execution_id}: {e}",
+                exc_info=True,
+            )
             return None
 
     async def get_execution_result(
-        self,
-        execution_id: str
+        self, execution_id: str
     ) -> Optional[ExecutionResult]:
         """
         Get execution result
@@ -562,7 +629,7 @@ class PlaybookService:
                 TaskStatus.RUNNING: "running",
                 TaskStatus.SUCCEEDED: "completed",
                 TaskStatus.FAILED: "failed",
-                TaskStatus.CANCELLED: "cancelled"
+                TaskStatus.CANCELLED: "cancelled",
             }
             status = status_map.get(task.status, "unknown")
 
@@ -572,27 +639,32 @@ class PlaybookService:
 
             if task.execution_context:
                 result = task.execution_context
-                progress = result.get('current_step_index', 0) / max(result.get('total_steps', 1), 1)
+                progress = result.get("current_step_index", 0) / max(
+                    result.get("total_steps", 1), 1
+                )
 
             if task.status == TaskStatus.FAILED:
-                error = result.get('error') if result else "Execution failed"
+                error = result.get("error") if result else "Execution failed"
 
             return ExecutionResult(
                 execution_id=execution_id,
                 status=status,
                 result=result,
                 error=error,
-                progress=progress
+                progress=progress,
             )
         except Exception as e:
-            logger.error(f"PlaybookService: Failed to get execution result for {execution_id}: {e}", exc_info=True)
+            logger.error(
+                f"PlaybookService: Failed to get execution result for {execution_id}: {e}",
+                exc_info=True,
+            )
             return None
 
     async def load_playbook_run(
         self,
         playbook_code: str,
         locale: str = "zh-TW",
-        workspace_id: Optional[str] = None
+        workspace_id: Optional[str] = None,
     ) -> Optional["PlaybookRun"]:
         """
         Load playbook.run = playbook.md + playbook.json
@@ -614,15 +686,10 @@ class PlaybookService:
 
         playbook_json = PlaybookJsonLoader.load_playbook_json(playbook_code)
 
-        return PlaybookRun(
-            playbook=playbook,
-            playbook_json=playbook_json
-        )
+        return PlaybookRun(playbook=playbook, playbook_json=playbook_json)
 
     async def list_by_owner_type(
-        self,
-        owner_type: PlaybookOwnerType,
-        owner_id: Optional[str] = None
+        self, owner_type: PlaybookOwnerType, owner_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         List playbooks by owner type (bare query, no business rules)
@@ -638,35 +705,38 @@ class PlaybookService:
 
         filtered = []
         for pb in all_playbooks:
-            pb_owner_type = getattr(pb, 'owner_type', None)
-            pb_owner_id = getattr(pb, 'owner_id', None)
+            pb_owner_type = getattr(pb, "owner_type", None)
+            pb_owner_id = getattr(pb, "owner_id", None)
 
             if pb_owner_type:
                 if pb_owner_type == owner_type:
                     if owner_id is None or pb_owner_id == owner_id:
                         filtered.append(self._metadata_to_dict(pb))
             else:
-                legacy_scope = getattr(pb, 'scope', {})
-                legacy_owner = getattr(pb, 'owner', {})
+                legacy_scope = getattr(pb, "scope", {})
+                legacy_owner = getattr(pb, "owner", {})
 
                 if owner_type == PlaybookOwnerType.SYSTEM:
                     if legacy_scope.get("visibility") == "system":
                         filtered.append(self._metadata_to_dict(pb))
                 elif owner_type == PlaybookOwnerType.WORKSPACE:
                     if legacy_scope.get("visibility") == "workspace":
-                        if owner_id is None or legacy_owner.get("workspace_id") == owner_id:
+                        if (
+                            owner_id is None
+                            or legacy_owner.get("workspace_id") == owner_id
+                        ):
                             filtered.append(self._metadata_to_dict(pb))
                 elif owner_type == PlaybookOwnerType.USER:
                     if legacy_owner.get("type") in ("user", "profile"):
-                        if owner_id is None or legacy_owner.get("profile_id") == owner_id:
+                        if (
+                            owner_id is None
+                            or legacy_owner.get("profile_id") == owner_id
+                        ):
                             filtered.append(self._metadata_to_dict(pb))
 
         return filtered
 
-    async def list_for_workspace(
-        self,
-        workspace_id: str
-    ) -> List[Dict[str, Any]]:
+    async def list_for_workspace(self, workspace_id: str) -> List[Dict[str, Any]]:
         """
         List playbooks for workspace (bare query)
 
@@ -674,14 +744,10 @@ class PlaybookService:
             List of workspace-owned playbooks (raw data)
         """
         return await self.list_by_owner_type(
-            owner_type=PlaybookOwnerType.WORKSPACE,
-            owner_id=workspace_id
+            owner_type=PlaybookOwnerType.WORKSPACE, owner_id=workspace_id
         )
 
-    async def list_for_user(
-        self,
-        user_id: str
-    ) -> List[Dict[str, Any]]:
+    async def list_for_user(self, user_id: str) -> List[Dict[str, Any]]:
         """
         List playbooks for user (bare query)
 
@@ -689,8 +755,7 @@ class PlaybookService:
             List of user-owned playbooks (raw data)
         """
         return await self.list_by_owner_type(
-            owner_type=PlaybookOwnerType.USER,
-            owner_id=user_id
+            owner_type=PlaybookOwnerType.USER, owner_id=user_id
         )
 
     def _metadata_to_dict(self, metadata: PlaybookMetadata) -> Dict[str, Any]:
@@ -709,16 +774,28 @@ class PlaybookService:
             "name": metadata.name,
             "description": metadata.description,
             "tags": metadata.tags,
-            "kind": metadata.kind.value if hasattr(metadata.kind, 'value') else metadata.kind,
-            "interaction_mode": [m.value if hasattr(m, 'value') else m for m in metadata.interaction_mode],
-            "visible_in": [v.value if hasattr(v, 'value') else v for v in metadata.visible_in],
+            "kind": (
+                metadata.kind.value
+                if hasattr(metadata.kind, "value")
+                else metadata.kind
+            ),
+            "interaction_mode": [
+                m.value if hasattr(m, "value") else m for m in metadata.interaction_mode
+            ],
+            "visible_in": [
+                v.value if hasattr(v, "value") else v for v in metadata.visible_in
+            ],
         }
 
-        if hasattr(metadata, 'owner_type'):
-            result["owner_type"] = metadata.owner_type.value if hasattr(metadata.owner_type, 'value') else metadata.owner_type
+        if hasattr(metadata, "owner_type"):
+            result["owner_type"] = (
+                metadata.owner_type.value
+                if hasattr(metadata.owner_type, "value")
+                else metadata.owner_type
+            )
         else:
-            legacy_scope = getattr(metadata, 'scope', {})
-            legacy_owner = getattr(metadata, 'owner', {})
+            legacy_scope = getattr(metadata, "scope", {})
+            legacy_owner = getattr(metadata, "owner", {})
             if legacy_scope.get("visibility") == "system":
                 result["owner_type"] = PlaybookOwnerType.SYSTEM.value
             elif legacy_scope.get("visibility") == "workspace":
@@ -726,45 +803,50 @@ class PlaybookService:
             else:
                 result["owner_type"] = PlaybookOwnerType.USER.value
 
-        if hasattr(metadata, 'owner_id'):
+        if hasattr(metadata, "owner_id"):
             result["owner_id"] = metadata.owner_id
         else:
-            legacy_owner = getattr(metadata, 'owner', {})
+            legacy_owner = getattr(metadata, "owner", {})
             if result["owner_type"] == PlaybookOwnerType.WORKSPACE.value:
-                result["owner_id"] = legacy_owner.get("workspace_id", "default_workspace")
+                result["owner_id"] = legacy_owner.get(
+                    "workspace_id", "default_workspace"
+                )
             elif result["owner_type"] == PlaybookOwnerType.USER.value:
                 result["owner_id"] = legacy_owner.get("profile_id", "default_user")
             else:
                 result["owner_id"] = "system"
 
-        if hasattr(metadata, 'visibility'):
-            result["visibility"] = metadata.visibility.value if hasattr(metadata.visibility, 'value') else metadata.visibility
+        if hasattr(metadata, "visibility"):
+            result["visibility"] = (
+                metadata.visibility.value
+                if hasattr(metadata.visibility, "value")
+                else metadata.visibility
+            )
         else:
-            legacy_scope = getattr(metadata, 'scope', {})
+            legacy_scope = getattr(metadata, "scope", {})
             if legacy_scope.get("visibility") in ("system", "tenant", "profile"):
                 result["visibility"] = PlaybookVisibility.TENANT_SHARED.value
             else:
                 result["visibility"] = PlaybookVisibility.WORKSPACE_SHARED.value
 
-        if hasattr(metadata, 'capability_tags'):
+        if hasattr(metadata, "capability_tags"):
             result["capability_tags"] = metadata.capability_tags
         else:
             result["capability_tags"] = []
 
-        if hasattr(metadata, 'project_types'):
+        if hasattr(metadata, "project_types"):
             result["project_types"] = metadata.project_types
         else:
             result["project_types"] = None
 
-        if hasattr(metadata, 'shared_with_workspaces'):
+        if hasattr(metadata, "shared_with_workspaces"):
             result["shared_with_workspaces"] = metadata.shared_with_workspaces
         else:
             result["shared_with_workspaces"] = []
 
-        if hasattr(metadata, 'allowed_tools'):
+        if hasattr(metadata, "allowed_tools"):
             result["allowed_tools"] = metadata.allowed_tools
         else:
             result["allowed_tools"] = None
 
         return result
-

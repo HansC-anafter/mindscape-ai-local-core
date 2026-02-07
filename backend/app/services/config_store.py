@@ -3,169 +3,140 @@ Configuration Store
 Manages user configuration settings (backend preferences, etc.)
 """
 
-import json
-import sqlite3
-from typing import Optional, Dict, Any
-from contextlib import contextmanager
+from typing import Optional
+from datetime import datetime
 import logging
 
+from sqlalchemy import text
+
 from backend.app.models.config import UserConfig, AgentBackendConfig, IntentConfig
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigStore:
-    """Local SQLite-based configuration store"""
+class ConfigStore(PostgresStoreBase):
+    """PostgreSQL-based configuration store"""
 
     def __init__(self, db_path: str = None):
-        # Use the same database as MindscapeStore
-        if db_path is None:
-            import os
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            data_dir = os.path.join(base_dir, "data")
-            os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, "mindscape.db")
+        super().__init__()
+        if db_path is not None:
+            logger.warning("ConfigStore ignores db_path in Postgres-only mode.")
+        if self.factory.get_db_type(self.db_role) != "postgres":
+            raise RuntimeError(
+                "SQLite is no longer supported for ConfigStore. Configure PostgreSQL."
+            )
+        self._ensure_schema()
 
-        self.db_path = db_path
-        self._init_db()
-
-    @contextmanager
-    def get_connection(self):
-        """Get database connection with proper cleanup"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-    def _init_db(self):
-        """Initialize configuration table"""
+    def _ensure_schema(self):
+        """Ensure user_configs table exists (managed by Alembic)."""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_configs (
-                    profile_id TEXT PRIMARY KEY,
-                    agent_backend_mode TEXT DEFAULT 'local',
-                    remote_crs_url TEXT,
-                    remote_crs_token TEXT,
-                    openai_api_key TEXT,
-                    anthropic_api_key TEXT,
-                    vertex_api_key TEXT,
-                    vertex_project_id TEXT,
-                    vertex_location TEXT,
-                    metadata TEXT,
-                    updated_at TEXT NOT NULL
+            result = conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = 'public' AND table_name = 'user_configs'"
                 )
-            ''')
-            # Add new columns if they don't exist (for existing databases)
-            try:
-                cursor.execute('ALTER TABLE user_configs ADD COLUMN openai_api_key TEXT')
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            try:
-                cursor.execute('ALTER TABLE user_configs ADD COLUMN anthropic_api_key TEXT')
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            try:
-                cursor.execute('ALTER TABLE user_configs ADD COLUMN vertex_api_key TEXT')
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            try:
-                cursor.execute('ALTER TABLE user_configs ADD COLUMN vertex_project_id TEXT')
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            try:
-                cursor.execute('ALTER TABLE user_configs ADD COLUMN vertex_location TEXT')
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            conn.commit()
+            )
+            if result.fetchone() is None:
+                raise RuntimeError(
+                    "Missing PostgreSQL table: user_configs. "
+                    "Run: alembic -c backend/alembic.ini upgrade head"
+                )
 
     def get_config(self, profile_id: str) -> Optional[UserConfig]:
         """Get user configuration"""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM user_configs WHERE profile_id = ?', (profile_id,))
-            row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            # Helper function to safely get column value
-            def get_col(key, default=None):
-                try:
-                    val = row[key]
-                    return val if val else default
-                except (KeyError, IndexError):
-                    return default
-
-            metadata = json.loads(row['metadata'] or '{}')
-
-            # Extract intent_config from metadata (backward compatible)
-            intent_config_data = metadata.get('intent_config', {})
-            intent_config = IntentConfig(
-                use_llm=intent_config_data.get('use_llm', True),
-                rule_priority=intent_config_data.get('rule_priority', True)
+            row = (
+                conn.execute(
+                    text("SELECT * FROM user_configs WHERE profile_id = :profile_id"),
+                    {"profile_id": profile_id},
+                )
+                .mappings()
+                .fetchone()
             )
 
-            # Note: profile_model_mapping and custom_model_provider_mapping are preserved in metadata
-            # These are set by frontend/API when user configures custom model mappings
-            # They are used by CapabilityProfileRegistry for tenant-specific model selection
+        if not row:
+            return None
 
-            return UserConfig(
-                profile_id=row['profile_id'],
-                agent_backend=AgentBackendConfig(
-                    mode=row['agent_backend_mode'] or 'local',
-                    remote_crs_url=get_col('remote_crs_url'),
-                    remote_crs_token=get_col('remote_crs_token'),
-                    openai_api_key=get_col('openai_api_key'),
-                    anthropic_api_key=get_col('anthropic_api_key'),
-                    vertex_api_key=get_col('vertex_api_key'),
-                    vertex_project_id=get_col('vertex_project_id'),
-                    vertex_location=get_col('vertex_location')
-                ),
-                intent_config=intent_config,
-                metadata=metadata
-            )
+        metadata = self.deserialize_json(row["metadata"], default={})
+
+        intent_config_data = metadata.get("intent_config", {})
+        intent_config = IntentConfig(
+            use_llm=intent_config_data.get("use_llm", True),
+            rule_priority=intent_config_data.get("rule_priority", True),
+        )
+
+        return UserConfig(
+            profile_id=row["profile_id"],
+            agent_backend=AgentBackendConfig(
+                mode=row["agent_backend_mode"] or "local",
+                remote_crs_url=row["remote_crs_url"],
+                remote_crs_token=row["remote_crs_token"],
+                openai_api_key=row["openai_api_key"],
+                anthropic_api_key=row["anthropic_api_key"],
+                vertex_api_key=row["vertex_api_key"],
+                vertex_project_id=row["vertex_project_id"],
+                vertex_location=row["vertex_location"],
+            ),
+            intent_config=intent_config,
+            metadata=metadata,
+        )
 
     def save_config(self, config: UserConfig) -> UserConfig:
         """Save user configuration"""
-        from datetime import datetime
-
-        # Merge intent_config into metadata for storage
-        metadata = config.metadata.copy()
-        metadata['intent_config'] = {
-            'use_llm': config.intent_config.use_llm,
-            'rule_priority': config.intent_config.rule_priority
+        metadata = dict(config.metadata)
+        metadata["intent_config"] = {
+            "use_llm": config.intent_config.use_llm,
+            "rule_priority": config.intent_config.rule_priority,
         }
-        # Preserve capability profile mappings if they exist in metadata
-        # These are set by frontend/API when user configures custom model mappings
-        if 'profile_model_mapping' in config.metadata:
-            metadata['profile_model_mapping'] = config.metadata['profile_model_mapping']
-        if 'custom_model_provider_mapping' in config.metadata:
-            metadata['custom_model_provider_mapping'] = config.metadata['custom_model_provider_mapping']
+        if "profile_model_mapping" in config.metadata:
+            metadata["profile_model_mapping"] = config.metadata["profile_model_mapping"]
+        if "custom_model_provider_mapping" in config.metadata:
+            metadata["custom_model_provider_mapping"] = config.metadata[
+                "custom_model_provider_mapping"
+            ]
 
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO user_configs
-                (profile_id, agent_backend_mode, remote_crs_url, remote_crs_token, openai_api_key, anthropic_api_key, vertex_api_key, vertex_project_id, vertex_location, metadata, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                config.profile_id,
-                config.agent_backend.mode,
-                config.agent_backend.remote_crs_url,
-                config.agent_backend.remote_crs_token,
-                config.agent_backend.openai_api_key,
-                config.agent_backend.anthropic_api_key,
-                config.agent_backend.vertex_api_key,
-                config.agent_backend.vertex_project_id,
-                config.agent_backend.vertex_location,
-                json.dumps(metadata),
-                datetime.utcnow().isoformat()
-            ))
-            conn.commit()
-            return config
+        with self.transaction() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO user_configs
+                    (profile_id, agent_backend_mode, remote_crs_url, remote_crs_token,
+                     openai_api_key, anthropic_api_key, vertex_api_key, vertex_project_id,
+                     vertex_location, metadata, updated_at)
+                    VALUES
+                    (:profile_id, :agent_backend_mode, :remote_crs_url, :remote_crs_token,
+                     :openai_api_key, :anthropic_api_key, :vertex_api_key, :vertex_project_id,
+                     :vertex_location, :metadata, :updated_at)
+                    ON CONFLICT (profile_id) DO UPDATE SET
+                        agent_backend_mode = EXCLUDED.agent_backend_mode,
+                        remote_crs_url = EXCLUDED.remote_crs_url,
+                        remote_crs_token = EXCLUDED.remote_crs_token,
+                        openai_api_key = EXCLUDED.openai_api_key,
+                        anthropic_api_key = EXCLUDED.anthropic_api_key,
+                        vertex_api_key = EXCLUDED.vertex_api_key,
+                        vertex_project_id = EXCLUDED.vertex_project_id,
+                        vertex_location = EXCLUDED.vertex_location,
+                        metadata = EXCLUDED.metadata,
+                        updated_at = EXCLUDED.updated_at
+                    """
+                ),
+                {
+                    "profile_id": config.profile_id,
+                    "agent_backend_mode": config.agent_backend.mode,
+                    "remote_crs_url": config.agent_backend.remote_crs_url,
+                    "remote_crs_token": config.agent_backend.remote_crs_token,
+                    "openai_api_key": config.agent_backend.openai_api_key,
+                    "anthropic_api_key": config.agent_backend.anthropic_api_key,
+                    "vertex_api_key": config.agent_backend.vertex_api_key,
+                    "vertex_project_id": config.agent_backend.vertex_project_id,
+                    "vertex_location": config.agent_backend.vertex_location,
+                    "metadata": self.serialize_json(metadata),
+                    "updated_at": datetime.utcnow(),
+                },
+            )
+
+        return config
 
     def get_or_create_config(self, profile_id: str) -> UserConfig:
         """Get existing config or create default"""

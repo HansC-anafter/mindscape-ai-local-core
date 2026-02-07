@@ -250,6 +250,26 @@ class PlaybookInstaller:
         errors = []
         warnings = []
 
+        # 讀取 manifest 以獲取可選 Python 依賴
+        optional_python_packages = []
+        possible_dir_names = [capability_code, capability_code.replace("_", "-"), capability_code.replace("-", "_")]
+        for dir_name in possible_dir_names:
+            manifest_path = self.capabilities_dir / dir_name / "manifest.yaml"
+            if manifest_path.exists():
+                try:
+                    import yaml
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        manifest = yaml.safe_load(f) or {}
+                        deps = manifest.get("dependencies", {})
+                        python_packages = deps.get("python_packages", {})
+                        optional_python_packages = python_packages.get("optional", [])
+                        if optional_python_packages:
+                            logger.debug(f"Found optional Python packages in manifest: {optional_python_packages}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Failed to read manifest for optional Python packages: {e}")
+                break
+
         # 讀取 playbook spec 以獲取 required_capabilities
         spec_path = self.specs_dir / f"{playbook_code}.json"
         required_capabilities = []
@@ -352,10 +372,28 @@ class PlaybookInstaller:
                 # 同時創建 app.capabilities.* 模組路徑（用於 backend 路徑中的 app.capabilities.*）
                 app_cap_module_path = f"app.capabilities.{capability_code}"
                 if app_cap_module_path not in sys.modules:
-                    # 創建 app 模組（如果不存在）
+                    # Ensure we do NOT shadow the real 'app' package.
+                    # If we create a plain ModuleType("app") without __path__/__spec__,
+                    # imports like "import app.models" will fail ("app is not a package").
+                    # Prefer importing the real package if available.
                     if "app" not in sys.modules:
-                        app_module = types.ModuleType("app")
-                        sys.modules["app"] = app_module
+                        try:
+                            import importlib
+                            importlib.import_module("app")
+                        except Exception:
+                            app_module = types.ModuleType("app")
+                            app_module.__path__ = [str(cloud_root)]
+                            init_file = cloud_root / "__init__.py"
+                            if init_file.exists():
+                                import importlib.util
+                                spec = importlib.util.spec_from_file_location(
+                                    "app",
+                                    init_file,
+                                    submodule_search_locations=[str(cloud_root)],
+                                )
+                                if spec:
+                                    app_module.__spec__ = spec
+                            sys.modules["app"] = app_module
 
                     # 創建 app.capabilities 模組（如果不存在）
                     app_capabilities_path = "app.capabilities"
@@ -589,10 +627,28 @@ class PlaybookInstaller:
                                 # 設置 app.capabilities.* 模組路徑
                                 app_cap_module_path = f"app.capabilities.{cap}"
                                 if app_cap_module_path not in sys.modules:
-                                    # 創建 app 模組（如果不存在）
+                                    # Ensure we do NOT shadow the real 'app' package.
+                                    # Creating a plain ModuleType("app") without __path__/__spec__ breaks
+                                    # imports like "import app.models" ("app is not a package").
                                     if "app" not in sys.modules:
-                                        app_module = types.ModuleType("app")
-                                        sys.modules["app"] = app_module
+                                        try:
+                                            import importlib
+                                            importlib.import_module("app")
+                                        except Exception:
+                                            app_module = types.ModuleType("app")
+                                            # Fallback: make it a package-like module
+                                            app_module.__path__ = [str(cloud_root)]
+                                            init_file = cloud_root / "__init__.py"
+                                            if init_file.exists():
+                                                import importlib.util
+                                                spec = importlib.util.spec_from_file_location(
+                                                    "app",
+                                                    init_file,
+                                                    submodule_search_locations=[str(cloud_root)],
+                                                )
+                                                if spec:
+                                                    app_module.__spec__ = spec
+                                            sys.modules["app"] = app_module
 
                                     # 創建 app.capabilities 模組（如果不存在）
                                     app_capabilities_path = "app.capabilities"
@@ -895,11 +951,31 @@ class PlaybookInstaller:
 
                                 module = importlib.import_module(module_path)
                             except (ImportError, ModuleNotFoundError, ValueError) as import_error:
-                                # For import errors (missing dependencies), treat as warning if tool is in manifest
+                                # For import errors (missing dependencies), check if it's an optional dependency
                                 # This allows installation to proceed when optional dependencies are missing
                                 error_msg = str(import_error)
-                                if "langchain" in error_msg.lower() or "asyncpg" in error_msg.lower():
-                                    # These are optional dependencies that may not be available in all environments
+                                is_optional = False
+
+                                # Check against manifest-defined optional Python packages
+                                if optional_python_packages:
+                                    for pkg in optional_python_packages:
+                                        if pkg.lower() in error_msg.lower():
+                                            is_optional = True
+                                            break
+
+                                # Fallback: check common optional dependencies
+                                if not is_optional and (
+                                    "langchain" in error_msg.lower()
+                                    or "asyncpg" in error_msg.lower()
+                                    # Some capabilities ship tools that rely on cloud-only runtime modules.
+                                    # Treat these as optional during install-time validation so packs can be installed.
+                                    or "services.divi" in error_msg.lower()
+                                    or "capabilities.wordpress" in error_msg.lower()
+                                    or "database.models.divi" in error_msg.lower()
+                                ):
+                                    is_optional = True
+
+                                if is_optional:
                                     warnings.append(
                                         f"Step '{step_id}': Tool '{tool_slot}' has optional dependency issue: {import_error}. "
                                         f"Tool will be available once dependencies are installed."

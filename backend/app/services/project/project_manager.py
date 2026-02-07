@@ -44,7 +44,7 @@ class ProjectManager:
         human_owner_user_id: Optional[str] = None,
         ai_pm_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        playbook_sequence: Optional[List[str]] = None
+        playbook_sequence: Optional[List[str]] = None,
     ) -> Project:
         """
         Create a new Project
@@ -63,7 +63,7 @@ class ProjectManager:
             Created Project object
         """
         # Generate project ID
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         project_id = f"{project_type}_{timestamp}_{uuid.uuid4().hex[:8]}"
 
         # Generate unique flow_id for this project (if not provided)
@@ -84,28 +84,33 @@ class ProjectManager:
             ai_pm_id=ai_pm_id,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         # Validate workspace exists
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace not found: {workspace_id}")
 
         # Validate flow exists, create default if not
         from backend.app.services.stores.playbook_flows_store import PlaybookFlowsStore
         from backend.app.models.playbook_flow import PlaybookFlow
+
         flows_store = PlaybookFlowsStore(self.store.db_path)
         flow = flows_store.get_flow(flow_id)
 
         if not flow:
             logger.warning(f"Flow {flow_id} not found, creating default flow")
             # Validate playbook_sequence before creating flow
-            from backend.app.services.project.playbook_validator import validate_playbook_sequence
+            from backend.app.services.project.playbook_validator import (
+                validate_playbook_sequence,
+            )
             from pathlib import Path
 
             base_dir = Path(__file__).parent.parent.parent.parent
-            validated_playbook_sequence = validate_playbook_sequence(playbook_sequence or [], base_dir)
+            validated_playbook_sequence = validate_playbook_sequence(
+                playbook_sequence or [], base_dir
+            )
 
             flow = PlaybookFlow(
                 id=flow_id,
@@ -114,21 +119,27 @@ class ProjectManager:
                 flow_definition={
                     "nodes": [],
                     "edges": [],
-                    "playbook_sequence": validated_playbook_sequence
+                    "playbook_sequence": validated_playbook_sequence,
                 },
                 created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                updated_at=datetime.utcnow(),
             )
             flows_store.create_flow(flow)
-            logger.info(f"Created flow: {flow_id} with {len(validated_playbook_sequence)} validated playbooks")
+            logger.info(
+                f"Created flow: {flow_id} with {len(validated_playbook_sequence)} validated playbooks"
+            )
 
         # Save project
         self.projects_store.create_project(project)
-        logger.info(f"Created project: {project_id} in workspace: {workspace_id} with flow_id: {flow_id}")
+        logger.info(
+            f"Created project: {project_id} in workspace: {workspace_id} with flow_id: {flow_id}"
+        )
 
         return project
 
-    async def get_project(self, project_id: str, workspace_id: Optional[str] = None) -> Optional[Project]:
+    async def get_project(
+        self, project_id: str, workspace_id: Optional[str] = None
+    ) -> Optional[Project]:
         """
         Get Project by ID with optional workspace validation
 
@@ -159,7 +170,7 @@ class ProjectManager:
         workspace_id: Optional[str] = None,
         state: Optional[str] = None,
         project_type: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
     ) -> List[Project]:
         """
         List projects with optional filters
@@ -177,7 +188,7 @@ class ProjectManager:
             workspace_id=workspace_id,
             state=state,
             project_type=project_type,
-            limit=limit
+            limit=limit,
         )
 
     async def update_project(self, project: Project) -> Project:
@@ -235,4 +246,3 @@ class ProjectManager:
 
         project.state = "archived"
         return await self.update_project(project)
-

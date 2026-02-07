@@ -31,31 +31,28 @@ class WorkspaceCoreMemory(BaseModel):
 
     workspace_id: str = Field(..., description="Workspace ID")
     brand_identity: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Brand identity information (name, values, positioning)"
+        None, description="Brand identity information (name, values, positioning)"
     )
     voice_and_tone: Optional[Dict[str, Any]] = Field(
         None,
-        description="Voice and tone guidelines (formal/informal, friendly/professional)"
+        description="Voice and tone guidelines (formal/informal, friendly/professional)",
     )
     style_constraints: Optional[List[str]] = Field(
         None,
-        description="Style constraints and preferences (colors, fonts, dos/don'ts)"
+        description="Style constraints and preferences (colors, fonts, dos/don'ts)",
     )
     important_milestones: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="Important milestones and achievements"
+        None, description="Important milestones and achievements"
     )
     learnings: Optional[List[str]] = Field(
-        None,
-        description="Key learnings and insights from past projects"
+        None, description="Key learnings and insights from past projects"
     )
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class WorkspaceCoreMemoryService:
@@ -87,7 +84,7 @@ class WorkspaceCoreMemoryService:
         Returns:
             WorkspaceCoreMemory instance
         """
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -100,7 +97,7 @@ class WorkspaceCoreMemoryService:
                 voice_and_tone=None,
                 style_constraints=None,
                 important_milestones=None,
-                learnings=None
+                learnings=None,
             )
 
         return WorkspaceCoreMemory(
@@ -110,7 +107,9 @@ class WorkspaceCoreMemoryService:
             style_constraints=memory_data.get("style_constraints"),
             important_milestones=memory_data.get("important_milestones"),
             learnings=memory_data.get("learnings"),
-            updated_at=datetime.fromisoformat(memory_data.get("updated_at", datetime.utcnow().isoformat()))
+            updated_at=datetime.fromisoformat(
+                memory_data.get("updated_at", datetime.utcnow().isoformat())
+            ),
         )
 
     async def update_core_memory(
@@ -120,7 +119,7 @@ class WorkspaceCoreMemoryService:
         voice_and_tone: Optional[Dict[str, Any]] = None,
         style_constraints: Optional[List[str]] = None,
         important_milestones: Optional[List[Dict[str, Any]]] = None,
-        learnings: Optional[List[str]] = None
+        learnings: Optional[List[str]] = None,
     ) -> WorkspaceCoreMemory:
         """
         Update workspace core memory
@@ -155,7 +154,7 @@ class WorkspaceCoreMemoryService:
 
         memory.updated_at = datetime.utcnow()
 
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         workspace.metadata = workspace.metadata or {}
         workspace.metadata["core_memory"] = {
             "brand_identity": memory.brand_identity,
@@ -163,17 +162,15 @@ class WorkspaceCoreMemoryService:
             "style_constraints": memory.style_constraints,
             "important_milestones": memory.important_milestones,
             "learnings": memory.learnings,
-            "updated_at": memory.updated_at.isoformat()
+            "updated_at": memory.updated_at.isoformat(),
         }
-        self.store.update_workspace(workspace)
+        await self.store.update_workspace(workspace)
 
         logger.info(f"Updated core memory for workspace {workspace_id}")
         return memory
 
     async def add_milestone(
-        self,
-        workspace_id: str,
-        milestone: Dict[str, Any]
+        self, workspace_id: str, milestone: Dict[str, Any]
     ) -> WorkspaceCoreMemory:
         """
         Add an important milestone to workspace core memory
@@ -187,19 +184,15 @@ class WorkspaceCoreMemoryService:
         """
         memory = await self.get_core_memory(workspace_id)
         existing_milestones = memory.important_milestones or []
-        existing_milestones.append({
-            **milestone,
-            "added_at": datetime.utcnow().isoformat()
-        })
+        existing_milestones.append(
+            {**milestone, "added_at": datetime.utcnow().isoformat()}
+        )
         return await self.update_core_memory(
-            workspace_id=workspace_id,
-            important_milestones=existing_milestones
+            workspace_id=workspace_id, important_milestones=existing_milestones
         )
 
     async def add_learning(
-        self,
-        workspace_id: str,
-        learning: str
+        self, workspace_id: str, learning: str
     ) -> WorkspaceCoreMemory:
         """
         Add a learning or insight to workspace core memory
@@ -215,8 +208,7 @@ class WorkspaceCoreMemoryService:
         existing_learnings = memory.learnings or []
         existing_learnings.append(learning)
         return await self.update_core_memory(
-            workspace_id=workspace_id,
-            learnings=existing_learnings
+            workspace_id=workspace_id, learnings=existing_learnings
         )
 
     def format_for_context(self, memory: WorkspaceCoreMemory) -> str:
@@ -260,4 +252,3 @@ class WorkspaceCoreMemoryService:
                 parts.append(f"- {learning}")
 
         return "\n".join(parts) if parts else ""
-
