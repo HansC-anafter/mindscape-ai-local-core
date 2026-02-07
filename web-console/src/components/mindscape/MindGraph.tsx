@@ -23,7 +23,7 @@ const SigmaGraphClient = dynamic(
       console.log('[MindGraph] Dynamic import: Showing loading state');
       return (
         <div className="w-full h-[600px] bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
-          <span className="text-gray-400">{t('loading')}</span>
+          <span className="text-gray-400">{t('loading' as any)}</span>
         </div>
       );
     },
@@ -40,7 +40,7 @@ interface MindGraphProps {
 function GraphSkeleton() {
   return (
     <div className="w-full h-[600px] bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
-      <span className="text-gray-400">{t('loading')}</span>
+      <span className="text-gray-400">{t('loading' as any)}</span>
     </div>
   );
 }
@@ -54,17 +54,17 @@ function EmptyGraphState({ onInitialize }: EmptyGraphStateProps) {
     <div className="w-full h-[600px] bg-gray-50 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300">
       <div className="text-center max-w-md px-4">
         <div className="text-6xl mb-4">📊</div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('graphEmptyTitle')}</h3>
-        <p className="text-sm text-gray-600 mb-4">{t('graphEmptyDescription')}</p>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('graphEmptyTitle' as any)}</h3>
+        <p className="text-sm text-gray-600 mb-4">{t('graphEmptyDescription' as any)}</p>
         {onInitialize && (
           <button
             onClick={onInitialize}
             className="mt-4 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
           >
-            {t('graphInitializeButton')}
+            {t('graphInitializeButton' as any)}
           </button>
         )}
-        <p className="mt-4 text-xs text-gray-500">{t('graphEmptyHint')}</p>
+        <p className="mt-4 text-xs text-gray-500">{t('graphEmptyHint' as any)}</p>
       </div>
     </div>
   );
@@ -93,7 +93,7 @@ export function MindGraph({
     console.log('[MindGraph] Rendering: Error state');
     return (
       <div className="w-full h-[600px] bg-red-50 rounded-lg flex flex-col items-center justify-center">
-        <span className="text-red-600 text-lg mb-2">{t('errorLoadingGraph')}</span>
+        <span className="text-red-600 text-lg mb-2">{t('errorLoadingGraph' as any)}</span>
       </div>
     );
   }

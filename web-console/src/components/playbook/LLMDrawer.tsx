@@ -54,7 +54,7 @@ export default function LLMDrawer({
     if (!input.trim() || loading) return;
 
     const userMessage = input;
-    setInput('');
+    setInput('' as any);
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
 
@@ -108,12 +108,12 @@ export default function LLMDrawer({
 
   const handleCreateVariant = async () => {
     if (!variantName.trim()) {
-      alert(t('playbookEnterVariantName'));
+      alert(t('playbookEnterVariantName' as any));
       return;
     }
 
     if (selectedSuggestions.size === 0) {
-      alert(t('playbookSelectAtLeastOneSuggestion'));
+      alert(t('playbookSelectAtLeastOneSuggestion' as any));
       return;
     }
 
@@ -198,7 +198,7 @@ export default function LLMDrawer({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder={t('describeYourUseCase')}
+                  placeholder={t('describeYourUseCase' as any)}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={loading}
                   autoComplete="off"
@@ -212,7 +212,7 @@ export default function LLMDrawer({
                   disabled={loading || !input.trim()}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                 >
-                  {t('send')}
+                  {t('send' as any)}
                 </button>
               </div>
             </div>
@@ -221,7 +221,7 @@ export default function LLMDrawer({
           {/* Right: Preview Area */}
           <div className="w-96 flex flex-col bg-gray-50">
             <div className="p-4 border-b border-gray-200">
-              <h3 className="font-medium text-gray-900">{t('changePreview')}</h3>
+              <h3 className="font-medium text-gray-900">{t('changePreview' as any)}</h3>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
@@ -259,7 +259,7 @@ export default function LLMDrawer({
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 text-center py-8">
-                  {t('afterStartingConversation')}
+                  {t('afterStartingConversation' as any)}
                 </p>
               )}
             </div>
@@ -269,13 +269,13 @@ export default function LLMDrawer({
               <div className="p-4 border-t border-gray-200 space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    {t('variantName')}
+                    {t('variantName' as any)}
                   </label>
                   <input
                     type="text"
                     value={variantName}
                     onChange={(e) => setVariantName(e.target.value)}
-                    placeholder={t('exampleVariantName')}
+                    placeholder={t('exampleVariantName' as any)}
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                     autoComplete="off"
                     data-lpignore="true"
@@ -286,12 +286,12 @@ export default function LLMDrawer({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    {t('descriptionOptional')}
+                    {t('descriptionOptional' as any)}
                   </label>
                   <textarea
                     value={variantDescription}
                     onChange={(e) => setVariantDescription(e.target.value)}
-                    placeholder={t('variantDescriptionPlaceholder')}
+                    placeholder={t('variantDescriptionPlaceholder' as any)}
                     rows={2}
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                     autoComplete="off"

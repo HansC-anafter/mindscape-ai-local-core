@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useWorkspaceOverrides, setWorkspaceOverride, removeWorkspaceOverride, type WorkspaceLensOverride } from '@/lib/lens-api';
+import { useWorkspaceOverrides, setWorkspaceOverride, removeWorkspaceOverride } from '@/lib/lens-api';
 import type { LensNodeState } from '@/lib/lens-api';
 
 interface WorkspaceOverridePanelProps {

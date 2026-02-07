@@ -3,6 +3,9 @@
 import React, { useState } from 'react';
 import { t } from '../../lib/i18n';
 import { WORK_SCENES, WorkScene } from '../../lib/work-scenes';
+import { getApiBaseUrl } from '../../lib/api-url';
+
+const API_URL = getApiBaseUrl();
 
 interface DrawRoleCardProps {
   task: string;
@@ -15,13 +18,9 @@ export default function DrawRoleCard({ task, backendAvailable, onSceneSelected }
   const [suggestedScene, setSuggestedScene] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  import { getApiBaseUrl } from '../../lib/api-url';
-
-const API_URL = getApiBaseUrl();
-
   const handleDrawRoleCard = async () => {
     if (!task.trim()) {
-      setError(t('pleaseEnterTaskDescription'));
+      setError(t('pleaseEnterTaskDescription' as any));
       return;
     }
 
@@ -49,7 +48,7 @@ const API_URL = getApiBaseUrl();
         onSceneSelected(scene);
       }
     } catch (err: any) {
-      setError(err.message || t('drawRoleCardFailed'));
+      setError(err.message || t('drawRoleCardFailed' as any));
     } finally {
       setDrawingCard(false);
     }
@@ -65,8 +64,8 @@ const API_URL = getApiBaseUrl();
       <div className="flex items-start mb-3">
         <span className="text-3xl mr-3">🎯</span>
         <div className="flex-1">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">{t('drawRoleCard')}</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">{t('drawRoleCardDescription')}</p>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">{t('drawRoleCard' as any)}</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{t('drawRoleCardDescription' as any)}</p>
         </div>
       </div>
       {suggestedScene && (
@@ -74,9 +73,9 @@ const API_URL = getApiBaseUrl();
           <div className="flex items-center mb-2">
             <span className="text-xl mr-2">{suggestedScene.suggested_scene?.icon || '🎯'}</span>
             <div className="flex-1">
-              <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{t('suggestedScene')}: {suggestedScene.suggested_scene?.name}</h4>
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{t('suggestedScene' as any)}: {suggestedScene.suggested_scene?.name}</h4>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t('confidence')}: {Math.round(suggestedScene.confidence * 100)}%
+                {t('confidence' as any)}: {Math.round(suggestedScene.confidence * 100)}%
               </p>
             </div>
           </div>
@@ -86,12 +85,11 @@ const API_URL = getApiBaseUrl();
         <div className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</div>
       )}
       {drawingCard && (
-        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('drawRoleCardLoading')}</div>
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('drawRoleCardLoading' as any)}</div>
       )}
     </button>
   );
 }
-
 
 
 

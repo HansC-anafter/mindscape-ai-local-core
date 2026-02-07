@@ -153,54 +153,51 @@ export default function PlaybookLibrarySidebar({
 
   return (
     <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-8rem)] overflow-y-auto p-4 sticky top-0">
-      <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">{t('filterTags')}</h3>
+      <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">{t('filterTags' as any)}</h3>
 
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">{t('myPlaybooks')}</h4>
+        <h4 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">{t('myPlaybooks' as any)}</h4>
         <div className="space-y-1">
           <button
             onClick={() => handleFilterClick('favorites')}
-            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-              filter === 'favorites'
+            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${filter === 'favorites'
                 ? 'bg-accent-10 dark:bg-blue-900/20 text-accent dark:text-blue-300'
                 : 'hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300'
-            }`}
+              }`}
           >
-            {t('favorites')} ({favoritePlaybookCodes.length})
+            {t('favorites' as any)} ({favoritePlaybookCodes.length})
           </button>
           <button
             onClick={() => handleFilterClick('recent')}
-            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-              filter === 'recent'
+            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${filter === 'recent'
                 ? 'bg-accent-10 dark:bg-blue-900/20 text-accent dark:text-blue-300'
                 : 'hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300'
-            }`}
+              }`}
           >
-            {t('recentUsage')} ({recentPlaybookCodes.length})
+            {t('recentUsage' as any)} ({recentPlaybookCodes.length})
           </button>
           <button
-            onClick={() => {}}
+            onClick={() => { }}
             disabled
             className="w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors opacity-50 cursor-not-allowed text-primary dark:text-gray-300"
-            title={t('notYetImplemented')}
+            title={t('notYetImplemented' as any)}
           >
-            {t('createdByMe')} (0)
+            {t('createdByMe' as any)} (0)
           </button>
           <button
             onClick={() => handleFilterClick('ready_to_run')}
-            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-              filter === 'ready_to_run'
+            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${filter === 'ready_to_run'
                 ? 'bg-accent-10 dark:bg-blue-900/20 text-accent dark:text-blue-300'
                 : 'hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300'
-            }`}
+              }`}
           >
-            {t('readyToRun')} ({readyToRunPlaybookCodes.length})
+            {t('readyToRun' as any)} ({readyToRunPlaybookCodes.length})
           </button>
         </div>
       </div>
 
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">{t('byPacks')}</h4>
+        <h4 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">{t('byPacks' as any)}</h4>
         <div className="mb-2">
           <select
             value={selectedCapability}
@@ -209,10 +206,10 @@ export default function PlaybookLibrarySidebar({
           >
             {sortedPacks.map(([capabilityCode, capabilityPlaybooks]) => {
               const capabilityDisplayName = capabilityCode === 'system'
-                ? t('systemPlaybooks')
+                ? t('systemPlaybooks' as any)
                 : capabilityCode.split('_').map(word =>
-                    word.charAt(0).toUpperCase() + word.slice(1)
-                  ).join(' ');
+                  word.charAt(0).toUpperCase() + word.slice(1)
+                ).join(' ');
               return (
                 <option key={capabilityCode} value={capabilityCode}>
                   {capabilityDisplayName} ({capabilityPlaybooks.length})
@@ -225,20 +222,19 @@ export default function PlaybookLibrarySidebar({
           <div className="space-y-1 mt-2">
             {topPacks.map(([capabilityCode, capabilityPlaybooks]) => {
               const capabilityDisplayName = capabilityCode === 'system'
-                ? t('systemPlaybooks')
+                ? t('systemPlaybooks' as any)
                 : capabilityCode.split('_').map(word =>
-                    word.charAt(0).toUpperCase() + word.slice(1)
-                  ).join(' ');
+                  word.charAt(0).toUpperCase() + word.slice(1)
+                ).join(' ');
               const isSelected = selectedCapability === capabilityCode;
               return (
                 <button
                   key={capabilityCode}
                   onClick={() => onCapabilityChange(capabilityCode)}
-                  className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                    isSelected
+                  className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${isSelected
                       ? 'bg-accent-10 dark:bg-blue-900/20 text-accent dark:text-blue-300'
                       : 'hover:bg-tertiary dark:hover:bg-gray-800 text-primary dark:text-gray-300'
-                  }`}
+                    }`}
                 >
                   {capabilityDisplayName} ({capabilityPlaybooks.length})
                 </button>
@@ -253,7 +249,7 @@ export default function PlaybookLibrarySidebar({
           onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
           className="w-full text-left px-2 py-1.5 text-xs font-semibold text-primary dark:text-gray-300 mb-2 flex items-center justify-between"
         >
-          <span>{t('advancedFilters')}</span>
+          <span>{t('advancedFilters' as any)}</span>
           <span>{showAdvancedFilters ? '▼' : '▶'}</span>
         </button>
 
@@ -262,11 +258,11 @@ export default function PlaybookLibrarySidebar({
             {/* Tags Filter */}
             {allTags.length > 0 && (
               <div>
-                <h5 className="text-xs font-medium text-primary dark:text-gray-300 mb-2">{t('tags')}</h5>
+                <h5 className="text-xs font-medium text-primary dark:text-gray-300 mb-2">{t('tags' as any)}</h5>
 
                 <input
                   type="text"
-                  placeholder={t('searchTags')}
+                  placeholder={t('searchTags' as any)}
                   value={tagSearchTerm}
                   onChange={(e) => setTagSearchTerm(e.target.value)}
                   className="w-full px-2 py-1.5 text-xs border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 mb-2"
@@ -300,15 +296,15 @@ export default function PlaybookLibrarySidebar({
                         className="w-full mt-2 px-2 py-1 text-xs text-accent dark:text-blue-400 hover:bg-accent-10 dark:hover:bg-blue-900/20 rounded-md transition-colors"
                       >
                         {showAllTags
-                          ? t('showLess')
-                          : t('showMore', { count: allTags.length - topTags.length })
+                          ? t('showLess' as any)
+                          : (t as any)('showMore', { count: allTags.length - topTags.length })
                         }
                       </button>
                     )}
                   </>
                 ) : (
                   <p className="text-xs text-secondary dark:text-gray-400 text-center py-2">
-                    {t('noTagsFound')}
+                    {t('noTagsFound' as any)}
                   </p>
                 )}
               </div>

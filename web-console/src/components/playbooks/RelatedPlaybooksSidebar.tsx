@@ -76,12 +76,12 @@ export default function RelatedPlaybooksSidebar({
 
   return (
     <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-7rem)] overflow-y-auto p-4 sticky top-[7rem]">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('relatedPlaybooks')}</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('relatedPlaybooks' as any)}</h3>
 
       {/* Same Pack Playbooks */}
       {samePackPlaybooks.length > 0 && (
         <div className="mb-4">
-          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('samePackPlaybooks')}</h4>
+          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('samePackPlaybooks' as any)}</h4>
           <div className="space-y-2">
             {samePackPlaybooks.map((pb) => (
               <Link
@@ -112,7 +112,7 @@ export default function RelatedPlaybooksSidebar({
       {/* Related Tags Playbooks */}
       {relatedTagsPlaybooks.length > 0 && (
         <div className="mb-4">
-          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('relatedTagsPlaybooks')}</h4>
+          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('relatedTagsPlaybooks' as any)}</h4>
           <div className="space-y-2">
             {relatedTagsPlaybooks.map((pb) => (
               <Link
@@ -143,7 +143,7 @@ export default function RelatedPlaybooksSidebar({
       {/* Recent Views */}
       {recentPlaybooks.length > 0 && (
         <div className="mb-4">
-          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('recentUsage')}</h4>
+          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{t('recentUsage' as any)}</h4>
           <div className="space-y-2">
             {recentPlaybooks.map((pb) => (
               <Link
@@ -168,7 +168,7 @@ export default function RelatedPlaybooksSidebar({
 
       {samePackPlaybooks.length === 0 && relatedTagsPlaybooks.length === 0 && recentPlaybooks.length === 0 && (
         <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
-          {t('noRelatedPlaybooks')}
+          {t('noRelatedPlaybooks' as any)}
         </div>
       )}
     </div>

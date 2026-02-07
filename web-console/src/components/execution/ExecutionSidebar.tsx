@@ -30,7 +30,7 @@ interface PlaybookGroup {
     completed: number;
     failed: number;
   };
-  projectId?: string;  // 方案 1 & 2: 添加 project 归属信息
+  projectId?: string;  // Solution 1 & 2: Add project attribution info
   projectName?: string;
 }
 
@@ -85,7 +85,7 @@ export default function ExecutionSidebar({
               // If project not found, fallback to workspace-level API
               // Don't set playbookGroups to empty, keep existing state
             } else if (treeData.playbookGroups && Array.isArray(treeData.playbookGroups) && treeData.playbookGroups.length > 0) {
-              // 收集所有执行，按全局时间排序，分配全局 runNumber
+              // Collect all executions, sort by global time, assign global runNumber
               const allExecutions: Array<{ exec: any; group: any }> = [];
               treeData.playbookGroups.forEach((group: any) => {
                 if (group.executions && group.executions.length > 0) {
@@ -95,29 +95,29 @@ export default function ExecutionSidebar({
                 }
               });
 
-              // 按全局执行时间排序（最早的在前）
+              // Sort by global execution time (earliest first)
               allExecutions.sort((a, b) => {
                 const timeA = new Date(a.exec.started_at || a.exec.created_at || 0).getTime();
                 const timeB = new Date(b.exec.started_at || b.exec.created_at || 0).getTime();
                 return timeA - timeB;
               });
 
-              // 分配全局连续的 runNumber（1, 2, 3...）
+              // Assign global continuous runNumber (1, 2, 3...)
               allExecutions.forEach((item, index) => {
                 item.exec.runNumber = index + 1;
               });
 
-              // 方案 1 & 2: 处理 playbookGroups，提取并保存每个 playbook 的 project 信息
+              // Solution 1 & 2: Process playbookGroups, extract and save project info for each playbook
               // Convert execution-tree API data to ExecutionSummary format
               const processedGroups = treeData.playbookGroups.map((group: any) => {
-                // 从 executions 中提取 project_id 和 project_name
+                // Extract project_id and project_name from executions
                 let groupProjectId: string | undefined;
                 let groupProjectName: string | undefined;
 
                 // Convert executions to ExecutionSummary format
                 const executionSummaries: ExecutionSummary[] = [];
                 if (group.executions && group.executions.length > 0) {
-                  // 从第一个 execution 中提取 project 信息（假设同一 playbook 的所有 execution 属于同一 project）
+                  // Extract project info from the first execution (assume all executions in same playbook belong to same project)
                   const firstExec = group.executions[0];
                   groupProjectId = firstExec.project_id || firstExec.execution_context?.project_id;
                   groupProjectName = firstExec.project_name || firstExec.execution_context?.project_name;
@@ -146,13 +146,13 @@ export default function ExecutionSidebar({
                     });
                   });
 
-                  // 按执行时间排序（最早的在前），保持全局 runNumber
+                  // Sort by execution time (earliest first), keeping global runNumber
                   executionSummaries.sort((a, b) => {
                     return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
                   });
                 }
 
-                // 如果 API 直接返回了 project 信息，使用它
+                // If API returns project info directly, use it
                 if (group.project_id) {
                   groupProjectId = group.project_id;
                 }
@@ -181,36 +181,37 @@ export default function ExecutionSidebar({
         } else {
           // Fallback: Load all workspace executions if no projectId
           try {
+            // Optimization: use /tasks endpoint (which we patched to strip heavy results)
+            // instead of /executions (which might return huge payloads).
             const execResponse = await fetch(
-              `${apiUrl}/api/v1/workspaces/${workspaceId}/executions?limit=50`
+              `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=50&task_type=execution&include_completed=true`
             );
             if (execResponse.ok) {
               const execData = await execResponse.json();
-              const executions = execData.executions || [];
+              const executions = execData.tasks || []; // /tasks endpoint returns 'tasks' array
 
               // First, collect all executions and assign global runNumber
               const allExecutionsWithData = executions.map((exec: any) => ({
                 exec,
-                playbookCode: exec.playbook_code || 'unknown',
+                playbookCode: exec.playbook_code || exec.pack_id || 'unknown',
                 startedAt: exec.started_at || exec.created_at || new Date().toISOString()
               }));
 
               // Sort all executions by global time (earliest first)
-              allExecutionsWithData.sort((a, b) => {
+              allExecutionsWithData.sort((a: { exec: any; playbookCode: string; startedAt: string }, b: { exec: any; playbookCode: string; startedAt: string }) => {
                 return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
               });
 
               // Assign global continuous runNumber (1, 2, 3...)
-              allExecutionsWithData.forEach((item, index) => {
+              allExecutionsWithData.forEach((item: { exec: any; playbookCode: string; startedAt: string }, index: number) => {
                 item.exec._globalRunNumber = index + 1;
               });
 
-              // Group executions by playbook_code
               const groupMap = new Map<string, PlaybookGroup>();
-              allExecutionsWithData.forEach(({ exec }) => {
-                const playbookCode = exec.playbook_code || 'unknown';
+              allExecutionsWithData.forEach(({ exec }: { exec: any }) => {
+                const playbookCode = exec.playbook_code || exec.pack_id || 'unknown';
                 if (!groupMap.has(playbookCode)) {
-                  // 方案 1 & 2: 从 execution 中提取 project 信息
+                  // Solution 1 & 2: Extract project info from execution
                   const execProjectId = exec.project_id || exec.execution_context?.project_id;
                   const execProjectName = exec.project_name || exec.execution_context?.project_name;
 
@@ -277,35 +278,35 @@ export default function ExecutionSidebar({
     loadData();
   }, [projectId, workspaceId, apiUrl]);
 
-  // 方案 2: 如果提供了 projectId，先过滤只显示属于该 project 的 playbook
+  // Solution 2: If projectId provided, filter to show only playbooks belonging to that project
   const projectFilteredGroups = projectId
     ? playbookGroups.filter(group => {
-        // 如果 playbook 有 projectId，只显示匹配的
-        if (group.projectId) {
-          return group.projectId === projectId;
-        }
-        // 如果没有 projectId 信息，假设属于当前 project（向后兼容）
-        return true;
-      })
+      // If playbook has projectId, show only matching ones
+      if (group.projectId) {
+        return group.projectId === projectId;
+      }
+      // If no projectId info, assume it belongs to current project (backward compatibility)
+      return true;
+    })
     : playbookGroups;
 
-  // 然后应用状态过滤
+  // Then apply status filter
   const filteredGroups = projectFilteredGroups.map(group => ({
     ...group,
     executions: filterStatus === 'all'
       ? group.executions
       : group.executions.filter(e => {
-          if (filterStatus === 'waiting') {
-            return e.status === 'paused' || e.currentStep?.status === 'waiting_confirmation';
-          }
-          if (filterStatus === 'running') {
-            return e.status === 'running';
-          }
-          if (filterStatus === 'failed') {
-            return e.status === 'failed';
-          }
-          return true;
-        })
+        if (filterStatus === 'waiting') {
+          return e.status === 'paused' || e.currentStep?.status === 'waiting_confirmation';
+        }
+        if (filterStatus === 'running') {
+          return e.status === 'running';
+        }
+        if (filterStatus === 'failed') {
+          return e.status === 'failed';
+        }
+        return true;
+      })
   })).filter(group => group.executions.length > 0)
     .sort((a, b) => {
       // Define playbook execution order (earlier steps first, deployment last)
@@ -353,16 +354,15 @@ export default function ExecutionSidebar({
           {[
             { key: 'all', label: (t('all' as any) as string) || 'All', icon: '' },
             { key: 'waiting', label: (t('waiting' as any) as string) || 'Waiting', icon: '⏸️' },
-            { key: 'running', label: t('running') || 'Running', icon: '🔄' },
-            { key: 'failed', label: t('failed') || 'Failed', icon: '❌' }
+            { key: 'running', label: t('running' as any) || 'Running', icon: '🔄' },
+            { key: 'failed', label: t('failed' as any) || 'Failed', icon: '❌' }
           ].map(filter => (
             <button
               key={filter.key}
-              className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                filterStatus === filter.key
-                  ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300 border border-accent dark:border-blue-700'
-                  : 'bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 border border-default dark:border-gray-600 hover:bg-surface-accent dark:hover:bg-gray-700'
-              }`}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${filterStatus === filter.key
+                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300 border border-accent dark:border-blue-700'
+                : 'bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 border border-default dark:border-gray-600 hover:bg-surface-accent dark:hover:bg-gray-700'
+                }`}
               onClick={() => setFilterStatus(filter.key)}
             >
               {filter.icon && <span className="mr-1">{filter.icon}</span>}
@@ -399,7 +399,7 @@ export default function ExecutionSidebar({
           <div className="space-y-1">
             {globalStats.totalRunning > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-secondary dark:text-gray-400">🔄 {t('running') || 'Running'}</span>
+                <span className="text-secondary dark:text-gray-400">🔄 {t('running' as any) || 'Running'}</span>
                 <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalRunning}</span>
               </div>
             )}
@@ -524,11 +524,10 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
 
   return (
     <div
-      className={`p-2 cursor-pointer border-l-2 transition-colors ${
-        isSelected
-          ? 'bg-accent-10 dark:bg-blue-900/20 border-accent dark:border-blue-400'
-          : 'border-transparent hover:bg-surface-accent dark:hover:bg-gray-700'
-      }`}
+      className={`p-2 cursor-pointer border-l-2 transition-colors ${isSelected
+        ? 'bg-accent-10 dark:bg-blue-900/20 border-accent dark:border-blue-400'
+        : 'border-transparent hover:bg-surface-accent dark:hover:bg-gray-700'
+        }`}
       onClick={onClick}
     >
       <div className="flex items-center justify-between mb-1">
@@ -580,7 +579,7 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
           <div
             className="h-full bg-accent dark:bg-blue-400 transition-all"
             style={{
-              width: `${(execution.currentStep.index / execution.totalSteps) * 100}%`
+              width: `${((execution.currentStep?.index || 0) / execution.totalSteps) * 100}%`
             }}
           />
         </div>

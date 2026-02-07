@@ -72,9 +72,9 @@ export default function ForkPlaybookButton({
         }}
         disabled={forking}
         className="px-3 py-1 text-xs bg-purple-600 dark:bg-purple-700 text-white rounded hover:bg-purple-700 dark:hover:bg-purple-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
-        title={t('forkPlaybookToWorkspace')}
+        title={t('forkPlaybookToWorkspace' as any)}
       >
-        {forking ? t('forking') : t('forkPlaybookToWorkspace')}
+        {forking ? t('forking' as any) : t('forkPlaybookToWorkspace' as any)}
       </button>
 
       {showForkDialog && (
@@ -94,15 +94,15 @@ export default function ForkPlaybookButton({
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
-              {t('forkPlaybookDialog')}
+              {t('forkPlaybookDialog' as any)}
             </h2>
 
             <div className="mb-4">
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                {t('playbook')}: <span className="font-medium">{playbookName}</span>
+                {t('playbook' as any)}: <span className="font-medium">{playbookName}</span>
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500">
-                {t('forkPlaybookDescription')}
+                {t('forkPlaybookDescription' as any)}
               </p>
             </div>
 
@@ -114,17 +114,17 @@ export default function ForkPlaybookButton({
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t('targetWorkspaceId')}
+                {t('targetWorkspaceId' as any)}
               </label>
               <input
                 type="text"
                 value={targetWorkspaceId}
                 onChange={(e) => setTargetWorkspaceId(e.target.value)}
-                placeholder={t('targetWorkspaceId')}
+                placeholder={t('targetWorkspaceId' as any)}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t('targetWorkspaceIdDescription')}
+                {t('targetWorkspaceIdDescription' as any)}
               </p>
             </div>
 
@@ -134,14 +134,14 @@ export default function ForkPlaybookButton({
                 disabled={forking}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
               >
-                {t('cancel')}
+                {t('cancel' as any)}
               </button>
               <button
                 onClick={handleFork}
                 disabled={forking || !targetWorkspaceId.trim()}
                 className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {forking ? t('forking') : t('fork')}
+                {forking ? t('forking' as any) : t('fork' as any)}
               </button>
             </div>
           </div>

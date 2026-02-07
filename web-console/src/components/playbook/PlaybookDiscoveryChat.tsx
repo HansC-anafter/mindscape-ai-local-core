@@ -39,7 +39,7 @@ export default function PlaybookDiscoveryChat({
     {
       id: 'initial',
       role: 'assistant',
-      content: t('tellMeYourNeeds'),
+      content: t('tellMeYourNeeds' as any),
       timestamp: new Date()
     }
   ]);
@@ -49,9 +49,9 @@ export default function PlaybookDiscoveryChat({
 
   const suggestedQuestions = useMemo(() => {
     const baseQuestions = [
-      t('suggestedQuestionFindSeo'),
-      t('suggestedQuestionRequiredTools'),
-      t('suggestedQuestionWorkspaceUsage')
+      t('suggestedQuestionFindSeo' as any),
+      t('suggestedQuestionRequiredTools' as any),
+      t('suggestedQuestionWorkspaceUsage' as any)
     ];
 
     if (selectedCapability) {
@@ -62,7 +62,7 @@ export default function PlaybookDiscoveryChat({
     }
 
     if (currentPlaybookCode) {
-      baseQuestions.unshift(t('suggestedQuestionUsageStatus'));
+      baseQuestions.unshift(t('suggestedQuestionUsageStatus' as any));
     }
 
     return baseQuestions.slice(0, 4);
@@ -87,7 +87,7 @@ export default function PlaybookDiscoveryChat({
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
+    setInput('' as any);
     setIsLoading(true);
 
     try {
@@ -107,11 +107,11 @@ export default function PlaybookDiscoveryChat({
 
       if (response.ok) {
         const data = await response.json();
-        let content = data.suggestion || t('basedOnYourNeeds');
+        let content = data.suggestion || t('basedOnYourNeeds' as any);
 
         // Add recommended playbooks as clickable items
         if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
-          content += '\n\n' + t('recommendedPlaybooks') + '\n';
+          content += '\n\n' + t('recommendedPlaybooks' as any) + '\n';
           data.recommended_playbooks.forEach((pb: any, index: number) => {
             content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
           });
@@ -132,7 +132,7 @@ export default function PlaybookDiscoveryChat({
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: t('sorryCannotProcess'),
+        content: t('sorryCannotProcess' as any),
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -205,7 +205,7 @@ export default function PlaybookDiscoveryChat({
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
-              <span className="inline-block animate-pulse">{t('thinking')}</span>
+              <span className="inline-block animate-pulse">{t('thinking' as any)}</span>
             </div>
           </div>
         )}
@@ -247,10 +247,10 @@ export default function PlaybookDiscoveryChat({
 
                     if (response.ok) {
                       const data = await response.json();
-                      let content = data.suggestion || t('basedOnYourNeeds');
+                      let content = data.suggestion || t('basedOnYourNeeds' as any);
 
                       if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
-                        content += '\n\n' + t('recommendedPlaybooks') + '\n';
+                        content += '\n\n' + t('recommendedPlaybooks' as any) + '\n';
                         data.recommended_playbooks.forEach((pb: any, index: number) => {
                           content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
                         });
@@ -271,7 +271,7 @@ export default function PlaybookDiscoveryChat({
                     const errorMessage: Message = {
                       id: (Date.now() + 1).toString(),
                       role: 'assistant',
-                      content: t('sorryCannotProcess'),
+                      content: t('sorryCannotProcess' as any),
                       timestamp: new Date()
                     };
                     setMessages(prev => [...prev, errorMessage]);
@@ -294,7 +294,7 @@ export default function PlaybookDiscoveryChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={t('describeYourNeeds')}
+            placeholder={t('describeYourNeeds' as any)}
             className="flex-1 px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             disabled={isLoading}
           />
@@ -303,7 +303,7 @@ export default function PlaybookDiscoveryChat({
             disabled={!input.trim() || isLoading}
             className="px-4 py-2 text-xs bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
           >
-                  {t('send')}
+                  {t('send' as any)}
           </button>
         </div>
       </div>

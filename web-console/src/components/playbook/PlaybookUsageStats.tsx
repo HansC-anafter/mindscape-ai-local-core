@@ -72,7 +72,7 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
   };
 
   const formatDate = (dateString: string | null) => {
-    if (!dateString) return t('neverExecuted');
+    if (!dateString) return t('neverExecuted' as any);
     try {
       const date = new Date(dateString);
       return date.toLocaleString('en-US', {
@@ -90,7 +90,7 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
   if (loading) {
     return (
       <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-4">
-        <div className="text-sm text-secondary dark:text-gray-400">{t('loadingUsageStats')}</div>
+        <div className="text-sm text-secondary dark:text-gray-400">{t('loadingUsageStats' as any)}</div>
       </div>
     );
   }
@@ -98,7 +98,7 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
   if (error) {
     return (
       <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-4">
-        <div className="text-sm text-destructive dark:text-red-400">{t('errorLoadingStats', { error })}</div>
+        <div className="text-sm text-destructive dark:text-red-400">{(t as any)('errorLoadingStats', { error })}</div>
       </div>
     );
   }
@@ -106,31 +106,31 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
   if (!stats || stats.total_executions === 0) {
     return (
       <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-2">{t('usageStats')}</h3>
-        <div className="text-sm text-secondary dark:text-gray-400">{t('noExecutionYet')}</div>
+        <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-2">{t('usageStats' as any)}</h3>
+        <div className="text-sm text-secondary dark:text-gray-400">{t('noExecutionYet' as any)}</div>
       </div>
     );
   }
 
   return (
     <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-4">
-      <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-4">{t('usageStats')}</h3>
+      <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-4">{t('usageStats' as any)}</h3>
 
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-surface-accent dark:bg-gray-700 rounded-lg p-3">
-          <div className="text-xs text-secondary dark:text-gray-400 mb-1">{t('totalExecutions')}</div>
+          <div className="text-xs text-secondary dark:text-gray-400 mb-1">{t('totalExecutions' as any)}</div>
           <div className="text-lg font-semibold text-primary dark:text-gray-100">
             {stats.total_executions}
           </div>
         </div>
         <div className="bg-surface-accent dark:bg-gray-700 rounded-lg p-3">
-          <div className="text-xs text-secondary dark:text-gray-400 mb-1">{t('totalWorkspaces')}</div>
+          <div className="text-xs text-secondary dark:text-gray-400 mb-1">{t('totalWorkspaces' as any)}</div>
           <div className="text-lg font-semibold text-primary dark:text-gray-100">
             {stats.total_workspaces}
           </div>
         </div>
         <div className="bg-surface-accent dark:bg-gray-700 rounded-lg p-3">
-          <div className="text-xs text-secondary dark:text-gray-400 mb-1">{t('averageExecutions')}</div>
+          <div className="text-xs text-secondary dark:text-gray-400 mb-1">{t('averageExecutions' as any)}</div>
           <div className="text-lg font-semibold text-primary dark:text-gray-100">
             {stats.total_workspaces > 0
               ? Math.round(stats.total_executions / stats.total_workspaces * 10) / 10
@@ -141,7 +141,7 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
 
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-primary dark:text-gray-300 mb-2">
-          {t('workspaceExecutionStatus')}
+          {t('workspaceExecutionStatus' as any)}
         </h4>
         {stats.workspace_stats.length > 0 ? (
           <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -165,11 +165,11 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
                         {wsStat.workspace_id}
                       </div>
                       <div className="text-xs text-secondary dark:text-gray-400 mt-1">
-                        {t('executions', { count: wsStat.execution_count })}
+                        {(t as any)('executions', { count: wsStat.execution_count })}
                         {wsStat.execution_count > 0 && (
                           <span className="ml-2">
-                            ({t('successCount', { count: wsStat.success_count })} / {t('failedCount', { count: wsStat.failed_count })}
-                            {wsStat.running_count > 0 && ` / ${t('runningCount', { count: wsStat.running_count })}`})
+                            ({(t as any)('successCount', { count: wsStat.success_count })} / {(t as any)('failedCount', { count: wsStat.failed_count })}
+                            {wsStat.running_count > 0 && ` / ${(t as any)('runningCount', { count: wsStat.running_count })}`})
                           </span>
                         )}
                       </div>
@@ -177,11 +177,10 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
                     <div className="ml-2 flex items-center gap-2">
                       {wsStat.execution_count > 0 && (
                         <div className="text-xs text-secondary dark:text-gray-400">
-                          <span className={`font-medium ${
-                            successRate >= 80 ? 'text-green-600 dark:text-green-400' :
-                            successRate >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
-                            'text-red-600 dark:text-red-400'
-                          }`}>
+                          <span className={`font-medium ${successRate >= 80 ? 'text-green-600 dark:text-green-400' :
+                              successRate >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
+                                'text-red-600 dark:text-red-400'
+                            }`}>
                             {successRate}%
                           </span>
                         </div>
@@ -196,27 +195,27 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
                     <div className="mt-3 pt-3 border-t border-default dark:border-gray-700 space-y-2">
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="text-secondary dark:text-gray-400">{t('success')}:</span>
+                          <span className="text-secondary dark:text-gray-400">{t('success' as any)}:</span>
                           <span className="ml-1 font-medium text-green-600 dark:text-green-400">
                             {wsStat.success_count}
                           </span>
                         </div>
                         <div>
-                          <span className="text-secondary dark:text-gray-400">{t('failed')}:</span>
+                          <span className="text-secondary dark:text-gray-400">{t('failed' as any)}:</span>
                           <span className="ml-1 font-medium text-red-600 dark:text-red-400">
                             {wsStat.failed_count}
                           </span>
                         </div>
                         {wsStat.running_count > 0 && (
                           <div>
-                            <span className="text-secondary dark:text-gray-400">{t('running')}:</span>
+                            <span className="text-secondary dark:text-gray-400">{t('running' as any)}:</span>
                             <span className="ml-1 font-medium text-blue-600 dark:text-blue-400">
                               {wsStat.running_count}
                             </span>
                           </div>
                         )}
                         <div>
-                          <span className="text-secondary dark:text-gray-400">{t('lastExecuted')}:</span>
+                          <span className="text-secondary dark:text-gray-400">{t('lastExecuted' as any)}:</span>
                           <span className="ml-1 font-medium text-primary dark:text-gray-300">
                             {formatDate(wsStat.last_executed_at)}
                           </span>
@@ -230,7 +229,7 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
           </div>
         ) : (
           <div className="text-sm text-secondary dark:text-gray-400 text-center py-4">
-            {t('noWorkspaceExecutionRecords')}
+            {t('noWorkspaceExecutionRecords' as any)}
           </div>
         )}
       </div>

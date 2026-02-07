@@ -43,7 +43,7 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
 
     // 暂时将 trend 设为 'stable'，因为后端没有提供趋势数据
     // 未来可以通过比较不同时间段的数据来计算趋势
-    const trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
+    const trend: string = 'stable';
 
     return {
       node_id: node.node_id,
@@ -98,9 +98,9 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
           <div className="text-2xl font-bold text-purple-900">
             {processedNodeDrift.length > 0
               ? (
-                  processedNodeDrift.reduce((sum, node) => sum + node.trigger_rate, 0) /
-                  processedNodeDrift.length
-                ).toFixed(1)
+                processedNodeDrift.reduce((sum, node) => sum + node.trigger_rate, 0) /
+                processedNodeDrift.length
+              ).toFixed(1)
               : '0.0'}
             %
           </div>
@@ -154,13 +154,12 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
               <div className="mt-2">
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
-                    className={`h-2 rounded-full ${
-                      node.trend === 'increasing'
+                    className={`h-2 rounded-full ${node.trend === 'increasing'
                         ? 'bg-green-500'
                         : node.trend === 'decreasing'
-                        ? 'bg-red-500'
-                        : 'bg-gray-500'
-                    }`}
+                          ? 'bg-red-500'
+                          : 'bg-gray-500'
+                      }`}
                     style={{ width: `${Math.min(node.trigger_rate, 100)}%` }}
                   />
                 </div>

@@ -28,7 +28,7 @@ export default function VersionSelector({
 }: VersionSelectorProps) {
   return (
     <div className="flex items-center gap-6">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{t('currentExecutionVersion')}</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{t('currentExecutionVersion' as any)}</h3>
 
       <div className="flex items-center gap-4 flex-1">
         {!hasPersonalVariant ? (
@@ -52,20 +52,20 @@ export default function VersionSelector({
                 disabled
                 className="w-4 h-4"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">{t('myVersionNotCreated')}</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('myVersionNotCreated' as any)}</span>
             </label>
             <div className="flex items-center gap-2 ml-auto">
               <button
                 onClick={onCopyClick}
                 className="px-3 py-1.5 text-xs text-primary dark:text-gray-300 hover:text-primary dark:hover:text-gray-100 border border-default dark:border-gray-600 rounded hover:bg-surface-secondary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
               >
-                {t('directCopy')}
+                {t('directCopy' as any)}
               </button>
               <button
                 onClick={onLLMClick}
                 className="px-3 py-1.5 text-xs text-accent dark:text-blue-400 hover:text-accent dark:hover:text-blue-300 border border-accent dark:border-blue-700 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 bg-surface-accent dark:bg-gray-800"
               >
-                {t('llmCustomization')}
+                {t('llmCustomization' as any)}
               </button>
             </div>
           </>
@@ -81,7 +81,7 @@ export default function VersionSelector({
                 className="w-4 h-4"
               />
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('playbookMyVariant', { name: defaultVariant?.variant_name || t('playbookMyVariantDefault') })}
+                {(t as any)('playbookMyVariant', { name: defaultVariant?.variant_name || t('playbookMyVariantDefault' as any) })}
               </span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
@@ -97,16 +97,16 @@ export default function VersionSelector({
             </label>
             <div className="flex items-center gap-2 ml-auto">
               <button
-                onClick={() => {/* TODO: Show diff */}}
+                onClick={() => {/* TODO: Show diff */ }}
                 className="px-3 py-1.5 text-xs text-primary dark:text-gray-300 hover:text-primary dark:hover:text-gray-100 border border-default dark:border-gray-600 rounded hover:bg-surface-secondary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
               >
-                {t('viewDiff')}
+                {t('viewDiff' as any)}
               </button>
               <button
                 onClick={onLLMClick}
                 className="px-3 py-1.5 text-xs text-accent dark:text-blue-400 hover:text-accent dark:hover:text-blue-300 border border-accent dark:border-blue-700 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 bg-surface-accent dark:bg-gray-800"
               >
-                {t('readjust')}
+                {t('readjust' as any)}
               </button>
             </div>
           </>
@@ -119,11 +119,11 @@ export default function VersionSelector({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
             <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-              {t('activeExecutions', { count: activeExecutionsCount })}
+              {(t as any)('activeExecutions', { count: activeExecutionsCount })}
             </span>
           </div>
         ) : (
-          <span className="text-xs text-gray-500 dark:text-gray-400">{t('noExecutionRecord')}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{t('noExecutionRecord' as any)}</span>
         )}
       </div>
     </div>

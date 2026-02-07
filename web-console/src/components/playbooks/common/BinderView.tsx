@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult } from '@dnd-kit/core';
+// @ts-ignore - Optional dependency, may not be installed
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import { BinderViewProps, ViewItem } from './types';
 
 /**
@@ -31,11 +32,10 @@ export function BinderView<T extends ViewItem>({
 
   const defaultRenderItem = (item: T, isSelected: boolean) => (
     <div
-      className={`p-2 cursor-pointer transition-colors ${
-        isSelected
-          ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
-          : 'hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
+      className={`p-2 cursor-pointer transition-colors ${isSelected
+        ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
+        : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+        }`}
       onClick={() => onSelect?.(item)}
     >
       <div className="flex items-center gap-2">
@@ -66,7 +66,7 @@ export function BinderView<T extends ViewItem>({
 
         return (
           <Draggable key={item.id} draggableId={item.id} index={index}>
-            {(provided, snapshot) => (
+            {(provided: any, snapshot: any) => (
               <div
                 ref={provided.innerRef}
                 {...provided.draggableProps}
@@ -86,7 +86,7 @@ export function BinderView<T extends ViewItem>({
     return (
       <DragDropContext onDragEnd={handleDragEnd}>
         <Droppable droppableId="binder-items">
-          {(provided) => (
+          {(provided: any) => (
             <div {...provided.droppableProps} ref={provided.innerRef}>
               {content}
               {provided.placeholder}

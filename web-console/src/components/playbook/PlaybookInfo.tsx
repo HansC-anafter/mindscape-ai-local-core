@@ -61,14 +61,14 @@ export default function PlaybookInfo({
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || t('fileUploadFailed'));
+        throw new Error(error.detail || t('fileUploadFailed' as any));
       }
 
       const result = await response.json();
       setShowFileUpload(false);
       return result;
     } catch (error: any) {
-      alert(t('fileUploadFailed') + ': ' + error.message);
+      alert(t('fileUploadFailed' as any) + ': ' + error.message);
       throw error;
     } finally {
       setIsUploading(false);
@@ -96,7 +96,7 @@ export default function PlaybookInfo({
     }
 
     setIsTesting(true);
-    setTestResult({ status: 'testing', message: t('testingInProgress') });
+    setTestResult({ status: 'testing', message: t('testingInProgress' as any) });
 
     try {
       const useUploaded = needsFileUpload && uploadedFiles.length > 0;
@@ -112,10 +112,10 @@ export default function PlaybookInfo({
       );
 
       if (!response.ok) {
-        let errorMessage = t('testFailed');
+        let errorMessage = t('testFailed' as any);
         try {
           const error = await response.json();
-          errorMessage = error.detail || error.message || t('testFailed');
+          errorMessage = error.detail || error.message || t('testFailed' as any);
           // Add status code to error message for better handling
           if (response.status === 404) {
             errorMessage = `404: ${errorMessage}`;
@@ -132,7 +132,7 @@ export default function PlaybookInfo({
       if (testStatus === 'passed') {
         setTestResult({
           status: 'passed',
-          message: t('testPassed')
+          message: t('testPassed' as any)
         });
       } else if (testStatus === 'failed') {
         const errors = result.test_results?.errors || [];
@@ -143,7 +143,7 @@ export default function PlaybookInfo({
       } else {
         setTestResult({
           status: 'error',
-          message: t('testError', { error: result.test_results?.error || t('unknownError') })
+          message: t('testError', { error: result.test_results?.error || t('unknownError' as any) })
         });
       }
     } catch (error: any) {
@@ -152,12 +152,12 @@ export default function PlaybookInfo({
       if (errorMsg.includes('404') || errorMsg.includes('not available')) {
         setTestResult({
           status: 'error',
-          message: t('smokeTestNotAvailable')
+          message: t('smokeTestNotAvailable' as any)
         });
       } else {
         setTestResult({
           status: 'error',
-          message: t('testExecutionError', { error: errorMsg || t('unknownError') })
+          message: t('testExecutionError', { error: errorMsg || t('unknownError' as any) })
         });
       }
     } finally {
@@ -201,9 +201,9 @@ export default function PlaybookInfo({
                 ? 'bg-red-100 text-red-700 hover:bg-red-200'
                 : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
             }`}
-            title={needsFileUpload ? t('runSmokeTestWithFile') : t('runSmokeTest')}
+            title={needsFileUpload ? t('runSmokeTestWithFile' as any) : t('runSmokeTest' as any)}
           >
-            {isTesting ? t('testing') : isUploading ? t('uploading') : t('test')}
+            {isTesting ? t('testing' as any) : isUploading ? t('uploading' as any) : t('test' as any)}
           </button>
           <button
             onClick={onToggleFavorite}
@@ -230,9 +230,9 @@ export default function PlaybookInfo({
       {showFileUpload && needsFileUpload && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-surface-accent dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">{t('uploadTestPdfFiles')}</h3>
+            <h3 className="text-lg font-semibold mb-4">{t('uploadTestPdfFiles' as any)}</h3>
             <p className="text-sm text-gray-600 mb-4">
-              {t('pleaseUploadPdfFiles')}
+              {t('pleaseUploadPdfFiles' as any)}
             </p>
 
             <input
@@ -248,7 +248,7 @@ export default function PlaybookInfo({
 
             {uploadedFiles.length > 0 && (
               <div className="mb-4">
-                <p className="text-sm font-medium mb-2">{t('selectedFiles')}</p>
+                <p className="text-sm font-medium mb-2">{t('selectedFiles' as any)}</p>
                 <ul className="text-sm text-gray-600 space-y-1">
                   {uploadedFiles.map((file, idx) => (
                     <li key={idx}>• {file.name} ({(file.size / 1024).toFixed(1)} KB)</li>
@@ -265,12 +265,12 @@ export default function PlaybookInfo({
                 }}
                 className="px-4 py-2 text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
               >
-                {t('cancel')}
+                {t('cancel' as any)}
               </button>
               <button
                 onClick={async () => {
                   if (uploadedFiles.length === 0) {
-                    alert(t('pleaseSelectFile'));
+                    alert(t('pleaseSelectFile' as any));
                     return;
                   }
                   try {
@@ -284,7 +284,7 @@ export default function PlaybookInfo({
                 disabled={uploadedFiles.length === 0 || isUploading}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
               >
-                {isUploading ? t('uploading') : t('uploadAndTest')}
+                {isUploading ? t('uploading' as any) : t('uploadAndTest' as any)}
               </button>
             </div>
           </div>

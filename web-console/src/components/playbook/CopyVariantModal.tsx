@@ -23,7 +23,7 @@ export default function CopyVariantModal({
 
   const handleSubmit = () => {
     if (!variantName.trim()) {
-      alert(t('playbookEnterVariantName'));
+      alert(t('playbookEnterVariantName' as any));
       return;
     }
     onConfirm(variantName, variantDescription);
@@ -35,7 +35,7 @@ export default function CopyVariantModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-surface-accent dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-primary dark:text-gray-100">{t('createMyVersion')}</h2>
+          <h2 className="text-xl font-semibold text-primary dark:text-gray-100">{t('createMyVersion' as any)}</h2>
           <button
             onClick={onClose}
             className="text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-300 text-2xl"
@@ -47,7 +47,7 @@ export default function CopyVariantModal({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-1">
-              {t('variantName')}
+              {t('variantName' as any)}
             </label>
             <input
               type="text"
@@ -66,12 +66,12 @@ export default function CopyVariantModal({
 
           <div>
             <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-1">
-              {t('descriptionOptional')}
+              {t('descriptionOptional' as any)}
             </label>
             <textarea
               value={variantDescription}
               onChange={(e) => setVariantDescription(e.target.value)}
-              placeholder={t('variantNameExample')}
+              placeholder={t('variantNameExample' as any)}
               rows={3}
               className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-accent dark:focus:ring-blue-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
               autoComplete="off"

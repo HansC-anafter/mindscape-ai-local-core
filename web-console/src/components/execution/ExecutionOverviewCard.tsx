@@ -56,36 +56,36 @@ export default function ExecutionOverviewCard({
   }, [showDropdown]);
 
   const statusLabels: Record<string, string> = {
-    queued: t('queued') || 'Queued',
-    running: t('running') || 'Running',
-    paused: t('paused') || 'Paused',
-    completed: t('completed') || 'Completed',
-    failed: t('failed') || 'Failed'
+    queued: t('queued' as any) || 'Queued',
+    running: t('running' as any) || 'Running',
+    paused: t('paused' as any) || 'Paused',
+    completed: t('completed' as any) || 'Completed',
+    failed: t('failed' as any) || 'Failed'
   };
 
   const getPrimaryAction = () => {
     switch (execution.status) {
       case 'paused':
         return {
-          label: t('confirmContinue') || 'Confirm Continue',
+          label: t('confirmContinue' as any) || 'Confirm Continue',
           onClick: onConfirm,
           className: 'bg-accent dark:bg-blue-600 hover:bg-accent/90 dark:hover:bg-blue-700 text-white'
         };
       case 'running':
         return {
-          label: t('viewDetail') || 'View Detail',
+          label: t('viewDetail' as any) || 'View Detail',
           onClick: onViewDetail || onFocus,
           className: 'bg-accent dark:bg-blue-600 hover:bg-accent/90 dark:hover:bg-blue-700 text-white'
         };
       case 'completed':
         return {
-          label: t('viewResult') || 'View Result',
+          label: t('viewResult' as any) || 'View Result',
           onClick: onViewDetail || onFocus,
           className: 'bg-green-600 hover:bg-green-700 text-white'
         };
       case 'failed':
         return {
-          label: t('retry') || 'Retry',
+          label: t('retry' as any) || 'Retry',
           onClick: onRetry,
           className: 'bg-accent dark:bg-blue-600 hover:bg-accent/90 dark:hover:bg-blue-700 text-white'
         };
@@ -180,7 +180,7 @@ export default function ExecutionOverviewCard({
                     }}
                     className="w-full text-left px-4 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                   >
-                    {t('reject') || 'Reject'}
+                    {t('reject' as any) || 'Reject'}
                   </button>
                 )}
                 {execution.status === 'running' && (
@@ -194,7 +194,7 @@ export default function ExecutionOverviewCard({
                         }}
                         className="w-full text-left px-4 py-2 text-xs text-primary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-700"
                       >
-                        {t('pause') || 'Pause'}
+                        {t('pause' as any) || 'Pause'}
                       </button>
                     )}
                     {onCancel && (
@@ -206,7 +206,7 @@ export default function ExecutionOverviewCard({
                         }}
                         className="w-full text-left px-4 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                       >
-                        {t('cancel') || 'Cancel'}
+                        {t('cancel' as any) || 'Cancel'}
                       </button>
                     )}
                   </>
@@ -220,7 +220,7 @@ export default function ExecutionOverviewCard({
                     }}
                     className="w-full text-left px-4 py-2 text-xs text-primary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-700"
                   >
-                    {t('viewDetail') || 'View Detail'}
+                    {t('viewDetail' as any) || 'View Detail'}
                   </button>
                 )}
                 <button
@@ -231,7 +231,7 @@ export default function ExecutionOverviewCard({
                   }}
                   className="w-full text-left px-4 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-tertiary dark:hover:bg-gray-700"
                 >
-                  {t('copyId') || 'Copy ID'}
+                  {t('copyId' as any) || 'Copy ID'}
                 </button>
               </div>
             </div>

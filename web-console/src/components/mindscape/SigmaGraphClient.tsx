@@ -167,8 +167,8 @@ function LoadGraph({ nodes, edges, activeLens }: LoadGraphProps) {
             });
 
             // Use goTo for smooth camera transition, or setState for immediate
-            if (camera.goTo) {
-              camera.goTo({
+            if ((camera as any).goTo) {
+              (camera as any).goTo({
                 x: centerX,
                 y: centerY,
                 ratio: finalRatio,
@@ -205,8 +205,8 @@ function GraphEvents({ onNodeClick }: GraphEventsProps) {
   const sigma = useSigma();
 
   useEffect(() => {
-    registerEvents({
-      nodeClick: ({ node }) => {
+    (registerEvents as any)({
+      nodeClick: ({ node }: { node: string }) => {
         const attributes = sigma.getGraph().getNodeAttributes(node);
         onNodeClick?.(node, attributes);
       },
@@ -274,8 +274,8 @@ function CameraMonitor() {
 
       // Only adjust if change is significant (more than 10% difference or position moved > 10 units)
       if (distance > 10 || ratioDiff > currentState.ratio * 0.1) {
-        if (camera.goTo) {
-          camera.goTo({
+        if ((camera as any).goTo) {
+          (camera as any).goTo({
             x: centerX,
             y: centerY,
             ratio: finalRatio,
@@ -303,8 +303,8 @@ function CameraMonitor() {
       debounceTimer = setTimeout(autoAdjustCamera, 500); // Wait 500ms after last change
     };
 
-    graph.on('nodeUpdated', debouncedAutoAdjust);
-    graph.on('nodeAdded', debouncedAutoAdjust);
+    (graph as any).on('nodeUpdated', debouncedAutoAdjust);
+    (graph as any).on('nodeAdded', debouncedAutoAdjust);
 
     // Also log camera changes for debugging (optional, can be removed)
     const handleCameraChange = () => {
@@ -315,8 +315,8 @@ function CameraMonitor() {
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      graph.off('nodeUpdated', debouncedAutoAdjust);
-      graph.off('nodeAdded', debouncedAutoAdjust);
+      (graph as any).off('nodeUpdated', debouncedAutoAdjust);
+      (graph as any).off('nodeAdded', debouncedAutoAdjust);
       camera.off('updated', handleCameraChange);
     };
   }, [sigma]);
@@ -389,7 +389,7 @@ export function SigmaGraphClient({
     console.log('[SigmaGraphClient] Rendering: Loading state');
     return (
       <div className="w-full h-[600px] bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
-        <span className="text-gray-400">{t('loading')}</span>
+        <span className="text-gray-400">{t('loading' as any)}</span>
       </div>
     );
   }
@@ -398,7 +398,7 @@ export function SigmaGraphClient({
     console.log('[SigmaGraphClient] Rendering: Error state');
     return (
       <div className="w-full h-[600px] bg-red-50 rounded-lg flex flex-col items-center justify-center">
-        <span className="text-red-600 text-lg mb-2">{t('errorLoadingGraph')}</span>
+        <span className="text-red-600 text-lg mb-2">{t('errorLoadingGraph' as any)}</span>
       </div>
     );
   }
@@ -417,15 +417,15 @@ export function SigmaGraphClient({
         style={{ height: '100%', width: '100%' }}
         settings={settings}
       >
-      <LoadGraph
-        nodes={nodes}
-        edges={edges}
-        activeLens={activeLens}
-      />
-      <GraphLensController activeLens={activeLens} />
-      <ForceAtlas2Layout autoStart={true} duration={5000} />
-      <GraphEvents onNodeClick={handleNodeClick} />
-      <CameraMonitor />
+        <LoadGraph
+          nodes={nodes}
+          edges={edges}
+          activeLens={activeLens}
+        />
+        <GraphLensController activeLens={activeLens} />
+        <ForceAtlas2Layout autoStart={true} duration={5000} />
+        <GraphEvents onNodeClick={handleNodeClick} />
+        <CameraMonitor />
       </SigmaContainer>
     </div>
   );

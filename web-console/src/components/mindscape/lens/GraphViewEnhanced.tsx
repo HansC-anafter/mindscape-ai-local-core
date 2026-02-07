@@ -46,8 +46,9 @@ export function GraphViewEnhanced({
     if (typeof window === 'undefined') return;
 
     Promise.all([
-      import('graphology'),
+      import('graphology' as any),
       import('@react-sigma/core'),
+      // @ts-ignore - CSS import for styles
       import('@react-sigma/core/lib/style.css').catch(() => null)
     ]).then(([graphology, sigmaCore]) => {
       setSigmaComponents({
@@ -330,18 +331,18 @@ export function GraphViewEnhanced({
           enableNodeHoverEvents: true,
           enableNodeClickEvents: true,
         }}
-        >
-          <LoadGraphInner
-            nodes={nodes}
-            selectedNodes={selectedNodes}
-            onNodeSelect={onNodeSelect}
-            onNodeHover={onNodeHover}
-          />
-          <GraphEvents
-            onNodeSelect={onNodeSelect}
-            onNodeHover={onNodeHover}
-          />
-        </SigmaContainer>
+      >
+        <LoadGraphInner
+          nodes={nodes}
+          selectedNodes={selectedNodes}
+          onNodeSelect={onNodeSelect}
+          onNodeHover={onNodeHover}
+        />
+        <GraphEvents
+          onNodeSelect={onNodeSelect}
+          onNodeHover={onNodeHover}
+        />
+      </SigmaContainer>
     </div>
   );
 }

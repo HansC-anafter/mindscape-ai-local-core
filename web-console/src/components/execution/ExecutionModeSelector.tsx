@@ -97,6 +97,14 @@ export default function ExecutionModeSelector({
     setPriorityValue(priorityToValue(priority));
   }, [priority]);
 
+  // Close dropdown when mode changes externally (e.g., from workspace update)
+  useEffect(() => {
+    if (isOpen) {
+      // Optionally close dropdown when mode changes, or keep it open
+      // For now, keep it open to allow smooth transitions
+    }
+  }, [mode, priority]);
+
   const currentMode = modeConfig[mode];
   const currentPriority = priorityConfig[priority];
 

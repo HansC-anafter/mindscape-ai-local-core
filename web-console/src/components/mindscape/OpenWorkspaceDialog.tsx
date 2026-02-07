@@ -38,7 +38,7 @@ export function OpenWorkspaceDialog({ node, onClose }: OpenWorkspaceDialogProps)
       await refresh();
       router.push(`/workspaces/${workspaceId.trim()}`);
     } catch (err: any) {
-      setError(err.message || t('error'));
+      setError(err.message || t('error' as any));
     } finally {
       setIsBinding(false);
     }
@@ -48,7 +48,7 @@ export function OpenWorkspaceDialog({ node, onClose }: OpenWorkspaceDialogProps)
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          {t('graphNodeOpenWorkspaceTitle')}
+          {t('graphNodeOpenWorkspaceTitle' as any)}
         </h3>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -60,18 +60,18 @@ export function OpenWorkspaceDialog({ node, onClose }: OpenWorkspaceDialogProps)
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('graphNodeWorkspaceIdLabel')}
+              {t('graphNodeWorkspaceIdLabel' as any)}
             </label>
             <input
               type="text"
               value={workspaceId}
               onChange={(e) => setWorkspaceId(e.target.value)}
-              placeholder={t('graphNodeWorkspaceIdPlaceholder')}
+              placeholder={t('graphNodeWorkspaceIdPlaceholder' as any)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               required
             />
             <p className="mt-1 text-xs text-gray-500">
-              {t('graphNodeWorkspaceIdHint')}
+              {t('graphNodeWorkspaceIdHint' as any)}
             </p>
           </div>
 
@@ -82,14 +82,14 @@ export function OpenWorkspaceDialog({ node, onClose }: OpenWorkspaceDialogProps)
               className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               disabled={isBinding}
             >
-              {t('cancel')}
+              {t('cancel' as any)}
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isBinding || !workspaceId.trim()}
             >
-              {isBinding ? t('binding') : t('open')}
+              {isBinding ? t('binding' as any) : t('open' as any)}
             </button>
           </div>
         </form>

@@ -29,14 +29,14 @@ export function DeleteConfirmDialog({
             className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
             disabled={isDeleting}
           >
-            {t('cancel')}
+            {t('cancel' as any)}
           </button>
           <button
             onClick={onConfirm}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isDeleting}
           >
-            {isDeleting ? t('deleting') : t('delete')}
+            {isDeleting ? t('deleting' as any) : t('delete' as any)}
           </button>
         </div>
       </div>

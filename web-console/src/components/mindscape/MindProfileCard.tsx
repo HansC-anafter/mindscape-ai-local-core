@@ -31,7 +31,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
   if (isError || !summary) {
     return (
       <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <p className="text-sm text-gray-500">{t('errorLoadingData')}</p>
+        <p className="text-sm text-gray-500">{t('errorLoadingData' as any)}</p>
       </div>
     );
   }
@@ -39,20 +39,20 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
-        {t('mindProfileCardTitle')}
+        {t('mindProfileCardTitle' as any)}
       </h2>
 
       <div className="space-y-6">
         {/* Direction Guidance */}
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3">
-            {t('mindProfileDirectionTitle')}
+            {t('mindProfileDirectionTitle' as any)}
           </h3>
           <div className="bg-gray-50 rounded-lg p-4 space-y-3">
             {/* Values */}
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileValuesLabel')}
+                {t('mindProfileValuesLabel' as any)}
               </span>
               <div className="mt-1 flex flex-wrap gap-2">
                 {summary.direction.values.length > 0 ? (
@@ -65,7 +65,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
                     </span>
                   ))
                 ) : (
-                  <span className="text-sm text-gray-400">{t('noData')}</span>
+                  <span className="text-sm text-gray-400">{t('noData' as any)}</span>
                 )}
               </div>
             </div>
@@ -73,7 +73,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
             {/* Worldviews */}
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileWorldviewsLabel')}
+                {t('mindProfileWorldviewsLabel' as any)}
               </span>
               <div className="mt-1 flex flex-wrap gap-2">
                 {summary.direction.worldviews.length > 0 ? (
@@ -86,7 +86,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
                     </span>
                   ))
                 ) : (
-                  <span className="text-sm text-gray-400">{t('noData')}</span>
+                  <span className="text-sm text-gray-400">{t('noData' as any)}</span>
                 )}
               </div>
             </div>
@@ -94,7 +94,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
             {/* Aesthetics */}
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileAestheticsLabel')}
+                {t('mindProfileAestheticsLabel' as any)}
               </span>
               <div className="mt-1 flex flex-wrap gap-2">
                 {summary.direction.aesthetics.length > 0 ? (
@@ -107,7 +107,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
                     </span>
                   ))
                 ) : (
-                  <span className="text-sm text-gray-400">{t('noData')}</span>
+                  <span className="text-sm text-gray-400">{t('noData' as any)}</span>
                 )}
               </div>
             </div>
@@ -115,7 +115,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
             {/* Knowledge */}
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileKnowledgeLabel')}
+                {t('mindProfileKnowledgeLabel' as any)}
               </span>
               <div className="mt-1">
                 <span className="text-sm text-gray-700">
@@ -131,42 +131,42 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
         {/* Action Guidance */}
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3">
-            {t('mindProfileActionTitle')}
+            {t('mindProfileActionTitle' as any)}
           </h3>
           <div className="bg-gray-50 rounded-lg p-4 space-y-2">
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileStrategyLabel')}
+                {t('mindProfileStrategyLabel' as any)}
               </span>
               <div className="mt-1">
                 <span className="text-sm text-gray-700">
                   {summary.action.strategies.length > 0
                     ? summary.action.strategies[0].label
-                    : t('noData')}
+                    : t('noData' as any)}
                 </span>
               </div>
             </div>
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileRoleLabel')}
+                {t('mindProfileRoleLabel' as any)}
               </span>
               <div className="mt-1">
                 <span className="text-sm text-gray-700">
                   {summary.action.roles.length > 0
                     ? summary.action.roles[0].label
-                    : t('noData')}
+                    : t('noData' as any)}
                 </span>
               </div>
             </div>
             <div>
               <span className="text-xs text-gray-500">
-                {t('mindProfileRhythmLabel')}
+                {t('mindProfileRhythmLabel' as any)}
               </span>
               <div className="mt-1">
                 <span className="text-sm text-gray-700">
                   {summary.action.rhythms.length > 0
                     ? summary.action.rhythms[0].label
-                    : t('noData')}
+                    : t('noData' as any)}
                 </span>
               </div>
             </div>
@@ -179,7 +179,7 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
             onClick={handleOpenGraph}
             className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
           >
-            {t('mindProfileOpenGraphButton')}
+            {t('mindProfileOpenGraphButton' as any)}
           </button>
         </div>
       </div>

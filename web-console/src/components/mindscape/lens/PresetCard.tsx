@@ -43,11 +43,10 @@ export function PresetCard({
 
   return (
     <div
-      className={`p-3 rounded-lg border cursor-pointer transition-all ${
-        isActive
+      className={`p-3 rounded-lg border cursor-pointer transition-all ${isActive
           ? 'bg-blue-50 border-blue-200 shadow-sm'
           : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm'
-      }`}
+        }`}
       onClick={() => onSelect(profile.id)}
     >
       <div className="flex items-start justify-between">
@@ -72,16 +71,16 @@ export function PresetCard({
           {hasDiff && !isActive && (
             <div className="mt-2 space-y-1">
               <div className="text-xs text-gray-600">
-                {diff.strengthened_count > 0 && (
+                {(diff.strengthened_count ?? 0) > 0 && (
                   <span className="text-green-600">+{diff.strengthened_count} 強化</span>
                 )}
-                {diff.weakened_count > 0 && (
+                {(diff.weakened_count ?? 0) > 0 && (
                   <span className="ml-2 text-yellow-600">-{diff.weakened_count} 弱化</span>
                 )}
-                {diff.disabled_count > 0 && (
+                {(diff.disabled_count ?? 0) > 0 && (
                   <span className="ml-2 text-gray-600">○{diff.disabled_count} 關閉</span>
                 )}
-                {diff.enabled_count > 0 && (
+                {(diff.enabled_count ?? 0) > 0 && (
                   <span className="ml-2 text-blue-600">+{diff.enabled_count} 啟用</span>
                 )}
               </div>

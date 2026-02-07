@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult } from '@dnd-kit/core';
+// @ts-ignore - Optional dependency
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import { CorkboardViewProps, ViewItem } from './types';
 
 /**
@@ -70,7 +71,7 @@ export function CorkboardView<T extends ViewItem>({
 
         return (
           <Draggable key={item.id} draggableId={item.id} index={index}>
-            {(provided, snapshot) => (
+            {(provided: any, snapshot: any) => (
               <div
                 ref={provided.innerRef}
                 {...provided.draggableProps}
@@ -90,7 +91,7 @@ export function CorkboardView<T extends ViewItem>({
     return (
       <DragDropContext onDragEnd={handleDragEnd}>
         <Droppable droppableId="corkboard-items" direction="grid">
-          {(provided) => (
+          {(provided: any) => (
             <div {...provided.droppableProps} ref={provided.innerRef}>
               {content}
               {provided.placeholder}

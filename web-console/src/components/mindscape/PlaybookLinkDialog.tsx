@@ -26,7 +26,7 @@ export function PlaybookLinkDialog({ nodeId, onLink, onCancel }: PlaybookLinkDia
       await linkNodeToPlaybook(nodeId, playbookCode.trim());
       onLink(playbookCode.trim());
     } catch (err: any) {
-      setError(err.message || t('error'));
+      setError(err.message || t('error' as any));
     } finally {
       setIsLinking(false);
     }
@@ -36,7 +36,7 @@ export function PlaybookLinkDialog({ nodeId, onLink, onCancel }: PlaybookLinkDia
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          {t('graphNodeLinkPlaybookTitle')}
+          {t('graphNodeLinkPlaybookTitle' as any)}
         </h3>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -48,18 +48,18 @@ export function PlaybookLinkDialog({ nodeId, onLink, onCancel }: PlaybookLinkDia
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('graphNodePlaybookCodeLabel')}
+              {t('graphNodePlaybookCodeLabel' as any)}
             </label>
             <input
               type="text"
               value={playbookCode}
               onChange={(e) => setPlaybookCode(e.target.value)}
-              placeholder={t('graphNodePlaybookCodePlaceholder')}
+              placeholder={t('graphNodePlaybookCodePlaceholder' as any)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               required
             />
             <p className="mt-1 text-xs text-gray-500">
-              {t('graphNodePlaybookCodeHint')}
+              {t('graphNodePlaybookCodeHint' as any)}
             </p>
           </div>
 
@@ -70,14 +70,14 @@ export function PlaybookLinkDialog({ nodeId, onLink, onCancel }: PlaybookLinkDia
               className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               disabled={isLinking}
             >
-              {t('cancel')}
+              {t('cancel' as any)}
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isLinking || !playbookCode.trim()}
             >
-              {isLinking ? t('linking') : t('link')}
+              {isLinking ? t('linking' as any) : t('link' as any)}
             </button>
           </div>
         </form>

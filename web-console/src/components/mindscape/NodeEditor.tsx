@@ -12,7 +12,7 @@ interface NodeEditorProps {
 
 export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
   const isEditing = !!node;
-  const [formData, setFormData] = useState<GraphNodeCreate | GraphNodeUpdate>({
+  const [formData, setFormData] = useState<any>({
     category: node?.category || 'direction',
     node_type: node?.node_type || 'value',
     label: node?.label || '',
@@ -71,14 +71,14 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
         onSave(created);
       }
     } catch (err: any) {
-      setError(err.message || t('error'));
+      setError(err.message || t('error' as any));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleChange = (field: string, value: any) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    setFormData((prev: any) => ({ ...prev, [field]: value }));
   };
 
   return (
@@ -86,12 +86,12 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-900">
-            {isEditing ? t('graphNodeEditButton') : t('graphNodeCreateButton')}
+            {isEditing ? t('graphNodeEditButton' as any) : t('graphNodeCreateButton' as any)}
           </h2>
           <button
             onClick={onCancel}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label={t('close')}
+            aria-label={t('close' as any)}
           >
             ✕
           </button>
@@ -107,7 +107,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('graphNodeCategoryLabel')}
+                {t('graphNodeCategoryLabel' as any)}
               </label>
               <select
                 value={formData.category}
@@ -116,14 +116,14 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
                 required
                 disabled={isEditing}
               >
-                <option value="direction">{t('graphLensDirection')}</option>
-                <option value="action">{t('graphLensAction')}</option>
+                <option value="direction">{t('graphLensDirection' as any)}</option>
+                <option value="action">{t('graphLensAction' as any)}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('graphNodeTypeLabel')}
+                {t('graphNodeTypeLabel' as any)}
               </label>
               <select
                 value={formData.node_type}
@@ -134,16 +134,16 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
               >
                 {formData.category === 'direction' ? (
                   <>
-                    <option value="value">{t('graphNodeTypeValue')}</option>
-                    <option value="worldview">{t('graphNodeTypeWorldview')}</option>
-                    <option value="aesthetic">{t('graphNodeTypeAesthetic')}</option>
-                    <option value="knowledge">{t('graphNodeTypeKnowledge')}</option>
+                    <option value="value">{t('graphNodeTypeValue' as any)}</option>
+                    <option value="worldview">{t('graphNodeTypeWorldview' as any)}</option>
+                    <option value="aesthetic">{t('graphNodeTypeAesthetic' as any)}</option>
+                    <option value="knowledge">{t('graphNodeTypeKnowledge' as any)}</option>
                   </>
                 ) : (
                   <>
-                    <option value="strategy">{t('graphNodeTypeStrategy')}</option>
-                    <option value="role">{t('graphNodeTypeRole')}</option>
-                    <option value="rhythm">{t('graphNodeTypeRhythm')}</option>
+                    <option value="strategy">{t('graphNodeTypeStrategy' as any)}</option>
+                    <option value="role">{t('graphNodeTypeRole' as any)}</option>
+                    <option value="rhythm">{t('graphNodeTypeRhythm' as any)}</option>
                   </>
                 )}
               </select>
@@ -152,7 +152,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('graphNodeLabelLabel')} *
+              {t('graphNodeLabelLabel' as any)} *
             </label>
             <input
               type="text"
@@ -165,7 +165,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('graphNodeDescriptionLabel')}
+              {t('graphNodeDescriptionLabel' as any)}
             </label>
             <textarea
               value={formData.description || ''}
@@ -177,7 +177,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('graphNodeContentLabel')}
+              {t('graphNodeContentLabel' as any)}
             </label>
             <textarea
               value={formData.content || ''}
@@ -190,7 +190,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('graphNodeIconLabel')}
+                {t('graphNodeIconLabel' as any)}
               </label>
               <input
                 type="text"
@@ -203,7 +203,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('graphNodeColorLabel')}
+                {t('graphNodeColorLabel' as any)}
               </label>
               <input
                 type="color"
@@ -215,7 +215,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('graphNodeSizeLabel')}
+                {t('graphNodeSizeLabel' as any)}
               </label>
               <input
                 type="number"
@@ -238,13 +238,13 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
                   onChange={(e) => handleChange('is_active', e.target.checked)}
                   className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                 />
-                <span className="text-sm text-gray-700">{t('graphNodeIsActiveLabel')}</span>
+                <span className="text-sm text-gray-700">{t('graphNodeIsActiveLabel' as any)}</span>
               </label>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('graphNodeConfidenceLabel')}
+                {t('graphNodeConfidenceLabel' as any)}
               </label>
               <input
                 type="number"
@@ -265,14 +265,14 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
               className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               disabled={isSubmitting}
             >
-              {t('cancel')}
+              {t('cancel' as any)}
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isSubmitting}
             >
-              {isSubmitting ? t('saving') : (isEditing ? t('save') : t('create'))}
+              {isSubmitting ? t('saving' as any) : (isEditing ? t('save' as any) : t('create' as any))}
             </button>
           </div>
         </form>

@@ -75,14 +75,14 @@ export default function ArtifactsList({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-sm font-semibold text-yellow-700 dark:text-yellow-300 flex-shrink-0">
-                🆕 {t('latestArtifact') || 'Latest'} →
+                🆕 {t('latestArtifact' as any) || 'Latest'} →
               </span>
               <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">
                 {latestArtifact.name}
               </span>
             </div>
             <span className="text-xs text-yellow-600 dark:text-yellow-400 flex-shrink-0 ml-2">
-              {t('clickToView') || 'Click to view'}
+              {t('clickToView' as any) || 'Click to view'}
             </span>
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function ArtifactsList({
 
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <span>📦 {t('stepArtifacts') || 'Step Artifacts'}</span>
+          <span>📦 {t('stepArtifacts' as any) || 'Step Artifacts'}</span>
           <span className="text-[10px] text-gray-400 ml-1">({artifacts.length})</span>
         </h4>
         {onViewSandbox && sandboxId && (
@@ -98,7 +98,7 @@ export default function ArtifactsList({
             onClick={() => onViewSandbox(sandboxId)}
             className="text-[10px] text-accent dark:text-blue-400 hover:underline"
           >
-            {t('viewInSandbox') || 'View in Sandbox'} →
+            {t('viewInSandbox' as any) || 'View in Sandbox'} →
           </button>
         )}
       </div>
@@ -133,7 +133,7 @@ export default function ArtifactsList({
                   }}
                   className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline px-1"
                 >
-                  {t('view') || 'View'}
+                  {t('view' as any) || 'View'}
                 </button>
               ) : (
                 <span className="text-[10px] text-red-500">NO ONVIEW</span>
@@ -143,7 +143,7 @@ export default function ArtifactsList({
                   onClick={() => onDownload(artifact)}
                   className="text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 px-1"
                 >
-                  {t('download')}
+                  {t('download' as any)}
                 </button>
               )}
             </div>
@@ -157,7 +157,7 @@ export default function ArtifactsList({
             onClick={() => onViewSandbox(sandboxId)}
             className="w-full px-3 py-2 text-sm bg-accent dark:bg-blue-600 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-700 flex items-center justify-center gap-2"
           >
-            <span>{t('viewSandbox')}</span>
+            <span>{t('viewSandbox' as any)}</span>
           </button>
         </div>
       )}

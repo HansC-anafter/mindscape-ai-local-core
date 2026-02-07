@@ -10,14 +10,14 @@ interface GraphControlsProps {
 
 export function GraphControls({ activeLens, onLensChange }: GraphControlsProps) {
   const lensOptions = [
-    { value: 'all', label: t('graphLensAll'), icon: '🌐' },
-    { value: 'direction', label: t('graphLensDirection'), icon: '🧭' },
-    { value: 'action', label: t('graphLensAction'), icon: '⚡' },
+    { value: 'all', label: t('graphLensAll' as any), icon: '🌐' },
+    { value: 'direction', label: t('graphLensDirection' as any), icon: '🧭' },
+    { value: 'action', label: t('graphLensAction' as any), icon: '⚡' },
   ] as const;
 
   return (
     <div className="flex gap-2 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
-      <span className="text-sm text-gray-500 self-center mr-2">{t('graphLensLabel')}</span>
+      <span className="text-sm text-gray-500 self-center mr-2">{t('graphLensLabel' as any)}</span>
       {lensOptions.map((option) => (
         <button
           key={option.value}

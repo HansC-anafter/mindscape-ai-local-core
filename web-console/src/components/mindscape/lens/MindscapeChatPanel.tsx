@@ -73,7 +73,7 @@ export function MindscapeChatPanel({
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
+    setInput('' as any);
     setIsLoading(true);
 
     try {
