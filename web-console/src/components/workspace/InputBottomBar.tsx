@@ -2,14 +2,15 @@
 
 import React from 'react';
 import { t } from '@/lib/i18n';
-import { ChatModelInfo } from '@/contexts/WorkspaceMetadataContext';
+import { ChatModel } from '@/contexts/WorkspaceMetadataContext';
 
 interface InputBottomBarProps {
   messagesCount: number;
   copiedAll: boolean;
   onCopyAll: () => void;
   currentChatModel: string;
-  availableChatModels: ChatModelInfo[];
+  availableChatModels: ChatModel[];
+
   contextTokenCount: number | null;
   onModelChange: (modelName: string, provider: string) => Promise<void>;
   onFileUpload: () => void;
@@ -17,6 +18,10 @@ interface InputBottomBarProps {
   isLoading: boolean;
   canSend: boolean;
   llmConfigured: boolean | null;
+  // External Agent support - unified across all workspaces
+  availableAgents?: Array<{ id: string; name: string; status: string }>;
+  currentAgent?: string | null;  // null = use Mindscape LLM
+  onAgentChange?: (agentId: string | null) => void;
 }
 
 /**
@@ -35,6 +40,9 @@ interface InputBottomBarProps {
  * @param isLoading Whether a message is being sent.
  * @param canSend Whether the send button should be enabled.
  * @param llmConfigured Whether LLM is configured.
+ * @param availableAgents Array of available external agents (unified for all workspaces).
+ * @param currentAgent Currently selected external agent ID (null = Mindscape LLM).
+ * @param onAgentChange Callback function when agent is changed.
  */
 export function InputBottomBar({
   messagesCount,
@@ -49,6 +57,9 @@ export function InputBottomBar({
   isLoading,
   canSend,
   llmConfigured,
+  availableAgents = [],
+  currentAgent = null,
+  onAgentChange,
 }: InputBottomBarProps) {
   return (
     <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-gray-200/30 dark:border-gray-700/30">
@@ -58,11 +69,10 @@ export function InputBottomBar({
         {messagesCount > 0 && (
           <button
             onClick={onCopyAll}
-            className={`text-xs px-2 py-1 border rounded transition-colors ${
-              copiedAll
-                ? 'bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300'
-                : 'bg-surface-secondary dark:bg-gray-800 border-default dark:border-gray-600 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700'
-            }`}
+            className={`text-xs px-2 py-1 border rounded transition-colors ${copiedAll
+              ? 'bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300'
+              : 'bg-surface-secondary dark:bg-gray-800 border-default dark:border-gray-600 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700'
+              }`}
             title={t('copyAllMessages') + ' (Cmd/Ctrl+Shift+C)'}
           >
             {copiedAll ? (
@@ -104,6 +114,34 @@ export function InputBottomBar({
             <option value="">{'No models available'}</option>
           )}
         </select>
+
+        {/* Agent Selector - only show if agents are available */}
+        {availableAgents.length > 0 && onAgentChange && (
+          <select
+            value={currentAgent || ''}
+            onChange={(e) => {
+              const selectedAgent = e.target.value || null;
+              onAgentChange(selectedAgent);
+            }}
+            className={`text-xs px-2 py-1 border rounded focus:outline-none focus:ring-1 focus:ring-accent dark:focus:ring-blue-400 ${currentAgent
+              ? 'border-purple-400 dark:border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+              : 'border-default dark:border-gray-600 bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700'
+              }`}
+            title={t('workspaceSelectAgent') || 'Select Agent'}
+          >
+            <option value="">🧠 Mindscape LLM</option>
+            {availableAgents.map((agent) => (
+              <option
+                key={agent.id}
+                value={agent.id}
+                disabled={agent.status !== 'available'}
+              >
+                🤖 {agent.name} {agent.status !== 'available' && '(unavailable)'}
+              </option>
+            ))}
+          </select>
+        )}
+
         {currentChatModel && (
           <>
             <span className="text-xs text-gray-500 dark:text-gray-300">✓ {currentChatModel}</span>
@@ -135,13 +173,12 @@ export function InputBottomBar({
           type="submit"
           onClick={onSend}
           disabled={!canSend || llmConfigured === false}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            !canSend || llmConfigured === false
-              ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-              : isLoading
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${!canSend || llmConfigured === false
+            ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+            : isLoading
               ? 'bg-blue-500 text-white cursor-wait'
               : 'bg-blue-600 text-white hover:bg-blue-700'
-          }`}
+            }`}
         >
           {isLoading ? t('sending') : t('send')}
         </button>

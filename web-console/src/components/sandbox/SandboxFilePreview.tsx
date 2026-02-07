@@ -36,7 +36,7 @@ export default function SandboxFilePreview({
   const handleDownload = () => {
     const blob = new Blob([file.content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement('a' as any);
     a.href = url;
     a.download = filePath.split('/').pop() || 'file';
     document.body.appendChild(a);

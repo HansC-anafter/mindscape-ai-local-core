@@ -186,11 +186,11 @@ export function eventToBlockerCard(event: UnifiedEvent): DecisionCardData | null
   }
 
   const actionType = payload.card_type === 'input' ? 'upload' :
-                     payload.card_type === 'review' ? 'review' :
-                     'confirm';
+    payload.card_type === 'review' ? 'review' :
+      'confirm';
   const actionLabel = payload.card_type === 'input' ? 'Provide Missing Inputs' :
-                      payload.card_type === 'review' ? 'Resolve Conflicts' :
-                      'Confirm Decision';
+    payload.card_type === 'review' ? 'Resolve Conflicts' :
+      'Confirm Decision';
 
   const handleAction = async () => {
     const decisionId = payload.decision_id || event.id;
@@ -229,8 +229,8 @@ export function eventToBlockerCard(event: UnifiedEvent): DecisionCardData | null
       evidence: {
         decision_id: payload.decision_id,
         conflicts: payload.conflicts,
+        clarificationQuestions: payload.clarification_questions,
       },
-      clarificationQuestions: payload.clarification_questions,
     },
     status,
     priority: (payload.priority as any) || 'normal',
@@ -643,6 +643,7 @@ export function subscribeEventStream(
 
   const importantTypes = [
     'message',
+    'pipeline_stage',
     'tool_call',
     'tool_result',
     'playbook_step',

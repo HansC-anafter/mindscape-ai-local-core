@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { subscribeEventStream, eventToTimelineItem, UnifiedEvent, TimelineItem } from './eventProjector';
-import { AlertCircle, CheckCircle, Clock, Play, FileText, GitBranch, Tool } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Play, FileText, GitBranch, Wrench } from 'lucide-react';
 
 interface EventTimelineProps {
   workspaceId: string;
@@ -87,7 +87,7 @@ export function EventTimeline({
       case 'artifact_created':
         return FileText;
       case 'tool_result':
-        return Tool;
+        return Wrench;
       case 'playbook_step':
         return CheckCircle;
       case 'branch_proposed':
@@ -126,9 +126,8 @@ export function EventTimeline({
           return (
             <div
               key={item.id}
-              className={`flex items-start gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                item.clickable ? 'cursor-pointer' : ''
-              }`}
+              className={`flex items-start gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${item.clickable ? 'cursor-pointer' : ''
+                }`}
               onClick={() => {
                 if (item.clickable && item.targetCardId) {
                   onJumpToCard?.(item.targetCardId);

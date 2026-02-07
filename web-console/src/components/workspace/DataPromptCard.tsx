@@ -31,7 +31,7 @@ export function DataPromptCard({
     if (inputText.trim() && onContinueWithText) {
       onContinueWithText(inputText.trim());
       setShowTextInput(false);
-      setInputText('');
+      setInputText('' as any);
       if (onDismiss) onDismiss();
     }
   };

@@ -26,7 +26,7 @@ export function SuggestionChip({
   onExecute
 }: SuggestionChipProps) {
   const tooltipText = isExecuted && suggestion.runNumber
-    ? `${t('executedAt') || 'Executed at'} Run #${suggestion.runNumber} · ${suggestion.status || 'completed'}`
+    ? `${t('executedAt' as any) || 'Executed at'} Run #${suggestion.runNumber} · ${suggestion.status || 'completed'}`
     : undefined;
 
   return (
@@ -48,7 +48,7 @@ export function SuggestionChip({
         disabled={isExecuted}
         title={tooltipText}
       >
-        {isExecuted ? `${t('executed') || 'Executed'}` : t('execute') || 'Execute'}
+        {isExecuted ? `${t('executed' as any) || 'Executed'}` : t('execute' as any) || 'Execute'}
       </button>
     </div>
   );

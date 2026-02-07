@@ -100,7 +100,7 @@ export function KnobDock({
       {/* v2.4 風險 3 解法：第一次只露出 3 顆（介入 / 收斂 / 密度） */}
       {primaryKnobs.map((knob) => {
         const value = knobValues[knob.id] ?? knob.default_value;
-        const isLocked = knob.master_knob_id && knob.is_locked_to_master;
+        const isLocked = Boolean(knob.master_knob_id && knob.is_locked_to_master);
         const isActive = recentlyChanged.includes(knob.id);
 
         return (

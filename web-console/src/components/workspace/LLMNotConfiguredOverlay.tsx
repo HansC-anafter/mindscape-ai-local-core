@@ -29,16 +29,16 @@ export function LLMNotConfiguredOverlay({ visible }: LLMNotConfiguredOverlayProp
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              {t('apiKeyNotConfigured')}
+              {t('apiKeyNotConfigured' as any)}
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              {t('apiKeyNotConfiguredDescription')}
+              {t('apiKeyNotConfiguredDescription' as any)}
             </p>
             <a
               href="/settings"
               className="text-sm text-blue-600 hover:text-blue-800 underline"
             >
-              {t('goToSettings')} →
+              {t('goToSettings' as any)} →
             </a>
           </div>
         </div>

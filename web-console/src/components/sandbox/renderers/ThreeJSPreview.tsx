@@ -16,7 +16,7 @@ export default function ThreeJSPreview({ files }: ThreeJSPreviewProps) {
     const container = containerRef.current;
     container.innerHTML = '';
 
-    const iframe = document.createElement('iframe');
+    const iframe = document.createElement('iframe' as any);
     iframe.style.width = '100%';
     iframe.style.height = '100%';
     iframe.style.border = 'none';

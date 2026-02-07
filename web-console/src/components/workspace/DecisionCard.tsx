@@ -68,7 +68,7 @@ export interface DecisionCardData {
   };
   assignee?: string;
   watchers?: string[];
-  status: 'OPEN' | 'NEED_INFO' | 'IN_REVIEW' | 'DONE' | 'REJECTED';
+  status: 'OPEN' | 'NEED_INFO' | 'IN_REVIEW' | 'DONE' | 'REJECTED' | 'READY';
   priority: 'blocker' | 'high' | 'normal';
   dueAt?: Date;
   createdAt?: Date;
@@ -109,6 +109,7 @@ export function DecisionCard({
     IN_REVIEW: 'bg-purple-50 dark:bg-purple-900/20',
     DONE: 'bg-green-50 dark:bg-green-900/20',
     REJECTED: 'bg-gray-50 dark:bg-gray-800',
+    READY: 'bg-green-50 dark:bg-green-900/20',
   };
 
   const handleAction = async () => {
@@ -147,11 +148,9 @@ export function DecisionCard({
 
   return (
     <div
-      className={`border rounded-lg p-3 transition-all ${
-        priorityColors[card.priority]
-      } ${statusColors[card.status]} ${
-        isBlocker ? 'ring-2 ring-red-300 dark:ring-red-700' : ''
-      } ${isAssignedToMe ? 'ring-2 ring-blue-300 dark:ring-blue-700' : ''}`}
+      className={`border rounded-lg p-3 transition-all ${priorityColors[card.priority]
+        } ${statusColors[card.status]} ${isBlocker ? 'ring-2 ring-red-300 dark:ring-red-700' : ''
+        } ${isAssignedToMe ? 'ring-2 ring-blue-300 dark:ring-blue-700' : ''}`}
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
@@ -186,18 +185,17 @@ export function DecisionCard({
           </div>
         </div>
 
-        <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
-          card.status === 'OPEN' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300' :
+        <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${card.status === 'OPEN' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300' :
           card.status === 'NEED_INFO' ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300' :
-          card.status === 'IN_REVIEW' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300' :
-          card.status === 'DONE' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' :
-          'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-        }`}>
+            card.status === 'IN_REVIEW' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300' :
+              card.status === 'DONE' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' :
+                'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+          }`}>
           {card.status === 'OPEN' ? 'Open' :
-           card.status === 'NEED_INFO' ? 'Need Info' :
-           card.status === 'IN_REVIEW' ? 'In Review' :
-           card.status === 'DONE' ? 'Done' :
-           'Rejected'}
+            card.status === 'NEED_INFO' ? 'Need Info' :
+              card.status === 'IN_REVIEW' ? 'In Review' :
+                card.status === 'DONE' ? 'Done' :
+                  'Rejected'}
         </span>
       </div>
 
@@ -220,15 +218,14 @@ export function DecisionCard({
           <button
             onClick={handleAction}
             disabled={isProcessing}
-            className={`w-full px-3 py-2 text-xs font-medium rounded transition-all ${
-              isProcessing
-                ? 'bg-gray-400 dark:bg-gray-600 text-white cursor-not-allowed opacity-75'
-                : card.action.type === 'confirm'
+            className={`w-full px-3 py-2 text-xs font-medium rounded transition-all ${isProcessing
+              ? 'bg-gray-400 dark:bg-gray-600 text-white cursor-not-allowed opacity-75'
+              : card.action.type === 'confirm'
                 ? 'bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
                 : card.action.type === 'reject'
-                ? 'bg-red-600 dark:bg-red-700 text-white hover:bg-red-700 dark:hover:bg-red-600'
-                : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
-            }`}
+                  ? 'bg-red-600 dark:bg-red-700 text-white hover:bg-red-700 dark:hover:bg-red-600'
+                  : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
+              }`}
           >
             {isProcessing ? (
               <div className="flex items-center justify-center gap-2">

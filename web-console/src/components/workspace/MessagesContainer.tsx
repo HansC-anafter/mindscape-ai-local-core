@@ -3,6 +3,7 @@
 import React, { useRef, useEffect } from 'react';
 import { t } from '@/lib/i18n';
 import { useMessages } from '@/contexts/MessagesContext';
+import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
 import { useScrollManagement } from '@/hooks/useScrollManagement';
 import { ChatMessage } from '@/hooks/useChatEvents';
@@ -54,6 +55,8 @@ export function MessagesContainer({
     pipelineStage,
   } = useMessages();
 
+  const { isStreaming, firstChunkReceived } = useUIState();
+
   const { messagesScrollRef } = useWorkspaceRefs();
   const { showScrollToBottom, scrollToBottom } = useScrollManagement();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -83,7 +86,7 @@ export function MessagesContainer({
       )}
 
       <ExecutionModeNotice
-        executionMode={executionMode}
+        executionMode={executionMode || 'qa'}
         expectedArtifacts={expectedArtifacts}
       />
 
@@ -94,7 +97,7 @@ export function MessagesContainer({
 
       {messages.length === 0 && !messagesLoading && !messagesError ? (
         <div className="text-center text-secondary dark:text-gray-300 mt-8">
-          <p>{t('noMessagesYet')}</p>
+          <p>{t('noMessagesYet' as any)}</p>
         </div>
       ) : messages.length > 0 ? (
         <div className="space-y-2 pb-4">
@@ -103,15 +106,15 @@ export function MessagesContainer({
             .map((message) => {
               const suggestions: Suggestion[] | undefined = message.suggestions
                 ? message.suggestions.map((s, idx) => {
-                    if (typeof s === 'string') {
-                      return {
-                        id: `suggestion-${message.id}-${idx}`,
-                        title: s,
-                        playbookCode: s,
-                      };
-                    }
-                    return s as Suggestion;
-                  })
+                  if (typeof s === 'string') {
+                    return {
+                      id: `suggestion-${message.id}-${idx}`,
+                      title: s,
+                      playbookCode: s,
+                    };
+                  }
+                  return s as Suggestion;
+                })
                 : undefined;
 
               return (
@@ -146,6 +149,14 @@ export function MessagesContainer({
           </div>
         </div>
       )}
+
+      {/* Thinking / Processing indicator */}
+      <ProcessingIndicator
+        visible={isStreaming || !!pipelineStage}
+        isStreaming={isStreaming}
+        firstChunkReceived={firstChunkReceived}
+        pipelineStage={pipelineStage?.message}
+      />
 
       <div ref={messagesEndRef} />
 

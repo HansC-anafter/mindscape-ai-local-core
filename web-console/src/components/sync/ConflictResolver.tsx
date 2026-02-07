@@ -37,7 +37,7 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {t('conflictResolution')}
+              {t('conflictResolution' as any)}
             </h2>
             <button
               onClick={onCancel}
@@ -51,15 +51,15 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
 
           <div className="mb-4">
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              {t('conflictDetected')}: {conflict.instance_type}/{conflict.instance_id}
+              {t('conflictDetected' as any)}: {conflict.instance_type}/{conflict.instance_id}
             </p>
             <div className="flex items-center gap-4 text-sm">
               <div>
-                <span className="text-gray-600 dark:text-gray-400">{t('localVersion')}:</span>
+                <span className="text-gray-600 dark:text-gray-400">{t('localVersion' as any)}:</span>
                 <span className="ml-2 font-medium">{conflict.local_version}</span>
               </div>
               <div>
-                <span className="text-gray-600 dark:text-gray-400">{t('cloudVersion')}:</span>
+                <span className="text-gray-600 dark:text-gray-400">{t('cloudVersion' as any)}:</span>
                 <span className="ml-2 font-medium">{conflict.cloud_version}</span>
               </div>
             </div>
@@ -70,18 +70,18 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
               onClick={() => setShowDiff(!showDiff)}
               className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
             >
-              {showDiff ? t('hideDiff') : t('showDiff')}
+              {showDiff ? t('hideDiff' as any) : t('showDiff' as any)}
             </button>
             {showDiff && (
               <div className="mt-2 grid grid-cols-2 gap-4">
                 <div className="border rounded p-3">
-                  <h4 className="font-medium mb-2 text-sm">{t('localData')}</h4>
+                  <h4 className="font-medium mb-2 text-sm">{t('localData' as any)}</h4>
                   <pre className="text-xs overflow-auto max-h-64 bg-gray-50 dark:bg-gray-900 p-2 rounded">
                     {JSON.stringify(conflict.local_data, null, 2)}
                   </pre>
                 </div>
                 <div className="border rounded p-3">
-                  <h4 className="font-medium mb-2 text-sm">{t('cloudData')}</h4>
+                  <h4 className="font-medium mb-2 text-sm">{t('cloudData' as any)}</h4>
                   <pre className="text-xs overflow-auto max-h-64 bg-gray-50 dark:bg-gray-900 p-2 rounded">
                     {JSON.stringify(conflict.cloud_data, null, 2)}
                   </pre>
@@ -91,7 +91,7 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
           </div>
 
           <div className="mb-4">
-            <h3 className="text-sm font-medium mb-2">{t('selectResolution')}</h3>
+            <h3 className="text-sm font-medium mb-2">{t('selectResolution' as any)}</h3>
             <div className="space-y-2">
               {conflict.resolution_options.includes('use_local') && (
                 <label className="flex items-center p-3 border rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -104,8 +104,8 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
                     className="mr-3"
                   />
                   <div>
-                    <div className="font-medium text-sm">{t('useLocal')}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{t('useLocalDescription')}</div>
+                    <div className="font-medium text-sm">{t('useLocal' as any)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{t('useLocalDescription' as any)}</div>
                   </div>
                 </label>
               )}
@@ -120,8 +120,8 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
                     className="mr-3"
                   />
                   <div>
-                    <div className="font-medium text-sm">{t('useCloud')}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{t('useCloudDescription')}</div>
+                    <div className="font-medium text-sm">{t('useCloud' as any)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{t('useCloudDescription' as any)}</div>
                   </div>
                 </label>
               )}
@@ -136,8 +136,8 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
                     className="mr-3"
                   />
                   <div>
-                    <div className="font-medium text-sm">{t('manualMerge')}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{t('manualMergeDescription')}</div>
+                    <div className="font-medium text-sm">{t('manualMerge' as any)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{t('manualMergeDescription' as any)}</div>
                   </div>
                 </label>
               )}
@@ -149,14 +149,14 @@ export default function ConflictResolver({ conflict, onResolve, onCancel }: Conf
               onClick={onCancel}
               className="px-4 py-2 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-700"
             >
-              {t('cancel')}
+              {t('cancel' as any)}
             </button>
             <button
               onClick={handleResolve}
               disabled={!selectedResolution}
               className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {t('resolve')}
+              {t('resolve' as any)}
             </button>
           </div>
         </div>

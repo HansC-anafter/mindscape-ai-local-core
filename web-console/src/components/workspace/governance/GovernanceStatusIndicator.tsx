@@ -26,10 +26,10 @@ export function GovernanceStatusIndicator({
   compact = false,
 }: GovernanceStatusIndicatorProps) {
   const layerLabels = {
-    cost: t('costGovernance') || 'Cost',
-    node: t('nodeGovernance') || 'Node',
-    policy: t('policyService') || 'Policy',
-    preflight: t('preflight') || 'Preflight',
+    cost: t('costGovernance' as any) || 'Cost',
+    node: t('nodeGovernance' as any) || 'Node',
+    policy: t('policyService' as any) || 'Policy',
+    preflight: t('preflight' as any) || 'Preflight',
   };
 
   const layerColors = {
@@ -57,13 +57,13 @@ export function GovernanceStatusIndicator({
   const getStatusLabel = (status: GovernanceLayerStatus['status']) => {
     switch (status) {
       case 'passed':
-        return t('passed') || 'Passed';
+        return t('passed' as any) || 'Passed';
       case 'failed':
-        return t('failed') || 'Failed';
+        return t('failed' as any) || 'Failed';
       case 'warning':
-        return t('warning') || 'Warning';
+        return t('warning' as any) || 'Warning';
       case 'pending':
-        return t('pending') || 'Pending';
+        return t('pending' as any) || 'Pending';
       default:
         return '';
     }
@@ -79,7 +79,7 @@ export function GovernanceStatusIndicator({
         <div className="flex items-center gap-2 text-xs">
           <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
           <span className="text-gray-600 dark:text-gray-400">
-            {t('allGovernanceChecksPassed') || 'All governance checks passed'}
+            {t('allGovernanceChecksPassed' as any) || 'All governance checks passed'}
           </span>
         </div>
       );
@@ -91,12 +91,12 @@ export function GovernanceStatusIndicator({
           <div className="flex items-center gap-1">
             {failedCount > 0 && (
               <span className="text-xs font-medium text-red-600 dark:text-red-400">
-                {failedCount} {t('failed') || 'failed'}
+                {failedCount} {t('failed' as any) || 'failed'}
               </span>
             )}
             {warningCount > 0 && (
               <span className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
-                {warningCount} {t('warnings') || 'warnings'}
+                {warningCount} {t('warnings' as any) || 'warnings'}
               </span>
             )}
           </div>
@@ -105,7 +105,7 @@ export function GovernanceStatusIndicator({
               onClick={onViewDetails}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
             >
-              {t('viewDetails') || 'View details'}
+              {t('viewDetails' as any) || 'View details'}
             </button>
           )}
         </div>
@@ -118,7 +118,7 @@ export function GovernanceStatusIndicator({
   return (
     <div className="space-y-2">
       <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
-        {t('governanceStatus') || 'Governance Status'}
+        {t('governanceStatus' as any) || 'Governance Status'}
       </div>
       <div className="space-y-2">
         {layers.map((layer) => (
@@ -148,7 +148,7 @@ export function GovernanceStatusIndicator({
           onClick={onViewDetails}
           className="w-full mt-2 px-3 py-1.5 text-xs font-medium bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
         >
-          {t('viewAllDetails') || 'View All Details'}
+          {t('viewAllDetails' as any) || 'View All Details'}
         </button>
       )}
     </div>

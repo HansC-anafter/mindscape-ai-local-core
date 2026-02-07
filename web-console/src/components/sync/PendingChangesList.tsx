@@ -32,7 +32,7 @@ export default function PendingChangesList({ onSync }: PendingChangesListProps) 
   if (loading) {
     return (
       <div className="text-sm text-gray-500 dark:text-gray-400">
-        {t('loading')}...
+        {t('loading' as any)}...
       </div>
     );
   }
@@ -40,7 +40,7 @@ export default function PendingChangesList({ onSync }: PendingChangesListProps) 
   if (changes.length === 0) {
     return (
       <div className="text-sm text-gray-500 dark:text-gray-400">
-        {t('noPendingChanges')}
+        {t('noPendingChanges' as any)}
       </div>
     );
   }
@@ -62,14 +62,14 @@ export default function PendingChangesList({ onSync }: PendingChangesListProps) 
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          {t('pendingChanges')} ({changes.length})
+          {t('pendingChanges' as any)} ({changes.length})
         </h3>
         {onSync && (
           <button
             onClick={onSync}
             className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
-            {t('syncAll')}
+            {t('syncAll' as any)}
           </button>
         )}
       </div>
@@ -84,7 +84,7 @@ export default function PendingChangesList({ onSync }: PendingChangesListProps) 
                 {group.instance_type}/{group.instance_id}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">
-                {group.changes.length} {t('changes')}
+                {group.changes.length} {t('changes' as any)}
               </div>
             </div>
             <div className="space-y-1">
@@ -99,7 +99,7 @@ export default function PendingChangesList({ onSync }: PendingChangesListProps) 
               ))}
               {group.changes.length > 3 && (
                 <div className="text-xs text-gray-500 dark:text-gray-400">
-                  +{group.changes.length - 3} {t('moreChanges')}
+                  +{group.changes.length - 3} {t('moreChanges' as any)}
                 </div>
               )}
             </div>

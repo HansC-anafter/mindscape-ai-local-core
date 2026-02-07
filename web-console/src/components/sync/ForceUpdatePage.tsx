@@ -19,25 +19,25 @@ export default function ForceUpdatePage({ updateInfo }: ForceUpdatePageProps) {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-            {t('updateRequired')}
+            {t('updateRequired' as any)}
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            {t('updateRequiredDescription')}
+            {t('updateRequiredDescription' as any)}
           </p>
         </div>
 
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
           <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-            {t('currentVersion')}: <span className="font-medium">{updateInfo.current}</span>
+            {t('currentVersion' as any)}: <span className="font-medium">{updateInfo.current}</span>
           </div>
           <div className="text-sm text-gray-600 dark:text-gray-400">
-            {t('latestVersion')}: <span className="font-medium text-blue-600 dark:text-blue-400">{updateInfo.latest}</span>
+            {t('latestVersion' as any)}: <span className="font-medium text-blue-600 dark:text-blue-400">{updateInfo.latest}</span>
           </div>
         </div>
 
         {updateInfo.changelog && (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6 text-left">
-            <h3 className="text-sm font-medium mb-2">{t('changelog')}</h3>
+            <h3 className="text-sm font-medium mb-2">{t('changelog' as any)}</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
               {updateInfo.changelog}
             </p>
@@ -51,11 +51,11 @@ export default function ForceUpdatePage({ updateInfo }: ForceUpdatePageProps) {
             rel="noopener noreferrer"
             className="inline-block w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
           >
-            {t('downloadUpdate')}
+            {t('downloadUpdate' as any)}
           </a>
         ) : (
           <div className="text-sm text-gray-500 dark:text-gray-400">
-            {t('updateInstructions')}
+            {t('updateInstructions' as any)}
           </div>
         )}
       </div>

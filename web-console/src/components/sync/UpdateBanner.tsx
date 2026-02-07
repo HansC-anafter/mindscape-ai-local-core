@@ -114,7 +114,7 @@ export default function UpdateBanner({
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className={`text-sm font-medium ${isRequired ? 'text-red-800 dark:text-red-200' : 'text-blue-800 dark:text-blue-200'}`}>
-                  {isRequired ? t('updateRequired') : t('updateAvailable')}
+                  {isRequired ? t('updateRequired' as any) : t('updateAvailable' as any)}
                 </h3>
                 {clientUpdate.available && (
                   <span className="text-xs px-2 py-0.5 rounded bg-white dark:bg-gray-800">
@@ -133,14 +133,14 @@ export default function UpdateBanner({
               onClick={() => setShowDetails(!showDetails)}
               className={`text-xs px-3 py-1.5 rounded-md ${isRequired ? 'bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-700' : 'bg-blue-100 dark:bg-blue-800 text-blue-700 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-700'}`}
             >
-              {showDetails ? t('hideDetails') : t('showDetails')}
+              {showDetails ? t('hideDetails' as any) : t('showDetails' as any)}
             </button>
             {!isRequired && (
               <button
                 onClick={handleDismiss}
                 className="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
               >
-                {t('dismiss')}
+                {t('dismiss' as any)}
               </button>
             )}
           </div>
@@ -174,7 +174,7 @@ function UpdateDetailsDialog({ updateInfo }: { updateInfo: VersionCheckResponse 
               rel="noopener noreferrer"
               className="mt-2 inline-block text-blue-600 dark:text-blue-400 hover:underline"
             >
-              {t('downloadUpdate')}
+              {t('downloadUpdate' as any)}
             </a>
           )}
         </div>

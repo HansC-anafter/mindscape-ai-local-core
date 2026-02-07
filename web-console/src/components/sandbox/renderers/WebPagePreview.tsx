@@ -96,7 +96,7 @@ export default function WebPagePreview({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500">{t('loadingPreview')}</div>
+        <div className="text-sm text-gray-500">{t('loadingPreview' as any)}</div>
       </div>
     );
   }
@@ -104,10 +104,10 @@ export default function WebPagePreview({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-4">
-        <div className="text-sm text-red-500 mb-2">{t('previewError')}: {error}</div>
+        <div className="text-sm text-red-500 mb-2">{t('previewError' as any)}: {error}</div>
         {portConflict && (
           <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
-            {t('portConflictMessage')} {actualPort && `(${t('usingPort')} ${actualPort})`}
+            {t('portConflictMessage' as any)} {actualPort && `(${t('usingPort' as any)} ${actualPort})`}
           </div>
         )}
       </div>
@@ -119,7 +119,7 @@ export default function WebPagePreview({
       <div className="web-page-preview h-full w-full flex flex-col">
         {portConflict && (
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-2 text-xs text-yellow-800 dark:text-yellow-200">
-            {t('portConflictWarning')} {actualPort && `(${t('usingPort')} ${actualPort})`}
+            {t('portConflictWarning' as any)} {actualPort && `(${t('usingPort' as any)} ${actualPort})`}
           </div>
         )}
         <iframe
@@ -134,7 +134,7 @@ export default function WebPagePreview({
 
   return (
     <div className="flex items-center justify-center h-full">
-      <div className="text-sm text-gray-500">{t('noPreviewAvailable')}</div>
+      <div className="text-sm text-gray-500">{t('noPreviewAvailable' as any)}</div>
     </div>
   );
 }

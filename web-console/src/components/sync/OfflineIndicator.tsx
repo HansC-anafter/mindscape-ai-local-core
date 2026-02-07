@@ -94,14 +94,14 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clipRule="evenodd" />
             </svg>
-            <span className="text-xs font-medium">{t('offline')}</span>
+            <span className="text-xs font-medium">{t('offline' as any)}</span>
           </div>
         ) : (
           <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
-            <span className="text-xs font-medium">{t('online')}</span>
+            <span className="text-xs font-medium">{t('online' as any)}</span>
           </div>
         )}
       </div>
@@ -109,7 +109,7 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
       {hasPendingChanges && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-600 dark:text-gray-400">
-            {status.pending_changes} {t('pendingChanges')}
+            {status.pending_changes} {t('pendingChanges' as any)}
           </span>
           {!isOffline && (
             <button
@@ -117,7 +117,7 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
               disabled={syncing}
               className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
             >
-              {syncing ? t('syncing') : t('syncNow')}
+              {syncing ? t('syncing' as any) : t('syncNow' as any)}
             </button>
           )}
         </div>
@@ -127,7 +127,7 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
         onClick={() => setShowDetails(!showDetails)}
         className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
       >
-        {showDetails ? t('hideDetails') : t('showDetails')}
+        {showDetails ? t('hideDetails' as any) : t('showDetails' as any)}
       </button>
 
       {showDetails && (
@@ -142,22 +142,22 @@ function SyncStatusDetails({ status, summary }: { status: SyncStatus; summary: C
     <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3 z-50">
       <div className="space-y-2 text-xs">
         <div className="flex items-center justify-between">
-          <span className="text-gray-600 dark:text-gray-400">{t('syncStatus')}</span>
+          <span className="text-gray-600 dark:text-gray-400">{t('syncStatus' as any)}</span>
           <span className={status.online ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
-            {status.online ? t('online') : t('offline')}
+            {status.online ? t('online' as any) : t('offline' as any)}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-gray-600 dark:text-gray-400">{t('pendingChanges')}</span>
+          <span className="text-gray-600 dark:text-gray-400">{t('pendingChanges' as any)}</span>
           <span className="font-medium">{status.pending_changes}</span>
         </div>
         {summary && (
           <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-            <div className="text-gray-600 dark:text-gray-400 mb-1">{t('affectedInstances')}</div>
+            <div className="text-gray-600 dark:text-gray-400 mb-1">{t('affectedInstances' as any)}</div>
             <div className="space-y-1">
               {summary.instances_with_changes.map((instance) => (
                 <div key={`${instance.instance_type}-${instance.instance_id}`} className="text-xs">
-                  {instance.instance_type}/{instance.instance_id}: {instance.change_count} {t('changes')}
+                  {instance.instance_type}/{instance.instance_id}: {instance.change_count} {t('changes' as any)}
                 </div>
               ))}
             </div>

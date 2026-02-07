@@ -107,7 +107,7 @@ export function CurrentExecutionBar({
         title={tooltipText}
       >
         <span className="playbook-name">
-          {t('executingPlaybook') || 'Executing'}: {execution.playbookName}
+          {t('executingPlaybook' as any) || 'Executing'}: {execution.playbookName}
         </span>
         <span className="run-number">Run #{execution.runNumber}</span>
         <span className="progress">{execution.progress}%</span>
@@ -131,15 +131,15 @@ export function CurrentExecutionBar({
           onClick={onViewDetail}
           title="查看執行詳情"
         >
-          {t('viewDetails') || 'View Details'} →
+          {t('viewDetails' as any) || 'View Details'} →
         </button>
         {execution.status === 'running' && (
           <>
             <button className="action-link" onClick={onPause}>
-              {t('pause') || 'Pause'}
+              {t('pause' as any) || 'Pause'}
             </button>
             <button className="action-link" onClick={onCancel}>
-              {t('cancel') || 'Cancel'}
+              {t('cancel' as any) || 'Cancel'}
             </button>
           </>
         )}

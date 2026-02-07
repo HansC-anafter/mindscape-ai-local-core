@@ -35,7 +35,7 @@ export function WorkspaceSelector({
 
   // Get owner_user_id (priority: props > context > default)
   const effectiveOwnerUserId = ownerUserId ||
-    workspaceData?.user?.id ||
+    (workspaceData as any)?.user?.id ||
     'default-user';
 
   // Get current workspace ID (priority: props > context > default)
@@ -58,11 +58,11 @@ export function WorkspaceSelector({
 
         // Cloud: optional group_id filter
         if (groupId) {
-          params.append('group_id', groupId);
+          params?.append('group_id', groupId);
         }
 
         const apiUrl = getApiBaseUrl();
-        const url = `${apiUrl}/api/v1/workspaces?${params.toString()}`;
+        const url = `${apiUrl}/api/v1/workspaces?${params?.toString()}`;
         console.log('[WorkspaceSelector] Fetching workspaces from:', url);
 
         const response = await fetch(url, {

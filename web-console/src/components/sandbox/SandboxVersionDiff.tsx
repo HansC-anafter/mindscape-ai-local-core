@@ -47,8 +47,8 @@ export default function SandboxVersionDiff({
 
   useEffect(() => {
     if (!selectedFile) {
-      setFromContent('');
-      setToContent('');
+      setFromContent('' as any);
+      setToContent('' as any);
       return;
     }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
@@ -11,6 +11,15 @@ import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useMessages } from '@/contexts/MessagesContext';
 import { useChatModel } from '@/hooks/useChatModel';
 import IntentChips from '../../app/workspaces/components/IntentChips';
+
+interface AgentInfo {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  version: string;
+  risk_level: string;
+}
 
 interface InputAreaProps {
   workspaceId: string;
@@ -48,9 +57,57 @@ export function InputArea({
     currentChatModel,
     availableChatModels,
     contextTokenCount,
+    preferredAgent,
+    setPreferredAgent,
   } = useWorkspaceMetadata();
   const { messages } = useMessages();
   const { selectModel } = useChatModel(apiUrl, { workspaceId });
+
+  // Fetch available agents from API
+  const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([]);
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/agents`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableAgents(data.agents || []);
+          console.log('[InputArea] Loaded agents from API:', data.agents?.length);
+        }
+      } catch (err) {
+        console.error('[InputArea] Failed to fetch agents:', err);
+      }
+    };
+    fetchAgents();
+  }, [apiUrl]);
+
+  const handleAgentChange = async (agentId: string | null) => {
+    // Optimistic update
+    setPreferredAgent(agentId);
+
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/preferred-agent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: agentId }),
+        }
+      );
+
+      if (!response.ok) {
+        console.error('[InputArea] Failed to set preferred agent:', await response.text());
+        // Revert on failure
+        setPreferredAgent(null);
+      } else {
+        console.log('[InputArea] Agent persisted:', agentId);
+      }
+    } catch (err) {
+      console.error('[InputArea] Error setting preferred agent:', err);
+      setPreferredAgent(null);
+    }
+  };
 
   const fileHandling = useFileHandling(workspaceId, apiUrl, {
     onFileAnalyzed,
@@ -98,13 +155,13 @@ export function InputArea({
       {llmConfigured === false && (
         <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <p className="text-sm text-yellow-800 mb-2">
-            {t('apiKeyNotConfigured')}
+            {t('apiKeyNotConfigured' as any)}
           </p>
           <a
             href="/settings"
             className="text-sm text-blue-600 hover:text-blue-800 underline"
           >
-            {t('goToSettings')} →
+            {t('goToSettings' as any)} →
           </a>
         </div>
       )}
@@ -120,7 +177,7 @@ export function InputArea({
             <svg className="w-16 h-16 text-blue-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <p className="text-lg font-medium text-blue-600">{t('dropFilesHere')}</p>
+            <p className="text-lg font-medium text-blue-600">{t('dropFilesHere' as any)}</p>
           </div>
         </div>
       )}
@@ -145,7 +202,7 @@ export function InputArea({
               setInput(e.target.value);
             }}
             onKeyDown={handleKeyPress}
-            placeholder={llmConfigured === false ? t('configureApiKeyFirst') : t('typeMessageOrDropFiles')}
+            placeholder={llmConfigured === false ? t('configureApiKeyFirst' as any) : t('typeMessageOrDropFiles' as any)}
             disabled={llmConfigured === false}
             className="w-full resize-none border border-default/50 dark:border-gray-700/50 rounded-lg px-3 py-2 bg-surface-accent dark:bg-gray-800/80 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400/50 focus:border-accent dark:focus:border-blue-600 disabled:bg-surface-secondary/50 dark:disabled:bg-gray-800/50 disabled:cursor-not-allowed overflow-y-auto text-xs text-primary dark:text-gray-100 placeholder-tertiary dark:placeholder-gray-500 transition-all"
             style={{ minHeight: '2.5rem', maxHeight: '200px', lineHeight: '1.25rem' }}
@@ -174,16 +231,19 @@ export function InputArea({
         <InputBottomBar
           messagesCount={messages.length}
           copiedAll={copiedAll}
-          onCopyAll={onCopyAll || (() => {})}
+          onCopyAll={onCopyAll || (() => { })}
           currentChatModel={currentChatModel}
           availableChatModels={availableChatModels}
           contextTokenCount={contextTokenCount}
           onModelChange={handleModelChange}
           onFileUpload={() => fileInputRef.current?.click()}
-          onSend={onSend}
+          onSend={() => onSend({} as React.FormEvent)}
           isLoading={isLoading}
           canSend={canSend}
           llmConfigured={llmConfigured}
+          availableAgents={availableAgents}
+          currentAgent={preferredAgent}
+          onAgentChange={handleAgentChange}
         />
       </div>
     </form>
