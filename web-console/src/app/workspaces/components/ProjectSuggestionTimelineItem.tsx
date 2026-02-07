@@ -28,7 +28,8 @@ export default function ProjectSuggestionTimelineItem({
   onProjectCreated
 }: ProjectSuggestionTimelineItemProps) {
   const [creating, setCreating] = useState(false);
-  const { createProject, refreshProjects } = useWorkspaceData();
+  const workspaceData = useWorkspaceData() as any;
+  const { createProject, refreshProjects } = workspaceData;
   const suggestion = item.data?.suggestion as ProjectSuggestion | undefined;
 
   const handleAccept = async () => {

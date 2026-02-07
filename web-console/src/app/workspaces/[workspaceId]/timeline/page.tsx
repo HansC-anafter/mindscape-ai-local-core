@@ -82,7 +82,7 @@ export default function WorkspaceTimelinePage() {
       <div className="min-h-screen bg-gray-50">
         <Header />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-500">{t('loading')}</div>
+          <div className="text-gray-500">{t('loading' as any)}</div>
         </div>
       </div>
     );
@@ -96,7 +96,7 @@ export default function WorkspaceTimelinePage() {
           href={`/workspaces/${workspaceId}`}
           className="text-blue-600 hover:text-blue-800 mb-4 inline-block"
         >
-          ← {t('backToList')}
+          ← {t('backToList' as any)}
         </Link>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-6">
@@ -111,7 +111,7 @@ export default function WorkspaceTimelinePage() {
 
         {events.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500">{t('noData')}</p>
+            <p className="text-gray-500">{t('noData' as any)}</p>
           </div>
         ) : (
           <div className="space-y-4">

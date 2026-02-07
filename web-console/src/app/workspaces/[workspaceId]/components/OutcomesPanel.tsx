@@ -370,7 +370,7 @@ export default function OutcomesPanel({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500 dark:text-gray-400">{t('loading') || '載入中...'}</div>
+        <div className="text-sm text-gray-500 dark:text-gray-400">{t('loading' as any) || '載入中...'}</div>
       </div>
     );
   }
@@ -378,7 +378,7 @@ export default function OutcomesPanel({
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-red-500 dark:text-red-400">{t('error') || '錯誤'}: {error}</div>
+        <div className="text-sm text-red-500 dark:text-red-400">{t('error' as any) || '錯誤'}: {error}</div>
       </div>
     );
   }
@@ -386,7 +386,7 @@ export default function OutcomesPanel({
   if (artifacts.length === 0) {
     return (
       <div className="flex items-center justify-center h-full px-2">
-        <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes') || '尚無成果'}</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes' as any) || '尚無成果'}</div>
       </div>
     );
   }

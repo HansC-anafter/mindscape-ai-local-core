@@ -91,17 +91,17 @@ export default function ResourceBindingPanel({ workspaceId }: ResourceBindingPan
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {t('resourceBindings')}
+              {t('resourceBindings' as any)}
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              {t('resourceBindingsDescription')}
+              {t('resourceBindingsDescription' as any)}
             </p>
           </div>
           <button
             onClick={handleCreate}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
           >
-            {t('addBinding')}
+            {t('addBinding' as any)}
           </button>
         </div>
 
@@ -113,8 +113,8 @@ export default function ResourceBindingPanel({ workspaceId }: ResourceBindingPan
 
         {bindings.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            <p>{t('noResourceBindings')}</p>
-            <p className="text-sm mt-2">{t('noResourceBindingsDescription')}</p>
+            <p>{t('noResourceBindings' as any)}</p>
+            <p className="text-sm mt-2">{t('noResourceBindingsDescription' as any)}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -144,7 +144,7 @@ export default function ResourceBindingPanel({ workspaceId }: ResourceBindingPan
           setDeletingBinding(null);
         }}
         onConfirm={handleConfirmDelete}
-        title={t('deleteResourceBinding')}
+        title={t('deleteResourceBinding' as any)}
         message={
           deletingBinding
             ? t('deleteResourceBindingConfirm', {
@@ -153,8 +153,8 @@ export default function ResourceBindingPanel({ workspaceId }: ResourceBindingPan
               })
             : ''
         }
-        confirmText={t('delete')}
-        cancelText={t('cancel')}
+        confirmText={t('delete' as any)}
+        cancelText={t('cancel' as any)}
         confirmButtonClassName="bg-red-600 hover:bg-red-700"
       />
     </>

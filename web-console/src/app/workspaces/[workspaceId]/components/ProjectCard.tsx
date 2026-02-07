@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { Project } from '@/types/project';
 
 interface ProjectCardData {
@@ -122,7 +122,11 @@ export default function ProjectCard({
   onOpenExecution,
   apiUrl = ''
 }: ProjectCardProps) {
-  const router = useRouter();
+  /* const router = useRouter(); (Removed unused hook) */
+  const params = useParams();
+  const effectiveWorkspaceId = workspaceId || (params?.workspaceId as string);
+
+
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const [cardData, setCardData] = useState<ProjectCardData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -294,13 +298,11 @@ export default function ProjectCard({
   return (
     <div
       data-project-card-id={project.id}
-      className={`project-card bg-surface-secondary dark:bg-gray-800 border rounded-lg overflow-hidden transition-all cursor-pointer ${
-        isHighlighted
-          ? 'ring-2 ring-accent dark:ring-blue-400 border-accent dark:border-blue-500 shadow-lg'
-          : 'border-default dark:border-gray-700'
-      } ${
-        isFocused ? 'ring-2 ring-accent dark:ring-blue-400' : ''
-      }`}
+      className={`project-card bg-surface-secondary dark:bg-gray-800 border rounded-lg overflow-hidden transition-all cursor-pointer ${isHighlighted
+        ? 'ring-2 ring-accent dark:ring-blue-400 border-accent dark:border-blue-500 shadow-lg'
+        : 'border-default dark:border-gray-700'
+        } ${isFocused ? 'ring-2 ring-accent dark:ring-blue-400' : ''
+        }`}
       onClick={handleCardClick}
     >
       <div
@@ -327,11 +329,10 @@ export default function ProjectCard({
           <div className="right flex items-center gap-2 flex-shrink-0">
             {cardData && (
               <span
-                className={`badge running text-[10px] px-1.5 py-0.5 rounded ${
-                  cardData.stats.runningExecutions > 0
-                    ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                    : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
-                }`}
+                className={`badge running text-[10px] px-1.5 py-0.5 rounded ${cardData.stats.runningExecutions > 0
+                  ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+                  : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
+                  }`}
                 title={`${cardData.stats.runningExecutions} 個執行中`}
               >
                 🔄 {cardData.stats.runningExecutions}
@@ -339,11 +340,10 @@ export default function ProjectCard({
             )}
             {cardData && (
               <span
-                className={`badge artifact text-[10px] px-1.5 py-0.5 rounded ${
-                  cardData.stats.artifactCount > 0
-                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                    : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
-                }`}
+                className={`badge artifact text-[10px] px-1.5 py-0.5 rounded ${cardData.stats.artifactCount > 0
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                  : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
+                  }`}
                 title={`${cardData.stats.artifactCount} 個成果`}
               >
                 📦 {cardData.stats.artifactCount}
@@ -351,11 +351,10 @@ export default function ProjectCard({
             )}
             {cardData && (
               <span
-                className={`badge completed text-[10px] px-1.5 py-0.5 rounded ${
-                  cardData.stats.completedExecutions > 0
-                    ? 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
-                    : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
-                }`}
+                className={`badge completed text-[10px] px-1.5 py-0.5 rounded ${cardData.stats.completedExecutions > 0
+                  ? 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
+                  : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
+                  }`}
                 title={`${cardData.stats.completedExecutions} 個已完成`}
               >
                 ✓ {cardData.stats.completedExecutions}
@@ -504,76 +503,15 @@ export default function ProjectCard({
 
       <div className="px-3 pb-2 pt-1.5 border-t border-default dark:border-gray-700">
         <button
-          onClick={async (e) => {
+          onClick={(e) => {
             e.stopPropagation();
-            console.log('[ProjectCard] View button clicked', { cardData, onOpenExecution, project });
+            console.log('[ProjectCard] View button clicked', { project, effectiveWorkspaceId });
 
-            // Try to find executionId from cardData events
-            let executionId: string | null = null;
-            if (cardData && cardData.recentEvents && cardData.recentEvents.length > 0) {
-              for (const event of cardData.recentEvents) {
-                if (event.executionId) {
-                  executionId = event.executionId;
-                  console.log('[ProjectCard] Found executionId from events:', executionId);
-                  break;
-                }
-              }
-            }
-
-            // If we have executionId, navigate to execution page
-            if (executionId && onOpenExecution) {
-              onOpenExecution(executionId);
-              return;
-            }
-
-            // If no executionId, try to fetch executions for this project
-            if (!executionId && workspaceId && apiUrl) {
-              try {
-                console.log('[ProjectCard] No executionId in events, fetching project executions...');
-                const response = await fetch(
-                  `${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${project.id}/execution-tree`
-                );
-                if (response.ok) {
-                  const data = await response.json();
-                  // Extract executions from playbookGroups
-                  const allExecutions: any[] = [];
-                  if (data.playbookGroups && Array.isArray(data.playbookGroups)) {
-                    data.playbookGroups.forEach((group: any) => {
-                      if (group.executions && Array.isArray(group.executions)) {
-                        allExecutions.push(...group.executions);
-                      }
-                    });
-                  }
-
-                  if (allExecutions.length > 0) {
-                    // Get the first running execution, or the most recent one
-                    const runningExecution = allExecutions.find((e: any) => e.status === 'running');
-                    const targetExecution = runningExecution || allExecutions[0];
-                    if (targetExecution && targetExecution.execution_id) {
-                      executionId = targetExecution.execution_id;
-                      console.log('[ProjectCard] Found executionId from API:', executionId);
-                      if (onOpenExecution) {
-                        onOpenExecution(executionId);
-                        return;
-                      }
-                    }
-                  }
-                }
-              } catch (err) {
-                console.error('[ProjectCard] Failed to fetch executions:', err);
-              }
-            }
-
-            // Fallback: if we still have no executionId, try to navigate to workspace page with project focus
-            if (!executionId && workspaceId) {
-              console.log('[ProjectCard] No execution found, navigating to workspace page');
-              router.push(`/workspaces/${workspaceId}?project_id=${project.id}`);
-              return;
-            }
-
-            // Last fallback: use onFocus if available
-            if (onFocus) {
-              console.log('[ProjectCard] Using onFocus fallback');
+            if (effectiveWorkspaceId) {
+              console.log('[ProjectCard] Opening workspace page in new tab');
+              window.open(`/workspaces/${effectiveWorkspaceId}?project_id=${project.id}`, '_blank');
+            } else if (onFocus) {
+              // Fallback
               onFocus();
             }
           }}

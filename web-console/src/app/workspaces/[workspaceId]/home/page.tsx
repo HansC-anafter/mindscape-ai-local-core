@@ -114,7 +114,7 @@ export default function WorkspaceHomePage() {
   const [wizardSeedText, setWizardSeedText] = useState<string>('');
 
   useEffect(() => {
-    if (searchParams?.get('setup') === 'true') {
+    if (searchParams?.get('setup' as any) === 'true') {
       setShowSetupDrawer(true);
       // Optionally remove the query param after handling
       const newSearchParams = new URLSearchParams(searchParams.toString());
@@ -220,13 +220,13 @@ export default function WorkspaceHomePage() {
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  {t('back')}
+                  {t('back' as any)}
                 </button>
-                <h1 className="text-3xl font-bold text-primary dark:text-gray-100">{t('createWorkspace')}</h1>
+                <h1 className="text-3xl font-bold text-primary dark:text-gray-100">{t('createWorkspace' as any)}</h1>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-surface-accent dark:bg-gray-900 rounded-lg border border-default dark:border-gray-800 p-6 shadow-sm">
-                  <h2 className="text-xl font-semibold text-primary dark:text-gray-100 mb-4">{t('selectCreationMethod')}</h2>
+                  <h2 className="text-xl font-semibold text-primary dark:text-gray-100 mb-4">{t('selectCreationMethod' as any)}</h2>
                   <div className="space-y-4">
                     <button
                       onClick={() => {
@@ -238,8 +238,8 @@ export default function WorkspaceHomePage() {
                           : 'border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
                       }`}
                     >
-                      <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('quickCreate')}</h3>
-                      <p className="text-sm text-secondary dark:text-gray-400">{t('quickCreateDescription')}</p>
+                      <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('quickCreate' as any)}</h3>
+                      <p className="text-sm text-secondary dark:text-gray-400">{t('quickCreateDescription' as any)}</p>
                     </button>
                     <button
                       onClick={() => {
@@ -251,8 +251,8 @@ export default function WorkspaceHomePage() {
                           : 'border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
                       }`}
                     >
-                      <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('llmGuidedCreate')}</h3>
-                      <p className="text-sm text-secondary dark:text-gray-400">{t('llmGuidedCreateDescription')}</p>
+                      <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('llmGuidedCreate' as any)}</h3>
+                      <p className="text-sm text-secondary dark:text-gray-400">{t('llmGuidedCreateDescription' as any)}</p>
                     </button>
                   </div>
                 </div>
@@ -260,7 +260,7 @@ export default function WorkspaceHomePage() {
                 <div className="bg-surface-accent dark:bg-gray-900 rounded-lg border border-default dark:border-gray-800 p-6 shadow-sm">
                   {!wizardData.method ? (
                     <div className="flex items-center justify-center h-full min-h-[200px] text-secondary dark:text-gray-400">
-                      <p>{t('pleaseSelectCreationMethod')}</p>
+                      <p>{t('pleaseSelectCreationMethod' as any)}</p>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -268,40 +268,40 @@ export default function WorkspaceHomePage() {
                       <div>
                         <div className="flex items-center justify-between mb-4">
                           <h2 className="text-xl font-semibold text-primary dark:text-gray-100">
-                            {wizardData.method === 'quick' ? t('quickCreate') : t('llmGuidedCreate')}
+                            {wizardData.method === 'quick' ? t('quickCreate' as any) : t('llmGuidedCreate' as any)}
                           </h2>
                           <button
                             onClick={() => setWizardData({ ...wizardData, method: undefined })}
                             className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-primary dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                           >
                             <ArrowLeft className="w-4 h-4" />
-                            {t('previous')}
+                            {t('previous' as any)}
                           </button>
                         </div>
                         <div className="space-y-4">
                           <div>
                             <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-1">
-                              {t('workspaceNameRequired')}
+                              {t('workspaceNameRequired' as any)}
                             </label>
                             <input
                               type="text"
                               value={wizardData.title || ''}
                               onChange={(e) => setWizardData({ ...wizardData, title: e.target.value })}
-                              placeholder={t('workspaceNamePlaceholder')}
+                              placeholder={t('workspaceNamePlaceholder' as any)}
                               className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-100"
                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-1">
-                              {wizardData.method === 'quick' ? t('workspaceDescriptionOptional') : t('workspaceDescriptionRequired')}
+                              {wizardData.method === 'quick' ? t('workspaceDescriptionOptional' as any) : t('workspaceDescriptionRequired' as any)}
                               {wizardData.method === 'llm-guided' && <span className="text-red-500">*</span>}
                             </label>
                             <textarea
                               value={wizardData.description || ''}
                               onChange={(e) => setWizardData({ ...wizardData, description: e.target.value })}
                               placeholder={wizardData.method === 'quick'
-                                ? t('workspaceDescriptionPlaceholder')
-                                : t('workspaceDescriptionLLMPlaceholder')}
+                                ? t('workspaceDescriptionPlaceholder' as any)
+                                : t('workspaceDescriptionLLMPlaceholder' as any)}
                               rows={wizardData.method === 'quick' ? 3 : 5}
                               className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-100"
                             />
@@ -311,18 +311,18 @@ export default function WorkspaceHomePage() {
 
                       {/* Seed Input (Optional) */}
                       <div className="border-t border-default dark:border-gray-700 pt-6">
-                        <h3 className="text-lg font-semibold text-primary dark:text-gray-100 mb-2">{t('addReferenceSeed')}</h3>
+                        <h3 className="text-lg font-semibold text-primary dark:text-gray-100 mb-2">{t('addReferenceSeed' as any)}</h3>
                         <p className="text-sm text-secondary dark:text-gray-400 mb-4">
-                          {t('addReferenceSeedDescription')}
+                          {t('addReferenceSeedDescription' as any)}
                         </p>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            {t('pasteText')}
+                            {t('pasteText' as any)}
                           </label>
                           <textarea
                             value={wizardSeedText}
                             onChange={(e) => setWizardSeedText(e.target.value)}
-                            placeholder={t('pasteTextPlaceholder')}
+                            placeholder={t('pasteTextPlaceholder' as any)}
                             rows={5}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                           />
@@ -346,7 +346,8 @@ export default function WorkspaceHomePage() {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                   title: wizardData.title,
-                                  description: wizardData.description || ''
+                                  description: wizardData.description || '',
+                                  execution_mode: 'hybrid'  // 預設為混合模式（邊做邊聊）
                                 })
                               });
                               if (!createResponse.ok) {
@@ -371,7 +372,7 @@ export default function WorkspaceHomePage() {
                               // Redirect to the new workspace's launchpad
                               router.push(`/workspaces/${newWorkspace.id}/home`);
                             } catch (err) {
-                              alert(t('creationFailed') + ': ' + (err instanceof Error ? err.message : String(err)));
+                              alert(t('creationFailed' as any) + ': ' + (err instanceof Error ? err.message : String(err)));
                             }
                           }}
                           disabled={
@@ -381,7 +382,7 @@ export default function WorkspaceHomePage() {
                           }
                           className="w-full px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
                         >
-                          {t('createAndComplete')}
+                          {t('createAndComplete' as any)}
                         </button>
                       </div>
                     </div>
@@ -401,7 +402,7 @@ export default function WorkspaceHomePage() {
       <div className="flex items-center justify-center h-full min-h-screen bg-gray-50 dark:bg-gray-950">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-400" />
-          <p className="text-secondary dark:text-gray-400">{t('loadingWorkspace') || 'Loading workspace...'}</p>
+          <p className="text-secondary dark:text-gray-400">{t('loadingWorkspace' as any) || 'Loading workspace...'}</p>
         </div>
       </div>
     );
@@ -414,7 +415,7 @@ export default function WorkspaceHomePage() {
           <div className="flex items-center gap-3 mb-4">
             <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
             <h3 className="text-lg font-semibold text-red-900 dark:text-red-100">
-              {t('errorLoadingWorkspace') || 'Error Loading Workspace'}
+              {t('errorLoadingWorkspace' as any) || 'Error Loading Workspace'}
             </h3>
           </div>
           <p className="text-primary dark:text-gray-300 mb-4">
@@ -424,7 +425,7 @@ export default function WorkspaceHomePage() {
             onClick={refreshWorkspace || fetchLaunchpadData}
             className="w-full px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
           >
-            {t('retry') || 'Retry'}
+            {t('retry' as any) || 'Retry'}
           </button>
         </div>
       </div>
@@ -434,7 +435,7 @@ export default function WorkspaceHomePage() {
   if (!workspace) {
     return (
       <div className="flex items-center justify-center h-full min-h-screen bg-gray-50 dark:bg-gray-950">
-        <p className="text-secondary dark:text-gray-400">{t('workspaceNotFound') || 'Workspace not found'}</p>
+        <p className="text-secondary dark:text-gray-400">{t('workspaceNotFound' as any) || 'Workspace not found'}</p>
       </div>
     );
   }
@@ -471,19 +472,19 @@ export default function WorkspaceHomePage() {
                   {isReady && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
                       <CheckCircle2 className="w-3 h-3" />
-                      {t('ready')}
+                      {t('ready' as any)}
                     </span>
                   )}
                   {isPending && !hasActualContent && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
                       <Clock className="w-3 h-3" />
-                      {t('pending')}
+                      {t('pending' as any)}
                     </span>
                   )}
                   {launchStatus === 'pending' && hasActualContent && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
                       <CheckCircle2 className="w-3 h-3" />
-                      {t('ready')}
+                      {t('ready' as any)}
                     </span>
                   )}
                 </h1>
@@ -498,7 +499,7 @@ export default function WorkspaceHomePage() {
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
               >
                 <Settings className="w-4 h-4" />
-                {t('editBlueprint') || 'Edit Blueprint'}
+                {t('editBlueprint' as any) || 'Edit Blueprint'}
               </button>
             </div>
           </div>
@@ -515,10 +516,10 @@ export default function WorkspaceHomePage() {
               <Sparkles className="w-12 h-12 text-blue-600 dark:text-blue-400" />
             </div>
             <h2 className="text-2xl font-bold text-primary dark:text-gray-100 mb-2">
-              {t('workspaceNotConfigured')}
+              {t('workspaceNotConfigured' as any)}
             </h2>
             <p className="text-secondary dark:text-gray-400 mb-6 max-w-md">
-              {t('workspaceNotConfiguredDescription')}
+              {t('workspaceNotConfiguredDescription' as any)}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <button
@@ -526,13 +527,13 @@ export default function WorkspaceHomePage() {
                 className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium"
               >
                 <Rocket className="w-5 h-5" />
-                {t('configureWorkspace')}
+                {t('configureWorkspace' as any)}
               </button>
               <button
                 onClick={handleStartWork}
                 className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-600 transition-colors font-medium"
               >
-                {t('startWorkDirectly')}
+                {t('startWorkDirectly' as any)}
               </button>
             </div>
           </div>
@@ -544,7 +545,7 @@ export default function WorkspaceHomePage() {
                 <div className="flex items-center gap-2 mb-4">
                   <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
-                    {t('workspaceBrief') || 'Workspace Brief'}
+                    {t('workspaceBrief' as any) || 'Workspace Brief'}
                   </h2>
                 </div>
                 <p className="text-primary dark:text-gray-300 whitespace-pre-line leading-relaxed">
@@ -564,10 +565,10 @@ export default function WorkspaceHomePage() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-primary dark:text-gray-100">
-                        {t('firstPlaybook') || 'First Playbook'}
+                        {t('firstPlaybook' as any) || 'First Playbook'}
                       </h3>
                       <p className="text-sm text-secondary dark:text-gray-400">
-                        {t('recommendedPlaybook') || 'Recommended playbook to start with'}
+                        {t('recommendedPlaybook' as any) || 'Recommended playbook to start with'}
                       </p>
                     </div>
                   </div>
@@ -581,7 +582,7 @@ export default function WorkspaceHomePage() {
                     className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium"
                   >
                     <Zap className="w-4 h-4" />
-                    {t('runFirstPlaybook') || 'Run First Playbook'}
+                    {t('runFirstPlaybook' as any) || 'Run First Playbook'}
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -595,10 +596,10 @@ export default function WorkspaceHomePage() {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                      {t('startWork') || 'Start Work'}
+                      {t('startWork' as any) || 'Start Work'}
                     </h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {t('startWorkDescription') || 'Enter the workspace to begin working'}
+                      {t('startWorkDescription' as any) || 'Enter the workspace to begin working'}
                     </p>
                   </div>
                 </div>
@@ -606,7 +607,7 @@ export default function WorkspaceHomePage() {
                   onClick={handleStartWork}
                   className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-green-600 dark:bg-green-700 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors font-medium"
                 >
-                  {t('openWorkspace') || 'Open Workspace'}
+                  {t('openWorkspace' as any) || 'Open Workspace'}
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
@@ -618,10 +619,10 @@ export default function WorkspaceHomePage() {
                 <div className="flex items-center gap-2 mb-4">
                   <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
-                    {t('nextIntents') || 'Next Intents'}
+                    {t('nextIntents' as any) || 'Next Intents'}
                   </h2>
                   <span className="ml-auto text-sm text-gray-500 dark:text-gray-400">
-                    {launchpadData.initial_intents.length} {t('items') || 'items'}
+                    {launchpadData.initial_intents.length} {t('items' as any) || 'items'}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -654,7 +655,7 @@ export default function WorkspaceHomePage() {
                 <div className="flex items-center gap-2 mb-4">
                   <Wrench className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
-                    {t('toolConnections') || 'Tool Connections'}
+                    {t('toolConnections' as any) || 'Tool Connections'}
                   </h2>
                 </div>
                 <div className="space-y-3">
@@ -712,7 +713,7 @@ export default function WorkspaceHomePage() {
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-primary dark:text-gray-100">
-                {t('assembleWorkspace')}
+                {t('assembleWorkspace' as any)}
               </h2>
               <button
                 onClick={() => setShowSetupDrawer(false)}
@@ -723,19 +724,19 @@ export default function WorkspaceHomePage() {
             </div>
             <div className="space-y-4 mb-6">
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('minimumFileReference')}</h3>
+                <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('minimumFileReference' as any)}</h3>
                 <p className="text-sm text-secondary dark:text-gray-400 mb-4">
-                  {t('minimumFileReferenceDescription')}
+                  {t('minimumFileReferenceDescription' as any)}
                 </p>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
-                      {t('pasteText')}
+                      {t('pasteText' as any)}
                     </label>
                     <textarea
                       value={setupSeedText}
                       onChange={(e) => setSetupSeedText(e.target.value)}
-                      placeholder={t('pasteTextPlaceholder')}
+                      placeholder={t('pasteTextPlaceholder' as any)}
                       rows={8}
                       className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100 resize-none"
                     />
@@ -753,15 +754,15 @@ export default function WorkspaceHomePage() {
                           });
                           if (response.ok) {
                             await fetchLaunchpadData();
-                            setSetupSeedText('');
+                            setSetupSeedText('' as any);
                             setShowSetupDrawer(false);
-                            alert(t('workspaceConfigured'));
+                            alert(t('workspaceConfigured' as any));
                           } else {
                             const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-                            alert(t('configurationFailed') + ': ' + (errorData.detail || errorData.message || t('retry')));
+                            alert(t('configurationFailed' as any) + ': ' + (errorData.detail || errorData.message || t('retry' as any)));
                           }
                         } catch (err) {
-                          alert(t('configurationFailed') + ': ' + (err instanceof Error ? err.message : String(err)));
+                          alert(t('configurationFailed' as any) + ': ' + (err instanceof Error ? err.message : String(err)));
                         } finally {
                           setIsProcessingSeed(false);
                         }
@@ -769,32 +770,32 @@ export default function WorkspaceHomePage() {
                       disabled={!setupSeedText.trim() || isProcessingSeed}
                       className="flex-1 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors text-sm font-medium disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
                     >
-                      {isProcessingSeed ? t('processing') : t('referenceTextToStartWorkspace')}
+                      {isProcessingSeed ? t('processing' as any) : t('referenceTextToStartWorkspace' as any)}
                     </button>
                     <button
                       onClick={() => {
-                        setSetupSeedText('');
+                        setSetupSeedText('' as any);
                         setShowSetupDrawer(false);
                       }}
                       className="px-4 py-2 bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 rounded-lg hover:bg-surface-secondary dark:hover:bg-gray-600 transition-colors text-sm font-medium"
                     >
-                      {t('close')}
+                      {t('close' as any)}
                     </button>
                   </div>
                   <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-xs text-secondary dark:text-gray-400 mb-2">{t('otherMethods')}</p>
+                    <p className="text-xs text-secondary dark:text-gray-400 mb-2">{t('otherMethods' as any)}</p>
                     <div className="flex gap-2">
                       <button
                         disabled
                         className="flex-1 px-3 py-2 bg-surface-secondary dark:bg-gray-700 text-secondary dark:text-gray-400 rounded-lg text-xs font-medium cursor-not-allowed"
                       >
-                        {t('uploadFile')}
+                        {t('uploadFile' as any)}
                       </button>
                       <button
                         disabled
                         className="flex-1 px-3 py-2 bg-surface-secondary dark:bg-gray-700 text-secondary dark:text-gray-400 rounded-lg text-xs font-medium cursor-not-allowed"
                       >
-                        {t('pasteUrl')}
+                        {t('pasteUrl' as any)}
                       </button>
                     </div>
                   </div>

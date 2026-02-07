@@ -30,6 +30,7 @@ interface WorkflowVisualizationProps {
       kind: string;
       interaction_mode: string[];
       condition?: string;
+      inputs?: Record<string, any>;
     }>;
   };
   executionId?: string;
@@ -174,9 +175,9 @@ export default function WorkflowVisualization({
               <div className="flex items-start gap-4">
                 <div className="flex flex-col items-center">
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold border-2 ${getStatusColor(status)}`}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold border-2 ${getStatusColor(status || 'pending')}`}
                   >
-                    {getStatusIcon(status)}
+                    {getStatusIcon(status || 'pending')}
                   </div>
                   {index < stepOrder.length - 1 && (
                     <div className="w-0.5 h-12 bg-gray-300 dark:bg-gray-600 mt-2" />
@@ -184,7 +185,7 @@ export default function WorkflowVisualization({
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className={`border rounded-lg p-4 ${getStatusColor(status)}`}>
+                  <div className={`border rounded-lg p-4 ${getStatusColor(status || 'pending')}`}>
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0">
                         <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
@@ -213,7 +214,7 @@ export default function WorkflowVisualization({
                           )}
                         </div>
                       </div>
-                      <span className={`text-xs font-medium px-2 py-1 rounded ${getStatusColor(status)}`}>
+                      <span className={`text-xs font-medium px-2 py-1 rounded ${getStatusColor(status || 'pending')}`}>
                         {status}
                       </span>
                     </div>

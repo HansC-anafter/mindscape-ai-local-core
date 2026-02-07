@@ -58,17 +58,16 @@ export default function HeaderBar({
             } : undefined}
             isStopping={isStopping}
             onStop={execution.status === 'running' ? onStop : undefined}
-            onReloadPlaybook={onReloadPlaybook}
-            onRestartExecution={onRestartExecution}
+            onEditPlaybook={onReloadPlaybook}
           />
         </div>
         {sandboxId && (
           <button
             onClick={onViewSandbox}
             className="ml-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
-            title={t('viewSandbox') || 'View Sandbox'}
+            title={t('viewSandbox' as any) || 'View Sandbox'}
           >
-            {t('viewSandbox') || 'View Sandbox'}
+            {t('viewSandbox' as any) || 'View Sandbox'}
           </button>
         )}
       </div>

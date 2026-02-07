@@ -36,7 +36,7 @@ export default function ExecutionInspector({
   const [rightPanelView, setRightPanelView] = useState<'artifacts' | 'chat' | 'governance'>('artifacts');
 
   // Use data hooks
-  const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData);
+  const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData as any);
   const executionSteps = useExecutionSteps(
     executionId,
     workspaceId,
@@ -76,7 +76,7 @@ export default function ExecutionInspector({
     return calculateTotalSteps({
       playbookStepDefinitions: playbookMetadata.playbookStepDefinitions,
       steps: executionSteps.steps,
-      execution: executionCore.execution,
+      execution: executionCore.execution || undefined,
     });
   }, [playbookMetadata.playbookStepDefinitions, executionSteps.steps, executionCore.execution]);
 
@@ -253,7 +253,7 @@ export default function ExecutionInspector({
           onReloadPlaybook={actions.reloadPlaybook}
           onRestartExecution={() => setShowRestartConfirm(true)}
           onViewSandbox={() => setShowSandboxModal(true)}
-          t={t}
+          t={t as any}
         />
       )}
 
@@ -306,7 +306,7 @@ export default function ExecutionInspector({
                         currentStepIndex={executionCore.currentStepIndex}
                         executionStatus={executionCore.execution?.status}
                         onStepSelect={executionCore.setCurrentStepIndex}
-                        t={t}
+                        t={t as any}
                       />
 
                       {/* Right: Current Step Details */}
@@ -318,10 +318,10 @@ export default function ExecutionInspector({
                         currentStepToolCalls={currentStepToolCalls}
                         stepEvents={executionSteps.stepEvents}
                         executionStatus={executionCore.execution?.status}
-                        artifacts={executionSteps.artifacts}
+                        artifacts={artifacts}
                         workspaceId={workspaceId}
                         apiUrl={apiUrl}
-                        t={t}
+                        t={t as any}
                       />
                     </>
                   )}
@@ -337,33 +337,30 @@ export default function ExecutionInspector({
           <div className="flex border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setRightPanelView('artifacts')}
-              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                rightPanelView === 'artifacts'
-                  ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-              }`}
+              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${rightPanelView === 'artifacts'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                }`}
             >
-              {t('artifacts') || 'Artifacts'}
+              {t('artifacts' as any) || 'Artifacts'}
             </button>
             <button
               onClick={() => setRightPanelView('governance')}
-              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                rightPanelView === 'governance'
-                  ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-              }`}
+              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${rightPanelView === 'governance'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                }`}
             >
-              {t('governance') || 'Governance'}
+              {t('governance' as any) || 'Governance'}
             </button>
             <button
               onClick={() => setRightPanelView('chat')}
-              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                rightPanelView === 'chat'
-                  ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-              }`}
+              className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${rightPanelView === 'chat'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                }`}
             >
-              {t('chat') || 'Chat'}
+              {t('chat' as any) || 'Chat'}
             </button>
           </div>
 
@@ -408,7 +405,7 @@ export default function ExecutionInspector({
         isOpen={showRestartConfirm}
         onClose={() => setShowRestartConfirm(false)}
         onConfirm={handleRestartConfirm}
-        t={t}
+        t={t as any}
       />
 
       {/* Sandbox Modal */}

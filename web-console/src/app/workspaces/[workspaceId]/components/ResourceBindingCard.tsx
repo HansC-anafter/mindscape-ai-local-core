@@ -68,13 +68,13 @@ export default function ResourceBindingCard({
             onClick={onEdit}
             className="px-3 py-1.5 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
           >
-            {t('editBinding')}
+            {t('editBinding' as any)}
           </button>
           <button
             onClick={onDelete}
             className="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium"
           >
-            {t('deleteBinding')}
+            {t('deleteBinding' as any)}
           </button>
         </div>
       </div>

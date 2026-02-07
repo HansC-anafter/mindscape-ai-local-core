@@ -116,7 +116,7 @@ export default function StepDetailPanel({
     return (
       <div className="h-full overflow-y-auto bg-surface-secondary dark:bg-gray-800 p-3 min-w-0">
         <div className="text-center py-8 text-gray-500 dark:text-gray-300">
-          {t('selectStepToViewDetails') || '請選擇步驟以查看詳情'}
+          {t('selectStepToViewDetails' as any) || '請選擇步驟以查看詳情'}
         </div>
       </div>
     );
@@ -127,7 +127,7 @@ export default function StepDetailPanel({
       <div className="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2 mb-1.5">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {t('stepNumber', { number: currentStepIndex })}: {currentStepInfo.step_name || t('unnamed')}
+            {t('stepNumber', { number: currentStepIndex })}: {currentStepInfo.step_name || t('unnamed' as any)}
           </h3>
           {currentStep && (
             <span
@@ -144,12 +144,12 @@ export default function StepDetailPanel({
         )}
         {currentStep?.agent_type && (
           <div className="text-xs text-gray-500 dark:text-gray-300">
-            {t('agent')} <span className="font-medium">{currentStep.agent_type}</span>
+            {t('agent' as any)} <span className="font-medium">{currentStep.agent_type}</span>
           </div>
         )}
         {!currentStep && (
           <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-            {t('stepNotExecutedYet') || 'This step has not been executed yet.'}
+            {t('stepNotExecutedYet' as any) || 'This step has not been executed yet.'}
           </p>
         )}
       </div>
@@ -158,7 +158,7 @@ export default function StepDetailPanel({
       {stepEvents.length > 0 && (
         <div className="mb-3">
           <h4 className="text-xs font-medium text-gray-900 dark:text-gray-100 mb-1.5">
-            {t('eventStream')}
+            {t('eventStream' as any)}
           </h4>
           <div className="space-y-1.5">
             {stepEvents.map((event) => (
@@ -177,17 +177,17 @@ export default function StepDetailPanel({
                   <div className="text-[10px] text-gray-600 dark:text-gray-300">
                     {event.type === 'tool' && event.tool && (
                       <span className="font-medium">
-                        {t('tool')} {event.tool}
+                        {t('tool' as any)} {event.tool}
                       </span>
                     )}
                     {event.type === 'collaboration' && event.agent && (
                       <span className="font-medium">
-                        {t('collaboration')} {event.agent}
+                        {t('collaboration' as any)} {event.agent}
                       </span>
                     )}
                     {event.type === 'step' && event.agent && (
                       <span className="font-medium">
-                        {t('agent')} {event.agent}
+                        {t('agent' as any)} {event.agent}
                       </span>
                     )}
                   </div>
@@ -205,7 +205,7 @@ export default function StepDetailPanel({
       {currentStepToolCalls.length > 0 && (
         <div className="mb-4">
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-            {t('toolCalls')}
+            {t('toolCalls' as any)}
           </h4>
           <div className="space-y-2">
             {currentStepToolCalls.map((toolCall) => (
@@ -259,7 +259,7 @@ export default function StepDetailPanel({
       {currentStep?.error && (
         <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded">
           <div className="text-sm font-medium text-red-700 dark:text-red-300 mb-1">
-            {t('error')}
+            {t('error' as any)}
           </div>
           <div className="text-sm text-red-600 dark:text-red-400">{currentStep?.error}</div>
         </div>

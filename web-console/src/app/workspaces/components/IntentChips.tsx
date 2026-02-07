@@ -143,7 +143,7 @@ export default function IntentChips({
   return (
     <div className="px-4 pt-2 pb-1">
       <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-        {t('mindscapePossibleDirections') || 'Mindscape 看到的可能方向（僅供參考）'}
+        {t('mindscapePossibleDirections' as any) || 'Mindscape 看到的可能方向（僅供參考）'}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {intentTags.map((tag) => (

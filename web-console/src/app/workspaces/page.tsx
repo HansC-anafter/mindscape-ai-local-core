@@ -130,7 +130,8 @@ export default function WorkspacesPage() {
           },
           body: JSON.stringify({
             title: title,
-            description: description || ''
+            description: description || '',
+            execution_mode: 'hybrid'  // 預設為混合模式（邊做邊聊）
           })
         }
       );
@@ -138,33 +139,34 @@ export default function WorkspacesPage() {
       if (response.ok) {
         const newWorkspace = await response.json();
         setWorkspaces(prev => [newWorkspace, ...prev]);
-        setShowCreateModal(false);
+        // Navigate to new workspace
+        router.push(`/workspaces/${newWorkspace.id}`);
       } else {
-        let errorMessage = t('workspaceCreateFailed');
+        let errorMessage = t('workspaceCreateFailed' as any);
         try {
           const errorData = await response.json();
           // Try to extract error message from various possible fields
           if (errorData.detail) {
-            errorMessage = `${t('workspaceCreateFailed')}: ${errorData.detail}`;
+            errorMessage = `${t('workspaceCreateFailed' as any)}: ${errorData.detail}`;
           } else if (errorData.message) {
-            errorMessage = `${t('workspaceCreateFailed')}: ${errorData.message}`;
+            errorMessage = `${t('workspaceCreateFailed' as any)}: ${errorData.message}`;
           } else if (errorData.error) {
-            errorMessage = `${t('workspaceCreateFailed')}: ${errorData.error}`;
+            errorMessage = `${t('workspaceCreateFailed' as any)}: ${errorData.error}`;
           } else if (typeof errorData === 'string') {
-            errorMessage = `${t('workspaceCreateFailed')}: ${errorData}`;
+            errorMessage = `${t('workspaceCreateFailed' as any)}: ${errorData}`;
           } else {
-            errorMessage = `${t('workspaceCreateFailed')}: ${response.status} ${response.statusText}`;
+            errorMessage = `${t('workspaceCreateFailed' as any)}: ${response.status} ${response.statusText}`;
           }
         } catch (parseError) {
           // If JSON parsing fails, use status text
-          errorMessage = `${t('workspaceCreateFailed')}: ${response.status} ${response.statusText}`;
+          errorMessage = `${t('workspaceCreateFailed' as any)}: ${response.status} ${response.statusText}`;
         }
         alert(errorMessage);
       }
     } catch (err) {
       const errorMessage = err instanceof Error
-        ? `${t('workspaceCreateFailed')}: ${err.message}`
-        : `${t('workspaceCreateFailed')}: ${String(err)}`;
+        ? `${t('workspaceCreateFailed' as any)}: ${err.message}`
+        : `${t('workspaceCreateFailed' as any)}: ${String(err)}`;
       alert(errorMessage);
       console.error('Failed to create workspace:', err);
     }
@@ -183,31 +185,31 @@ export default function WorkspacesPage() {
         setWorkspaces(prev => prev.filter(w => w.id !== deleteTarget.id));
         setDeleteTarget(null);
       } else {
-        let errorMessage = t('workspaceDeleteFailed');
+        let errorMessage = t('workspaceDeleteFailed' as any);
         try {
           const errorData = await response.json();
           // Try to extract error message from various possible fields
           if (errorData.detail) {
-            errorMessage = `${t('workspaceDeleteFailed')}: ${errorData.detail}`;
+            errorMessage = `${t('workspaceDeleteFailed' as any)}: ${errorData.detail}`;
           } else if (errorData.message) {
-            errorMessage = `${t('workspaceDeleteFailed')}: ${errorData.message}`;
+            errorMessage = `${t('workspaceDeleteFailed' as any)}: ${errorData.message}`;
           } else if (errorData.error) {
-            errorMessage = `${t('workspaceDeleteFailed')}: ${errorData.error}`;
+            errorMessage = `${t('workspaceDeleteFailed' as any)}: ${errorData.error}`;
           } else if (typeof errorData === 'string') {
-            errorMessage = `${t('workspaceDeleteFailed')}: ${errorData}`;
+            errorMessage = `${t('workspaceDeleteFailed' as any)}: ${errorData}`;
           } else {
-            errorMessage = `${t('workspaceDeleteFailed')}: ${response.status} ${response.statusText}`;
+            errorMessage = `${t('workspaceDeleteFailed' as any)}: ${response.status} ${response.statusText}`;
           }
         } catch (parseError) {
           // If JSON parsing fails, use status text
-          errorMessage = `${t('workspaceDeleteFailed')}: ${response.status} ${response.statusText}`;
+          errorMessage = `${t('workspaceDeleteFailed' as any)}: ${response.status} ${response.statusText}`;
         }
         alert(errorMessage);
       }
     } catch (err) {
       const errorMessage = err instanceof Error
-        ? `${t('workspaceDeleteFailed')}: ${err.message}`
-        : `${t('workspaceDeleteFailed')}: ${String(err)}`;
+        ? `${t('workspaceDeleteFailed' as any)}: ${err.message}`
+        : `${t('workspaceDeleteFailed' as any)}: ${String(err)}`;
       alert(errorMessage);
       console.error('Failed to delete workspace:', err);
     } finally {
@@ -252,7 +254,7 @@ export default function WorkspacesPage() {
               }}
               className="mt-2 px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 transition-colors"
             >
-              {t('retryButton') || '重試'}
+              {t('retryButton' as any) || '重試'}
             </button>
           </div>
         )}
@@ -320,7 +322,7 @@ export default function WorkspacesPage() {
                       setDeleteTarget(workspace);
                     }}
                     className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
-                    title={t('workspaceDelete')}
+                    title={t('workspaceDelete' as any)}
                   >
                     🗑️
                   </button>
@@ -335,10 +337,10 @@ export default function WorkspacesPage() {
           isOpen={!!deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleDeleteWorkspace}
-          title={t('workspaceDelete')}
+          title={t('workspaceDelete' as any)}
           message={deleteTarget ? t('workspaceDeleteConfirm', { workspaceName: deleteTarget.title }) : ''}
-          confirmText={t('delete') || '刪除'}
-          cancelText={t('cancel') || '取消'}
+          confirmText={t('delete' as any) || '刪除'}
+          cancelText={t('cancel' as any) || '取消'}
           confirmButtonClassName="bg-red-600 hover:bg-red-700"
         />
       </div>

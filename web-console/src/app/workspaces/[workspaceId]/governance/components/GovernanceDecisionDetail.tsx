@@ -30,10 +30,10 @@ export function GovernanceDecisionDetail({
   onClose,
 }: GovernanceDecisionDetailProps) {
   const layerLabels = {
-    cost: t('costGovernance') || 'Cost Governance',
-    node: t('nodeGovernance') || 'Node Governance',
-    policy: t('policyService') || 'Policy Service',
-    preflight: t('preflight') || 'Preflight',
+    cost: t('costGovernance' as any) || 'Cost Governance',
+    node: t('nodeGovernance' as any) || 'Node Governance',
+    policy: t('policyService' as any) || 'Policy Service',
+    preflight: t('preflight' as any) || 'Preflight',
   };
 
   return (
@@ -41,7 +41,7 @@ export function GovernanceDecisionDetail({
       <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            {t('decisionDetails') || 'Decision Details'}
+            {t('decisionDetails' as any) || 'Decision Details'}
           </h2>
           <button
             onClick={onClose}
@@ -54,7 +54,7 @@ export function GovernanceDecisionDetail({
         <div className="p-6 space-y-4">
           <div>
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              {t('decisionId') || 'Decision ID'}
+              {t('decisionId' as any) || 'Decision ID'}
             </div>
             <div className="text-sm text-gray-900 dark:text-gray-100 font-mono">
               {decision.decision_id}
@@ -63,7 +63,7 @@ export function GovernanceDecisionDetail({
 
           <div>
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              {t('timestamp') || 'Timestamp'}
+              {t('timestamp' as any) || 'Timestamp'}
             </div>
             <div className="text-sm text-gray-900 dark:text-gray-100">
               {new Date(decision.timestamp).toLocaleString()}
@@ -72,7 +72,7 @@ export function GovernanceDecisionDetail({
 
           <div>
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              {t('layer') || 'Layer'}
+              {t('layer' as any) || 'Layer'}
             </div>
             <div className="text-sm text-gray-900 dark:text-gray-100">
               {layerLabels[decision.layer]}
@@ -81,7 +81,7 @@ export function GovernanceDecisionDetail({
 
           <div>
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              {t('status') || 'Status'}
+              {t('status' as any) || 'Status'}
             </div>
             <div
               className={`inline-block px-2 py-1 text-xs font-medium rounded ${
@@ -90,14 +90,14 @@ export function GovernanceDecisionDetail({
                   : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
               }`}
             >
-              {decision.approved ? t('approved') || 'Approved' : t('rejected') || 'Rejected'}
+              {decision.approved ? t('approved' as any) || 'Approved' : t('rejected' as any) || 'Rejected'}
             </div>
           </div>
 
           {decision.reason && (
             <div>
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                {t('reason') || 'Reason'}
+                {t('reason' as any) || 'Reason'}
               </div>
               <div className="text-sm text-gray-900 dark:text-gray-100">{decision.reason}</div>
             </div>
@@ -106,7 +106,7 @@ export function GovernanceDecisionDetail({
           {decision.playbook_code && (
             <div>
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                {t('playbookCode') || 'Playbook Code'}
+                {t('playbookCode' as any) || 'Playbook Code'}
               </div>
               <div className="text-sm text-gray-900 dark:text-gray-100 font-mono">
                 {decision.playbook_code}
@@ -117,13 +117,13 @@ export function GovernanceDecisionDetail({
           {decision.metadata && Object.keys(decision.metadata).length > 0 && (
             <div>
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-                {t('metadata') || 'Metadata'}
+                {t('metadata' as any) || 'Metadata'}
               </div>
               <div className="bg-gray-50 dark:bg-gray-900 rounded p-3 space-y-2">
                 {decision.metadata.estimated_cost !== undefined && (
                   <div className="flex justify-between">
                     <span className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('estimatedCost') || 'Estimated Cost'}
+                      {t('estimatedCost' as any) || 'Estimated Cost'}
                     </span>
                     <span className="text-xs text-gray-900 dark:text-gray-100">
                       ${decision.metadata.estimated_cost.toFixed(2)}
@@ -133,7 +133,7 @@ export function GovernanceDecisionDetail({
                 {decision.metadata.quota_limit !== undefined && (
                   <div className="flex justify-between">
                     <span className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('quotaLimit') || 'Quota Limit'}
+                      {t('quotaLimit' as any) || 'Quota Limit'}
                     </span>
                     <span className="text-xs text-gray-900 dark:text-gray-100">
                       ${decision.metadata.quota_limit.toFixed(2)}
@@ -143,7 +143,7 @@ export function GovernanceDecisionDetail({
                 {decision.metadata.rejection_reason && (
                   <div>
                     <span className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('rejectionReason') || 'Rejection Reason'}
+                      {t('rejectionReason' as any) || 'Rejection Reason'}
                     </span>
                     <span className="text-xs text-gray-900 dark:text-gray-100 ml-2">
                       {decision.metadata.rejection_reason}
@@ -153,7 +153,7 @@ export function GovernanceDecisionDetail({
                 {decision.metadata.violation_type && (
                   <div>
                     <span className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('violationType') || 'Violation Type'}
+                      {t('violationType' as any) || 'Violation Type'}
                     </span>
                     <span className="text-xs text-gray-900 dark:text-gray-100 ml-2">
                       {decision.metadata.violation_type}
@@ -163,7 +163,7 @@ export function GovernanceDecisionDetail({
                 {decision.metadata.missing_inputs && decision.metadata.missing_inputs.length > 0 && (
                   <div>
                     <span className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('missingInputs') || 'Missing Inputs'}
+                      {t('missingInputs' as any) || 'Missing Inputs'}
                     </span>
                     <div className="mt-1">
                       {decision.metadata.missing_inputs.map((input, index) => (
@@ -187,7 +187,7 @@ export function GovernanceDecisionDetail({
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
           >
-            {t('close') || 'Close'}
+            {t('close' as any) || 'Close'}
           </button>
         </div>
       </div>

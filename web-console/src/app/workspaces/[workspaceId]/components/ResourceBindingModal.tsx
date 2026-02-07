@@ -83,7 +83,7 @@ export default function ResourceBindingModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          {binding ? t('editBinding') : t('addBinding')}
+          {binding ? t('editBinding' as any) : t('addBinding' as any)}
         </h2>
 
         {error && (
@@ -95,7 +95,7 @@ export default function ResourceBindingModal({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('resourceType')}
+              {t('resourceType' as any)}
             </label>
             <select
               value={resourceType}
@@ -111,21 +111,21 @@ export default function ResourceBindingModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('resourceId')}
+              {t('resourceId' as any)}
             </label>
             <input
               type="text"
               value={resourceId}
               onChange={(e) => setResourceId(e.target.value)}
               disabled={!!binding}
-              placeholder={t('resourceId')}
+              placeholder={t('resourceId' as any)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('accessMode')}
+              {t('accessMode' as any)}
             </label>
             <select
               value={accessMode}
@@ -140,7 +140,7 @@ export default function ResourceBindingModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('overrides')}
+              {t('overrides' as any)}
             </label>
             <textarea
               value={JSON.stringify(overrides, null, 2)}
@@ -157,7 +157,7 @@ export default function ResourceBindingModal({
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {t('overrides')}
+              {t('overrides' as any)}
             </p>
           </div>
         </div>
@@ -168,14 +168,14 @@ export default function ResourceBindingModal({
             disabled={saving}
             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
           >
-            {t('cancel')}
+            {t('cancel' as any)}
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !resourceId.trim()}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? t('saving') : t('save')}
+            {saving ? t('saving' as any) : t('save' as any)}
           </button>
         </div>
       </div>

@@ -23,7 +23,7 @@ interface Intent {
 
 export default function IntentPoolPage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
+  const workspaceId = params?.workspaceId as string;
   const router = useRouter();
   const { workspace } = useWorkspaceData();
   const [intents, setIntents] = useState<Intent[]>([]);

@@ -67,11 +67,11 @@ export default function WorkspaceSettings({
   const [storagePathChanged, setStoragePathChanged] = useState(false);
 
   // Execution mode settings state
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('qa');
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('hybrid');
   const [executionPriority, setExecutionPriority] = useState<ExecutionPriority>('medium');
   const [projectAssignmentMode, setProjectAssignmentMode] = useState<ProjectAssignmentMode>('auto_silent');
   const [expectedArtifacts, setExpectedArtifacts] = useState<string[]>([]);
-  const [originalExecutionMode, setOriginalExecutionMode] = useState<ExecutionMode>('qa');
+  const [originalExecutionMode, setOriginalExecutionMode] = useState<ExecutionMode>('hybrid');
   const [originalExecutionPriority, setOriginalExecutionPriority] = useState<ExecutionPriority>('medium');
   const [originalProjectAssignmentMode, setOriginalProjectAssignmentMode] = useState<ProjectAssignmentMode>('auto_silent');
   const [originalExpectedArtifacts, setOriginalExpectedArtifacts] = useState<string[]>([]);
@@ -107,7 +107,7 @@ export default function WorkspaceSettings({
       setStoragePathChanged(false);
 
       // Execution mode settings
-      const mode = workspace.execution_mode || 'qa';
+      const mode = workspace.execution_mode || 'hybrid';
       const priority = workspace.execution_priority || 'medium';
       const assignmentMode = workspace.project_assignment_mode || 'auto_silent';
       const artifacts = workspace.expected_artifacts || [];
@@ -179,7 +179,7 @@ export default function WorkspaceSettings({
       }
 
       const updated = await response.json();
-      setOriginalExecutionMode(updated.execution_mode || 'qa');
+      setOriginalExecutionMode(updated.execution_mode || 'hybrid');
       setOriginalExecutionPriority(updated.execution_priority || 'medium');
       setOriginalProjectAssignmentMode(updated.project_assignment_mode || 'auto_silent');
       setOriginalExpectedArtifacts(updated.expected_artifacts || []);

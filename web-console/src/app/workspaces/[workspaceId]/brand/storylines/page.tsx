@@ -20,7 +20,7 @@ interface Execution {
 
 export default function StorylineOverviewPage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
+  const workspaceId = params?.workspaceId as string;
   const { workspace } = useWorkspaceData();
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,12 +34,24 @@ export default function StorylineOverviewPage() {
         setError(null);
 
         // Load all executions for this workspace
-        const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100`);
+        // Optimization: Use /tasks instead of /executions-with-steps to avoid huge payloads
+        const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/tasks?limit=100&task_type=execution`);
         if (!response.ok) {
           throw new Error(`Failed to load executions: ${response.statusText}`);
         }
         const data = await response.json();
-        setExecutions(data.executions || []);
+
+        // Map tasks to execution format
+        const executionsList = (data.tasks || []).map((t: any) => ({
+          id: t.id,
+          workspace_id: t.workspace_id,
+          playbook_code: t.pack_id,
+          status: t.status,
+          storyline_tags: t.storyline_tags,
+          created_at: t.created_at,
+          completed_at: t.completed_at
+        }));
+        setExecutions(executionsList);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load executions');
       } finally {
@@ -111,11 +123,10 @@ export default function StorylineOverviewPage() {
                   <button
                     key={tag}
                     onClick={() => setSelectedStoryline(tag)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                      selectedStoryline === tag
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedStoryline === tag
                         ? 'bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-200'
                         : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
-                    }`}
+                      }`}
                   >
                     <div className="font-medium">{tag}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
@@ -155,11 +166,10 @@ export default function StorylineOverviewPage() {
                             {execution.status} • {new Date(execution.created_at).toLocaleDateString()}
                           </div>
                         </div>
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          execution.status === 'done' ? 'bg-green-100 text-green-800' :
-                          execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span className={`text-xs px-2 py-1 rounded ${execution.status === 'done' ? 'bg-green-100 text-green-800' :
+                            execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                              'bg-gray-100 text-gray-800'
+                          }`}>
                           {execution.status}
                         </span>
                       </div>

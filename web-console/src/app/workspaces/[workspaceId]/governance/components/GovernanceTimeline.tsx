@@ -54,13 +54,13 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
         limit: '50',
       });
 
-      if (filters.layer) params.append('layer', filters.layer);
-      if (filters.approved !== undefined) params.append('approved', filters.approved.toString());
-      if (filters.startDate) params.append('start_date', filters.startDate);
-      if (filters.endDate) params.append('end_date', filters.endDate);
+      if (filters.layer) params?.append('layer', filters.layer);
+      if (filters.approved !== undefined) params?.append('approved', filters.approved.toString());
+      if (filters.startDate) params?.append('start_date', filters.startDate);
+      if (filters.endDate) params?.append('end_date', filters.endDate);
 
       const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/decisions?${params.toString()}`
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/decisions?${params?.toString()}`
       );
 
       if (!response.ok) {
@@ -125,7 +125,7 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
   if (loading) {
     return (
       <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-        {t('loading') || 'Loading...'}
+        {t('loading' as any) || 'Loading...'}
       </div>
     );
   }
@@ -144,23 +144,23 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('layer') || 'Layer'}
+              {t('layer' as any) || 'Layer'}
             </label>
             <select
               value={filters.layer || ''}
               onChange={(e) => setFilters({ ...filters, layer: e.target.value || undefined })}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             >
-              <option value="">{t('all') || 'All'}</option>
-              <option value="cost">{t('cost') || 'Cost'}</option>
-              <option value="node">{t('node') || 'Node'}</option>
-              <option value="policy">{t('policy') || 'Policy'}</option>
-              <option value="preflight">{t('preflight') || 'Preflight'}</option>
+              <option value="">{t('all' as any) || 'All'}</option>
+              <option value="cost">{t('cost' as any) || 'Cost'}</option>
+              <option value="node">{t('node' as any) || 'Node'}</option>
+              <option value="policy">{t('policy' as any) || 'Policy'}</option>
+              <option value="preflight">{t('preflight' as any) || 'Preflight'}</option>
             </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('status') || 'Status'}
+              {t('status' as any) || 'Status'}
             </label>
             <select
               value={filters.approved === undefined ? '' : filters.approved.toString()}
@@ -172,14 +172,14 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
               }
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             >
-              <option value="">{t('all') || 'All'}</option>
-              <option value="true">{t('approved') || 'Approved'}</option>
-              <option value="false">{t('rejected') || 'Rejected'}</option>
+              <option value="">{t('all' as any) || 'All'}</option>
+              <option value="true">{t('approved' as any) || 'Approved'}</option>
+              <option value="false">{t('rejected' as any) || 'Rejected'}</option>
             </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('startDate') || 'Start Date'}
+              {t('startDate' as any) || 'Start Date'}
             </label>
             <input
               type="date"
@@ -190,7 +190,7 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('endDate') || 'End Date'}
+              {t('endDate' as any) || 'End Date'}
             </label>
             <input
               type="date"
@@ -205,7 +205,7 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
       <div className="space-y-2">
         {decisions.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            {t('noDecisionsFound') || 'No governance decisions found'}
+            {t('noDecisionsFound' as any) || 'No governance decisions found'}
           </div>
         ) : (
           decisions.map((decision) => (
@@ -229,7 +229,7 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
                           : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
                       }`}
                     >
-                      {decision.approved ? t('approved') || 'Approved' : t('rejected') || 'Rejected'}
+                      {decision.approved ? t('approved' as any) || 'Approved' : t('rejected' as any) || 'Rejected'}
                     </span>
                     {decision.playbook_code && (
                       <span className="text-xs text-gray-600 dark:text-gray-400">
@@ -257,17 +257,17 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
             disabled={page === 1}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t('previous') || 'Previous'}
+            {t('previous' as any) || 'Previous'}
           </button>
           <span className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
-            {t('page') || 'Page'} {page} / {totalPages}
+            {t('page' as any) || 'Page'} {page} / {totalPages}
           </span>
           <button
             onClick={() => setPage(Math.min(totalPages, page + 1))}
             disabled={page === totalPages}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t('next') || 'Next'}
+            {t('next' as any) || 'Next'}
           </button>
         </div>
       )}

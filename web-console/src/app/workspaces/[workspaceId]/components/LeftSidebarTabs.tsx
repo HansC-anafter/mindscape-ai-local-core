@@ -4,17 +4,17 @@ import React from 'react';
 import { useT } from '@/lib/i18n';
 
 interface TabConfig {
-  key: 'timeline' | 'outcomes' | 'background';
+  key: 'timeline' | 'outcomes' | 'pack';
   label: string;
   subtitle: string;
 }
 
 interface LeftSidebarTabsProps {
-  activeTab: 'timeline' | 'outcomes' | 'background';
-  onTabChange: (tab: 'timeline' | 'outcomes' | 'background') => void;
+  activeTab: 'timeline' | 'outcomes' | 'pack';
+  onTabChange: (tab: 'timeline' | 'outcomes' | 'pack') => void;
   timelineContent: React.ReactNode;
   outcomesContent: React.ReactNode;
-  backgroundContent?: React.ReactNode;
+  packContent?: React.ReactNode;
 }
 
 export default function LeftSidebarTabs({
@@ -22,14 +22,14 @@ export default function LeftSidebarTabs({
   onTabChange,
   timelineContent,
   outcomesContent,
-  backgroundContent
+  packContent
 }: LeftSidebarTabsProps) {
   const t = useT();
 
   const tabs: TabConfig[] = [
-    { key: 'timeline', label: t('tabScheduling') || 'Scheduling', subtitle: t('tabSchedulingSubtitle') || 'Tasks & Execution' },
-    { key: 'outcomes', label: t('tabOutcomes') || 'Outcomes', subtitle: t('tabOutcomesSubtitle') || 'Output Overview' },
-    { key: 'background', label: t('tabBackgroundTasks') || 'Thinking', subtitle: t('tabBackgroundTasksSubtitle') || 'Outline & Strategy' },
+    { key: 'timeline', label: t('tabScheduling' as any) || 'Scheduling', subtitle: t('tabSchedulingSubtitle' as any) || 'Tasks & Execution' },
+    { key: 'outcomes', label: t('tabOutcomes' as any) || 'Outcomes', subtitle: t('tabOutcomesSubtitle' as any) || 'Output Overview' },
+    { key: 'pack', label: t('tabPack' as any) || 'Pack', subtitle: t('tabPackSubtitle' as any) || 'Capabilities & Thinking' },
   ];
 
   return (
@@ -75,13 +75,13 @@ export default function LeftSidebarTabs({
           {outcomesContent}
         </div>
         <div
-          className={`h-full ${activeTab === 'background' ? 'block' : 'hidden'}`}
-          aria-hidden={activeTab !== 'background'}
+          className={`h-full ${activeTab === 'pack' ? 'block' : 'hidden'}`}
+          aria-hidden={activeTab !== 'pack'}
           role="tabpanel"
         >
-          {backgroundContent || (
+          {packContent || (
             <div className="p-4 text-sm text-gray-500 dark:text-gray-400">
-              {t('backgroundTasksPanel') || 'Background Tasks Panel'}
+              {t('packPanel' as any) || 'Pack Panel'}
             </div>
           )}
         </div>

@@ -25,7 +25,7 @@ interface Execution {
 
 export default function ExecutionTimelinePage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
+  const workspaceId = params?.workspaceId as string;
   const router = useRouter();
   const { workspace } = useWorkspaceData();
   const [executions, setExecutions] = useState<Execution[]>([]);
@@ -39,13 +39,29 @@ export default function ExecutionTimelinePage() {
         setLoading(true);
         setError(null);
 
-        // Load all executions for this workspace
-        const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100`);
+        // Optimization: use /tasks endpoint (which we patched to strip heavy results)
+        // instead of /executions-with-steps (which returns huge payloads).
+        // This prevents the "Infinite Loading" / "Freeze" issue.
+        const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/tasks?limit=100&include_completed=true&task_type=execution`);
         if (!response.ok) {
           throw new Error(`Failed to load executions: ${response.statusText}`);
         }
         const data = await response.json();
-        setExecutions(data.executions || []);
+
+        // Map Task to Execution interface
+        const mappedExecutions = (data.tasks || []).map((t: any) => ({
+          id: t.id,
+          workspace_id: t.workspace_id,
+          playbook_code: t.pack_id,
+          status: t.status,
+          storyline_tags: t.storyline_tags,
+          created_at: t.created_at,
+          started_at: t.started_at,
+          completed_at: t.completed_at,
+          steps: [] // Steps are lazy loaded via detail view
+        }));
+
+        setExecutions(mappedExecutions);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load executions');
       } finally {

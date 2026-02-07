@@ -14,7 +14,7 @@ export default function GovernancePage() {
   if (!workspaceId) {
     return (
       <div className="p-8 text-center text-secondary dark:text-gray-400">
-        {t('workspaceNotFound') || 'Workspace not found'}
+        {t('workspaceNotFound' as any) || 'Workspace not found'}
       </div>
     );
   }
@@ -23,10 +23,10 @@ export default function GovernancePage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-primary dark:text-gray-100 mb-2">
-          {t('governance') || 'Governance'}
+          {t('governance' as any) || 'Governance'}
         </h1>
         <p className="text-sm text-secondary dark:text-gray-400">
-          {t('governancePageDescription') || 'View governance decisions and metrics for this workspace'}
+          {t('governancePageDescription' as any) || 'View governance decisions and metrics for this workspace'}
         </p>
       </div>
 
@@ -40,7 +40,7 @@ export default function GovernancePage() {
                 : 'border-transparent text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-100'
             }`}
           >
-            {t('decisionHistory') || 'Decision History'}
+            {t('decisionHistory' as any) || 'Decision History'}
           </button>
           <button
             onClick={() => setActiveTab('metrics')}
@@ -50,7 +50,7 @@ export default function GovernancePage() {
                 : 'border-transparent text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-100'
             }`}
           >
-            {t('metrics') || 'Metrics'}
+            {t('metrics' as any) || 'Metrics'}
           </button>
         </nav>
       </div>

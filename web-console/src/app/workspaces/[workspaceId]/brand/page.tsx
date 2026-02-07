@@ -4,6 +4,7 @@ import React from 'react';
 import { useParams } from 'next/navigation';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import ProjectsPanel from '../components/ProjectsPanel';
+import BrandFoundationCards from '@/components/brand/BrandFoundationCards';
 // Cloud capabilities import removed
 
 import { getApiBaseUrl } from '../../../../lib/api-url';
@@ -12,7 +13,7 @@ const API_URL = getApiBaseUrl();
 
 export default function BrandWorkspacePage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
+  const workspaceId = params?.workspaceId as string;
   const { workspace, isLoadingWorkspace } = useWorkspaceData();
 
   if (isLoadingWorkspace) {

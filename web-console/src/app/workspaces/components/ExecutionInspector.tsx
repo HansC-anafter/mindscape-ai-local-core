@@ -32,7 +32,7 @@ export default function ExecutionInspector({
   const [showSandboxModal, setShowSandboxModal] = useState(false);
 
   // Use data hooks
-  const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData);
+  const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData as any);
   const executionSteps = useExecutionSteps(
     executionId,
     workspaceId,
@@ -77,12 +77,12 @@ export default function ExecutionInspector({
     return calculateTotalSteps({
       playbookStepDefinitions: playbookMetadata.playbookStepDefinitions,
       steps: executionSteps.steps,
-      execution: executionCore.execution,
+      execution: executionCore.execution || undefined,
     });
   }, [playbookMetadata.playbookStepDefinitions, executionSteps.steps, executionCore.execution]);
 
   // Fetch artifacts from API for this execution
-  const [artifacts, setArtifacts] = useState<typeof artifacts[0][]>([]);
+  const [artifacts, setArtifacts] = useState<any[]>([]);
   const [originalArtifacts, setOriginalArtifacts] = useState<any[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
 
@@ -237,7 +237,7 @@ export default function ExecutionInspector({
           onReloadPlaybook={actions.reloadPlaybook}
           onRestartExecution={handleShowRestartConfirm}
           onViewSandbox={handleViewSandbox}
-          t={t}
+          t={t as any}
         />
       )}
 
@@ -290,7 +290,7 @@ export default function ExecutionInspector({
                         currentStepIndex={executionCore.currentStepIndex}
                         executionStatus={executionCore.execution?.status}
                         onStepSelect={executionCore.setCurrentStepIndex}
-                        t={t}
+                        t={t as any}
                       />
 
                       {/* Right: Current Step Details */}
@@ -303,10 +303,9 @@ export default function ExecutionInspector({
                         stepEvents={executionSteps.stepEvents}
                         executionStatus={executionCore.execution?.status}
                         artifacts={currentStepArtifacts}
-                        originalArtifacts={originalArtifacts}
                         workspaceId={workspaceId}
                         onViewArtifact={handleArtifactView}
-                        t={t}
+                        t={t as any}
                       />
                     </>
                   )}
@@ -337,7 +336,7 @@ export default function ExecutionInspector({
         isOpen={showRestartConfirm}
         onClose={handleCloseRestartConfirm}
         onConfirm={handleRestartConfirm}
-        t={t}
+        t={t as any}
       />
 
       {/* Sandbox Modal */}

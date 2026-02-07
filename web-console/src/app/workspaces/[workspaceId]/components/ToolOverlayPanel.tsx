@@ -95,10 +95,10 @@ export default function ToolOverlayPanel({ workspaceId }: ToolOverlayPanelProps)
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-          {t('toolOverlaySettings')}
+          {t('toolOverlaySettings' as any)}
         </h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          {t('toolOverlayDescription')}
+          {t('toolOverlayDescription' as any)}
         </p>
       </div>
 
@@ -122,7 +122,7 @@ export default function ToolOverlayPanel({ workspaceId }: ToolOverlayPanelProps)
             originalDangerLevel="medium"
             currentOverride={dangerLevelOverride || undefined}
             onOverrideChange={(override) => setDangerLevelOverride(override)}
-            validateDangerLevel={validateDangerLevel}
+            validateOverride={validateDangerLevel}
           />
         </div>
 
@@ -157,18 +157,18 @@ export default function ToolOverlayPanel({ workspaceId }: ToolOverlayPanelProps)
 
       {saveSuccess && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
-          <p className="text-sm text-green-700 dark:text-green-300">{t('toolOverlaySaved')}</p>
+          <p className="text-sm text-green-700 dark:text-green-300">{t('toolOverlaySaved' as any)}</p>
         </div>
       )}
 
       <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving || !hasChanges()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {saving ? t('saving') : t('saveSettings')}
-          </button>
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges()}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+        >
+          {saving ? t('saving' as any) : t('saveSettings' as any)}
+        </button>
       </div>
     </div>
   );

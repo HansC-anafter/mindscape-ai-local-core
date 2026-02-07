@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { t } from '@/lib/i18n';
 
 export interface ConversationThread {
   id: string;
@@ -59,7 +60,24 @@ export default function ConversationsList({
       setLoading(false);
     }
   }, [workspaceId, apiUrl]);
-  
+
+  // Initial load on mount
+  useEffect(() => {
+    loadThreads();
+
+    const handleUpdate = () => {
+      loadThreads();
+    };
+
+    window.addEventListener('workspace-chat-updated', handleUpdate);
+    window.addEventListener('workspace-task-updated', handleUpdate);
+
+    return () => {
+      window.removeEventListener('workspace-chat-updated', handleUpdate);
+      window.removeEventListener('workspace-task-updated', handleUpdate);
+    };
+  }, [loadThreads]);
+
   // 🆕 當 threads 載入完成且沒有選擇 thread 時，自動選擇 default thread
   useEffect(() => {
     if (!loading && threads.length > 0 && !selectedThreadId) {
@@ -117,17 +135,26 @@ export default function ConversationsList({
     }
   }, [workspaceId, apiUrl, isCreating, loadThreads, onThreadSelect, onCreateThread]);
 
+  const parseApiDate = (dateString: string) => {
+    // If the backend returns a naive ISO string (no timezone), treat it as UTC.
+    // If it already includes timezone ("Z" or "+hh:mm"), let Date parse it as-is.
+    const s = (dateString || '').trim();
+    if (!s) return new Date(NaN);
+    const hasTimezone = /([zZ]|[+\-]\d{2}:\d{2})$/.test(s);
+    return new Date(hasTimezone ? s : `${s}Z`);
+  };
+
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseApiDate(dateString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return '剛剛';
-    if (diffMins < 60) return `${diffMins} 分鐘前`;
-    if (diffHours < 24) return `${diffHours} 小時前`;
+    if (diffMins < 1) return t('justNow' as any) || '剛剛';
+    if (diffMins < 60) return (t('minutesAgo', { count: String(diffMins) }) as string) || `${diffMins} 分鐘前`;
+    if (diffHours < 24) return (t('hoursAgo', { count: String(diffHours) }) as string) || `${diffHours} 小時前`;
     if (diffDays < 7) return `${diffDays} 天前`;
     return date.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric' });
   };
@@ -195,11 +222,10 @@ export default function ConversationsList({
               <button
                 key={thread.id}
                 onClick={() => onThreadSelect(thread.id)}
-                className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                  selectedThreadId === thread.id
+                className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${selectedThreadId === thread.id
                     ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                     : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
-                }`}
+                  }`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -207,7 +233,16 @@ export default function ConversationsList({
                       {thread.is_default && (
                         <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">[預設]</span>
                       )}
-                      {thread.title}
+                      {thread.title === '新對話'
+                        ? `新對話 ${parseApiDate(thread.created_at).toLocaleString('zh-TW', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                        })}`
+                        : thread.title}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       {formatDate(thread.last_message_at)} • {thread.message_count} 則訊息

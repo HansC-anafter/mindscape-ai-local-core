@@ -59,7 +59,7 @@ export function deriveAllSteps({
       const backendStepIndexFromPlaybook = playbookStep.step_index != null ? playbookStep.step_index : null;
       const backendStepIndexFromIndex = uniqueStepIndex - 1; // Convert 1-based to 0-based
       // Try both: playbookStep.step_index (if it's 0-based) or uniqueStepIndex converted to 0-based
-      const executed = executedStepsMap.get(backendStepIndexFromPlaybook) || executedStepsMap.get(backendStepIndexFromIndex);
+      const executed = (backendStepIndexFromPlaybook !== null ? executedStepsMap.get(backendStepIndexFromPlaybook) : undefined) || executedStepsMap.get(backendStepIndexFromIndex);
       allSteps.push({
         step_index: uniqueStepIndex,
         step_name: playbookStep.step_name,

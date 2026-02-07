@@ -114,12 +114,12 @@ export default function WorkspaceHeader({
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
-        alert(errorData.detail || t('workspaceRenameFailed'));
+        alert(errorData.detail || t('workspaceRenameFailed' as any));
         setEditedName(workspaceName);
       }
     } catch (err) {
       console.error('Failed to rename workspace:', err);
-      alert(t('workspaceRenameFailed'));
+      alert(t('workspaceRenameFailed' as any));
       setEditedName(workspaceName);
     } finally {
       setIsRenaming(false);
@@ -160,7 +160,7 @@ export default function WorkspaceHeader({
                 <button
                   onClick={handleStartRename}
                   className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
-                  title={t('workspaceRename')}
+                  title={t('workspaceRename' as any)}
                 >
                   ✏️
                 </button>
@@ -169,7 +169,7 @@ export default function WorkspaceHeader({
 
             {/* Execution Mode Pill */}
             <ExecutionModePill
-              mode={executionMode || 'qa'}
+              mode={executionMode || 'hybrid'}
               priority={executionPriority}
               onClick={onExecutionModeClick}
             />

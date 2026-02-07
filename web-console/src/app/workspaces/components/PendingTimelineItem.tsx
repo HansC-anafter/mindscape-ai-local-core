@@ -78,12 +78,12 @@ export default function PendingTimelineItem({
       } else {
         const error = await response.json();
         console.error('Failed to confirm step:', error);
-        alert(`Failed to confirm: ${error.detail || t('unknownError')}`);
+        alert(`Failed to confirm: ${error.detail || t('unknownError' as any)}`);
         setIsProcessing(false);
       }
     } catch (err: any) {
       console.error('Failed to confirm step:', err);
-      alert(`Failed to confirm: ${err.message || t('unknownError')}`);
+      alert(`Failed to confirm: ${err.message || t('unknownError' as any)}`);
       setIsProcessing(false);
     }
   };
@@ -109,12 +109,12 @@ export default function PendingTimelineItem({
       } else {
         const error = await response.json();
         console.error('Failed to reject step:', error);
-        alert(`Failed to reject: ${error.detail || t('unknownError')}`);
+        alert(`Failed to reject: ${error.detail || t('unknownError' as any)}`);
         setIsProcessing(false);
       }
     } catch (err: any) {
       console.error('Failed to reject step:', err);
-      alert(`Failed to reject: ${err.message || t('unknownError')}`);
+      alert(`Failed to reject: ${err.message || t('unknownError' as any)}`);
       setIsProcessing(false);
     }
   };

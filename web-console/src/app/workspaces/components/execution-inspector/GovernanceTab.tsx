@@ -17,6 +17,7 @@ interface GovernanceDecision {
     rejection_reason?: string;
     violation_type?: string;
     missing_inputs?: string[];
+    execution_id?: string;
   };
 }
 
@@ -113,7 +114,7 @@ export default function GovernanceTab({
   if (loading) {
     return (
       <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-        {t('loading') || 'Loading...'}
+        {t('loading' as any) || 'Loading...'}
       </div>
     );
   }
@@ -130,17 +131,17 @@ export default function GovernanceTab({
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-          {t('governanceDecisions') || 'Governance Decisions'}
+          {t('governanceDecisions' as any) || 'Governance Decisions'}
         </h3>
         <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-          {decisions.length} {t('decisions') || 'decisions'} for this execution
+          {decisions.length} {t('decisions' as any) || 'decisions'} for this execution
         </p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {decisions.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            <p className="text-sm">{t('noGovernanceDecisions') || 'No governance decisions found for this execution'}</p>
+            <p className="text-sm">{t('noGovernanceDecisions' as any) || 'No governance decisions found for this execution'}</p>
           </div>
         ) : (
           decisions.map((decision) => (
@@ -156,13 +157,12 @@ export default function GovernanceTab({
                   {decision.layer}
                 </span>
                 <span
-                  className={`px-2 py-1 text-xs font-medium rounded ${
-                    decision.approved
+                  className={`px-2 py-1 text-xs font-medium rounded ${decision.approved
                       ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
                       : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
-                  }`}
+                    }`}
                 >
-                  {decision.approved ? t('approved') || 'Approved' : t('rejected') || 'Rejected'}
+                  {decision.approved ? t('approved' as any) || 'Approved' : t('rejected' as any) || 'Rejected'}
                 </span>
               </div>
               {decision.reason && (

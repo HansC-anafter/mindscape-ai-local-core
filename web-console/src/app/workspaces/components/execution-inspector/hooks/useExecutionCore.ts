@@ -289,7 +289,7 @@ export function useExecutionCore(
     executionId,
     workspaceId,
     apiUrl,
-    useCallback((update) => {
+    useCallback((update: any) => {
       if (update.type === 'execution_update') {
         setExecution(update.execution);
         if (update.execution) {

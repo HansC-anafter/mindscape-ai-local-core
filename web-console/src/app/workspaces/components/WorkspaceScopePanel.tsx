@@ -112,7 +112,7 @@ export default function WorkspaceScopePanel({
       <StoragePathConfigModal
         isOpen={showStorageModal}
         onClose={() => setShowStorageModal(false)}
-        workspace={workspace}
+        workspace={workspace ?? null}
         workspaceId={workspaceId}
         apiUrl={apiUrl}
         onSuccess={() => {

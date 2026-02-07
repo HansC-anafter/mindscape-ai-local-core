@@ -12,8 +12,8 @@ import { PlaybookSurface } from '@/components/playbooks/PlaybookSurface';
  */
 export default function PlaybookSurfacePage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
-  const playbookCode = params.playbookCode as string;
+  const workspaceId = params?.workspaceId as string;
+  const playbookCode = params?.playbookCode as string;
 
   if (!playbookCode) {
     return (

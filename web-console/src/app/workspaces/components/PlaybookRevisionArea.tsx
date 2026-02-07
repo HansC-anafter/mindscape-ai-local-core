@@ -46,13 +46,13 @@ export default function PlaybookRevisionArea({
       <div className="mb-3">
         <div className="flex items-center justify-between mb-0.5">
           <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-            {t('runInsightDraftChanges')}
+            {t('runInsightDraftChanges' as any)}
           </h3>
           {onEditPlaybook && (
             <button
               onClick={onEditPlaybook}
               className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-              title={t('editPlaybook')}
+              title={t('editPlaybook' as any)}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -61,13 +61,13 @@ export default function PlaybookRevisionArea({
           )}
         </div>
         <p className="text-[10px] text-gray-500 dark:text-gray-300">
-          {t('reviewAISuggestions')}
+          {t('reviewAISuggestions' as any)}
         </p>
       </div>
 
       {aiSummary && (
         <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
-          <div className="text-[10px] font-semibold text-blue-900 dark:text-blue-300 mb-0.5">{t('aiAnalysis')}</div>
+          <div className="text-[10px] font-semibold text-blue-900 dark:text-blue-300 mb-0.5">{t('aiAnalysis' as any)}</div>
           <div className="text-[10px] text-blue-800 dark:text-blue-200 whitespace-pre-wrap">{aiSummary}</div>
         </div>
       )}
@@ -92,7 +92,7 @@ export default function PlaybookRevisionArea({
                         onClick={() => onApplyPatch(patch.id)}
                         className="px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 rounded hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
                       >
-                        {t('apply')}
+                        {t('apply' as any)}
                       </button>
                     )}
                     {onDiscardPatch && (
@@ -100,14 +100,14 @@ export default function PlaybookRevisionArea({
                         onClick={() => onDiscardPatch(patch.id)}
                         className="px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors"
                       >
-                        {t('discard')}
+                        {t('discard' as any)}
                       </button>
                     )}
                   </div>
                 </div>
                 {patch.target_step !== undefined && (
                   <div className="text-[10px] text-gray-500 dark:text-gray-300">
-                    {t('stepNumber', { number: patch.target_step + 1 })}
+                    {t('stepNumber', { number: String(patch.target_step + 1) })}
                   </div>
                 )}
               </div>
@@ -116,8 +116,8 @@ export default function PlaybookRevisionArea({
         ) : (
           <div className="flex items-center justify-center h-24 text-[10px] text-gray-400 dark:text-gray-300">
             <div className="text-center">
-              <p>{t('noRevisionSuggestions')}</p>
-              <p className="mt-0.5 text-[10px]">{t('chatWithPlaybookInspector')}</p>
+              <p>{t('noRevisionSuggestions' as any)}</p>
+              <p className="mt-0.5 text-[10px]">{t('chatWithPlaybookInspector' as any)}</p>
             </div>
           </div>
         )}

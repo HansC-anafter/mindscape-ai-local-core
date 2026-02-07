@@ -7,7 +7,7 @@ import ExecutionInspector from '../../../components/ExecutionInspector';
 import ExecutionChatPanel from '../../../components/ExecutionChatPanel';
 import LeftSidebarTabs from '../../components/LeftSidebarTabs';
 import TimelinePanel from '../../../components/TimelinePanel';
-import { ThinkingPanel } from '@/components/workspace/ThinkingPanel';
+import { PackPanel } from '../../components/PackPanel';
 import { ExecutionSidebar } from '@/components/execution';
 import { TrainHeader } from '@/components/execution';
 import { useExecutionState } from '@/hooks/useExecutionState';
@@ -24,7 +24,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
   const router = useRouter();
   const [focusedExecution, setFocusedExecution] = useState<any>(null);
   const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
-  const [leftSidebarTab, setLeftSidebarTab] = useState<'timeline' | 'outcomes' | 'background'>('timeline');
+  const [leftSidebarTab, setLeftSidebarTab] = useState<'timeline' | 'outcomes' | 'pack'>('timeline');
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showSystemTools, setShowSystemTools] = useState(false);
   const [systemStatus, setSystemStatus] = useState<any>(null);
@@ -155,8 +155,8 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                     showArchivedOnly={true}
                   />
                 }
-                backgroundContent={
-                  <ThinkingPanel
+                packContent={
+                  <PackPanel
                     workspaceId={workspaceId}
                     apiUrl={API_URL}
                     storyThreadId={workspace?.primary_project_id ? undefined : undefined}
@@ -294,8 +294,8 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
 
 export default function ExecutionPage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
-  const executionId = params.executionId as string;
+  const workspaceId = params?.workspaceId as string;
+  const executionId = params?.executionId as string;
 
   if (!workspaceId || !executionId) {
     return (

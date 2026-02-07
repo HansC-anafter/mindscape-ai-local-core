@@ -180,7 +180,7 @@ export default function ExecutionChatPanel({
     setIsSending(false);
     setIsWaitingForReply(false);
     thinkingMessageIdRef.current = null;
-    setInput('');
+    setInput('' as any);
     setUserScrolled(false);
     setAutoScroll(true);
     userScrolledRef.current = false;
@@ -386,7 +386,7 @@ export default function ExecutionChatPanel({
     if (!input.trim() || isSending) return;
 
     const content = input.trim();
-    setInput('');
+    setInput('' as any);
     setIsSending(true);
 
     // Immediately add user message to UI for instant feedback
@@ -474,7 +474,7 @@ export default function ExecutionChatPanel({
             id: thinkingId,
             execution_id: executionId,
             role: 'assistant',
-            content: t('aiThinking') || 'AI 正在思考...',
+            content: t('aiThinking' as any) || 'AI 正在思考...',
             message_type: 'question',
             created_at: new Date().toISOString(),
           };
@@ -495,7 +495,7 @@ export default function ExecutionChatPanel({
             id: thinkingId,
             execution_id: executionId,
             role: 'assistant',
-            content: t('aiThinking') || 'AI 正在思考...',
+            content: t('aiThinking' as any) || 'AI 正在思考...',
             message_type: 'question',
             created_at: new Date().toISOString(),
           };
@@ -554,18 +554,18 @@ export default function ExecutionChatPanel({
 
   const quickPrompts = [
     {
-      label: t('explainWhyFailed'),
+      label: t('explainWhyFailed' as any),
       prompt: executionStatus === 'failed'
-        ? t('explainWhyFailedPrompt')
-        : t('explainWhyFailedPromptAlt')
+        ? t('explainWhyFailedPrompt' as any)
+        : t('explainWhyFailedPromptAlt' as any)
     },
     {
-      label: t('suggestNextSteps'),
-      prompt: t('suggestNextStepsPrompt')
+      label: t('suggestNextSteps' as any),
+      prompt: t('suggestNextStepsPrompt' as any)
     },
     {
-      label: t('reviewPlaybookSteps'),
-      prompt: t('reviewPlaybookStepsPrompt')
+      label: t('reviewPlaybookSteps' as any),
+      prompt: t('reviewPlaybookStepsPrompt' as any)
     },
   ];
 
@@ -578,7 +578,7 @@ export default function ExecutionChatPanel({
         >
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('playbookInspector')}</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('playbookInspector' as any)}</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('runNumber', { number: String(runNumber) })}</p>
             </div>
             <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -596,9 +596,9 @@ export default function ExecutionChatPanel({
       <div className="flex-shrink-0 px-4 py-3 border-b dark:border-gray-700 bg-surface-secondary dark:bg-gray-900">
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('playbookInspector')}</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('playbookInspector' as any)}</h3>
             <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-              {playbookMetadata?.title || playbookMetadata?.playbook_code || t('unknownPlaybook')} · {t('runNumber', { number: String(runNumber) })}
+              {playbookMetadata?.title || playbookMetadata?.playbook_code || t('unknownPlaybook' as any)} · {t('runNumber', { number: String(runNumber) })}
             </p>
           </div>
           {collapsible && (
@@ -632,13 +632,13 @@ export default function ExecutionChatPanel({
             <div className="text-center mb-4">
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                 {needsContinue
-                  ? t('playbookWaitingForResponse') || 'Playbook 正在等待您的回應'
-                  : t('askPlaybookInspector')}
+                  ? t('playbookWaitingForResponse' as any) || 'Playbook 正在等待您的回應'
+                  : t('askPlaybookInspector' as any)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {needsContinue
-                  ? t('sendMessageToContinue') || '發送消息將繼續執行下一步。'
-                  : t('itKnowsStepsEventsErrors')}
+                  ? t('sendMessageToContinue' as any) || '發送消息將繼續執行下一步。'
+                  : t('itKnowsStepsEventsErrors' as any)}
               </p>
             </div>
             <div className="space-y-2">
@@ -654,7 +654,7 @@ export default function ExecutionChatPanel({
                   >
                     {quickPrompt.label}
                     {isFirstAndFailed && (
-                      <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">{t('recommended')}</span>
+                      <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">{t('recommended' as any)}</span>
                     )}
                   </button>
                 );
@@ -666,7 +666,7 @@ export default function ExecutionChatPanel({
                   onClick={() => handleQuickPrompt(quickPrompts[0].prompt)}
                   className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
                 >
-                  {t('autoStart')} {quickPrompts[0].label}
+                  {t('autoStart' as any)} {quickPrompts[0].label}
                 </button>
               </div>
             )}
@@ -736,8 +736,8 @@ export default function ExecutionChatPanel({
           name="execution-chat-input"
           placeholder={
             needsContinue
-              ? t('enterResponseToContinue') || '輸入回應以繼續執行...'
-              : t('discussPlaybookExecution')
+              ? t('enterResponseToContinue' as any) || '輸入回應以繼續執行...'
+              : t('discussPlaybookExecution' as any)
           }
           value={input}
           onChange={(e) => setInput(e.target.value)}

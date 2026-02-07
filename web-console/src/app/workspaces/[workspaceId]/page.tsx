@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useRouter, usePathname } from 'next/navigation';
+import { useParams, useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import WorkspaceChat from '../../../components/WorkspaceChat';
 import MindscapeAIWorkbench from '../../../components/MindscapeAIWorkbench';
@@ -18,7 +18,7 @@ import OutcomesPanel, { Artifact } from './components/OutcomesPanel';
 import ConversationsList from './components/ConversationsList';
 import OutcomeDetailModal from '../components/OutcomeDetailModal';
 import BackgroundTasksPanel from '../components/BackgroundTasksPanel';
-import { ThinkingPanel } from '../../../components/workspace/ThinkingPanel';
+import { PackPanel } from './components/PackPanel';
 import { WorkspaceMode } from '../../../components/WorkspaceModeSelector';
 import { t } from '@/lib/i18n';
 import ConfirmDialog from '../../../components/ConfirmDialog';
@@ -91,6 +91,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const contextData = useWorkspaceData();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // Use Context data instead of local state
   const workspace = contextData.workspace;
@@ -98,7 +99,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const error = contextData.error;
   const systemStatus = contextData.systemStatus;
   const [rightSidebarTab, setRightSidebarTab] = useState<'timeline' | 'workbench'>('timeline');
-  const [leftSidebarTab, setLeftSidebarTab] = useState<'timeline' | 'outcomes' | 'background'>('timeline');
+  const [leftSidebarTab, setLeftSidebarTab] = useState<'timeline' | 'outcomes' | 'pack'>('timeline');
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [updatingMode, setUpdatingMode] = useState(false);
   const [workbenchRefreshTrigger, setWorkbenchRefreshTrigger] = useState(0);
@@ -176,7 +177,11 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
           setProjects(data.projects || []);
 
           // Set selected project
-          if (workspace?.primary_project_id) {
+          // Set selected project
+          const urlProjectId = searchParams?.get('project_id');
+          if (urlProjectId) {
+            setSelectedProjectId(urlProjectId);
+          } else if (workspace?.primary_project_id) {
             setSelectedProjectId(workspace.primary_project_id);
           } else if (data.projects && data.projects.length > 0) {
             setSelectedProjectId(data.projects[0].id);
@@ -313,8 +318,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
     if (!workspace || loading) return;
 
     const searchParams = new URLSearchParams(window.location.search);
-    const autoExecute = searchParams.get('auto_execute_playbook') === 'true';
-    const variantId = searchParams.get('variant_id');
+    const autoExecute = searchParams?.get('auto_execute_playbook') === 'true';
+    const variantId = searchParams?.get('variant_id');
 
     if (autoExecute && workspace.default_playbook_id) {
       const executePlaybook = async () => {
@@ -363,7 +368,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
     return (
       <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-secondary dark:text-gray-400">{t('loadingWorkspace')}</div>
+          <div className="text-secondary dark:text-gray-400">{t('loadingWorkspace' as any)}</div>
         </div>
       </div>
     );
@@ -374,7 +379,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
       <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
           <div className="text-center">
-            <div className="text-red-500 dark:text-red-400 mb-4">{error || t('workspaceNotFound')}</div>
+            <div className="text-red-500 dark:text-red-400 mb-4">{error || t('workspaceNotFound' as any)}</div>
             {error && error.includes('Rate limit') && (
               <button
                 onClick={() => {
@@ -382,7 +387,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 }}
                 className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded hover:opacity-90 dark:hover:bg-blue-600"
               >
-                {t('retryButton')}
+                {t('retryButton' as any)}
               </button>
             )}
           </div>
@@ -409,22 +414,39 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 setIsEditingName(true);
               }}
             />
-            {/* Bundle Button - Right side of header */}
-            {selectedThreadId && (
+            {/* Action Buttons - Right side of header */}
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 z-20">
+              {/* Mind Graph Button */}
               <button
-                onClick={() => setIsBundleOpen(true)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg
-                           hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors z-20
-                           flex items-center gap-1.5"
-                title="開啟成果包"
+                onClick={() => router.push(`/mindscape/canvas?workspaceId=${workspaceId}`)}
+                className="px-3 py-1.5 text-sm bg-purple-100 dark:bg-purple-900/30 rounded-lg
+                           hover:bg-purple-200 dark:hover:bg-purple-800/40 transition-colors
+                           flex items-center gap-1.5 text-purple-700 dark:text-purple-300"
+                title="心智執行圖"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                <span>Bundle</span>
+                <span>Graph</span>
               </button>
-            )}
+              {/* Bundle Button */}
+              {selectedThreadId && (
+                <button
+                  onClick={() => setIsBundleOpen(true)}
+                  className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg
+                             hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors
+                             flex items-center gap-1.5"
+                  title="開啟成果包"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  <span>Bundle</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -438,16 +460,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full">
-                    {/* Conversations List - Top Section */}
-                    <div className="flex-shrink-0 border-b dark:border-gray-700" style={{ height: '250px', minHeight: '250px', maxHeight: '250px' }}>
-                      <ConversationsList
-                        workspaceId={workspaceId}
-                        apiUrl={API_URL}
-                        selectedThreadId={selectedThreadId}
-                        onThreadSelect={setSelectedThreadId}
-                      />
-                    </div>
-
                     {projects.length > 0 && (
                       <ProjectSubTabs
                         projects={projects}
@@ -496,17 +508,13 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                                 <div><strong>🔍 Debug Info:</strong></div>
                                 <div>workspace.primary_project_id: {workspace?.primary_project_id || '❌ null'}</div>
                                 <div>currentProject exists: {currentProject ? '✅ YES' : '❌ NO'}</div>
-                                {(() => {
-                                  if (!currentProject) return null;
-                                  const project = currentProject;
-                                  return (
-                                    <>
-                                      <div>currentProject.id: {project.id || '❌ MISSING!'}</div>
-                                      <div>currentProject.title: {project.title}</div>
-                                      <div>currentProject.type: {project.type}</div>
-                                    </>
-                                  );
-                                })()}
+                                {currentProject && (
+                                  <>
+                                    <div>currentProject.id: {(currentProject as any).id || '❌ MISSING!'}</div>
+                                    <div>currentProject.title: {(currentProject as any).title}</div>
+                                    <div>currentProject.type: {(currentProject as any).type}</div>
+                                  </>
+                                )}
                                 <div>isLoadingProject: {isLoadingProject ? '⏳ true' : '✅ false'}</div>
                               </div>
                             )}
@@ -526,8 +534,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                     showArchivedOnly={true}
                   />
                 }
-                backgroundContent={
-                  <ThinkingPanel
+                packContent={
+                  <PackPanel
                     workspaceId={workspaceId}
                     apiUrl={API_URL}
                     storyThreadId={workspace?.primary_project_id ? undefined : undefined}
@@ -560,9 +568,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
                   {/* Collapsible Settings Panel */}
                   <div
-                    className={`border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
-                      showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
-                    }`}
+                    className={`border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
+                      }`}
                   >
                     {showSystemTools && (
                       <div className="overflow-y-auto max-h-[400px]">
@@ -627,7 +634,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   // Refresh workbench when file is analyzed
                   setWorkbenchRefreshTrigger(prev => prev + 1);
                 }}
-                executionMode={workspace?.execution_mode || 'qa'}
+                executionMode={workspace?.execution_mode || 'hybrid'}
                 expectedArtifacts={workspace?.expected_artifacts}
               />
             )}
@@ -639,27 +646,30 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             <div className="flex items-center justify-between border-b dark:border-gray-700 bg-surface dark:bg-gray-800 px-3 py-1.5">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <h3 className="text-xs font-bold bg-gradient-to-r from-accent dark:from-blue-600 to-gray-600 text-white px-2 py-0.5 rounded-lg shadow-md border border-accent dark:border-blue-700 flex-shrink-0">
-                  {t('mindscapeAIWorkbench')}
+                  {t('mindscapeAIWorkbench' as any)}
                 </h3>
                 <div className="h-3 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"></div>
                 {focusExecutionId ? (
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <h3 className="text-xs font-semibold text-primary dark:text-gray-100">
-                      {focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation')}
+                      {focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation' as any)}
                     </h3>
                   </div>
                 ) : (
                   /* AI Team + Execution Mode integrated */
                   workspace && (
                     <ExecutionModeSelector
-                      mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid') || 'qa'}
+                      key={`exec-mode-${workspace.id}-${workspace.execution_mode || 'hybrid'}-${workspace.execution_priority || 'medium'}`}
+                      mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid') || 'hybrid'}
                       priority={(workspace.execution_priority as 'low' | 'medium' | 'high') || 'medium'}
                       onChange={async (update) => {
                         try {
-                          await contextData.updateWorkspace({
+                          const updated = await contextData.updateWorkspace({
                             execution_mode: update.mode,
                             execution_priority: update.priority,
                           });
+                          // WorkspaceDataContext 會自動更新 workspace 狀態
+                          // key prop 確保組件在 workspace 更新時重新渲染
                         } catch (err) {
                           console.error('Failed to update execution mode:', err);
                         }
@@ -671,117 +681,145 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             </div>
 
             {/* Content Area */}
-            {focusExecutionId ? (
-              // Mode B (Playbook Perspective): Show Execution Chat
-              <div className="flex-1 overflow-hidden">
-                <ExecutionChatPanel
-                  key={focusExecutionId}
-                  executionId={focusExecutionId}
-                  workspaceId={workspaceId}
-                  apiUrl={API_URL}
-                  playbookMetadata={focusedPlaybookMetadata}
-                />
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <ResizablePanel
-                  defaultTopHeight={50}
-                  minTopHeight={20}
-                  minBottomHeight={20}
-                  top={
-                    <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
-                      <div className="flex-1 overflow-y-auto min-h-0 bg-accent-10 dark:bg-blue-900/10">
-                        <div className="p-3">
-                          {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') && (
-                            <>
-                              {executionState.isExecuting && (
-                                <ThinkingContext
-                                  summary={executionState.thinkingSummary}
-                                  pipelineStage={executionState.pipelineStage}
-                                  isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
-                                />
-                              )}
-
-                              {(() => {
-                                // Show AI Team if there are members, regardless of execution state
-                                // AI Team should be visible even when not actively executing (shows recent/relevant team members)
-                                const shouldShow = executionState.aiTeamMembers.length > 0;
-                                console.log('[WorkspacePage] AITeamPanel render check:', {
-                                  aiTeamMembersCount: executionState.aiTeamMembers.length,
-                                  pipelineStage: executionState.pipelineStage?.stage,
-                                  isExecuting: executionState.isExecuting,
-                                  shouldShow,
-                                  members: executionState.aiTeamMembers,
-                                  executionMode: workspace?.execution_mode
-                                });
-                                if (shouldShow) {
-                                  console.log('[WorkspacePage] Rendering AITeamPanel with members:', executionState.aiTeamMembers);
-                                } else {
-                                  console.log('[WorkspacePage] Not rendering AITeamPanel - no members');
-                                }
-                                return shouldShow ? (
-                                  <div className="mt-3">
-                                    <AITeamPanel
-                                      members={executionState.aiTeamMembers}
-                                      isLoading={executionState.isExecuting}
-                                    />
-                                  </div>
-                                ) : null;
-                              })()}
-                            </>
-                          )}
-
-                          <ArtifactsSummary
-                            count={executionState.producedArtifacts.length}
-                            onViewAll={() => {
-                              // 跳轉到左側「成果」Tab
-                              setLeftSidebarTab('outcomes');
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </section>
-                  }
-                  bottom={
-                    <section className="sidebar-section decision-section h-full overflow-hidden flex flex-col">
-                      <DecisionPanel
+            <div className="flex-1 overflow-hidden flex flex-col">
+              <ResizablePanel
+                defaultTopHeight={focusExecutionId ? 30 : 40}
+                minTopHeight={20}
+                minBottomHeight={20}
+                top={
+                  <div className="h-full overflow-hidden border-b dark:border-gray-700">
+                    <ConversationsList
+                      workspaceId={workspaceId}
+                      apiUrl={API_URL}
+                      selectedThreadId={selectedThreadId}
+                      onThreadSelect={setSelectedThreadId}
+                    />
+                  </div>
+                }
+                bottom={
+                  focusExecutionId ? (
+                    // Mode B (Playbook Perspective): Show Execution Chat
+                    <div className="h-full overflow-hidden">
+                      <ExecutionChatPanel
+                        key={focusExecutionId}
+                        executionId={focusExecutionId}
                         workspaceId={workspaceId}
                         apiUrl={API_URL}
-                        onViewArtifact={setSelectedArtifact}
-                        onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
-                        workspace={workspace ? {
-                          playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config,
-                          owner_user_id: (workspace as any)?.owner_user_id
-                        } : undefined}
+                        playbookMetadata={focusedPlaybookMetadata}
                       />
-                    </section>
-                  }
-                />
-                    {/* AI Workbench Section - Bottom */}
-                    <div className="flex-1 overflow-y-auto min-h-0">
-                      <div className="p-4">
-                        {workspace && workspace.mode === 'research' && (
-                          <ResearchModePanel workspaceId={workspaceId} apiUrl={API_URL} />
-                        )}
-                        {workspace && workspace.mode === 'publishing' && (
-                          <PublishingModePanel workspaceId={workspaceId} apiUrl={API_URL} />
-                        )}
-                        {workspace && workspace.mode === 'planning' && (
-                          <PlanningModePanel workspaceId={workspaceId} apiUrl={API_URL} />
-                        )}
-                        {workspace && (!workspace.mode || (workspace.mode !== 'research' && workspace.mode !== 'publishing' && workspace.mode !== 'planning')) && (
-                            <MindscapeAIWorkbench
-                            workspaceId={workspaceId}
-                            apiUrl={API_URL}
-                            activeTab={rightSidebarTab}
-                            onTabChange={(tab) => setRightSidebarTab(tab as any)}
-                            refreshTrigger={workbenchRefreshTrigger}
+                    </div>
+                  ) : (
+                    // Mode A (Workspace Perspective): Show Workspace Tools
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <ResizablePanel
+                        defaultTopHeight={50}
+                        minTopHeight={20}
+                        minBottomHeight={20}
+                        top={
+                          <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
+                            <div className="flex-1 overflow-y-auto min-h-0 bg-accent-10 dark:bg-blue-900/10">
+                              <div className="p-3">
+                                {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') && (
+                                  <>
+                                    {executionState.isExecuting && (
+                                      <ThinkingContext
+                                        summary={executionState.thinkingSummary}
+                                        pipelineStage={executionState.pipelineStage}
+                                        isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
+                                      />
+                                    )}
+
+                                    {(() => {
+                                      // Show AI Team if there are members, regardless of execution state
+                                      // AI Team should be visible even when not actively executing (shows recent/relevant team members)
+                                      const shouldShow = executionState.aiTeamMembers.length > 0;
+                                      console.log('[WorkspacePage] AITeamPanel render check:', {
+                                        aiTeamMembersCount: executionState.aiTeamMembers.length,
+                                        pipelineStage: executionState.pipelineStage?.stage,
+                                        isExecuting: executionState.isExecuting,
+                                        shouldShow,
+                                        members: executionState.aiTeamMembers,
+                                        executionMode: workspace?.execution_mode
+                                      });
+                                      if (shouldShow) {
+                                        console.log('[WorkspacePage] Rendering AITeamPanel with members:', executionState.aiTeamMembers);
+                                      } else {
+                                        console.log('[WorkspacePage] Not rendering AITeamPanel - no members');
+                                      }
+                                      return shouldShow ? (
+                                        <div className="mt-3">
+                                          <AITeamPanel
+                                            members={executionState.aiTeamMembers}
+                                            isLoading={executionState.isExecuting}
+                                          />
+                                        </div>
+                                      ) : null;
+                                    })()}
+                                  </>
+                                )}
+
+                                <ArtifactsSummary
+                                  count={executionState.producedArtifacts.length}
+                                  onViewAll={() => {
+                                    // 跳轉到左側「成果」Tab
+                                    setLeftSidebarTab('outcomes');
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </section>
+                        }
+                        bottom={
+                          <ResizablePanel
+                            defaultTopHeight={50}
+                            minTopHeight={20}
+                            minBottomHeight={20}
+                            top={
+                              <section className="sidebar-section decision-section h-full overflow-hidden flex flex-col">
+                                <DecisionPanel
+                                  workspaceId={workspaceId}
+                                  apiUrl={API_URL}
+                                  onViewArtifact={setSelectedArtifact}
+                                  onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
+                                  workspace={workspace ? {
+                                    playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config,
+                                    owner_user_id: (workspace as any)?.owner_user_id
+                                  } : undefined}
+                                />
+                              </section>
+                            }
+                            bottom={
+                              <div className="flex-1 overflow-y-auto min-h-0">
+                                <div className="p-4">
+                                  {workspace && workspace.mode === 'research' && (
+                                    <ResearchModePanel workspaceId={workspaceId} apiUrl={API_URL} />
+                                  )}
+                                  {workspace && workspace.mode === 'publishing' && (
+                                    <PublishingModePanel workspaceId={workspaceId} apiUrl={API_URL} />
+                                  )}
+                                  {workspace && workspace.mode === 'planning' && (
+                                    <PlanningModePanel workspaceId={workspaceId} apiUrl={API_URL} />
+                                  )}
+                                  {workspace && (!workspace.mode || (workspace.mode !== 'research' && workspace.mode !== 'publishing' && workspace.mode !== 'planning')) && (
+                                    <MindscapeAIWorkbench
+                                      workspaceId={workspaceId}
+                                      apiUrl={API_URL}
+                                      activeTab={rightSidebarTab}
+                                      onTabChange={(tab) => setRightSidebarTab(tab as any)}
+                                      refreshTrigger={workbenchRefreshTrigger}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            }
                           />
-                        )}
-                  </div>
-                </div>
-              </div>
-            )}
+                        }
+                      />
+                    </div>
+                  )
+                }
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -810,21 +848,21 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
               router.push('/workspaces');
             } else {
               const errorData = await response.json().catch(() => ({}));
-              alert(errorData.detail || t('workspaceDeleteFailed'));
+              alert(errorData.detail || t('workspaceDeleteFailed' as any));
               setIsDeleting(false);
               setShowDeleteDialog(false);
             }
           } catch (err) {
             console.error('Failed to delete workspace:', err);
-            alert(t('workspaceDeleteFailed'));
+            alert(t('workspaceDeleteFailed' as any));
             setIsDeleting(false);
             setShowDeleteDialog(false);
           }
         }}
-        title={t('workspaceDelete')}
+        title={t('workspaceDelete' as any)}
         message={workspace ? t('workspaceDeleteConfirm', { workspaceName: workspace.title }) : ''}
-        confirmText={t('delete') || '刪除'}
-        cancelText={t('cancel') || '取消'}
+        confirmText={t('delete' as any) || '刪除'}
+        cancelText={t('cancel' as any) || '取消'}
         confirmButtonClassName="bg-red-600 hover:bg-red-700"
       />
 
@@ -876,7 +914,7 @@ export default function WorkspacePage() {
     return (
       <div className="min-h-screen bg-surface dark:bg-gray-950">
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-secondary dark:text-gray-400">{t('workspaceNotFound')}</div>
+          <div className="text-secondary dark:text-gray-400">{t('workspaceNotFound' as any)}</div>
         </div>
       </div>
     );

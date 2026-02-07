@@ -33,7 +33,7 @@ export default function StepsTimeline({
   return (
     <div className="h-full overflow-y-auto bg-surface-secondary dark:bg-gray-800 border-r border-default dark:border-gray-700 p-3">
       <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2">
-        {t('stepsTimeline')}
+        {t('stepsTimeline' as any)}
       </h3>
       <div className="space-y-1.5">
         {allSteps.map((stepInfo) => {
@@ -67,14 +67,14 @@ export default function StepsTimeline({
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
-                    {t('stepNumber', { number: stepInfo.step_index })}: {stepInfo.step_name || t('unnamed')}
+                    {t('stepNumber', { number: stepInfo.step_index })}: {stepInfo.step_name || t('unnamed' as any)}
                   </div>
                   {step?.agent_type && (
                     <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                       {step.agent_type}
                       {step.used_tools && step.used_tools.length > 0 && (
                         <span className="ml-1">
-                          · {step.used_tools.length} {t('tools')}
+                          · {step.used_tools.length} {t('tools' as any)}
                         </span>
                       )}
                     </div>

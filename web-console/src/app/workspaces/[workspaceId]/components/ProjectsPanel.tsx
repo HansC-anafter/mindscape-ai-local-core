@@ -75,7 +75,7 @@ export default function ProjectsPanel({
                 <ProjectCard
                   key={project.id}
                   project={project}
-                  onClick={() => onProjectSelect?.(project)}
+                  onFocus={() => onProjectSelect?.(project)}
                 />
               ))
             )}
@@ -89,7 +89,7 @@ export default function ProjectsPanel({
                   <ProjectCard
                     key={project.id}
                     project={project}
-                    onClick={() => onProjectSelect?.(project)}
+                    onFocus={() => onProjectSelect?.(project)}
                   />
                 ))}
               </>

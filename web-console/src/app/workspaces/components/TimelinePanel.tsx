@@ -237,7 +237,7 @@ export default function TimelinePanel({
         setPendingRestart(null);
         sessionStorage.removeItem('pending_restart');
         // Show success notification
-        const notification = document.createElement('div');
+        const notification = document.createElement('div' as any);
         notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3';
         notification.innerHTML = `
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -272,7 +272,7 @@ export default function TimelinePanel({
 
     const handleExecutionRestartError = (event: CustomEvent) => {
       const { message } = event.detail;
-      const notification = document.createElement('div');
+      const notification = document.createElement('div' as any);
       notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3';
       notification.innerHTML = `
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -315,7 +315,7 @@ export default function TimelinePanel({
     if (pendingRestart && currentExecutionsLength > 0 && currentExecutionsLength !== prevExecutionsLengthRef.current) {
       const matchingExecution = executions.find(
         e => e.playbook_code === pendingRestart.playbook_code &&
-        e.created_at && new Date(e.created_at).getTime() > pendingRestart.timestamp
+          e.created_at && new Date(e.created_at).getTime() > pendingRestart.timestamp
       );
       if (matchingExecution) {
         setPendingRestart(null);
@@ -429,23 +429,41 @@ export default function TimelinePanel({
     // Always load executions to ensure data is available
     // Even if contextData exists, we still load to ensure data is fresh and available
     try {
-      // Use batch API to get executions with steps in a single request
-      // This avoids N+1 queries - steps are included for active executions only
+      // Optimization: use /tasks endpoint (which we patched to strip heavy results)
+      // instead of /executions-with-steps (which returns huge payloads).
+      // This prevents the "Infinite Loading" issue in TimelinePanel.
       const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/executions-with-steps?limit=100&include_steps_for=active`
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=100&include_completed=true&task_type=execution`
       );
       if (!response.ok) {
         throw new Error(`Failed to load executions: ${response.status}`);
       }
 
       const data = await response.json();
-      const executionsList: ExecutionSession[] = data.executions || [];
+
+      // Map Task to ExecutionSession format
+      const executionsList: ExecutionSession[] = (data.tasks || []).map((t: any) => ({
+        execution_id: t.id,
+        status: t.status,
+        workspace_id: t.workspace_id,
+        project_id: t.project_id,
+        playbook_code: t.pack_id, // Map pack_id to playbook_code
+        created_at: t.created_at,
+        started_at: t.started_at,
+        completed_at: t.completed_at,
+        current_step_index: 0,
+        total_steps: 0,
+        task: t,
+        steps: [] // Steps are lazy loaded via SSE or detail view
+      }));
 
       // Update local state regardless of contextData
       // This ensures executions are always available even if contextData is not ready
       setLocalExecutions(executionsList);
 
-      // Extract steps from the batch response (steps are already included in each execution)
+      // Extract steps from the mapped executions (which are now empty initially)
+      // This logic remains but will essentially set empty steps, which is fine for initial load.
+      // Detailed steps will be loaded when required details are fetched.
       const stepsMap = new Map<string, ExecutionStep[]>();
       for (const execution of executionsList) {
         if (execution.steps && execution.steps.length > 0) {
@@ -604,14 +622,14 @@ export default function TimelinePanel({
             window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
             setRetryTimelineItemId(null);
           } else {
-            alert(`${t('configSaved')}, ${t('retryFailed')}: ${result.error || t('unknownError')}`);
+            alert(`${t('configSaved' as any)}, ${t('retryFailed' as any)}: ${result.error || t('unknownError' as any)}`);
           }
         } else {
           const error = await response.json();
-          alert(`${t('configSaved')}, ${t('retryFailed')}: ${error.detail || t('unknownError')}`);
+          alert(`${t('configSaved' as any)}, ${t('retryFailed' as any)}: ${error.detail || t('unknownError' as any)}`);
         }
       } catch (err: any) {
-        alert(`${t('configSaved')}, ${t('retryFailed')}: ${err.message || t('unknownError')}`);
+        alert(`${t('configSaved' as any)}, ${t('retryFailed' as any)}: ${err.message || t('unknownError' as any)}`);
       }
     }
 
@@ -641,170 +659,531 @@ export default function TimelinePanel({
           data-timeline-container
           className="flex-1 overflow-y-auto px-2 pt-2"
         >
-        {/* Execution Sessions - Three Sections or Focus Mode */}
-        {(() => {
-          const now = new Date();
-          const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+          {/* Execution Sessions - Three Sections or Focus Mode */}
+          {(() => {
+            const now = new Date();
+            const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
-          // Get current step for each execution to check requires_confirmation
-          const getCurrentStep = (execution: ExecutionSession): ExecutionStep | null => {
-            const steps = effectiveExecutionSteps.get(execution.execution_id) || [];
-            return steps.find(s => s.step_index === execution.current_step_index) || null;
-          };
+            // Get current step for each execution to check requires_confirmation
+            const getCurrentStep = (execution: ExecutionSession): ExecutionStep | null => {
+              const steps = effectiveExecutionSteps.get(execution.execution_id) || [];
+              return steps.find(s => s.step_index === execution.current_step_index) || null;
+            };
 
-          // Focus mode: Group executions by playbook
-          if (focusExecutionId) {
-            const focusedExecution = executions.find(e => e.execution_id === focusExecutionId);
-            if (!focusedExecution) {
-              // Focused execution not found, fall through to normal view
-              // Don't return null, let it continue to normal mode rendering below
-            } else {
-              const focusedPlaybookCode = focusedExecution.playbook_code;
+            // Focus mode: Group executions by playbook
+            if (focusExecutionId) {
+              const focusedExecution = executions.find(e => e.execution_id === focusExecutionId);
+              if (!focusedExecution) {
+                // Focused execution not found, fall through to normal view
+                // Don't return null, let it continue to normal mode rendering below
+              } else {
+                const focusedPlaybookCode = focusedExecution.playbook_code;
 
-            // Current execution
-            const currentExecution = focusedExecution;
+                // Current execution
+                const currentExecution = focusedExecution;
 
-            // Same playbook other executions
-            const samePlaybookExecutions = executions
-              .filter(e => e.execution_id !== focusExecutionId && e.playbook_code === focusedPlaybookCode)
+                // Same playbook other executions
+                const samePlaybookExecutions = executions
+                  .filter(e => e.execution_id !== focusExecutionId && e.playbook_code === focusedPlaybookCode)
+                  .sort((a, b) => {
+                    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                    return bTime - aTime;
+                  });
+
+                // Other playbooks executions
+                const otherPlaybookExecutions = executions
+                  .filter(e => e.playbook_code !== focusedPlaybookCode)
+                  .sort((a, b) => {
+                    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                    return bTime - aTime;
+                  });
+
+                return (
+                  <div className="space-y-4">
+                    {/* Return to Workspace Overview Button */}
+                    {onClearFocus && (
+                      <div className="px-2 pb-2 border-b dark:border-gray-700">
+                        <button
+                          onClick={() => {
+                            // Clear focus and dispatch event to ensure all components are notified
+                            onClearFocus();
+                            window.dispatchEvent(new CustomEvent('clear-execution-focus'));
+                          }}
+                          className="w-full px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                          </svg>
+                          {t('returnToWorkspaceOverview' as any)}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Current Execution */}
+                    <div>
+                      <h3 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2 px-2">
+                        {t('currentExecution' as any)}
+                      </h3>
+                      <RunningTimelineItem
+                        execution={currentExecution}
+                        currentStep={getCurrentStep(currentExecution)}
+                        onClick={() => handleExecutionClick(currentExecution.execution_id)}
+                        apiUrl={apiUrl}
+                        workspaceId={workspaceId}
+                        onUpdate={(updatedExecution, updatedStep) => {
+                          // Update state when SSE events arrive
+                          if (contextData) {
+                            // If using context, refresh executions to get latest data
+                            // Refresh if status, current_step_index, or total_steps changed
+                            if (
+                              updatedExecution.status !== currentExecution.status ||
+                              updatedExecution.current_step_index !== currentExecution.current_step_index ||
+                              updatedExecution.total_steps !== currentExecution.total_steps
+                            ) {
+                              contextData.refreshExecutions();
+                              // If execution completed, also refresh tasks
+                              if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                                contextData.refreshTasks();
+                              }
+                            }
+                          } else {
+                            // If not using context, update local state
+                            setLocalExecutions(prev =>
+                              prev.map(e =>
+                                e.execution_id === updatedExecution.execution_id
+                                  ? updatedExecution
+                                  : e
+                              )
+                            );
+                            if (updatedStep) {
+                              setExecutionSteps(prev => {
+                                const newMap = new Map(prev);
+                                const existingSteps = newMap.get(currentExecution.execution_id) || [];
+                                const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                                if (stepIndex >= 0) {
+                                  existingSteps[stepIndex] = updatedStep;
+                                } else {
+                                  existingSteps.push(updatedStep);
+                                }
+                                newMap.set(currentExecution.execution_id, existingSteps);
+                                return newMap;
+                              });
+                            }
+                            // Refresh executions if status, current_step_index, or total_steps changed
+                            if (
+                              updatedExecution.status !== currentExecution.status ||
+                              updatedExecution.current_step_index !== currentExecution.current_step_index ||
+                              updatedExecution.total_steps !== currentExecution.total_steps
+                            ) {
+                              loadExecutions();
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+
+                    {/* Same Playbook Other Executions */}
+                    {samePlaybookExecutions.length > 0 && (
+                      <div>
+                        <h3 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2 px-2">
+                          {t('otherExecutionsOfSamePlaybook' as any)}
+                        </h3>
+                        <div className="space-y-2">
+                          {samePlaybookExecutions.map((execution) => {
+                            const currentStep = getCurrentStep(execution);
+                            if (execution.status === 'running' && execution.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending') {
+                              return (
+                                <PendingTimelineItem
+                                  key={execution.execution_id}
+                                  execution={execution}
+                                  currentStep={currentStep}
+                                  onClick={() => handleExecutionClick(execution.execution_id)}
+                                  apiUrl={apiUrl}
+                                  workspaceId={workspaceId}
+                                />
+                              );
+                            } else if (execution.status === 'running') {
+                              return (
+                                <RunningTimelineItem
+                                  key={execution.execution_id}
+                                  execution={execution}
+                                  currentStep={currentStep}
+                                  onClick={() => handleExecutionClick(execution.execution_id)}
+                                  apiUrl={apiUrl}
+                                  workspaceId={workspaceId}
+                                  onUpdate={(updatedExecution, updatedStep) => {
+                                    // Update state when SSE events arrive
+                                    if (contextData) {
+                                      // If using context, refresh executions to get latest data
+                                      // Refresh if status, current_step_index, or total_steps changed
+                                      if (
+                                        updatedExecution.status !== execution.status ||
+                                        updatedExecution.current_step_index !== execution.current_step_index ||
+                                        updatedExecution.total_steps !== execution.total_steps
+                                      ) {
+                                        contextData.refreshExecutions();
+                                        // If execution completed, also refresh tasks
+                                        if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                                          contextData.refreshTasks();
+                                        }
+                                      }
+                                    } else {
+                                      // If not using context, update local state
+                                      setLocalExecutions(prev =>
+                                        prev.map(e =>
+                                          e.execution_id === updatedExecution.execution_id
+                                            ? updatedExecution
+                                            : e
+                                        )
+                                      );
+                                      if (updatedStep) {
+                                        setExecutionSteps(prev => {
+                                          const newMap = new Map(prev);
+                                          const existingSteps = newMap.get(execution.execution_id) || [];
+                                          const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                                          if (stepIndex >= 0) {
+                                            existingSteps[stepIndex] = updatedStep;
+                                          } else {
+                                            existingSteps.push(updatedStep);
+                                          }
+                                          newMap.set(execution.execution_id, existingSteps);
+                                          return newMap;
+                                        });
+                                      }
+                                      // Refresh executions if status, current_step_index, or total_steps changed
+                                      if (
+                                        updatedExecution.status !== execution.status ||
+                                        updatedExecution.current_step_index !== execution.current_step_index ||
+                                        updatedExecution.total_steps !== execution.total_steps
+                                      ) {
+                                        loadExecutions();
+                                      }
+                                    }
+                                  }}
+                                />
+                              );
+                            } else {
+                              return (
+                                <ArchivedTimelineItem
+                                  key={execution.execution_id}
+                                  execution={execution}
+                                  onClick={() => handleExecutionClick(execution.execution_id)}
+                                />
+                              );
+                            }
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Other Playbooks Executions (Collapsible) */}
+                    {otherPlaybookExecutions.length > 0 && (
+                      <div>
+                        <button
+                          onClick={() => {
+                            const key = 'other_playbooks';
+                            setCollapsedSections(prev => {
+                              const next = new Set(prev);
+                              if (next.has(key)) {
+                                next.delete(key);
+                              } else {
+                                next.add(key);
+                              }
+                              return next;
+                            });
+                          }}
+                          className="w-full px-2 py-2 text-xs font-semibold text-primary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-between"
+                        >
+                          <span>{t('otherPlaybooksExecutions' as any)}</span>
+                          <svg
+                            className={`w-4 h-4 transition-transform ${collapsedSections.has('other_playbooks') ? '' : 'rotate-180'}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        {!collapsedSections.has('other_playbooks') && (
+                          <div className="space-y-2 mt-2">
+                            {otherPlaybookExecutions.map((execution) => {
+                              const currentStep = getCurrentStep(execution);
+                              if (execution.status === 'running' && execution.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending') {
+                                return (
+                                  <PendingTimelineItem
+                                    key={execution.execution_id}
+                                    execution={execution}
+                                    currentStep={currentStep}
+                                    onClick={() => handleExecutionClick(execution.execution_id)}
+                                    apiUrl={apiUrl}
+                                    workspaceId={workspaceId}
+                                  />
+                                );
+                              } else if (execution.status === 'running') {
+                                return (
+                                  <RunningTimelineItem
+                                    key={execution.execution_id}
+                                    execution={execution}
+                                    currentStep={currentStep}
+                                    onClick={() => handleExecutionClick(execution.execution_id)}
+                                    apiUrl={apiUrl}
+                                    workspaceId={workspaceId}
+                                    onUpdate={(updatedExecution, updatedStep) => {
+                                      // Update state when SSE events arrive
+                                      if (contextData) {
+                                        // If using context, refresh executions to get latest data
+                                        // Refresh if status, current_step_index, or total_steps changed
+                                        if (
+                                          updatedExecution.status !== execution.status ||
+                                          updatedExecution.current_step_index !== execution.current_step_index ||
+                                          updatedExecution.total_steps !== execution.total_steps
+                                        ) {
+                                          contextData.refreshExecutions();
+                                          // If execution completed, also refresh tasks
+                                          if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
+                                            contextData.refreshTasks();
+                                          }
+                                        }
+                                      } else {
+                                        // If not using context, update local state
+                                        setLocalExecutions(prev =>
+                                          prev.map(e =>
+                                            e.execution_id === updatedExecution.execution_id
+                                              ? updatedExecution
+                                              : e
+                                          )
+                                        );
+                                        if (updatedStep) {
+                                          setExecutionSteps(prev => {
+                                            const newMap = new Map(prev);
+                                            const existingSteps = newMap.get(execution.execution_id) || [];
+                                            const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
+                                            if (stepIndex >= 0) {
+                                              existingSteps[stepIndex] = updatedStep;
+                                            } else {
+                                              existingSteps.push(updatedStep);
+                                            }
+                                            newMap.set(execution.execution_id, existingSteps);
+                                            return newMap;
+                                          });
+                                        }
+                                        // Refresh executions if status, current_step_index, or total_steps changed
+                                        if (
+                                          updatedExecution.status !== execution.status ||
+                                          updatedExecution.current_step_index !== execution.current_step_index ||
+                                          updatedExecution.total_steps !== execution.total_steps
+                                        ) {
+                                          loadExecutions();
+                                        }
+                                      }
+                                    }}
+                                  />
+                                );
+                              } else {
+                                return (
+                                  <ArchivedTimelineItem
+                                    key={execution.execution_id}
+                                    execution={execution}
+                                    onClick={() => handleExecutionClick(execution.execution_id)}
+                                  />
+                                );
+                              }
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+            }
+
+            // Normal mode: Three sections (Running / Pending Confirmation / Archived)
+
+            // Pending confirmation executions (status = "running" AND paused_at IS NOT NULL AND requires_confirmation = true)
+            // These are executions that are waiting for user confirmation before continuing
+            const pendingConfirmationExecutions = executions
+              .filter(exec => {
+                if (exec.status !== 'running') return false;
+                if (!exec.paused_at) return false;
+                const currentStep = getCurrentStep(exec);
+                return currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending';
+              })
+              .sort((a, b) => {
+                const aTime = a.paused_at ? new Date(a.paused_at).getTime() : 0;
+                const bTime = b.paused_at ? new Date(b.paused_at).getTime() : 0;
+                return bTime - aTime; // Newest first
+              });
+
+            // Running executions (status = "running" AND NOT paused with confirmation required)
+            // These are executions that are actively processing (not waiting for confirmation)
+            // IMPORTANT: Exclude any executions that are in pendingConfirmationExecutions to avoid duplicates
+            const pendingConfirmationExecutionIds = new Set(pendingConfirmationExecutions.map(e => e.execution_id));
+            const runningExecutions = executions
+              .filter(exec => {
+                if (exec.status !== 'running') return false;
+                // Exclude if already in pending confirmation list
+                if (pendingConfirmationExecutionIds.has(exec.execution_id)) return false;
+                const currentStep = getCurrentStep(exec);
+                // Only include if NOT paused with pending confirmation
+                return !(exec.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending');
+              })
+              .sort((a, b) => {
+                const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
+                const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
+                return bTime - aTime; // Newest first
+              });
+
+            // Archived executions (status IN ("succeeded", "failed") AND created_at < 1 hour ago)
+            const archivedExecutions = executions
+              .filter(exec => {
+                if (!['succeeded', 'failed'].includes(exec.status)) return false;
+                if (!exec.created_at) return false;
+                const createdAt = new Date(exec.created_at);
+                return createdAt < oneHourAgo;
+              })
               .sort((a, b) => {
                 const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
                 const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-                return bTime - aTime;
+                return bTime - aTime; // Newest first
               });
 
-            // Other playbooks executions
-            const otherPlaybookExecutions = executions
-              .filter(e => e.playbook_code !== focusedPlaybookCode)
-              .sort((a, b) => {
-                const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-                const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-                return bTime - aTime;
+            const toggleSection = (section: string) => {
+              setCollapsedSections(prev => {
+                const newSet = new Set(prev);
+                if (newSet.has(section)) {
+                  newSet.delete(section);
+                } else {
+                  newSet.add(section);
+                }
+                return newSet;
               });
+            };
+
+            const isSectionCollapsed = (section: string) => collapsedSections.has(section);
+
+            // If showArchivedOnly is true, show OutcomesPanel first, then archived section
+            if (showArchivedOnly) {
+              return (
+                <div className="space-y-4">
+                  {/* Outcomes Section - Show OutcomesPanel first */}
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-secondary dark:bg-gray-900 z-10">
+                      <span>{t('tabOutcomes' as any) || '成果'}</span>
+                    </div>
+                    <div className="px-1">
+                      <OutcomesPanel
+                        workspaceId={workspaceId}
+                        apiUrl={apiUrl}
+                        onArtifactClick={onArtifactClick}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Archived Executions Section - Show below Outcomes */}
+                  <div className="space-y-1">
+                    <div
+                      className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-secondary dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-accent dark:hover:bg-gray-800 flex items-center gap-1"
+                      onClick={() => toggleSection('archived')}
+                    >
+                      <span className="select-none">{isSectionCollapsed('archived') ? '▶' : '▼'}</span>
+                      <span>{t('timelineArchived' as any)} {archivedExecutions.length > 0 && `(${archivedExecutions.length})`}</span>
+                    </div>
+                    {!isSectionCollapsed('archived') && (
+                      archivedExecutions.length > 0 ? (
+                        archivedExecutions.map((execution) => (
+                          <ArchivedTimelineItem
+                            key={execution.execution_id}
+                            execution={execution}
+                            onOpenConsole={() => handleExecutionClick(execution.execution_id)}
+                          />
+                        ))
+                      ) : (
+                        <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2 opacity-60">
+                          {t('noArchivedExecutions' as any)}
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <div className="space-y-4">
-                {/* Return to Workspace Overview Button */}
-                {onClearFocus && (
-                  <div className="px-2 pb-2 border-b dark:border-gray-700">
-                    <button
-                      onClick={() => {
-                        // Clear focus and dispatch event to ensure all components are notified
-                        onClearFocus();
-                        window.dispatchEvent(new CustomEvent('clear-execution-focus'));
-                      }}
-                      className="w-full px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                      </svg>
-                      {t('returnToWorkspaceOverview')}
-                    </button>
+                {/* Running Section - Always show, even if empty, with collapse/expand */}
+                <div className="space-y-2">
+                  <div
+                    className="text-xs font-semibold text-primary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 flex items-center gap-1"
+                    onClick={() => toggleSection('running')}
+                  >
+                    <span className="select-none">{isSectionCollapsed('running') ? '▶' : '▼'}</span>
+                    <span>{t('timelineRunning' as any)} {runningExecutions.length > 0 && `(${runningExecutions.length})`}</span>
                   </div>
-                )}
-
-                {/* Current Execution */}
-                <div>
-                    <h3 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2 px-2">
-                      {t('currentExecution')}
-                    </h3>
-                  <RunningTimelineItem
-                    execution={currentExecution}
-                    currentStep={getCurrentStep(currentExecution)}
-                    onClick={() => handleExecutionClick(currentExecution.execution_id)}
-                    apiUrl={apiUrl}
-                    workspaceId={workspaceId}
-                    onUpdate={(updatedExecution, updatedStep) => {
-                      // Update state when SSE events arrive
-                      if (contextData) {
-                        // If using context, refresh executions to get latest data
-                        // Refresh if status, current_step_index, or total_steps changed
-                        if (
-                          updatedExecution.status !== currentExecution.status ||
-                          updatedExecution.current_step_index !== currentExecution.current_step_index ||
-                          updatedExecution.total_steps !== currentExecution.total_steps
-                        ) {
-                          contextData.refreshExecutions();
-                          // If execution completed, also refresh tasks
-                          if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
-                            contextData.refreshTasks();
-                          }
-                        }
-                      } else {
-                        // If not using context, update local state
-                        setLocalExecutions(prev =>
-                          prev.map(e =>
-                            e.execution_id === updatedExecution.execution_id
-                              ? updatedExecution
-                              : e
-                          )
-                        );
-                        if (updatedStep) {
-                          setExecutionSteps(prev => {
-                            const newMap = new Map(prev);
-                            const existingSteps = newMap.get(currentExecution.execution_id) || [];
-                            const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
-                            if (stepIndex >= 0) {
-                              existingSteps[stepIndex] = updatedStep;
-                            } else {
-                              existingSteps.push(updatedStep);
-                            }
-                            newMap.set(currentExecution.execution_id, existingSteps);
-                            return newMap;
-                          });
-                        }
-                        // Refresh executions if status, current_step_index, or total_steps changed
-                        if (
-                          updatedExecution.status !== currentExecution.status ||
-                          updatedExecution.current_step_index !== currentExecution.current_step_index ||
-                          updatedExecution.total_steps !== currentExecution.total_steps
-                        ) {
-                          loadExecutions();
-                        }
-                      }
-                    }}
-                  />
-                </div>
-
-                {/* Same Playbook Other Executions */}
-                {samePlaybookExecutions.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold text-primary dark:text-gray-300 mb-2 px-2">
-                      {t('otherExecutionsOfSamePlaybook')}
-                    </h3>
-                    <div className="space-y-2">
-                      {samePlaybookExecutions.map((execution) => {
-                        const currentStep = getCurrentStep(execution);
-                        if (execution.status === 'running' && execution.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending') {
-                          return (
-                            <PendingTimelineItem
-                              key={execution.execution_id}
-                              execution={execution}
-                              currentStep={currentStep}
-                              onClick={() => handleExecutionClick(execution.execution_id)}
-                              apiUrl={apiUrl}
-                              workspaceId={workspaceId}
-                            />
-                          );
-                        } else if (execution.status === 'running') {
+                  {!isSectionCollapsed('running') && (
+                    <>
+                      {/* Pending Restart Placeholder */}
+                      {pendingRestart && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-2 shadow-sm">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-blue-900 dark:text-blue-200">
+                                {pendingRestart.playbook_code || 'Playbook Execution'}
+                              </span>
+                              <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                                {t('restarting' as any) || '重啟中'}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Progress Bar - Animated */}
+                          <div className="mb-2">
+                            <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-blue-500 dark:bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                                style={{
+                                  width: '100%',
+                                  background: 'linear-gradient(90deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%)',
+                                  backgroundSize: '200% 100%',
+                                  animation: 'shimmer 1.5s ease-in-out infinite'
+                                }}
+                              ></div>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <div className="flex-shrink-0 mt-0.5">
+                              <div className="relative w-4 h-4">
+                                <div className="absolute inset-0 border-2 border-blue-300 dark:border-blue-500 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
+                                {t('restartingExecution' as any) || '正在重啟執行，請稍候...'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {runningExecutions.length > 0 ? (
+                        runningExecutions.map((execution) => {
+                          const currentStep = getCurrentStep(execution);
                           return (
                             <RunningTimelineItem
                               key={execution.execution_id}
                               execution={execution}
-                              currentStep={currentStep}
-                              onClick={() => handleExecutionClick(execution.execution_id)}
                               apiUrl={apiUrl}
                               workspaceId={workspaceId}
+                              currentStep={currentStep || undefined}
+                              onClick={() => {
+                                // Open Execution Inspector in main area when clicked
+                                handleExecutionClick(execution.execution_id);
+                              }}
                               onUpdate={(updatedExecution, updatedStep) => {
                                 // Update state when SSE events arrive
                                 if (contextData) {
                                   // If using context, refresh executions to get latest data
-                                  // Refresh if status, current_step_index, or total_steps changed
-                                  if (
-                                    updatedExecution.status !== execution.status ||
-                                    updatedExecution.current_step_index !== execution.current_step_index ||
-                                    updatedExecution.total_steps !== execution.total_steps
-                                  ) {
+                                  if (updatedExecution.status !== execution.status) {
                                     contextData.refreshExecutions();
                                     // If execution completed, also refresh tasks
                                     if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
@@ -834,226 +1213,66 @@ export default function TimelinePanel({
                                       return newMap;
                                     });
                                   }
-                                  // Refresh executions if status, current_step_index, or total_steps changed
-                                  if (
-                                    updatedExecution.status !== execution.status ||
-                                    updatedExecution.current_step_index !== execution.current_step_index ||
-                                    updatedExecution.total_steps !== execution.total_steps
-                                  ) {
+                                  // Refresh executions if status changed
+                                  if (updatedExecution.status !== execution.status) {
                                     loadExecutions();
                                   }
                                 }
                               }}
                             />
                           );
-                        } else {
-                          return (
-                            <ArchivedTimelineItem
-                              key={execution.execution_id}
-                              execution={execution}
-                              onClick={() => handleExecutionClick(execution.execution_id)}
-                            />
-                          );
-                        }
-                      })}
-                    </div>
-                  </div>
-                )}
+                        })
+                      ) : (
+                        <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2">
+                          {t('noRunningExecutions' as any)}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
 
-                {/* Other Playbooks Executions (Collapsible) */}
-                {otherPlaybookExecutions.length > 0 && (
-                  <div>
-                    <button
-                      onClick={() => {
-                        const key = 'other_playbooks';
-                        setCollapsedSections(prev => {
-                          const next = new Set(prev);
-                          if (next.has(key)) {
-                            next.delete(key);
-                          } else {
-                            next.add(key);
-                          }
-                          return next;
-                        });
-                      }}
-                      className="w-full px-2 py-2 text-xs font-semibold text-primary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-between"
-                    >
-                      <span>{t('otherPlaybooksExecutions')}</span>
-                      <svg
-                        className={`w-4 h-4 transition-transform ${collapsedSections.has('other_playbooks') ? '' : 'rotate-180'}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {!collapsedSections.has('other_playbooks') && (
-                      <div className="space-y-2 mt-2">
-                        {otherPlaybookExecutions.map((execution) => {
-                          const currentStep = getCurrentStep(execution);
-                          if (execution.status === 'running' && execution.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending') {
-                            return (
-                              <PendingTimelineItem
-                                key={execution.execution_id}
-                                execution={execution}
-                                currentStep={currentStep}
-                                onClick={() => handleExecutionClick(execution.execution_id)}
-                                apiUrl={apiUrl}
-                                workspaceId={workspaceId}
-                              />
-                            );
-                          } else if (execution.status === 'running') {
-                            return (
-                              <RunningTimelineItem
-                                key={execution.execution_id}
-                                execution={execution}
-                                currentStep={currentStep}
-                                onClick={() => handleExecutionClick(execution.execution_id)}
-                                apiUrl={apiUrl}
-                                workspaceId={workspaceId}
-                                onUpdate={(updatedExecution, updatedStep) => {
-                                  // Update state when SSE events arrive
-                                  if (contextData) {
-                                    // If using context, refresh executions to get latest data
-                                    // Refresh if status, current_step_index, or total_steps changed
-                                    if (
-                                      updatedExecution.status !== execution.status ||
-                                      updatedExecution.current_step_index !== execution.current_step_index ||
-                                      updatedExecution.total_steps !== execution.total_steps
-                                    ) {
-                                      contextData.refreshExecutions();
-                                      // If execution completed, also refresh tasks
-                                      if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
-                                        contextData.refreshTasks();
-                                      }
-                                    }
-                                  } else {
-                                    // If not using context, update local state
-                                    setLocalExecutions(prev =>
-                                      prev.map(e =>
-                                        e.execution_id === updatedExecution.execution_id
-                                          ? updatedExecution
-                                          : e
-                                      )
-                                    );
-                                    if (updatedStep) {
-                                      setExecutionSteps(prev => {
-                                        const newMap = new Map(prev);
-                                        const existingSteps = newMap.get(execution.execution_id) || [];
-                                        const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
-                                        if (stepIndex >= 0) {
-                                          existingSteps[stepIndex] = updatedStep;
-                                        } else {
-                                          existingSteps.push(updatedStep);
-                                        }
-                                        newMap.set(execution.execution_id, existingSteps);
-                                        return newMap;
-                                      });
-                                    }
-                                    // Refresh executions if status, current_step_index, or total_steps changed
-                                    if (
-                                      updatedExecution.status !== execution.status ||
-                                      updatedExecution.current_step_index !== execution.current_step_index ||
-                                      updatedExecution.total_steps !== execution.total_steps
-                                    ) {
-                                      loadExecutions();
-                                    }
-                                  }
-                                }}
-                              />
-                            );
-                          } else {
-                            return (
-                              <ArchivedTimelineItem
-                                key={execution.execution_id}
-                                execution={execution}
-                                onClick={() => handleExecutionClick(execution.execution_id)}
-                              />
-                            );
-                          }
-                        })}
+                {/* Pending Confirmation Section - Always show, even if empty, with collapse/expand */}
+                <div className="space-y-2">
+                  <div
+                    className="text-xs font-semibold text-amber-700 dark:text-amber-400 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 flex items-center gap-1"
+                    onClick={() => toggleSection('pending')}
+                  >
+                    <span className="select-none">{isSectionCollapsed('pending') ? '▶' : '▼'}</span>
+                    <span>{t('timelinePendingConfirmation' as any)} {pendingConfirmationExecutions.length > 0 && `(${pendingConfirmationExecutions.length})`}</span>
+                  </div>
+                  {!isSectionCollapsed('pending') && (
+                    pendingConfirmationExecutions.length > 0 ? (
+                      pendingConfirmationExecutions.map((execution) => {
+                        const currentStep = getCurrentStep(execution);
+                        if (!currentStep) return null;
+
+                        return (
+                          <PendingTimelineItem
+                            key={execution.execution_id}
+                            execution={execution}
+                            currentStep={currentStep}
+                            apiUrl={apiUrl}
+                            workspaceId={workspaceId}
+                            onClick={() => handleExecutionClick(execution.execution_id)}
+                            onAction={(action) => {
+                              // Reload executions after action
+                              loadExecutions();
+                            }}
+                          />
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2">
+                        {t('noPendingConfirmations' as any)}
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-            }
-          }
+                    )
+                  )}
+                </div>
 
-          // Normal mode: Three sections (Running / Pending Confirmation / Archived)
-
-          // Pending confirmation executions (status = "running" AND paused_at IS NOT NULL AND requires_confirmation = true)
-          // These are executions that are waiting for user confirmation before continuing
-          const pendingConfirmationExecutions = executions
-            .filter(exec => {
-              if (exec.status !== 'running') return false;
-              if (!exec.paused_at) return false;
-              const currentStep = getCurrentStep(exec);
-              return currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending';
-            })
-            .sort((a, b) => {
-              const aTime = a.paused_at ? new Date(a.paused_at).getTime() : 0;
-              const bTime = b.paused_at ? new Date(b.paused_at).getTime() : 0;
-              return bTime - aTime; // Newest first
-            });
-
-          // Running executions (status = "running" AND NOT paused with confirmation required)
-          // These are executions that are actively processing (not waiting for confirmation)
-          // IMPORTANT: Exclude any executions that are in pendingConfirmationExecutions to avoid duplicates
-          const pendingConfirmationExecutionIds = new Set(pendingConfirmationExecutions.map(e => e.execution_id));
-          const runningExecutions = executions
-            .filter(exec => {
-              if (exec.status !== 'running') return false;
-              // Exclude if already in pending confirmation list
-              if (pendingConfirmationExecutionIds.has(exec.execution_id)) return false;
-              const currentStep = getCurrentStep(exec);
-              // Only include if NOT paused with pending confirmation
-              return !(exec.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending');
-            })
-            .sort((a, b) => {
-              const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
-              const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
-              return bTime - aTime; // Newest first
-            });
-
-          // Archived executions (status IN ("succeeded", "failed") AND created_at < 1 hour ago)
-          const archivedExecutions = executions
-            .filter(exec => {
-              if (!['succeeded', 'failed'].includes(exec.status)) return false;
-              if (!exec.created_at) return false;
-              const createdAt = new Date(exec.created_at);
-              return createdAt < oneHourAgo;
-            })
-            .sort((a, b) => {
-              const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-              const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-              return bTime - aTime; // Newest first
-            });
-
-          const toggleSection = (section: string) => {
-            setCollapsedSections(prev => {
-              const newSet = new Set(prev);
-              if (newSet.has(section)) {
-                newSet.delete(section);
-              } else {
-                newSet.add(section);
-              }
-              return newSet;
-            });
-          };
-
-          const isSectionCollapsed = (section: string) => collapsedSections.has(section);
-
-          // If showArchivedOnly is true, show OutcomesPanel first, then archived section
-          if (showArchivedOnly) {
-            return (
-              <div className="space-y-4">
-                {/* Outcomes Section - Show OutcomesPanel first */}
+                {/* Outcomes Section - Show OutcomesPanel content in place of Archived */}
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-secondary dark:bg-gray-900 z-10">
-                    <span>{t('tabOutcomes') || '成果'}</span>
+                  <div className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10">
+                    <span>{t('tabOutcomes' as any) || '成果'}</span>
                   </div>
                   <div className="px-1">
                     <OutcomesPanel
@@ -1063,214 +1282,13 @@ export default function TimelinePanel({
                     />
                   </div>
                 </div>
-
-                {/* Archived Executions Section - Show below Outcomes */}
-                <div className="space-y-1">
-                  <div
-                    className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-secondary dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-accent dark:hover:bg-gray-800 flex items-center gap-1"
-                    onClick={() => toggleSection('archived')}
-                  >
-                    <span className="select-none">{isSectionCollapsed('archived') ? '▶' : '▼'}</span>
-                    <span>{t('timelineArchived')} {archivedExecutions.length > 0 && `(${archivedExecutions.length})`}</span>
-                  </div>
-                  {!isSectionCollapsed('archived') && (
-                    archivedExecutions.length > 0 ? (
-                      archivedExecutions.map((execution) => (
-                        <ArchivedTimelineItem
-                          key={execution.execution_id}
-                          execution={execution}
-                          onOpenConsole={() => handleExecutionClick(execution.execution_id)}
-                        />
-                      ))
-                    ) : (
-                      <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2 opacity-60">
-                        {t('noArchivedExecutions')}
-                      </div>
-                    )
-                  )}
-                </div>
               </div>
             );
-          }
+          })()}
 
-          return (
-            <div className="space-y-4">
-              {/* Running Section - Always show, even if empty, with collapse/expand */}
-              <div className="space-y-2">
-                <div
-                  className="text-xs font-semibold text-primary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 flex items-center gap-1"
-                  onClick={() => toggleSection('running')}
-                >
-                  <span className="select-none">{isSectionCollapsed('running') ? '▶' : '▼'}</span>
-                  <span>{t('timelineRunning')} {runningExecutions.length > 0 && `(${runningExecutions.length})`}</span>
-                </div>
-                {!isSectionCollapsed('running') && (
-                  <>
-                    {/* Pending Restart Placeholder */}
-                    {pendingRestart && (
-                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-2 shadow-sm">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-blue-900 dark:text-blue-200">
-                              {pendingRestart.playbook_code || 'Playbook Execution'}
-                            </span>
-                            <span className="inline-block px-1.5 py-0.5 text-xs rounded border bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
-                              {t('restarting') || '重啟中'}
-                            </span>
-                          </div>
-                        </div>
-                        {/* Progress Bar - Animated */}
-                        <div className="mb-2">
-                          <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="bg-blue-500 dark:bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                              style={{
-                                width: '100%',
-                                background: 'linear-gradient(90deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%)',
-                                backgroundSize: '200% 100%',
-                                animation: 'shimmer 1.5s ease-in-out infinite'
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <div className="flex-shrink-0 mt-0.5">
-                            <div className="relative w-4 h-4">
-                              <div className="absolute inset-0 border-2 border-blue-300 dark:border-blue-500 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
-                            </div>
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
-                              {t('restartingExecution') || '正在重啟執行，請稍候...'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {runningExecutions.length > 0 ? (
-                      runningExecutions.map((execution) => {
-                      const currentStep = getCurrentStep(execution);
-                      return (
-                        <RunningTimelineItem
-                          key={execution.execution_id}
-                          execution={execution}
-                          apiUrl={apiUrl}
-                          workspaceId={workspaceId}
-                          currentStep={currentStep || undefined}
-                          onClick={() => {
-                            // Open Execution Inspector in main area when clicked
-                            handleExecutionClick(execution.execution_id);
-                          }}
-                          onUpdate={(updatedExecution, updatedStep) => {
-                            // Update state when SSE events arrive
-                            if (contextData) {
-                              // If using context, refresh executions to get latest data
-                              if (updatedExecution.status !== execution.status) {
-                                contextData.refreshExecutions();
-                                // If execution completed, also refresh tasks
-                                if (updatedExecution.status === 'succeeded' || updatedExecution.status === 'failed') {
-                                  contextData.refreshTasks();
-                                }
-                              }
-                            } else {
-                              // If not using context, update local state
-                              setLocalExecutions(prev =>
-                                prev.map(e =>
-                                  e.execution_id === updatedExecution.execution_id
-                                    ? updatedExecution
-                                    : e
-                                )
-                              );
-                              if (updatedStep) {
-                                setExecutionSteps(prev => {
-                                  const newMap = new Map(prev);
-                                  const existingSteps = newMap.get(execution.execution_id) || [];
-                                  const stepIndex = existingSteps.findIndex(s => s.id === updatedStep.id);
-                                  if (stepIndex >= 0) {
-                                    existingSteps[stepIndex] = updatedStep;
-                                  } else {
-                                    existingSteps.push(updatedStep);
-                                  }
-                                  newMap.set(execution.execution_id, existingSteps);
-                                  return newMap;
-                                });
-                              }
-                              // Refresh executions if status changed
-                              if (updatedExecution.status !== execution.status) {
-                                loadExecutions();
-                              }
-                            }
-                          }}
-                        />
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2">
-                      {t('noRunningExecutions')}
-                    </div>
-                  )}
-                  </>
-                )}
-              </div>
+          {/* Timeline Items moved to bottom as collapsible - see below */}
 
-              {/* Pending Confirmation Section - Always show, even if empty, with collapse/expand */}
-              <div className="space-y-2">
-                <div
-                  className="text-xs font-semibold text-amber-700 dark:text-amber-400 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 flex items-center gap-1"
-                  onClick={() => toggleSection('pending')}
-                >
-                  <span className="select-none">{isSectionCollapsed('pending') ? '▶' : '▼'}</span>
-                  <span>{t('timelinePendingConfirmation')} {pendingConfirmationExecutions.length > 0 && `(${pendingConfirmationExecutions.length})`}</span>
-                </div>
-                {!isSectionCollapsed('pending') && (
-                  pendingConfirmationExecutions.length > 0 ? (
-                    pendingConfirmationExecutions.map((execution) => {
-                      const currentStep = getCurrentStep(execution);
-                      if (!currentStep) return null;
-
-                      return (
-                        <PendingTimelineItem
-                          key={execution.execution_id}
-                          execution={execution}
-                          currentStep={currentStep}
-                          apiUrl={apiUrl}
-                          workspaceId={workspaceId}
-                          onClick={() => handleExecutionClick(execution.execution_id)}
-                          onAction={(action) => {
-                            // Reload executions after action
-                            loadExecutions();
-                          }}
-                        />
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-tertiary dark:text-gray-300 px-1 py-2">
-                      {t('noPendingConfirmations')}
-                    </div>
-                  )
-                )}
-              </div>
-
-              {/* Outcomes Section - Show OutcomesPanel content in place of Archived */}
-              <div className="space-y-1">
-                <div className="text-xs font-semibold text-secondary dark:text-gray-300 px-1 py-1 sticky top-0 bg-surface-accent dark:bg-gray-900 z-10">
-                  <span>{t('tabOutcomes') || '成果'}</span>
-                </div>
-                <div className="px-1">
-                  <OutcomesPanel
-                    workspaceId={workspaceId}
-                    apiUrl={apiUrl}
-                    onArtifactClick={onArtifactClick}
-                  />
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Timeline Items moved to bottom as collapsible - see below */}
-
-      </div>
+        </div>
 
         {/* Timeline Items - Collapsible at bottom */}
         {(() => {
@@ -1289,7 +1307,7 @@ export default function TimelinePanel({
                 <div className="flex items-center gap-2">
                   <span className="text-secondary text-xs">{isTimelineItemsCollapsed ? '▶' : '▼'}</span>
                   <span className="text-xs font-semibold text-primary dark:text-gray-300">
-                    {t('timelineItems') || 'Timeline Items'}
+                    {t('timelineItems' as any) || 'Timeline Items'}
                   </span>
                   <span className="text-[10px] text-tertiary">
                     ({nonExecutionItems.length})
@@ -1298,9 +1316,8 @@ export default function TimelinePanel({
               </div>
 
               <div
-                className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                  isTimelineItemsCollapsed ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100'
-                }`}
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${isTimelineItemsCollapsed ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100'
+                  }`}
               >
                 {!isTimelineItemsCollapsed && (
                   <div className="px-3 pb-2 overflow-y-auto max-h-[300px]">
@@ -1338,10 +1355,10 @@ export default function TimelinePanel({
                                 <span className="text-[10px] text-tertiary dark:text-gray-300 ml-2">
                                   {item.created_at
                                     ? new Date(item.created_at).toLocaleTimeString(undefined, {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        hour12: true
-                                      })
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })
                                     : ''}
                                 </span>
                               </div>
@@ -1355,7 +1372,7 @@ export default function TimelinePanel({
             </div>
           );
         })()}
-    </div>
+      </div>
     </>
   );
 }

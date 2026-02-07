@@ -18,8 +18,8 @@ import { getSandbox, Sandbox } from '@/lib/sandbox-api';
  */
 export default function SandboxPage() {
   const params = useParams();
-  const workspaceId = params.workspaceId as string;
-  const sandboxId = params.sandboxId as string;
+  const workspaceId = params?.workspaceId as string;
+  const sandboxId = params?.sandboxId as string;
 
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
   const [loading, setLoading] = useState(true);

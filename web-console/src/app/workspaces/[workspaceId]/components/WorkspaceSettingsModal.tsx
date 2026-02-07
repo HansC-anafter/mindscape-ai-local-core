@@ -81,16 +81,16 @@ export default function WorkspaceSettingsModal({
               id="workspace-settings-modal-title"
               className="text-2xl font-semibold text-gray-900 dark:text-gray-100"
             >
-              {t('fullSettings')}
+              {t('fullSettings' as any)}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {t('fullSettingsDescription')}
+              {t('fullSettingsDescription' as any)}
             </p>
           </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-            aria-label={t('close')}
+            aria-label={t('close' as any)}
           >
             <svg
               className="w-6 h-6"
@@ -123,7 +123,7 @@ export default function WorkspaceSettingsModal({
             />
           ) : (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              {t('loading') || '載入中...'}
+              {t('loading' as any) || '載入中...'}
             </div>
           )}
         </div>
@@ -134,7 +134,7 @@ export default function WorkspaceSettingsModal({
             onClick={onClose}
             className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
           >
-            {t('close')}
+            {t('close' as any)}
           </button>
         </div>
       </div>

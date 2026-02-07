@@ -83,7 +83,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
   if (loading) {
     return (
       <div className="text-center py-8 text-secondary dark:text-gray-400">
-        {t('loading') || 'Loading...'}
+        {t('loading' as any) || 'Loading...'}
       </div>
     );
   }
@@ -102,7 +102,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
   if (!data) {
     return (
       <div className="text-center py-8 text-secondary dark:text-gray-400">
-        {t('noMetricsAvailable') || 'No metrics available'}
+        {t('noMetricsAvailable' as any) || 'No metrics available'}
       </div>
     );
   }
@@ -111,7 +111,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
-          {t('governanceMetrics') || 'Governance Metrics'}
+          {t('governanceMetrics' as any) || 'Governance Metrics'}
         </h2>
         <div className="flex gap-2">
           <button
@@ -122,7 +122,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
                 : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
             }`}
           >
-            {t('day') || 'Day'}
+            {t('day' as any) || 'Day'}
           </button>
           <button
             onClick={() => setPeriod('month')}
@@ -132,7 +132,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
                 : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
             }`}
           >
-            {t('month') || 'Month'}
+            {t('month' as any) || 'Month'}
           </button>
         </div>
       </div>
@@ -140,7 +140,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <div className="text-xs text-secondary dark:text-gray-400 mb-1">
-            {t('overallRejectionRate') || 'Overall Rejection Rate'}
+            {t('overallRejectionRate' as any) || 'Overall Rejection Rate'}
           </div>
           <div className="text-2xl font-bold text-primary dark:text-gray-100">
             {(data.rejection_rate.overall * 100).toFixed(1)}%
@@ -148,7 +148,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
         </div>
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <div className="text-xs text-secondary dark:text-gray-400 mb-1">
-            {t('costRejectionRate') || 'Cost Rejection Rate'}
+            {t('costRejectionRate' as any) || 'Cost Rejection Rate'}
           </div>
           <div className="text-2xl font-bold text-red-600 dark:text-red-400">
             {(data.rejection_rate.cost * 100).toFixed(1)}%
@@ -156,7 +156,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
         </div>
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <div className="text-xs text-secondary dark:text-gray-400 mb-1">
-            {t('nodeRejectionRate') || 'Node Rejection Rate'}
+            {t('nodeRejectionRate' as any) || 'Node Rejection Rate'}
           </div>
           <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
             {(data.rejection_rate.node * 100).toFixed(1)}%
@@ -164,7 +164,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
         </div>
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <div className="text-xs text-secondary dark:text-gray-400 mb-1">
-            {t('policyRejectionRate') || 'Policy Rejection Rate'}
+            {t('policyRejectionRate' as any) || 'Policy Rejection Rate'}
           </div>
           <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
             {(data.rejection_rate.policy * 100).toFixed(1)}%
@@ -172,7 +172,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
         </div>
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <div className="text-xs text-secondary dark:text-gray-400 mb-1">
-            {t('preflightRejectionRate') || 'Preflight Rejection Rate'}
+            {t('preflightRejectionRate' as any) || 'Preflight Rejection Rate'}
           </div>
           <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
             {(data.rejection_rate.preflight * 100).toFixed(1)}%
@@ -183,7 +183,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
       {data.cost_trend && data.cost_trend.length > 0 && (
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            {t('costTrend') || 'Cost Trend'}
+            {t('costTrend' as any) || 'Cost Trend'}
           </h3>
           <div className="space-y-2">
             {data.cost_trend.slice(-7).map((item, index) => {
@@ -222,12 +222,12 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
           {data.violation_frequency.policy && (
             <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
               <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
-                {t('policyViolations') || 'Policy Violations'}
+                {t('policyViolations' as any) || 'Policy Violations'}
               </h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-xs text-secondary dark:text-gray-400">
-                    {t('roleViolation') || 'Role Violation'}
+                    {t('roleViolation' as any) || 'Role Violation'}
                   </span>
                   <span className="text-xs font-medium text-primary dark:text-gray-100">
                     {data.violation_frequency.policy.role_violation}
@@ -235,7 +235,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-secondary dark:text-gray-400">
-                    {t('dataDomainViolation') || 'Data Domain Violation'}
+                    {t('dataDomainViolation' as any) || 'Data Domain Violation'}
                   </span>
                   <span className="text-xs font-medium text-primary dark:text-gray-100">
                     {data.violation_frequency.policy.data_domain_violation}
@@ -243,7 +243,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-secondary dark:text-gray-400">
-                    {t('piiViolation') || 'PII Violation'}
+                    {t('piiViolation' as any) || 'PII Violation'}
                   </span>
                   <span className="text-xs font-medium text-primary dark:text-gray-100">
                     {data.violation_frequency.policy.pii_violation}
@@ -256,12 +256,12 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
           {data.violation_frequency.node && (
             <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
               <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
-                {t('nodeViolations') || 'Node Violations'}
+                {t('nodeViolations' as any) || 'Node Violations'}
               </h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-xs text-secondary dark:text-gray-400">
-                    {t('blacklist') || 'Blacklist'}
+                    {t('blacklist' as any) || 'Blacklist'}
                   </span>
                   <span className="text-xs font-medium text-primary dark:text-gray-100">
                     {data.violation_frequency.node.blacklist}
@@ -269,7 +269,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-secondary dark:text-gray-400">
-                    {t('riskLabel') || 'Risk Label'}
+                    {t('riskLabel' as any) || 'Risk Label'}
                   </span>
                   <span className="text-xs font-medium text-primary dark:text-gray-100">
                     {data.violation_frequency.node.risk_label}
@@ -277,7 +277,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-secondary dark:text-gray-400">
-                    {t('throttle') || 'Throttle'}
+                    {t('throttle' as any) || 'Throttle'}
                   </span>
                   <span className="text-xs font-medium text-primary dark:text-gray-100">
                     {data.violation_frequency.node.throttle}
@@ -292,12 +292,12 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
       {data.preflight_failure_reasons && (
         <div className="bg-surface-accent dark:bg-gray-800 rounded-lg border border-default dark:border-gray-700 p-4">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
-            {t('preflightFailureReasons') || 'Preflight Failure Reasons'}
+            {t('preflightFailureReasons' as any) || 'Preflight Failure Reasons'}
           </h3>
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-xs text-gray-600 dark:text-gray-400">
-                {t('missingInputs') || 'Missing Inputs'}
+                {t('missingInputs' as any) || 'Missing Inputs'}
               </span>
               <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
                 {data.preflight_failure_reasons.missing_inputs}
@@ -305,7 +305,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
             </div>
             <div className="flex justify-between">
               <span className="text-xs text-gray-600 dark:text-gray-400">
-                {t('missingCredentials') || 'Missing Credentials'}
+                {t('missingCredentials' as any) || 'Missing Credentials'}
               </span>
               <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
                 {data.preflight_failure_reasons.missing_credentials}
@@ -313,7 +313,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
             </div>
             <div className="flex justify-between">
               <span className="text-xs text-gray-600 dark:text-gray-400">
-                {t('environmentIssues') || 'Environment Issues'}
+                {t('environmentIssues' as any) || 'Environment Issues'}
               </span>
               <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
                 {data.preflight_failure_reasons.environment_issues}

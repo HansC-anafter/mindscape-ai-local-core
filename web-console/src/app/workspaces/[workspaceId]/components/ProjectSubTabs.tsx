@@ -39,7 +39,7 @@ export default function ProjectSubTabs({
               ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
-          title={t('projectList') || 'Project List'}
+          title={t('projectList' as any) || 'Project List'}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -64,7 +64,7 @@ export default function ProjectSubTabs({
                 ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                 : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
-            title={t('projectCategories') || 'Project Categories'}
+            title={t('projectCategories' as any) || 'Project Categories'}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -88,7 +88,7 @@ export default function ProjectSubTabs({
         {activeSubTab === 'list' && (
           <div>
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              {t('projectList') || 'Project List'} ({filteredProjects.length})
+              {t('projectList' as any) || 'Project List'} ({filteredProjects.length})
             </div>
             {filteredProjects.length > 0 ? (
               <div className="space-y-1 max-h-32 overflow-y-auto">
@@ -111,7 +111,7 @@ export default function ProjectSubTabs({
               </div>
             ) : (
               <div className="text-xs text-gray-500 dark:text-gray-400 py-2">
-                {t('noProjects') || 'No projects'}
+                {t('noProjects' as any) || 'No projects'}
               </div>
             )}
           </div>
@@ -120,7 +120,7 @@ export default function ProjectSubTabs({
         {activeSubTab === 'categories' && hasMultipleTypes && (
           <div>
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              {t('projectCategories') || 'Project Categories'}
+              {t('projectCategories' as any) || 'Project Categories'}
             </div>
             <div className="flex gap-1 flex-wrap">
               <button
@@ -131,7 +131,7 @@ export default function ProjectSubTabs({
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
-                {t('all') || 'All'} ({projects.length})
+                {t('all' as any) || 'All'} ({projects.length})
               </button>
               {projectTypes.map(type => {
                 const count = projects.filter(p => (p.type || 'other') === type).length;

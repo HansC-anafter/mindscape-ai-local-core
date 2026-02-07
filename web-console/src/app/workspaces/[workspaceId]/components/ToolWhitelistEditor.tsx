@@ -62,10 +62,10 @@ export default function ToolWhitelistEditor({
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            {t('toolWhitelist')}
+            {t('toolWhitelist' as any)}
           </h4>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('toolWhitelistDescription')}
+            {t('toolWhitelistDescription' as any)}
           </p>
         </div>
         <div className="flex gap-2">
@@ -73,13 +73,13 @@ export default function ToolWhitelistEditor({
             onClick={handleSelectAll}
             className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
           >
-            {t('selectAll')}
+            {t('selectAll' as any)}
           </button>
           <button
             onClick={handleDeselectAll}
             className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
           >
-            {t('deselectAll')}
+            {t('deselectAll' as any)}
           </button>
         </div>
       </div>
@@ -87,7 +87,7 @@ export default function ToolWhitelistEditor({
       <div>
         <input
           type="text"
-          placeholder={t('searchTools')}
+          placeholder={t('searchTools' as any)}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
@@ -97,7 +97,7 @@ export default function ToolWhitelistEditor({
       <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md">
         {filteredTools.length === 0 ? (
           <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
-            {t('noToolsFound')}
+            {t('noToolsFound' as any)}
           </div>
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -133,9 +133,9 @@ export default function ToolWhitelistEditor({
 
       <div className="text-xs text-gray-500 dark:text-gray-400">
         {selectedToolIds.length === 0 ? (
-          <span>{t('allToolsAllowed')}</span>
+          <span>{t('allToolsAllowed' as any)}</span>
         ) : (
-          <span>{t('toolsSelected', { count: selectedToolIds.length })}</span>
+          <span>{t('toolsSelected' as any, { count: String(selectedToolIds.length) })}</span>
         )}
       </div>
     </div>
