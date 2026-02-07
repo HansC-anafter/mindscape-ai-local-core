@@ -13,23 +13,40 @@ services:
       # Sandbox preview port range
       - SANDBOX_PREVIEW_PORT_START=${SANDBOX_PREVIEW_PORT_START:-3002}
       - SANDBOX_PREVIEW_PORT_END=${SANDBOX_PREVIEW_PORT_END:-3020}
+      - PYTHONPATH=/app:/app/backend:/app/backend/app
       - ENVIRONMENT=development
       - HOST=0.0.0.0
       - PORT=8200
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Database
-      - DATABASE_URL=sqlite:///./data/mindscape.db
-      # PostgreSQL for vector storage (optional)
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=${POSTGRES_DB:-mindscape_vectors}
-      - POSTGRES_USER=${POSTGRES_USER:-mindscape}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mindscape_password}
+      - DATABASE_URL_CORE=postgresql://mindscape:mindscape_password@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      - DATABASE_URL_VECTOR=postgresql://mindscape:mindscape_password@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL=postgresql://mindscape:mindscape_password@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      # PostgreSQL core database
+      - POSTGRES_CORE_HOST=postgres
+      - POSTGRES_CORE_PORT=5432
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      # PostgreSQL vector database
+      - POSTGRES_VECTOR_HOST=postgres
+      - POSTGRES_VECTOR_PORT=5432
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
+      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+      # Legacy fallback (core)
+      - POSTGRES_HOST=${POSTGRES_CORE_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_CORE_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
       # Security
       - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-dev-secret-key-change-in-production}
       # LLM Providers (configure these in .env file)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Ollama (Host) - Use host.docker.internal to access Ollama running on Mac/Windows host
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback
@@ -61,11 +78,75 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mindscape-ai-local-core-runner
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_URL_CORE=postgresql://mindscape:mindscape_password@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      - DATABASE_URL_VECTOR=postgresql://mindscape:mindscape_password@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL=postgresql://mindscape:mindscape_password@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_CORE_HOST=postgres
+      - POSTGRES_CORE_PORT=5432
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_VECTOR_HOST=postgres
+      - POSTGRES_VECTOR_PORT=5432
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
+      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+      - POSTGRES_HOST=${POSTGRES_CORE_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_CORE_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - PYTHONPATH=/app:/app/backend:/app/backend/app
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - TZ=${TZ:-UTC}
+      - LOCAL_CORE_RUNNER_PROCESS=1
+      - LOCAL_CORE_RUNNER_POLL_INTERVAL_MS=${LOCAL_CORE_RUNNER_POLL_INTERVAL_MS:-1000}
+      - LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS=${LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS:-15000}
+      - LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS=${LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS:-2000}
+      - LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS=${LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS:-3600}
+    volumes:
+      - ./backend:/app/backend:rw
+      - ./scripts:/app/scripts:rw
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+      - ./web-console:/app/web-console:rw
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - mindscape-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "backend.app.runner.worker"]
+    # Runner doesn't expose HTTP on :8200; it inherits Dockerfile.backend healthcheck which would fail.
+    # Disable to avoid misleading "unhealthy" status.
+    healthcheck:
+      disable: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # Frontend Web Console
   frontend:
@@ -82,21 +163,29 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8200
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:8200
       - BACKEND_URL=http://backend:8200
+      - MEDIA_PROXY_URL=http://media-proxy:8000
       - TZ=${TZ:-UTC}
     volumes:
-      - ./web-console/src:/app/src:ro
-      - ./web-console/tsconfig.json:/app/tsconfig.json:ro
-      - ./web-console/next.config.js:/app/next.config.js:ro
-      - ./web-console/tailwind.config.js:/app/tailwind.config.js:ro
-      - ./web-console/postcss.config.js:/app/postcss.config.js:ro
+      - ./web-console/src:/app/web-console/src:ro
+      - ./web-console/tsconfig.json:/app/web-console/tsconfig.json:ro
+      - ./web-console/next.config.js:/app/web-console/next.config.js:ro
+      - ./web-console/tailwind.config.js:/app/web-console/tailwind.config.js:ro
+      - ./web-console/postcss.config.js:/app/web-console/postcss.config.js:ro
+      - ./packages:/app/packages:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["cd /app/node_modules/next && ln -sfn dist/server server 2>/dev/null || true && cd /app && npm run dev -- -H 0.0.0.0 -p 3000"]
     networks:
       - mindscape-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -113,19 +202,26 @@ services:
     ports:
       - "5433:5432"
     environment:
-      - POSTGRES_DB=${POSTGRES_DB:-mindscape_vectors}
-      - POSTGRES_USER=${POSTGRES_USER:-mindscape}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mindscape_password}
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - PGDATA=/var/lib/postgresql/data/pgdata
       - TZ=${TZ:-UTC}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-dual-dbs.sh:/docker-entrypoint-initdb.d/00-init-dual-dbs.sh:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     networks:
       - mindscape-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mindscape} -d ${POSTGRES_DB:-mindscape_vectors}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_core}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -151,11 +247,44 @@ services:
     networks:
       - mindscape-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # Media Proxy Service (Isolated)
+  media-proxy:
+    build:
+      context: ./media-proxy
+      dockerfile: Dockerfile
+    container_name: mindscape-ai-local-core-media-proxy
+    restart: unless-stopped
+    ports:
+      - "8202:8000"
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-UTC}
+    networks:
+      - mindscape-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 volumes:
   postgres_data:
@@ -165,4 +294,3 @@ networks:
   mindscape-network:
     driver: bridge
     name: mindscape-network
-

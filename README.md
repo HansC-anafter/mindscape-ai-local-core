@@ -1,12 +1,21 @@
 # Mindscape AI Local Core
 
-> **Open-source, local-first AI workspace for AI-driven visible thinking workflows.**
+> **Open-source, local-first, human-governable AI workspace for visible thinking workflows.**
 
 [English](README.md) | [中文](README.zh.md)
 
-`mindscape-ai-local-core` is the open-source, local-first core of **Mindscape AI**.
+`mindscape-ai-local-core` is the open-source core of **Mindscape AI** — a **local-first**, **human-governable** AI workspace.
 
-It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape**, so the LLM is not just answering isolated prompts, but thinking and acting with you across time.
+It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape**, so the LLM is not just answering isolated prompts, but **thinking and acting with you across time** — with full traceability, rollback, and human oversight.
+
+### 🎯 Two Core Principles
+
+| Principle | What it means |
+|-----------|---------------|
+| **Local-first** | Your data stays on your machine. Works offline. You own everything. |
+| **Human-governable** | Every AI output is traceable, versionable, and rollback-able. You stay in control. |
+
+> Most AI tools focus on "getting things done". Mindscape AI focuses on **governing how things get done** — so you can trace, compare, and roll back any AI-generated content at the segment level.
 
 ### 🎨 Mind-Lens: A Palette for Rendering
 
@@ -19,6 +28,27 @@ Mind-Lens works as a **three-layer palette**:
 3. **Session Override** — temporary knobs for this task (resets after the conversation)
 
 Both the **Mindscape Graph** (author mode) and **Workspace execution** (runtime mode) operate on the same Lens contract — they just edit different scopes of the same palette.
+
+---
+
+### 🤖 Mindscape Assistant (Momo)
+
+> **Momo is a persistent collaborator inside your mindscape** — it checks configurations, organizes information, and coordinates your AI tools. But it never makes decisions or speaks on your behalf. You stay in control.
+
+**The Three "Don'ts"**:
+
+| Boundary | What it means |
+|----------|---------------|
+| ❌ **Never decides for you** | Momo presents options and recommendations, but every final decision is yours. |
+| ❌ **Never speaks for you** | Momo drafts content but doesn't publish or send anything without your explicit approval. |
+| ❌ **Never claims to be you** | Momo is clearly an AI assistant, not an extension of your identity. |
+
+**What Momo does**:
+- **Configuration Assistance**: Health checks, validation, and reminders for your system settings
+- **Information Organization**: Structures your intents, playbooks, and knowledge into navigable forms
+- **Tool Coordination**: Orchestrates other AI tools and services on your behalf
+
+This philosophy ensures that Mindscape AI remains a **governance-first** platform where humans retain meaningful control.
 
 ---
 
@@ -94,13 +124,106 @@ into their own products or commercial offerings.
 
 ---
 
+## 🔌 Skills & MCP Compatibility
+
+Mindscape AI natively supports the **Agent Skills open standard** and **Model Context Protocol (MCP)**, ensuring compatibility with the broader AI ecosystem:
+
+### What This Means
+
+| Standard | Integration Level |
+|----------|------------------|
+| **Agent Skills** | SKILL.md indexing, semantic search, format conversion |
+| **MCP** | Native MCP server support as tool providers |
+| **LangChain** | Tool adapters for LangChain ecosystem |
+
+### Mindscape's Position: Skill-compatible Workflow Layer
+
+> **Skills = Leaf Node** (portable capability modules)
+> **Playbooks = Graph** (orchestration layer: DAG, state, recovery, human approval, cost guardrails)
+
+While Skills define *what* an AI can do, Mindscape Playbooks define *how* those capabilities are orchestrated, governed, and executed in enterprise contexts:
+
+- **Skill Intake**: Index and discover SKILL.md files from capability packs
+- **Format Bridging**: Convert between SKILL.md and Playbook formats via `skill_ir_adapter`
+- **Governance Overlay**: Add checkpoint/resume, audit trails, and permission controls on top of Skills
+- **Multi-Skill Orchestration**: Compose multiple Skills into DAG workflows with dependencies
+
+This means you can import Skills from the Anthropic ecosystem, wrap them with Mindscape governance, and execute them with full traceability.
+
+---
+
+## 🤖 External Agents Integration
+
+Mindscape provides a **pluggable architecture** for integrating external AI agents within its governance layer:
+
+### Key Features
+
+- **Pluggable Adapters**: Drop a new agent into `agents/` directory, auto-discovered on startup
+- **Unified API**: All agents share common `execute()` interface via `BaseAgentAdapter`
+- **Workspace-Bound Sandbox**: All agents run in isolated sandboxes within workspace boundaries
+- **Full Traceability**: All executions recorded for Asset Provenance
+
+### 🔒 Workspace-Bound Sandbox Security
+
+> **CRITICAL**: All external agent execution is workspace-bound.
+
+```text
+<workspace_storage_base>/
+└── agent_sandboxes/
+    └── <agent_id>/           # e.g., claude_code, langgraph, autogpt
+        └── <execution_id>/   # UUID per execution
+            └── ...           # All agent files isolated here
+```
+
+| Requirement | Enforcement |
+|-------------|-------------|
+| `workspace_id` | **REQUIRED** - execution refused without it |
+| `workspace_storage_base` | **REQUIRED** - must have storage configured |
+| Sandbox path | Auto-generated, cannot be manually specified |
+
+### Workspace Collaboration Pattern
+
+```text
+Workspace A (Planning)    →    Workspace C (Agent Executor)    →    Workspace B (Review)
+   Define Intent                  External Agent runs               Quality check
+   Configure Lens                 in isolated sandbox               Approve outputs
+```
+
+This enables using one workspace as a dedicated "AI worker" while other workspaces handle planning and review, all with full governance and audit trails.
+
+See [External Agents Architecture](./docs/core-architecture/external-agents.md) for details.
+
+---
+
+## 🛡️ Human Governance Layer
+
+Unlike typical AI automation tools that focus on "execution", Mindscape AI provides a **governance layer** that sits above execution:
+
+| Layer | What it governs | Key capability |
+|-------|-----------------|----------------|
+| **Intent Governance** | "Why are we doing this?" | Intent versioning, success criteria, forbidden actions |
+| **Lens Governance** | "How should AI behave?" | Mind-Lens versioning, A/B testing, style consistency |
+| **Trust Governance** | "Is this safe to run?" | Preflight checks, risk labels, audit trail |
+| **Asset Governance** | "How did this content evolve?" | Segment-level provenance, Take/Selection rollback |
+
+This means you can always answer:
+- **"Why did AI say this?"** → Trace back to Intent + Lens + compiled prompt
+- **"Can we go back to last week's version?"** → Rollback at segment level, not just file level
+- **"What changed?"** → Diff Intent v1.1 vs v1.2, Lens A vs Lens B
+
+See [Governance Decision & Risk Control Layer](./docs/core-architecture/governance-decision-risk-control-layer.md) for implementation details.
+
+---
+
 ## 🧩 Core concepts at a glance
 
 * **Mindscape (workspace)** – the mental space you are working in; holds projects, intents, and execution traces.
-* **Intents** – structured "what I want" cards that anchor LLM conversations to your long-term goals.
+* **Intents** – structured "what I want" cards that anchor LLM conversations to your long-term goals. **Versionable and rollback-able.**
+* **Mind-Lens** – a palette for rendering AI outputs; controls tone, style, and behavior. **Versionable, composable, A/B testable.**
 * **Mind-Model VC** – version control for mind models; organizes user-provided clues into reviewable, adjustable, and rollback-able mind state recipes with version history. See [Mind-Model VC Architecture](./docs/core-architecture/mind-model-vc.md).
 * **Projects** – containers for related intents and playbooks (e.g., a product launch, a yearly book, a client account).
 * **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces.
+* **Governance Layer** – Intent, Lens, and Trust governance that ensures every AI action is traceable and controllable.
 * **Port/Adapter Architecture** – clean separation between core and external integrations, enabling local-first design with optional cloud extensions.
 * **[Event, Intent Governance, and Memory Architecture](./docs/core-architecture/memory-intent-architecture.md)** – how events, intent analysis, and long-term memory work together.
 
@@ -123,7 +246,7 @@ See:
 
 ## 📦 What's in this repo
 
-In a world where most AI tools stop at "chat + one-shot tools", this repo focuses on **long-lived projects, visible thinking, and governable multi-step workflows**. It's closer to an OS for AI-assisted work than a chatbot wrapper.
+In a world where most AI tools stop at "chat + one-shot tools", this repo focuses on **long-lived projects, visible thinking, and human-governable AI workflows**. It's closer to an **OS for AI-assisted work** than a chatbot wrapper — with built-in governance that lets you trace, version, and roll back any AI output.
 
 This local core focuses on:
 
@@ -215,10 +338,23 @@ docker compose up -d
 
 # 3. Access the web console
 # Frontend: http://localhost:8300
+# 3. Access the web console
+# Frontend: http://localhost:8300
 # Backend API: http://localhost:8200
 ```
 
-> **💡 Note**: API keys (OpenAI or Anthropic) are **optional** for initial startup. The system will start successfully without them, and you can configure them later through the web interface. Some AI features will be unavailable until API keys are configured.
+### 🦙 Local Models with Ollama (Recommended)
+
+Mindscape AI is designed to run completely offline using local LLMs via **Ollama**.
+
+1. **Install Ollama**: Download from [ollama.com](https://ollama.com).
+2. **Run a Model**:
+   ```bash
+   ollama run llama3
+   ```
+3. **Connect**: Mindscape automatically connects to your host's Ollama instance. No extra configuration needed!
+
+> **💡 Note**: API keys (OpenAI or Anthropic) are **optional** if you use Ollama. The system will favor local models if configured.
 
 For detailed instructions, see:
 - **Docker Deployment** – [Docker Deployment Guide](./docs/getting-started/docker.md)
@@ -334,9 +470,10 @@ This change is mostly architectural: it does not introduce new UI by itself, but
 
 ## 📝 Project status
 
-This is the **open-source, local-only** edition of Mindscape AI:
+This is the **open-source, local-first, human-governable** edition of Mindscape AI:
 
-* ✅ Good for: local experiments, personal workflows, agency sandboxes.
+* ✅ Good for: local experiments, personal workflows, agency sandboxes, **brand content governance**.
+* ✅ Built-in: Intent governance, Lens versioning, execution traces, segment-level provenance.
 * 🚧 Cloud / multi-tenant features: provided by separate repos, not included here.
 
 ---

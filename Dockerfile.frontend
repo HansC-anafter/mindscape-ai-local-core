@@ -1,20 +1,35 @@
 FROM node:18-alpine
 
+# Enable pnpm via corepack
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /app
 
 RUN apk add --no-cache wget
 
-COPY web-console/package*.json ./
-RUN npm install
+# Copy workspace configuration
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 
-COPY web-console/ ./
+# Copy shared packages (source code only, node_modules excluded by .dockerignore)
+COPY packages ./packages
 
-RUN rm -f node_modules/.bin/next && \
-    ln -s ../next/dist/bin/next node_modules/.bin/next
+# Copy frontend app definition
+COPY web-console/package.json ./web-console/package.json
+
+# Install dependencies for the entire workspace
+# Using --no-frozen-lockfile because we modified package.json without updating lockfile on host
+RUN pnpm install
+
+# Copy frontend source code
+COPY web-console ./web-console
 
 EXPOSE 3000
+
+ENV NEXT_TELEMETRY_DISABLED 1
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
 
-CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0"]
+# Run next dev from the web-console directory
+WORKDIR /app/web-console
+CMD ["pnpm", "run", "dev", "--", "-H", "0.0.0.0"]

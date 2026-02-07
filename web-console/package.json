@@ -12,9 +12,6 @@
   },
   "dependencies": {
     "@mindscape-ai/core": "workspace:*",
-    "@mindscape-ai/hooks": "^0.1.0-beta",
-    "@mindscape-ai/shell": "^0.1.0-beta",
-    "@mindscape-ai/ui": "^0.1.0-beta",
     "@react-sigma/core": "^5.0.6",
     "@react-sigma/layout-forceatlas2": "^5.0.6",
     "@react-three/drei": "^9.92.0",
@@ -25,6 +22,7 @@
     "@types/three": "^0.160.0",
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.2",
+    "dagre": "^0.8.5",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
     "lucide-react": "^0.294.0",
@@ -36,15 +34,20 @@
     "react-markdown": "^10.1.0",
     "react-player": "^2.13.0",
     "react-virtuoso": "^4.15.0",
+    "reactflow": "^11.10.1",
     "remark-gfm": "^4.0.1",
     "sigma": "^3.0.2",
     "swr": "^2.3.8",
     "tailwindcss": "^3.3.6",
-    "three": "^0.160.0"
+    "three": "^0.160.0",
+    "tldraw": "^3.15.5"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.52",
+    "@types/luxon": "^3.4.0",
     "eslint": "^8.55.0",
     "eslint-config-next": "14.0.4",
+    "luxon": "^3.4.4",
     "typescript": "^5.3.3"
   }
 }

@@ -1,12 +1,21 @@
 # Mindscape AI Local Core
 
-> **AI 驅動的思維可視化工作流引擎 —— Mindscape AI 的開源、本地版本**
+> **開源、本地優先、人類可治理的 AI 工作空間 —— 思維可視化工作流引擎**
 
 [English](README.md) | [中文](README.zh.md)
 
-`mindscape-ai-local-core` 是 **Mindscape AI** 的開源、本地核心。
+`mindscape-ai-local-core` 是 **Mindscape AI** 的開源核心 —— 一個**本地優先**、**人類可治理**的 AI 工作空間。
 
-它把你的長期意圖、專案主線、創作主題，整理成一個**可治理、可導航的心智空間（mindscape）**，讓 LLM 不再只是回應單一 prompt，而是圍繞你的長線專案一起思考與行動。
+它把你的長期意圖、專案主線、創作主題，整理成一個**可治理、可導航的心智空間（mindscape）**，讓 LLM 不再只是回應單一 prompt，而是**圍繞你的長線專案一起思考與行動** —— 並且每個產出都可追溯、可回滾、可人為介入。
+
+### 🎯 兩個核心原則
+
+| 原則 | 意義 |
+|------|------|
+| **本地優先 (Local-first)** | 資料留在你的機器上。可離線運作。你擁有一切。 |
+| **人類可治理 (Human-governable)** | 每個 AI 產出都可追溯、可版本化、可回滾。你保有控制權。 |
+
+> 多數 AI 工具專注在「把事情做完」。Mindscape AI 專注在**治理事情怎麼被做** —— 讓你能在**片段層級**追溯、比較、回滾任何 AI 生成的內容。
 
 ### 🎨 Mind-Lens：輸出的調色盤
 
@@ -19,6 +28,27 @@ Mind-Lens 採用**三層疊加**的設計：
 3. **Session Override（本次覆寫）** — 這輪任務的臨時旋鈕（對話結束後回彈）
 
 無論是 **Mindscape Graph（作者模式）** 還是 **Workspace 執行（運行模式）**，都在操作同一份 Lens 合約 —— 只是編輯的作用域不同。
+
+---
+
+### 🤖 Mindscape Assistant（默默 AI）
+
+> **默默 AI 是你心智空間裡的常駐協作者** —— 它檢查配置、整理資訊、協調你的 AI 工具。但它不替你做決定，不代表你發言。控制權始終在你手上。
+
+**三個「不」**：
+
+| 邊界 | 意義 |
+|------|------|
+| ❌ **不替你做決定** | 默默會提出選項和建議，但每個最終決定都由你來做。 |
+| ❌ **不代表你發言** | 默默會起草內容，但不會在沒有你明確批准的情況下發布或發送任何東西。 |
+| ❌ **不聲稱是你的延伸** | 默默明確是一個 AI 助手，而不是你身份的延伸。 |
+
+**默默做什麼**：
+- **配置協助 (Configuration Assistance)**：系統設定的健康檢查、驗證與提醒
+- **資訊整理 (Information Organization)**：將你的意圖、Playbook、知識整理成可導航的結構
+- **工具協調 (Tool Coordination)**：代你協調其他 AI 工具與服務
+
+這個設計哲學確保 Mindscape AI 始終是一個**治理優先**的平台，讓人類保有真正的控制權。
 
 ---
 
@@ -94,15 +124,108 @@ Mindscape AI Cloud 只是其上一種可能的 SaaS 實作；其他開發者同�
 
 ---
 
+## 🔌 Skills 與 MCP 兼容性
+
+Mindscape AI 原生支援 **Agent Skills 開放標準** 與 **Model Context Protocol (MCP)**，確保與更廣泛的 AI 生態系統兼容：
+
+### 這意味著什麼
+
+| 標準 | 整合程度 |
+|-----|---------|
+| **Agent Skills** | SKILL.md 索引、語意搜尋、格式轉換 |
+| **MCP** | 原生 MCP Server 支援作為工具提供者 |
+| **LangChain** | LangChain 生態系統的工具適配器 |
+
+### Mindscape 的定位：Skill-compatible Workflow Layer
+
+> **Skills = Leaf Node**（可移植的能力模組）
+> **Playbooks = Graph**（編排層：DAG、狀態、復原、人類審批、成本護欄）
+
+Skills 定義 AI **能做什麼**，而 Mindscape Playbooks 定義這些能力在企業場景中**如何被編排、治理與執行**：
+
+- **Skill 導入 (Skill Intake)**：從 Capability Pack 索引並發現 SKILL.md 檔案
+- **格式橋接 (Format Bridging)**：透過 `skill_ir_adapter` 在 SKILL.md 與 Playbook 格式之間轉換
+- **治理疊加 (Governance Overlay)**：在 Skills 之上加入 checkpoint/resume、審計軌跡、權限控制
+- **多 Skill 編排 (Multi-Skill Orchestration)**：將多個 Skills 組合成具有依賴關係的 DAG 工作流
+
+這意味著你可以從 Anthropic 生態系統匯入 Skills，包裝上 Mindscape 的治理層，並以完整的可追溯性執行它們。
+
+---
+
+## 🤖 外部 Agent 整合 (External Agents Integration)
+
+Mindscape 提供**可插拔架構**來整合外部 AI Agent 於其治理層內：
+
+### 核心特點
+
+- **可插拔適配器**：將新 Agent 放入 `agents/` 目錄，啟動時自動發現
+- **統一 API**：所有 Agent 透過 `BaseAgentAdapter` 共享 `execute()` 介面
+- **Workspace 沙箱綁定**：所有 Agent 在 Workspace 邊界內的隔離沙箱執行
+- **完整可追溯**：所有執行記錄到 Asset Provenance
+
+### 🔒 Workspace 沙箱安全
+
+> **關鍵**：所有外部 Agent 執行現已綁定至 Workspace。
+
+```text
+<workspace_storage_base>/
+└── agent_sandboxes/
+    └── <agent_id>/           # 例如 claude_code, langgraph
+        └── <execution_id>/   # 每次執行的 UUID
+            └── ...           # 所有 Agent 檔案隔離於此
+```
+
+| 要求 | 執行 |
+|------|------|
+| `workspace_id` | **必填** - 缺少則拒絕執行 |
+| `workspace_storage_base` | **必填** - 必須配置存儲 |
+| 沙箱路徑 | 自動生成，無法手動指定 |
+
+### Workspace 協作模式
+
+```text
+Workspace A (規劃)    →    Workspace C (Agent 執行區)    →    Workspace B (審核)
+   定義 Intent                外部 Agent                    品質檢查
+   配置 Lens                  在隔離 sandbox 運行             審核產出
+```
+
+這使您可以將一個 Workspace 作為專用的「AI 工人」，而其他 Workspace 處理規劃和審核，全程保持完整治理和審計軌跡。
+
+詳見 [外部 Agent 架構](./docs/core-architecture/external-agents.md)。
+
+---
+
+## 🛡️ 人類治理層 (Human Governance Layer)
+
+不同於一般專注在「執行」的 AI 自動化工具，Mindscape AI 在執行之上提供了一個**治理層**：
+
+| 層級 | 治理什麼？ | 核心能力 |
+|------|-----------|----------|
+| **意圖治理 (Intent)** | 「為什麼要做這個？」 | 意圖版本化、成功標準、禁止事項 |
+| **視角治理 (Lens)** | 「AI 該怎麼表現？」 | Mind-Lens 版本化、A/B 測試、風格一致性 |
+| **信任治理 (Trust)** | 「這個執行安全嗎？」 | 預檢查、風險標籤、審計軌跡 |
+| **資產治理 (Asset)** | 「這個內容怎麼演化的？」 | 片段級溯源、Take/Selection 回滾 |
+
+這意味著你永遠可以回答：
+- **「AI 為什麼這樣說？」** → 追溯到 Intent + Lens + 編譯後的 prompt
+- **「能不能回到上週的版本？」** → 片段層級的回滾，不只是檔案層級
+- **「改了什麼？」** → Diff Intent v1.1 vs v1.2、Lens A vs B
+
+詳見 [治理決策與風控層](./docs/core-architecture/governance-decision-risk-control-layer.md)。
+
+---
+
 ## 🧩 核心概念一覽
 
 * **Mindscape（心智空間 / 工作區）**：你正在運作的心智舞台，放專案、Intent、執行軌跡。
-* **Intent（意圖卡）**：把「我現在想完成什麼」變成可追蹤的卡片，幫 LLM 將對話錨定在你的長期目標上。
+* **Intent（意圖卡）**：把「我現在想完成什麼」變成可追蹤的卡片，幫 LLM 將對話錨定在你的長期目標上。**可版本化、可回滾。**
+* **Mind-Lens**：AI 輸出的調色盤；控制語調、風格、行為。**可版本化、可組合、可 A/B 測試。**
 * **Mind-Model VC（心智建模版本控管）**：心智模型的版本控管系統；將使用者提供的線索整理成可回顧、可調整、可回滾的心智狀態配方，並保留版本歷史。詳見 [Mind-Model VC 架構](./docs/core-architecture/mind-model-vc.md)。
 * **Project（專案）**：把相關的 Intent 與 Playbook 收攏在一起，例如一個產品發佈、一整年的寫書計畫、一個客戶帳號。
 * **Playbook**：同時給人看、也給機器跑的工作流腳本（Markdown + YAML frontmatter），是能力的載體。
-  Playbook 不只是「可以跑的腳本」，在 local-core 中就已具備基本的歸屬與作用域邊界；在雲端版本會進一步延伸到租戶、團隊等層級，讓不同使用者、專案、租戶之間的 workflow 可以被治理。
+* **治理層 (Governance Layer)**：意圖、視角、信任治理，確保每個 AI 行動都可追溯、可控制。
 * **Port/Adapter 架構**：核心與外部集成的清晰分離，實現本地優先設計並支援可選的雲端擴展。
+* **[事件、意圖治理與記憶架構](./docs/core-architecture/memory-intent-architecture.md)**：事件、意圖分析與長期記憶如何協作。
 
 ---
 
@@ -123,7 +246,7 @@ Mindscape AI Cloud 只是其上一種可能的 SaaS 實作；其他開發者同�
 
 ## 📦 這個倉庫包含什麼？
 
-在大多數 AI 工具仍停留在「聊天 + 單次工具呼叫」的情境下，`mindscape-ai-local-core` 專注在**長期專案、可視化思考、可治理的多步驟工作流**，更接近一個 AI 工作流作業系統，而不是單純的 chat 機器人。
+在大多數 AI 工具仍停留在「聊天 + 單次工具呼叫」的情境下，`mindscape-ai-local-core` 專注在**長期專案、可視化思考、人類可治理的 AI 工作流**。它更接近一個 **AI 工作流作業系統**，而不是單純的 chat 機器人 —— 內建治理機制讓你可以追溯、版本化、回滾任何 AI 產出。
 
 Local Core 的重點放在：
 
@@ -326,9 +449,10 @@ docker logs mindscape-ai-local-core-backend | grep -i "postgresql engine"
 
 ## 📝 狀態
 
-這是 Mindscape AI 的 **開源、僅本地版本**：
+這是 Mindscape AI 的 **開源、本地優先、人類可治理** 版本：
 
-* ✅ 適合：本地實驗、個人工作流、代理商內部沙盒。
+* ✅ 適合：本地實驗、個人工作流、代理商內部沙盒、**品牌內容治理**。
+* ✅ 內建：意圖治理、Lens 版本化、執行軌跡、片段級溯源。
 * 🚧 雲端 / 多租戶功能：透過其他倉庫提供，**不包含在此版本中**。
 
 ---

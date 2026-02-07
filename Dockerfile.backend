@@ -6,10 +6,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    git \
     ffmpeg \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    chromium \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Install OpenClaw CLI globally
+RUN npm install -g openclaw@latest
 
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
