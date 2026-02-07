@@ -1,11 +1,18 @@
 """
-Base store class for Mindscape data persistence
-Provides common database connection, transaction, and utility methods
+Base store class for Mindscape data persistence (DEPRECATED)
+
+WARNING: This module is DEPRECATED as of 2026-01-27.
+All new stores should inherit from PostgresStoreBase instead.
+See: backend/app/services/stores/postgres_base.py
+
+This SQLite-based StoreBase is retained only for backward compatibility
+during the migration period. It will be removed in a future release.
 """
 
 import os
 import json
 import sqlite3
+import warnings
 from datetime import datetime
 from typing import Optional, Any
 from contextlib import contextmanager
@@ -13,24 +20,36 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "StoreBase (sqlite3-based) is deprecated. "
+    "Use PostgresStoreBase from app.services.stores.postgres_base instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 
 class StoreError(Exception):
     """Base exception for store operations"""
+
     pass
 
 
 class StoreNotFoundError(StoreError):
     """Resource not found"""
+
     pass
 
 
 class StoreValidationError(StoreError):
     """Validation error"""
+
     pass
 
 
 class StoreConstraintError(StoreError):
     """Database constraint violation"""
+
     pass
 
 
@@ -65,23 +84,29 @@ class StoreBase:
                 cursor.execute(...)
                 conn.commit()
         """
-        conn = sqlite3.connect(self.db_path, timeout=30.0)  # 30 second timeout for busy connections
+        conn = sqlite3.connect(
+            self.db_path, timeout=30.0
+        )  # 30 second timeout for busy connections
         conn.row_factory = sqlite3.Row
 
         # Enable WAL mode for better concurrent access
         # WAL allows multiple readers and one writer simultaneously
         try:
             cursor = conn.cursor()
-            cursor.execute('PRAGMA journal_mode=WAL')
+            cursor.execute("PRAGMA journal_mode=WAL")
             journal_mode = cursor.fetchone()[0]
-            if journal_mode != 'wal':
-                logger.warning(f"Failed to enable WAL mode, current mode: {journal_mode}")
+            if journal_mode != "wal":
+                logger.warning(
+                    f"Failed to enable WAL mode, current mode: {journal_mode}"
+                )
 
             # Set busy timeout to handle concurrent access gracefully
-            cursor.execute('PRAGMA busy_timeout=30000')  # 30 seconds
+            cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
 
             # Optimize for concurrent reads
-            cursor.execute('PRAGMA synchronous=NORMAL')  # Faster than FULL, safer than OFF
+            cursor.execute(
+                "PRAGMA synchronous=NORMAL"
+            )  # Faster than FULL, safer than OFF
             conn.commit()
         except Exception as e:
             logger.warning(f"Failed to set SQLite PRAGMA settings: {e}")
@@ -148,29 +173,33 @@ class StoreBase:
 
         # Handle sqlite3.Row objects by extracting the value
         # Check for sqlite3.Row by checking for the Row class name or by checking if it has keys() but not get()
-        if hasattr(data, '__class__'):
+        if hasattr(data, "__class__"):
             class_name = data.__class__.__name__
-            module_name = getattr(data.__class__, '__module__', '')
+            module_name = getattr(data.__class__, "__module__", "")
             # Check if it's a sqlite3.Row (which has keys() but not get())
             is_row = (
-                class_name == 'Row' or
-                (hasattr(data, 'keys') and not hasattr(data, 'get')) or
-                'sqlite3' in module_name
+                class_name == "Row"
+                or (hasattr(data, "keys") and not hasattr(data, "get"))
+                or "sqlite3" in module_name
             )
 
             if is_row:
                 # This is a sqlite3.Row object, try to extract the value
-                logger.error(f"deserialize_json received sqlite3.Row object! This shouldn't happen. Type: {type(data)}, Module: {module_name}, Keys: {data.keys() if hasattr(data, 'keys') else 'N/A'}")
+                logger.error(
+                    f"deserialize_json received sqlite3.Row object! This shouldn't happen. Type: {type(data)}, Module: {module_name}, Keys: {data.keys() if hasattr(data, 'keys') else 'N/A'}"
+                )
                 # For JSON columns, sqlite3.Row should return the string value directly
                 # But if it doesn't, we need to handle it
                 try:
                     # Try to access as if it's a single column
-                    if hasattr(data, 'keys') and len(data.keys()) == 1:
+                    if hasattr(data, "keys") and len(data.keys()) == 1:
                         key = list(data.keys())[0]
                         data = data[key]
                     else:
                         # Multiple columns or can't access, convert to string
-                        logger.warning(f"sqlite3.Row with multiple columns or access issue in deserialize_json: {data.keys() if hasattr(data, 'keys') else 'no keys'}")
+                        logger.warning(
+                            f"sqlite3.Row with multiple columns or access issue in deserialize_json: {data.keys() if hasattr(data, 'keys') else 'no keys'}"
+                        )
                         data = str(data)
                 except Exception as e:
                     logger.warning(f"Error extracting value from sqlite3.Row: {e}")
@@ -187,14 +216,16 @@ class StoreBase:
             data = str(data)
 
         # Handle empty string
-        if not data or data.strip() == '':
+        if not data or data.strip() == "":
             return default if default is not None else {}
 
         try:
             # Try to parse as JSON string
             return json.loads(data)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"Failed to deserialize JSON, using default: {e}, data type: {type(data)}, data: {data[:100] if isinstance(data, str) else data}")
+            logger.warning(
+                f"Failed to deserialize JSON, using default: {e}, data type: {type(data)}, data: {data[:100] if isinstance(data, str) else data}"
+            )
             return default if default is not None else {}
 
     def to_isoformat(self, dt: Optional[datetime]) -> Optional[str]:
