@@ -6,7 +6,7 @@ allowing users to organize conversations similar to ChatGPT threads.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from backend.app.models.workspace import ConversationThread
@@ -181,7 +181,7 @@ class ConversationThreadsStore(StoreBase):
                 return self.get_thread(thread_id)
 
             updates.append('updated_at = ?')
-            params.append(self.to_isoformat(datetime.utcnow()))
+            params.append(self.to_isoformat(datetime.now(timezone.utc)))
             params.append(thread_id)
 
             query = f'UPDATE conversation_threads SET {", ".join(updates)} WHERE id = ?'
@@ -216,11 +216,11 @@ class ConversationThreadsStore(StoreBase):
             workspace_id=str(row['workspace_id']),
             title=str(row['title']),
             project_id=str(row['project_id']) if row['project_id'] else None,
-            pinned_scope=str(row['pinned_scope']) if row.get('pinned_scope') else None,
+            pinned_scope=str(row['pinned_scope']) if 'pinned_scope' in row.keys() and row['pinned_scope'] else None,
             created_at=self.from_isoformat(row['created_at']),
             updated_at=self.from_isoformat(row['updated_at']),
             last_message_at=self.from_isoformat(row['last_message_at']),
             message_count=int(row['message_count']) if row['message_count'] else 0,
             metadata=metadata,
-            is_default=bool(row.get('is_default', 0))
+            is_default=bool(row['is_default']) if 'is_default' in row.keys() and row['is_default'] else False
         )

@@ -5,13 +5,13 @@ Database operations for voice profiles, training jobs, and video segments
 """
 
 import logging
-import os
 import psycopg2
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from psycopg2.extras import RealDictCursor, Json
 from psycopg2.pool import ThreadedConnectionPool
 
+from app.database.config import get_core_postgres_config
 from ...models.course_production.voice_profile import (
     VoiceProfile,
     VoiceProfileStatus
@@ -41,14 +41,15 @@ class CourseProductionStore:
     def _init_pool(self):
         """Initialize connection pool"""
         try:
+            config = get_core_postgres_config()
             self.pool = ThreadedConnectionPool(
                 minconn=1,
                 maxconn=10,
-                host=os.getenv("POSTGRES_HOST", "postgres"),
-                port=int(os.getenv("POSTGRES_PORT", "5432")),
-                database=os.getenv("POSTGRES_DB", "mindscape_vectors"),
-                user=os.getenv("POSTGRES_USER", "mindscape"),
-                password=os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+                host=config.get("host") or "postgres",
+                port=config.get("port") or 5432,
+                database=config.get("database") or "mindscape_core",
+                user=config.get("user") or "mindscape",
+                password=config.get("password") or "mindscape_password",
             )
             logger.info("Course production store connection pool initialized")
         except Exception as e:

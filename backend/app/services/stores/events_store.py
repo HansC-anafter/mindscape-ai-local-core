@@ -389,20 +389,20 @@ class EventsStore(StoreBase):
     ) -> int:
         """
         Count MESSAGE events for a specific conversation thread
-        
+
         Args:
             workspace_id: Workspace ID
             thread_id: Thread ID
             include_execution_chat: If True, also count EXECUTION_CHAT events (default: False)
-            
+
         Returns:
             Count of MESSAGE events (and optionally EXECUTION_CHAT) in the thread
-            
+
         Note:
             Currently only counts EventType.MESSAGE by default, as "message_count" semantically
             refers to user/assistant messages. TOOL_CALL and other event types are excluded
             as they are not user-visible conversation messages.
-            
+
             If you need to count all conversation-related events, set include_execution_chat=True
             or consider using a different metric name (e.g., "conversation_count").
         """
@@ -410,24 +410,24 @@ class EventsStore(StoreBase):
             cursor = conn.cursor()
             if include_execution_chat:
                 query = '''
-                    SELECT COUNT(*) 
-                    FROM mind_events 
-                    WHERE workspace_id = ? 
-                      AND thread_id = ? 
+                    SELECT COUNT(*)
+                    FROM mind_events
+                    WHERE workspace_id = ?
+                      AND thread_id = ?
                       AND (event_type = ? OR event_type = ?)
                 '''
                 cursor.execute(query, (
-                    workspace_id, 
-                    thread_id, 
+                    workspace_id,
+                    thread_id,
                     EventType.MESSAGE.value,
                     EventType.EXECUTION_CHAT.value
                 ))
             else:
                 query = '''
-                    SELECT COUNT(*) 
-                    FROM mind_events 
-                    WHERE workspace_id = ? 
-                      AND thread_id = ? 
+                    SELECT COUNT(*)
+                    FROM mind_events
+                    WHERE workspace_id = ?
+                      AND thread_id = ?
                       AND event_type = ?
                 '''
                 cursor.execute(query, (workspace_id, thread_id, EventType.MESSAGE.value))
@@ -602,7 +602,7 @@ class EventsStore(StoreBase):
                 profile_id=str(row['profile_id']),
                 project_id=str(row['project_id']) if row['project_id'] else None,
                 workspace_id=str(row['workspace_id']) if row['workspace_id'] else None,
-                thread_id=str(row['thread_id']) if row.get('thread_id') else None,
+                thread_id=str(row['thread_id']) if 'thread_id' in row.keys() and row['thread_id'] else None,
                 event_type=EventType(row['event_type']),
                 payload=payload,
                 entity_ids=entity_ids,

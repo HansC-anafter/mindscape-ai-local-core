@@ -268,7 +268,7 @@ class ArtifactsStore(StoreBase):
             intent_id=row['intent_id'] if row['intent_id'] else None,
             task_id=row['task_id'] if row['task_id'] else None,
             execution_id=row['execution_id'] if row['execution_id'] else None,
-            thread_id=row['thread_id'] if row.get('thread_id') else None,
+            thread_id=str(row['thread_id']) if 'thread_id' in row.keys() and row['thread_id'] else None,
             playbook_code=row['playbook_code'],
             artifact_type=ArtifactType(row['artifact_type']),
             title=row['title'],

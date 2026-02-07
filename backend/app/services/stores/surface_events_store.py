@@ -1,55 +1,62 @@
-"""Surface Events store for data persistence."""
+"""Surface Events store for data persistence (Postgres)."""
 import logging
 from datetime import datetime
 from typing import List, Optional
 
-from .base import StoreBase
+from sqlalchemy import text
+
+from app.services.stores.postgres_base import PostgresStoreBase
 from ...models.surface import SurfaceEvent
 
 logger = logging.getLogger(__name__)
 
 
-class SurfaceEventsStore(StoreBase):
-    """Store for managing Surface Events."""
+class SurfaceEventsStore(PostgresStoreBase):
+    """Store for managing Surface Events (Postgres)."""
+
+    def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
+        super().__init__(db_role=db_role)
+        self.db_path = db_path
 
     def create_event(self, event: SurfaceEvent) -> SurfaceEvent:
-        """
-        Create a new event.
-
-        Args:
-            event: Event to create
-
-        Returns:
-            Created event
-        """
+        """Create a new event."""
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO surface_events (
-                    event_id, workspace_id, source_surface, event_type,
-                    actor_id, payload, command_id, thread_id, correlation_id,
-                    parent_event_id, execution_id, pack_id, card_id, scope,
-                    playbook_version, timestamp, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                event.event_id,
-                event.workspace_id,
-                event.source_surface,
-                event.event_type,
-                event.actor_id,
-                self.serialize_json(event.payload),
-                event.command_id,
-                event.thread_id,
-                event.correlation_id,
-                event.parent_event_id,
-                event.execution_id,
-                event.pack_id,
-                event.card_id,
-                event.scope,
-                event.playbook_version,
-                self.to_isoformat(event.timestamp or datetime.utcnow()),
-                self.to_isoformat(event.created_at or datetime.utcnow())
-            ))
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO surface_events (
+                        event_id, workspace_id, source_surface, event_type,
+                        actor_id, payload, command_id, thread_id, correlation_id,
+                        parent_event_id, execution_id, pack_id, card_id, scope,
+                        playbook_version, timestamp, created_at
+                    ) VALUES (
+                        :event_id, :workspace_id, :source_surface, :event_type,
+                        :actor_id, :payload, :command_id, :thread_id, :correlation_id,
+                        :parent_event_id, :execution_id, :pack_id, :card_id, :scope,
+                        :playbook_version, :timestamp, :created_at
+                    )
+                """
+                ),
+                {
+                    "event_id": event.event_id,
+                    "workspace_id": event.workspace_id,
+                    "source_surface": event.source_surface,
+                    "event_type": event.event_type,
+                    "actor_id": event.actor_id,
+                    "payload": self.serialize_json(event.payload),
+                    "command_id": event.command_id,
+                    "thread_id": event.thread_id,
+                    "correlation_id": event.correlation_id,
+                    "parent_event_id": event.parent_event_id,
+                    "execution_id": event.execution_id,
+                    "pack_id": event.pack_id,
+                    "card_id": event.card_id,
+                    "scope": event.scope,
+                    "playbook_version": event.playbook_version,
+                    "timestamp": event.timestamp or datetime.utcnow(),
+                    "created_at": event.created_at or datetime.utcnow(),
+                },
+            )
             logger.info(f"Created Surface Event: {event.event_id}")
             return event
 
@@ -64,89 +71,69 @@ class SurfaceEventsStore(StoreBase):
         correlation_id_filter: Optional[str] = None,
         pack_id_filter: Optional[str] = None,
         card_id_filter: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
     ) -> List[SurfaceEvent]:
-        """
-        Get events with filters.
-
-        Args:
-            workspace_id: Workspace ID
-            surface_filter: Optional surface filter
-            event_type_filter: Optional event type filter
-            actor_filter: Optional actor filter
-            command_id_filter: Optional command ID filter
-            thread_id_filter: Optional thread ID filter
-            correlation_id_filter: Optional correlation ID filter
-            pack_id_filter: Optional pack ID filter (BYOP)
-            card_id_filter: Optional card ID filter (BYOP)
-            limit: Maximum number of results
-
-        Returns:
-            List of filtered events
-        """
+        """Get events with filters."""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            query = 'SELECT * FROM surface_events WHERE workspace_id = ?'
-            params = [workspace_id]
+            query = "SELECT * FROM surface_events WHERE workspace_id = :workspace_id"
+            params = {"workspace_id": workspace_id, "limit": limit}
 
             if surface_filter:
-                query += ' AND source_surface = ?'
-                params.append(surface_filter)
+                query += " AND source_surface = :source_surface"
+                params["source_surface"] = surface_filter
 
             if event_type_filter:
-                query += ' AND event_type = ?'
-                params.append(event_type_filter)
+                query += " AND event_type = :event_type"
+                params["event_type"] = event_type_filter
 
             if actor_filter:
-                query += ' AND actor_id = ?'
-                params.append(actor_filter)
+                query += " AND actor_id = :actor_id"
+                params["actor_id"] = actor_filter
 
             if command_id_filter:
-                query += ' AND command_id = ?'
-                params.append(command_id_filter)
+                query += " AND command_id = :command_id"
+                params["command_id"] = command_id_filter
 
             if thread_id_filter:
-                query += ' AND thread_id = ?'
-                params.append(thread_id_filter)
+                query += " AND thread_id = :thread_id"
+                params["thread_id"] = thread_id_filter
 
             if correlation_id_filter:
-                query += ' AND correlation_id = ?'
-                params.append(correlation_id_filter)
+                query += " AND correlation_id = :correlation_id"
+                params["correlation_id"] = correlation_id_filter
 
             if pack_id_filter:
-                query += ' AND pack_id = ?'
-                params.append(pack_id_filter)
+                query += " AND pack_id = :pack_id"
+                params["pack_id"] = pack_id_filter
 
             if card_id_filter:
-                query += ' AND card_id = ?'
-                params.append(card_id_filter)
+                query += " AND card_id = :card_id"
+                params["card_id"] = card_id_filter
 
-            query += ' ORDER BY created_at DESC LIMIT ?'
-            params.append(limit)
+            query += " ORDER BY created_at DESC LIMIT :limit"
 
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
+            rows = conn.execute(text(query), params).fetchall()
             return [self._row_to_event(row) for row in rows]
 
     def _row_to_event(self, row) -> SurfaceEvent:
         """Convert database row to SurfaceEvent."""
+        data = row._mapping if hasattr(row, "_mapping") else row
         return SurfaceEvent(
-            event_id=row['event_id'],
-            workspace_id=row['workspace_id'],
-            source_surface=row['source_surface'],
-            event_type=row['event_type'],
-            actor_id=row['actor_id'],
-            payload=self.deserialize_json(row['payload'], default={}),
-            command_id=row['command_id'],
-            thread_id=row['thread_id'],
-            correlation_id=row['correlation_id'],
-            parent_event_id=row['parent_event_id'],
-            execution_id=row['execution_id'],
-            pack_id=row.get('pack_id'),
-            card_id=row.get('card_id'),
-            scope=row.get('scope'),
-            playbook_version=row.get('playbook_version'),
-            timestamp=self.from_isoformat(row['timestamp']),
-            created_at=self.from_isoformat(row['created_at'])
+            event_id=data["event_id"],
+            workspace_id=data["workspace_id"],
+            source_surface=data["source_surface"],
+            event_type=data["event_type"],
+            actor_id=data["actor_id"],
+            payload=self.deserialize_json(data["payload"], default={}),
+            command_id=data["command_id"],
+            thread_id=data["thread_id"],
+            correlation_id=data["correlation_id"],
+            parent_event_id=data["parent_event_id"],
+            execution_id=data["execution_id"],
+            pack_id=data["pack_id"],
+            card_id=data["card_id"],
+            scope=data["scope"],
+            playbook_version=data["playbook_version"],
+            timestamp=data["timestamp"],
+            created_at=data["created_at"],
         )
-

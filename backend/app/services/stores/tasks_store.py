@@ -8,14 +8,22 @@ All task writes go through the /chat flow, ensuring single source of truth.
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from backend.app.services.stores.base import StoreBase, StoreNotFoundError
-from ...models.workspace import Task, TaskStatus
+
+from sqlalchemy import text
+
+from app.services.stores.postgres_base import PostgresStoreBase
+from app.services.stores.base import StoreNotFoundError
+from app.models.workspace import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
 
-class TasksStore(StoreBase):
-    """Store for managing task execution records"""
+class TasksStore(PostgresStoreBase):
+    """Postgres-backed store for managing task execution records."""
+
+    def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
+        super().__init__(db_role=db_role)
+        self.db_path = db_path
 
     def create_task(self, task: Task) -> Task:
         """
@@ -28,39 +36,54 @@ class TasksStore(StoreBase):
             Created task
         """
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            # Extract project_id from execution_context or params if not explicitly set
             project_id = task.project_id
             if not project_id and task.execution_context:
                 project_id = task.execution_context.get("project_id")
             if not project_id and task.params:
                 project_id = task.params.get("project_id")
 
-            cursor.execute('''
+            query = text(
+                """
                 INSERT INTO tasks (
                     id, workspace_id, message_id, execution_id, project_id, pack_id,
                     task_type, status, params, result, execution_context,
                     storyline_tags, created_at, started_at, completed_at, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
+                ) VALUES (
+                    :id, :workspace_id, :message_id, :execution_id, :project_id, :pack_id,
+                    :task_type, :status, :params, :result, :execution_context,
+                    :storyline_tags, :created_at, :started_at, :completed_at, :error
+                )
+            """
+            )
+            params = {
+                "id": task.id,
+                "workspace_id": task.workspace_id,
+                "message_id": task.message_id,
+                "execution_id": task.execution_id,
+                "project_id": project_id,
+                "pack_id": task.pack_id,
+                "task_type": task.task_type,
+                "status": task.status.value,
+                "params": self.serialize_json(task.params),
+                "result": self.serialize_json(task.result),
+                "execution_context": (
+                    self.serialize_json(task.execution_context)
+                    if task.execution_context
+                    else None
+                ),
+                "storyline_tags": self.serialize_json(task.storyline_tags),
+                "created_at": task.created_at,
+                "started_at": task.started_at,
+                "completed_at": task.completed_at,
+                "error": task.error,
+            }
+            conn.execute(query, params)
+            logger.info(
+                "Created task: %s (workspace: %s, pack: %s)",
                 task.id,
                 task.workspace_id,
-                task.message_id,
-                task.execution_id,
-                project_id,
                 task.pack_id,
-                task.task_type,
-                task.status.value,
-                self.serialize_json(task.params),
-                self.serialize_json(task.result),
-                self.serialize_json(task.execution_context) if task.execution_context else None,
-                self.serialize_json(task.storyline_tags),
-                self.to_isoformat(task.created_at),
-                self.to_isoformat(task.started_at),
-                self.to_isoformat(task.completed_at),
-                task.error
-            ))
-            logger.info(f"Created task: {task.id} (workspace: {task.workspace_id}, pack: {task.pack_id})")
+            )
             return task
 
     def get_task(self, task_id: str) -> Optional[Task]:
@@ -74,9 +97,8 @@ class TasksStore(StoreBase):
             Task model or None if not found
         """
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
-            row = cursor.fetchone()
+            query = text("SELECT * FROM tasks WHERE id = :task_id")
+            row = conn.execute(query, {"task_id": task_id}).fetchone()
             if not row:
                 return None
             return self._row_to_task(row)
@@ -92,11 +114,31 @@ class TasksStore(StoreBase):
             Task model or None if not found
         """
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM tasks WHERE execution_id = ? ORDER BY created_at DESC LIMIT 1', (execution_id,))
-            row = cursor.fetchone()
+            row = conn.execute(
+                text(
+                    """
+                    SELECT * FROM tasks
+                    WHERE execution_id = :execution_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """
+                ),
+                {"execution_id": execution_id},
+            ).fetchone()
             if not row:
-                return None
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT * FROM tasks
+                        WHERE id = :execution_id
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """
+                    ),
+                    {"execution_id": execution_id},
+                ).fetchone()
+                if not row:
+                    return None
             return self._row_to_task(row)
 
     def update_task_status(
@@ -106,7 +148,7 @@ class TasksStore(StoreBase):
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
         started_at: Optional[datetime] = None,
-        completed_at: Optional[datetime] = None
+        completed_at: Optional[datetime] = None,
     ) -> Task:
         """
         Update task status and related fields
@@ -125,42 +167,34 @@ class TasksStore(StoreBase):
         Raises:
             StoreNotFoundError: If task not found
         """
+        updates = ["status = :status"]
+        params: Dict[str, Any] = {"status": status.value, "task_id": task_id}
+
+        if result is not None:
+            updates.append("result = :result")
+            params["result"] = self.serialize_json(result)
+
+        if error is not None:
+            updates.append("error = :error")
+            params["error"] = error
+
+        if started_at is not None:
+            updates.append("started_at = :started_at")
+            params["started_at"] = started_at
+
+        if completed_at is not None:
+            updates.append("completed_at = :completed_at")
+            params["completed_at"] = completed_at
+
         with self.transaction() as conn:
-            cursor = conn.cursor()
-
-            # Build update query dynamically
-            updates = ['status = ?']
-            values = [status.value]
-
-            if result is not None:
-                updates.append('result = ?')
-                values.append(self.serialize_json(result))
-
-            if error is not None:
-                updates.append('error = ?')
-                values.append(error)
-
-            if started_at is not None:
-                updates.append('started_at = ?')
-                values.append(self.to_isoformat(started_at))
-
-            if completed_at is not None:
-                updates.append('completed_at = ?')
-                values.append(self.to_isoformat(completed_at))
-
-            values.append(task_id)
-
-            cursor.execute(
-                f'UPDATE tasks SET {", ".join(updates)} WHERE id = ?',
-                values
+            query = text(
+                f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id"
             )
-
-            if cursor.rowcount == 0:
+            result_row = conn.execute(query, params)
+            if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
 
-            logger.info(f"Updated task {task_id} status to {status.value}")
-
-            # Return updated task
+            logger.info("Updated task %s status to %s", task_id, status.value)
             return self.get_task(task_id)
 
     def update_task(
@@ -168,7 +202,7 @@ class TasksStore(StoreBase):
         task_id: str,
         execution_context: Optional[Dict[str, Any]] = None,
         project_id: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> Task:
         """
         Update task fields
@@ -184,51 +218,45 @@ class TasksStore(StoreBase):
         Raises:
             StoreNotFoundError: If task not found
         """
+        updates = []
+        params: Dict[str, Any] = {"task_id": task_id}
+
+        if execution_context is not None:
+            updates.append("execution_context = :execution_context")
+            params["execution_context"] = self.serialize_json(execution_context)
+            if project_id is None and execution_context.get("project_id"):
+                project_id = execution_context.get("project_id")
+
+        if project_id is not None:
+            updates.append("project_id = :project_id")
+            params["project_id"] = project_id
+
+        for key, value in kwargs.items():
+            if key in ["params", "result", "storyline_tags"]:
+                updates.append(f"{key} = :{key}")
+                params[key] = self.serialize_json(value)
+            elif key in ["status"]:
+                updates.append(f"{key} = :{key}")
+                params[key] = value.value if hasattr(value, "value") else value
+            elif key in ["started_at", "completed_at", "created_at"]:
+                updates.append(f"{key} = :{key}")
+                params[key] = value
+            else:
+                updates.append(f"{key} = :{key}")
+                params[key] = value
+
+        if not updates:
+            return self.get_task(task_id)
+
         with self.transaction() as conn:
-            cursor = conn.cursor()
-
-            updates = []
-            values = []
-
-            if execution_context is not None:
-                updates.append('execution_context = ?')
-                values.append(self.serialize_json(execution_context))
-                # If project_id is in execution_context but not explicitly set, extract it
-                if project_id is None and execution_context.get("project_id"):
-                    project_id = execution_context.get("project_id")
-
-            if project_id is not None:
-                updates.append('project_id = ?')
-                values.append(project_id)
-
-            for key, value in kwargs.items():
-                if key in ['params', 'result']:
-                    updates.append(f'{key} = ?')
-                    values.append(self.serialize_json(value))
-                elif key in ['status']:
-                    updates.append(f'{key} = ?')
-                    values.append(value.value if hasattr(value, 'value') else value)
-                elif key in ['started_at', 'completed_at', 'created_at']:
-                    updates.append(f'{key} = ?')
-                    values.append(self.to_isoformat(value))
-                else:
-                    updates.append(f'{key} = ?')
-                    values.append(value)
-
-            if not updates:
-                return self.get_task(task_id)
-
-            values.append(task_id)
-
-            cursor.execute(
-                f'UPDATE tasks SET {", ".join(updates)} WHERE id = ?',
-                values
+            query = text(
+                f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id"
             )
-
-            if cursor.rowcount == 0:
+            result_row = conn.execute(query, params)
+            if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
 
-            logger.info(f"Updated task {task_id}")
+            logger.info("Updated task %s", task_id)
             return self.get_task(task_id)
 
     def list_tasks_by_workspace(
@@ -236,7 +264,7 @@ class TasksStore(StoreBase):
         workspace_id: Optional[str],
         status: Optional[TaskStatus] = None,
         limit: Optional[int] = None,
-        exclude_cancelled: bool = False
+        exclude_cancelled: bool = False,
     ) -> List[Task]:
         """
         List tasks for a workspace
@@ -250,33 +278,38 @@ class TasksStore(StoreBase):
         Returns:
             List of tasks
         """
+        query_parts = ["SELECT * FROM tasks WHERE 1=1"]
+        params: Dict[str, Any] = {}
+
+        if workspace_id:
+            query_parts.append("AND workspace_id = :workspace_id")
+            params["workspace_id"] = workspace_id
+
+        if status:
+            query_parts.append("AND status = :status")
+            params["status"] = status.value
+
+        if exclude_cancelled:
+            query_parts.append("AND status NOT IN (:cancelled_status, :expired_status)")
+            params["cancelled_status"] = TaskStatus.CANCELLED_BY_USER.value
+            params["expired_status"] = TaskStatus.EXPIRED.value
+
+        query_parts.append("ORDER BY created_at DESC")
+
+        if limit:
+            query_parts.append("LIMIT :limit")
+            params["limit"] = limit
+
         with self.get_connection() as conn:
-            cursor = conn.cursor()
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            tasks = [self._row_to_task(row) for row in rows]
 
-            if workspace_id:
-                query = 'SELECT * FROM tasks WHERE workspace_id = ?'
-                params = [workspace_id]
-            else:
-                query = 'SELECT * FROM tasks WHERE 1=1'
-                params = []
+        for task in tasks:
+            if task.task_type == "execution":
+                task.result = None
+                task.execution_context = None
 
-            if status:
-                query += ' AND status = ?'
-                params.append(status.value)
-
-            if exclude_cancelled:
-                query += ' AND status NOT IN (?, ?)'
-                params.extend([TaskStatus.CANCELLED_BY_USER.value, TaskStatus.EXPIRED.value])
-
-            query += ' ORDER BY created_at DESC'
-
-            if limit:
-                query += ' LIMIT ?'
-                params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            return [self._row_to_task(row) for row in rows]
+        return tasks
 
     def list_tasks_by_thread(
         self,
@@ -284,7 +317,7 @@ class TasksStore(StoreBase):
         thread_id: str,
         status: Optional[TaskStatus] = None,
         limit: Optional[int] = None,
-        exclude_cancelled: bool = False
+        exclude_cancelled: bool = False,
     ) -> List[Task]:
         """
         List tasks for a specific thread (via mind_events.message_id join)
@@ -299,40 +332,42 @@ class TasksStore(StoreBase):
         Returns:
             List of tasks
         """
+        query_parts = [
+            """
+            SELECT t.*
+            FROM tasks t
+            INNER JOIN mind_events e ON e.id = t.message_id
+            WHERE t.workspace_id = :workspace_id AND e.thread_id = :thread_id
+            """
+        ]
+        params: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "thread_id": thread_id,
+        }
+
+        if status:
+            query_parts.append("AND t.status = :status")
+            params["status"] = status.value
+
+        if exclude_cancelled:
+            query_parts.append(
+                "AND t.status NOT IN (:cancelled_status, :expired_status)"
+            )
+            params["cancelled_status"] = TaskStatus.CANCELLED_BY_USER.value
+            params["expired_status"] = TaskStatus.EXPIRED.value
+
+        query_parts.append("ORDER BY t.created_at DESC")
+
+        if limit:
+            query_parts.append("LIMIT :limit")
+            params["limit"] = limit
+
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-
-            query = '''
-                SELECT t.*
-                FROM tasks t
-                INNER JOIN mind_events e ON e.id = t.message_id
-                WHERE t.workspace_id = ? AND e.thread_id = ?
-            '''
-            params = [workspace_id, thread_id]
-
-            if status:
-                query += ' AND t.status = ?'
-                params.append(status.value)
-
-            if exclude_cancelled:
-                query += ' AND t.status NOT IN (?, ?)'
-                params.extend([TaskStatus.CANCELLED_BY_USER.value, TaskStatus.EXPIRED.value])
-
-            query += ' ORDER BY t.created_at DESC'
-
-            if limit:
-                query += ' LIMIT ?'
-                params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             return [self._row_to_task(row) for row in rows]
 
     def list_pending_tasks_by_thread(
-        self,
-        workspace_id: str,
-        thread_id: str,
-        exclude_cancelled: bool = True
+        self, workspace_id: str, thread_id: str, exclude_cancelled: bool = True
     ) -> List[Task]:
         """
         List pending tasks for a specific thread
@@ -349,10 +384,12 @@ class TasksStore(StoreBase):
             workspace_id=workspace_id,
             thread_id=thread_id,
             status=TaskStatus.PENDING,
-            exclude_cancelled=exclude_cancelled
+            exclude_cancelled=exclude_cancelled,
         )
 
-    def list_running_tasks_by_thread(self, workspace_id: str, thread_id: str) -> List[Task]:
+    def list_running_tasks_by_thread(
+        self, workspace_id: str, thread_id: str
+    ) -> List[Task]:
         """
         List running tasks for a specific thread
 
@@ -364,16 +401,11 @@ class TasksStore(StoreBase):
             List of running tasks
         """
         return self.list_tasks_by_thread(
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            status=TaskStatus.RUNNING
+            workspace_id=workspace_id, thread_id=thread_id, status=TaskStatus.RUNNING
         )
 
     def list_executions_by_project(
-        self,
-        workspace_id: str,
-        project_id: str,
-        limit: Optional[int] = None
+        self, workspace_id: str, project_id: str, limit: Optional[int] = None
     ) -> List[Task]:
         """
         List execution tasks for a specific project
@@ -386,29 +418,34 @@ class TasksStore(StoreBase):
         Returns:
             List of execution tasks for the project
         """
+        query = """
+            SELECT * FROM tasks
+            WHERE workspace_id = :workspace_id
+            AND project_id = :project_id
+            AND task_type = 'execution'
+            ORDER BY created_at DESC
+        """
+        params: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "project_id": project_id,
+        }
+
+        if limit:
+            query += " LIMIT :limit"
+            params["limit"] = limit
+
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            query = '''
-                SELECT * FROM tasks
-                WHERE workspace_id = ?
-                AND project_id = ?
-                AND task_type = 'execution'
-                ORDER BY created_at DESC
-            '''
-            params = [workspace_id, project_id]
+            rows = conn.execute(text(query), params).fetchall()
+            tasks = [self._row_to_task(row) for row in rows]
 
-            if limit:
-                query += ' LIMIT ?'
-                params.append(limit)
+        for task in tasks:
+            task.result = None
+            task.execution_context = None
 
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            return [self._row_to_task(row) for row in rows]
+        return tasks
 
     def list_executions_by_workspace(
-        self,
-        workspace_id: str,
-        limit: Optional[int] = None
+        self, workspace_id: str, limit: Optional[int] = None
     ) -> List[Task]:
         """
         List all Playbook execution tasks (tasks with execution_context) for a workspace
@@ -420,25 +457,29 @@ class TasksStore(StoreBase):
         Returns:
             List of execution tasks (tasks with execution_context)
         """
+        query = """
+            SELECT * FROM tasks
+            WHERE workspace_id = :workspace_id AND execution_context IS NOT NULL
+            ORDER BY created_at DESC
+        """
+        params: Dict[str, Any] = {"workspace_id": workspace_id}
+
+        if limit:
+            query += " LIMIT :limit"
+            params["limit"] = limit
+
         with self.get_connection() as conn:
-            cursor = conn.cursor()
+            rows = conn.execute(text(query), params).fetchall()
+            tasks = [self._row_to_task(row) for row in rows]
 
-            query = '''
-                SELECT * FROM tasks
-                WHERE workspace_id = ? AND execution_context IS NOT NULL
-                ORDER BY created_at DESC
-            '''
-            params = [workspace_id]
+        for task in tasks:
+            task.result = None
 
-            if limit:
-                query += ' LIMIT ?'
-                params.append(limit)
+        return tasks
 
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            return [self._row_to_task(row) for row in rows]
-
-    def list_pending_tasks(self, workspace_id: str, exclude_cancelled: bool = True) -> List[Task]:
+    def list_pending_tasks(
+        self, workspace_id: str, exclude_cancelled: bool = True
+    ) -> List[Task]:
         """
         List pending tasks for a workspace
 
@@ -450,11 +491,14 @@ class TasksStore(StoreBase):
             List of pending tasks
         """
         tasks = self.list_tasks_by_workspace(
-            workspace_id=workspace_id,
-            status=TaskStatus.PENDING
+            workspace_id=workspace_id, status=TaskStatus.PENDING
         )
         if exclude_cancelled:
-            return [t for t in tasks if t.status not in (TaskStatus.CANCELLED_BY_USER, TaskStatus.EXPIRED)]
+            return [
+                t
+                for t in tasks
+                if t.status not in (TaskStatus.CANCELLED_BY_USER, TaskStatus.EXPIRED)
+            ]
         return tasks
 
     def list_running_tasks(self, workspace_id: str) -> List[Task]:
@@ -468,15 +512,11 @@ class TasksStore(StoreBase):
             List of running tasks
         """
         return self.list_tasks_by_workspace(
-            workspace_id=workspace_id,
-            status=TaskStatus.RUNNING
+            workspace_id=workspace_id, status=TaskStatus.RUNNING
         )
 
     def find_existing_suggestion_tasks(
-        self,
-        workspace_id: str,
-        pack_id: str,
-        created_within_hours: int = 1
+        self, workspace_id: str, pack_id: str, created_within_hours: int = 1
     ) -> List[Task]:
         """
         Find existing suggestion tasks with same pack_id within time window
@@ -490,38 +530,36 @@ class TasksStore(StoreBase):
             List of existing suggestion tasks
         """
         from datetime import timedelta
+
+        time_threshold = datetime.utcnow() - timedelta(hours=created_within_hours)
+
+        query = """
+            SELECT * FROM tasks
+            WHERE workspace_id = :workspace_id
+            AND pack_id = :pack_id
+            AND task_type = :task_type
+            AND status IN (:pending_status, :running_status)
+            AND created_at >= :time_threshold
+            ORDER BY created_at DESC
+        """
+        params = {
+            "workspace_id": workspace_id,
+            "pack_id": pack_id,
+            "task_type": "suggestion",
+            "pending_status": TaskStatus.PENDING.value,
+            "running_status": TaskStatus.RUNNING.value,
+            "time_threshold": time_threshold,
+        }
+
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-
-            time_threshold = datetime.utcnow() - timedelta(hours=created_within_hours)
-
-            query = '''
-                SELECT * FROM tasks
-                WHERE workspace_id = ?
-                AND pack_id = ?
-                AND task_type = ?
-                AND status IN (?, ?)
-                AND created_at >= ?
-                ORDER BY created_at DESC
-            '''
-
-            cursor.execute(query, (
-                workspace_id,
-                pack_id,
-                'suggestion',
-                TaskStatus.PENDING.value,
-                TaskStatus.RUNNING.value,
-                self.to_isoformat(time_threshold)
-            ))
-
-            rows = cursor.fetchall()
+            rows = conn.execute(text(query), params).fetchall()
             return [self._row_to_task(row) for row in rows]
 
     def list_recently_completed_tasks(
         self,
         workspace_id: str,
         since: Optional[datetime] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ) -> List[Task]:
         """
         List recently completed tasks that haven't been displayed yet
@@ -534,72 +572,243 @@ class TasksStore(StoreBase):
         Returns:
             List of recently completed tasks
         """
+        query_parts = [
+            """
+            SELECT * FROM tasks
+            WHERE workspace_id = :workspace_id
+            AND status IN (:succeeded_status, :failed_status)
+            AND displayed_at IS NULL
+            """
+        ]
+        params: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "succeeded_status": TaskStatus.SUCCEEDED.value,
+            "failed_status": TaskStatus.FAILED.value,
+        }
+
+        if since:
+            query_parts.append("AND completed_at >= :since")
+            params["since"] = since
+
+        query_parts.append("ORDER BY completed_at DESC")
+
+        if limit:
+            query_parts.append("LIMIT :limit")
+            params["limit"] = limit
+
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-
-            query = '''
-                SELECT * FROM tasks
-                WHERE workspace_id = ?
-                AND status IN ('succeeded', 'failed')
-                AND displayed_at IS NULL
-            '''
-            params = [workspace_id]
-
-            if since:
-                query += ' AND completed_at >= ?'
-                params.append(self.to_isoformat(since))
-
-            query += ' ORDER BY completed_at DESC'
-
-            if limit:
-                query += ' LIMIT ?'
-                params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             return [self._row_to_task(row) for row in rows]
+
+    def list_runnable_playbook_execution_tasks(
+        self, workspace_id: Optional[str] = None, limit: int = 1
+    ) -> List[Task]:
+        query_parts = [
+            """
+            SELECT *
+            FROM tasks
+            WHERE task_type = :task_type
+            AND status = :status
+            """
+        ]
+        params: Dict[str, Any] = {
+            "task_type": "playbook_execution",
+            "status": TaskStatus.PENDING.value,
+        }
+
+        if workspace_id:
+            query_parts.append("AND workspace_id = :workspace_id")
+            params["workspace_id"] = workspace_id
+
+        query_parts.append("ORDER BY created_at ASC")
+        query_parts.append("LIMIT :limit")
+        params["limit"] = limit
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            return [self._row_to_task(row) for row in rows]
+
+    def list_running_playbook_execution_tasks(
+        self, workspace_id: Optional[str] = None, limit: int = 200
+    ) -> List[Task]:
+        query_parts = [
+            """
+            SELECT *
+            FROM tasks
+            WHERE task_type = :task_type
+            AND status = :status
+            """
+        ]
+        params: Dict[str, Any] = {
+            "task_type": "playbook_execution",
+            "status": TaskStatus.RUNNING.value,
+        }
+
+        if workspace_id:
+            query_parts.append("AND workspace_id = :workspace_id")
+            params["workspace_id"] = workspace_id
+
+        query_parts.append("ORDER BY created_at ASC")
+        query_parts.append("LIMIT :limit")
+        params["limit"] = limit
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            return [self._row_to_task(row) for row in rows]
+
+    def try_claim_task(self, task_id: str, runner_id: str) -> bool:
+        now = datetime.utcnow()
+
+        with self.transaction() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT status, execution_context
+                    FROM tasks
+                    WHERE id = :task_id
+                """
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+            if not row:
+                return False
+
+            current_status = getattr(row, "status", None)
+            if current_status != TaskStatus.PENDING.value:
+                return False
+
+            existing_ctx: Dict[str, Any] = {}
+            raw_ctx = getattr(row, "execution_context", None)
+            if raw_ctx:
+                existing_ctx = self.deserialize_json(raw_ctx, {})
+
+            ctx = dict(existing_ctx) if isinstance(existing_ctx, dict) else {}
+            ctx["runner_id"] = runner_id
+            ctx["heartbeat_at"] = now.isoformat()
+
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET status = :running_status,
+                        started_at = :started_at,
+                        execution_context = :execution_context
+                    WHERE id = :task_id AND status = :pending_status
+                """
+                ),
+                {
+                    "running_status": TaskStatus.RUNNING.value,
+                    "pending_status": TaskStatus.PENDING.value,
+                    "started_at": now,
+                    "execution_context": self.serialize_json(ctx),
+                    "task_id": task_id,
+                },
+            )
+            return result.rowcount == 1
+
+    def update_task_heartbeat(
+        self, task_id: str, runner_id: Optional[str] = None
+    ) -> None:
+        now = datetime.utcnow()
+        now_iso = now.isoformat()
+        task = self.get_task(task_id)
+        if not task:
+            return
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        ctx = dict(ctx)
+        ctx["heartbeat_at"] = now_iso
+        if runner_id:
+            ctx["runner_id"] = runner_id
+
+        try:
+            exec_mode = (ctx.get("execution_mode") or "").strip().lower()
+        except Exception:
+            exec_mode = ""
+
+        should_revive = False
+        if runner_id and exec_mode == "runner":
+            try:
+                if (
+                    task.status == TaskStatus.FAILED
+                    and (task.error or "") == "Execution interrupted by server restart"
+                ):
+                    hb = None
+                    ca = getattr(task, "completed_at", None)
+                    try:
+                        hb_raw = ctx.get("heartbeat_at")
+                        hb = (
+                            datetime.fromisoformat(hb_raw)
+                            if isinstance(hb_raw, str) and hb_raw.strip()
+                            else None
+                        )
+                    except Exception:
+                        hb = None
+                    try:
+                        ca_dt = ca if isinstance(ca, datetime) else None
+                    except Exception:
+                        ca_dt = None
+                    if hb and ca_dt and hb > ca_dt:
+                        should_revive = True
+                    elif hb and not ca_dt:
+                        should_revive = True
+            except Exception:
+                should_revive = False
+
+        if should_revive:
+            ctx["status"] = "running"
+            self.update_task(
+                task_id,
+                execution_context=ctx,
+                status=TaskStatus.RUNNING,
+                error=None,
+            )
+        else:
+            self.update_task(task_id, execution_context=ctx)
+        logger.info("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
+
+    def _coerce_datetime(self, value: Optional[Any]) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        return self.from_isoformat(value)
 
     def _row_to_task(self, row) -> Task:
         """Convert database row to Task model"""
-        # Handle optional execution_context field
         execution_context = None
         try:
-            if 'execution_context' in row.keys() and row['execution_context']:
-                execution_context = self.deserialize_json(row['execution_context'])
-        except (KeyError, TypeError):
-            pass
+            raw_ctx = getattr(row, "execution_context", None)
+            if raw_ctx:
+                execution_context = self.deserialize_json(raw_ctx)
+        except Exception:
+            execution_context = None
 
-        # Handle optional storyline_tags field - it may not exist in older database rows
         storyline_tags = []
         try:
-            if 'storyline_tags' in row.keys() and row['storyline_tags']:
-                storyline_tags = self.deserialize_json(row['storyline_tags'], [])
-        except (KeyError, TypeError, IndexError):
-            pass
+            raw_tags = getattr(row, "storyline_tags", None)
+            if raw_tags:
+                storyline_tags = self.deserialize_json(raw_tags, [])
+        except Exception:
+            storyline_tags = []
 
-        # Handle optional project_id field - it may not exist in older database rows
-        project_id = None
-        try:
-            if 'project_id' in row.keys():
-                project_id = row['project_id']
-        except (KeyError, TypeError):
-            pass
+        project_id = getattr(row, "project_id", None)
 
         return Task(
-            id=row['id'],
-            workspace_id=row['workspace_id'],
-            message_id=row['message_id'],
-            execution_id=row['execution_id'],
+            id=row.id,
+            workspace_id=row.workspace_id,
+            message_id=row.message_id,
+            execution_id=row.execution_id,
             project_id=project_id,
-            pack_id=row['pack_id'],
-            task_type=row['task_type'],
-            status=TaskStatus(row['status']),
-            params=self.deserialize_json(row['params'], {}),
-            result=self.deserialize_json(row['result']),
+            pack_id=row.pack_id,
+            task_type=row.task_type,
+            status=TaskStatus(row.status),
+            params=self.deserialize_json(row.params, {}),
+            result=self.deserialize_json(row.result),
             execution_context=execution_context,
             storyline_tags=storyline_tags,
-            created_at=self.from_isoformat(row['created_at']),
-            started_at=self.from_isoformat(row['started_at']),
-            completed_at=self.from_isoformat(row['completed_at']),
-            error=row['error']
+            created_at=self._coerce_datetime(row.created_at),
+            started_at=self._coerce_datetime(row.started_at),
+            completed_at=self._coerce_datetime(row.completed_at),
+            error=row.error,
         )

@@ -4,17 +4,20 @@ ToolCalls Store Service
 Handles storage and retrieval of ToolCall records for playbook execution tracking.
 """
 
-import json
-import sqlite3
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+
+from sqlalchemy import text
+
+from app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
 
 
 class ToolCall:
     """ToolCall model for database operations"""
+
     def __init__(
         self,
         id: str,
@@ -30,7 +33,7 @@ class ToolCall:
         factory_cluster: Optional[str],
         started_at: Optional[datetime],
         completed_at: Optional[datetime],
-        created_at: datetime
+        created_at: datetime,
     ):
         self.id = id
         self.execution_id = execution_id
@@ -48,58 +51,53 @@ class ToolCall:
         self.created_at = created_at
 
 
-class ToolCallsStore:
-    """Store for ToolCall records"""
+class ToolCallsStore(PostgresStoreBase):
+    """Store for ToolCall records (Postgres)."""
 
-    def __init__(self, db_path: str):
-        """
-        Initialize ToolCallsStore
-
-        Args:
-            db_path: Path to SQLite database file
-        """
+    def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
+        super().__init__(db_role=db_role)
         self.db_path = db_path
 
     def create_tool_call(self, tool_call: ToolCall) -> ToolCall:
-        """
-        Create a new ToolCall record
-
-        Args:
-            tool_call: ToolCall instance
-
-        Returns:
-            Created ToolCall
-        """
+        """Create a new ToolCall record"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-
-                cursor.execute('''
-                    INSERT INTO tool_calls (
-                        id, execution_id, step_id, tool_name, tool_id,
-                        parameters, response, status, error, duration_ms,
-                        factory_cluster, started_at, completed_at, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    tool_call.id,
-                    tool_call.execution_id,
-                    tool_call.step_id,
-                    tool_call.tool_name,
-                    tool_call.tool_id,
-                    json.dumps(tool_call.parameters),
-                    json.dumps(tool_call.response) if tool_call.response else None,
-                    tool_call.status,
-                    tool_call.error,
-                    tool_call.duration_ms,
-                    tool_call.factory_cluster,
-                    tool_call.started_at.isoformat() if tool_call.started_at else None,
-                    tool_call.completed_at.isoformat() if tool_call.completed_at else None,
-                    tool_call.created_at.isoformat()
-                ))
-
-                conn.commit()
-                logger.debug(f"Created ToolCall {tool_call.id} for tool {tool_call.tool_name}")
+            with self.transaction() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO tool_calls (
+                            id, execution_id, step_id, tool_name, tool_id,
+                            parameters, response, status, error, duration_ms,
+                            factory_cluster, started_at, completed_at, created_at
+                        ) VALUES (
+                            :id, :execution_id, :step_id, :tool_name, :tool_id,
+                            :parameters, :response, :status, :error, :duration_ms,
+                            :factory_cluster, :started_at, :completed_at, :created_at
+                        )
+                    """
+                    ),
+                    {
+                        "id": tool_call.id,
+                        "execution_id": tool_call.execution_id,
+                        "step_id": tool_call.step_id,
+                        "tool_name": tool_call.tool_name,
+                        "tool_id": tool_call.tool_id,
+                        "parameters": self.serialize_json(tool_call.parameters),
+                        "response": self.serialize_json(tool_call.response)
+                        if tool_call.response
+                        else None,
+                        "status": tool_call.status,
+                        "error": tool_call.error,
+                        "duration_ms": tool_call.duration_ms,
+                        "factory_cluster": tool_call.factory_cluster,
+                        "started_at": tool_call.started_at,
+                        "completed_at": tool_call.completed_at,
+                        "created_at": tool_call.created_at,
+                    },
+                )
+                logger.debug(
+                    f"Created ToolCall {tool_call.id} for tool {tool_call.tool_name}"
+                )
                 return tool_call
         except Exception as e:
             logger.error(f"Failed to create ToolCall: {e}", exc_info=True)
@@ -108,12 +106,11 @@ class ToolCallsStore:
     def get_tool_call(self, tool_call_id: str) -> Optional[ToolCall]:
         """Get ToolCall by ID"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-
-                cursor.execute('SELECT * FROM tool_calls WHERE id = ?', (tool_call_id,))
-                row = cursor.fetchone()
+            with self.get_connection() as conn:
+                row = conn.execute(
+                    text("SELECT * FROM tool_calls WHERE id = :id"),
+                    {"id": tool_call_id},
+                ).fetchone()
 
                 if not row:
                     return None
@@ -128,33 +125,27 @@ class ToolCallsStore:
         execution_id: Optional[str] = None,
         step_id: Optional[str] = None,
         tool_name: Optional[str] = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[ToolCall]:
         """List ToolCalls with filters"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-
-                query = 'SELECT * FROM tool_calls WHERE 1=1'
-                params = []
+            with self.get_connection() as conn:
+                query = "SELECT * FROM tool_calls WHERE 1=1"
+                params: Dict[str, Any] = {"limit": limit}
 
                 if execution_id:
-                    query += ' AND execution_id = ?'
-                    params.append(execution_id)
+                    query += " AND execution_id = :execution_id"
+                    params["execution_id"] = execution_id
                 if step_id:
-                    query += ' AND step_id = ?'
-                    params.append(step_id)
+                    query += " AND step_id = :step_id"
+                    params["step_id"] = step_id
                 if tool_name:
-                    query += ' AND tool_name = ?'
-                    params.append(tool_name)
+                    query += " AND tool_name = :tool_name"
+                    params["tool_name"] = tool_name
 
-                query += ' ORDER BY created_at DESC LIMIT ?'
-                params.append(limit)
+                query += " ORDER BY created_at DESC LIMIT :limit"
 
-                cursor.execute(query, params)
-                rows = cursor.fetchall()
-
+                rows = conn.execute(text(query), params).fetchall()
                 return [self._row_to_tool_call(row) for row in rows]
         except Exception as e:
             logger.error(f"Failed to list ToolCalls: {e}", exc_info=True)
@@ -166,80 +157,70 @@ class ToolCallsStore:
         status: str,
         response: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
-        completed_at: Optional[datetime] = None
+        completed_at: Optional[datetime] = None,
     ) -> bool:
         """Update ToolCall status and response"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-
-                update_fields = ['status = ?']
-                params = [status]
+            with self.transaction() as conn:
+                update_fields = ["status = :status"]
+                params: Dict[str, Any] = {
+                    "status": status,
+                    "id": tool_call_id,
+                }
 
                 if response is not None:
-                    update_fields.append('response = ?')
-                    params.append(json.dumps(response))
+                    update_fields.append("response = :response")
+                    params["response"] = self.serialize_json(response)
 
                 if error is not None:
-                    update_fields.append('error = ?')
-                    params.append(error)
+                    update_fields.append("error = :error")
+                    params["error"] = error
 
                 if completed_at:
-                    update_fields.append('completed_at = ?')
-                    params.append(completed_at.isoformat())
+                    update_fields.append("completed_at = :completed_at")
+                    params["completed_at"] = completed_at
 
-                    # Calculate duration if we have started_at
-                    cursor.execute('SELECT started_at FROM tool_calls WHERE id = ?', (tool_call_id,))
-                    row = cursor.fetchone()
-                    if row and row[0]:
-                        started = datetime.fromisoformat(row[0])
-                        duration_ms = int((completed_at - started).total_seconds() * 1000)
-                        update_fields.append('duration_ms = ?')
-                        params.append(duration_ms)
+                    row = conn.execute(
+                        text("SELECT started_at FROM tool_calls WHERE id = :id"),
+                        {"id": tool_call_id},
+                    ).fetchone()
+                    if row and row._mapping.get("started_at"):
+                        started = row._mapping["started_at"]
+                        duration_ms = int(
+                            (completed_at - started).total_seconds() * 1000
+                        )
+                        update_fields.append("duration_ms = :duration_ms")
+                        params["duration_ms"] = duration_ms
 
-                params.append(tool_call_id)
-
-                cursor.execute(
-                    f'UPDATE tool_calls SET {", ".join(update_fields)} WHERE id = ?',
-                    params
+                query = text(
+                    f"UPDATE tool_calls SET {', '.join(update_fields)} WHERE id = :id"
                 )
-
-                conn.commit()
-                return cursor.rowcount > 0
+                result = conn.execute(query, params)
+                return result.rowcount > 0
         except Exception as e:
             logger.error(f"Failed to update ToolCall status: {e}", exc_info=True)
             return False
 
-    def _row_to_tool_call(self, row: sqlite3.Row) -> ToolCall:
+    def _row_to_tool_call(self, row) -> ToolCall:
         """Convert database row to ToolCall"""
-        parameters = {}
-        if row['parameters']:
-            try:
-                parameters = json.loads(row['parameters'])
-            except Exception:
-                pass
-
+        data = row._mapping if hasattr(row, "_mapping") else row
         response = None
-        if row['response']:
-            try:
-                response = json.loads(row['response'])
-            except Exception:
-                pass
+        if data["response"] is not None:
+            response = self.deserialize_json(data["response"], None)
 
         return ToolCall(
-            id=row['id'],
-            execution_id=row['execution_id'],
-            step_id=row['step_id'],
-            tool_name=row['tool_name'],
-            tool_id=row['tool_id'],
-            parameters=parameters,
+            id=data["id"],
+            execution_id=data["execution_id"],
+            step_id=data["step_id"],
+            tool_name=data["tool_name"],
+            tool_id=data["tool_id"],
+            parameters=self.deserialize_json(data["parameters"], {}),
             response=response,
-            status=row['status'],
-            error=row['error'],
-            duration_ms=row['duration_ms'],
-            factory_cluster=row['factory_cluster'],
-            started_at=datetime.fromisoformat(row['started_at']) if row['started_at'] else None,
-            completed_at=datetime.fromisoformat(row['completed_at']) if row['completed_at'] else None,
-            created_at=datetime.fromisoformat(row['created_at'])
+            status=data["status"],
+            error=data["error"],
+            duration_ms=data["duration_ms"],
+            factory_cluster=data["factory_cluster"],
+            started_at=data["started_at"],
+            completed_at=data["completed_at"],
+            created_at=data["created_at"],
         )
-

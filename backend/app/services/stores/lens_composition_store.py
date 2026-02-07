@@ -1,193 +1,160 @@
-"""Lens Composition store for data persistence."""
+"""Lens Composition store for data persistence (Postgres)."""
 import logging
 from datetime import datetime
 from typing import List, Optional
 
-from .base import StoreBase
+from sqlalchemy import text
+
+from app.services.stores.postgres_base import PostgresStoreBase
 from ...models.lens_composition import LensComposition, LensReference
 
 logger = logging.getLogger(__name__)
 
 
-class LensCompositionStore(StoreBase):
-    """Store for managing Lens Compositions."""
+class LensCompositionStore(PostgresStoreBase):
+    """Store for managing Lens Compositions (Postgres)."""
+
+    def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
+        super().__init__(db_role=db_role)
+        self.db_path = db_path
 
     def create_composition(self, composition: LensComposition) -> LensComposition:
-        """
-        Create a new composition.
-
-        Args:
-            composition: Composition to create
-
-        Returns:
-            Created composition
-        """
+        """Create a new composition."""
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+            query = text(
+                """
                 INSERT INTO lens_compositions (
                     composition_id, workspace_id, name, description,
                     lens_stack, fusion_strategy, metadata, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                composition.composition_id,
-                composition.workspace_id,
-                composition.name,
-                composition.description,
-                self.serialize_json([l.dict() for l in composition.lens_stack]),
-                composition.fusion_strategy,
-                self.serialize_json(composition.metadata),
-                self.to_isoformat(composition.created_at or datetime.utcnow()),
-                self.to_isoformat(composition.updated_at or datetime.utcnow())
-            ))
+                ) VALUES (
+                    :composition_id, :workspace_id, :name, :description,
+                    :lens_stack, :fusion_strategy, :metadata, :created_at, :updated_at
+                )
+            """
+            )
+            params = {
+                "composition_id": composition.composition_id,
+                "workspace_id": composition.workspace_id,
+                "name": composition.name,
+                "description": composition.description,
+                "lens_stack": self.serialize_json(
+                    [l.dict() for l in composition.lens_stack]
+                ),
+                "fusion_strategy": composition.fusion_strategy,
+                "metadata": self.serialize_json(composition.metadata),
+                "created_at": composition.created_at or datetime.utcnow(),
+                "updated_at": composition.updated_at or datetime.utcnow(),
+            }
+            conn.execute(query, params)
             logger.info(f"Created Lens Composition: {composition.composition_id}")
             return composition
 
     def get_composition(self, composition_id: str) -> Optional[LensComposition]:
-        """
-        Get composition by ID.
-
-        Args:
-            composition_id: Composition ID
-
-        Returns:
-            Composition or None if not found
-        """
+        """Get composition by ID."""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM lens_compositions WHERE composition_id = ?', (composition_id,))
-            row = cursor.fetchone()
+            row = conn.execute(
+                text(
+                    "SELECT * FROM lens_compositions WHERE composition_id = :composition_id"
+                ),
+                {"composition_id": composition_id},
+            ).fetchone()
             if not row:
                 return None
             return self._row_to_composition(row)
 
-    def update_composition(
-        self,
-        composition_id: str,
-        updates: dict
-    ) -> Optional[LensComposition]:
-        """
-        Update composition.
-
-        Args:
-            composition_id: Composition ID
-            updates: Update fields
-
-        Returns:
-            Updated composition or None if not found
-        """
-        with self.transaction() as conn:
-            cursor = conn.cursor()
-
-            set_clauses = []
-            params = []
-
-            if 'name' in updates:
-                set_clauses.append('name = ?')
-                params.append(updates['name'])
-
-            if 'description' in updates:
-                set_clauses.append('description = ?')
-                params.append(updates['description'])
-
-            if 'lens_stack' in updates:
-                set_clauses.append('lens_stack = ?')
-                params.append(self.serialize_json([l.dict() if hasattr(l, 'dict') else l for l in updates['lens_stack']]))
-
-            if 'fusion_strategy' in updates:
-                set_clauses.append('fusion_strategy = ?')
-                params.append(updates['fusion_strategy'])
-
-            if 'metadata' in updates:
-                set_clauses.append('metadata = ?')
-                params.append(self.serialize_json(updates['metadata']))
-
-            if not set_clauses:
-                return self.get_composition(composition_id)
-
-            set_clauses.append('updated_at = ?')
-            params.append(self.to_isoformat(datetime.utcnow()))
-            params.append(composition_id)
-
-            cursor.execute(
-                f'UPDATE lens_compositions SET {", ".join(set_clauses)} WHERE composition_id = ?',
-                params
-            )
-
-            if cursor.rowcount == 0:
-                return None
-
-            logger.info(f"Updated Lens Composition: {composition_id}")
+    def update_composition(self, composition_id: str, updates: dict) -> Optional[LensComposition]:
+        """Update composition."""
+        if not updates:
             return self.get_composition(composition_id)
 
-    def delete_composition(self, composition_id: str) -> bool:
-        """
-        Delete composition.
+        set_clauses = []
+        params = {"composition_id": composition_id}
 
-        Args:
-            composition_id: Composition ID
+        if "name" in updates:
+            set_clauses.append("name = :name")
+            params["name"] = updates["name"]
 
-        Returns:
-            True if deleted, False if not found
-        """
+        if "description" in updates:
+            set_clauses.append("description = :description")
+            params["description"] = updates["description"]
+
+        if "lens_stack" in updates:
+            set_clauses.append("lens_stack = :lens_stack")
+            params["lens_stack"] = self.serialize_json(
+                [l.dict() if hasattr(l, "dict") else l for l in updates["lens_stack"]]
+            )
+
+        if "fusion_strategy" in updates:
+            set_clauses.append("fusion_strategy = :fusion_strategy")
+            params["fusion_strategy"] = updates["fusion_strategy"]
+
+        if "metadata" in updates:
+            set_clauses.append("metadata = :metadata")
+            params["metadata"] = self.serialize_json(updates["metadata"])
+
+        if not set_clauses:
+            return self.get_composition(composition_id)
+
+        set_clauses.append("updated_at = :updated_at")
+        params["updated_at"] = datetime.utcnow()
+
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM lens_compositions WHERE composition_id = ?', (composition_id,))
-            deleted = cursor.rowcount > 0
+            result = conn.execute(
+                text(
+                    f"UPDATE lens_compositions SET {', '.join(set_clauses)} WHERE composition_id = :composition_id"
+                ),
+                params,
+            )
+            if result.rowcount == 0:
+                return None
+
+        logger.info(f"Updated Lens Composition: {composition_id}")
+        return self.get_composition(composition_id)
+
+    def delete_composition(self, composition_id: str) -> bool:
+        """Delete composition."""
+        with self.transaction() as conn:
+            result = conn.execute(
+                text(
+                    "DELETE FROM lens_compositions WHERE composition_id = :composition_id"
+                ),
+                {"composition_id": composition_id},
+            )
+            deleted = result.rowcount > 0
             if deleted:
                 logger.info(f"Deleted Lens Composition: {composition_id}")
             return deleted
 
     def list_compositions(
-        self,
-        workspace_id: Optional[str] = None,
-        limit: int = 50
+        self, workspace_id: Optional[str] = None, limit: int = 50
     ) -> List[LensComposition]:
-        """
-        List compositions with filters.
-
-        Args:
-            workspace_id: Optional workspace filter
-            limit: Maximum number of results
-
-        Returns:
-            List of compositions
-        """
+        """List compositions with filters."""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
+            query_str = "SELECT * FROM lens_compositions"
+            params = {"limit": limit}
             if workspace_id:
-                cursor.execute(
-                    'SELECT * FROM lens_compositions WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT ?',
-                    (workspace_id, limit)
-                )
+                query_str += " WHERE workspace_id = :workspace_id ORDER BY updated_at DESC LIMIT :limit"
+                params["workspace_id"] = workspace_id
             else:
-                cursor.execute(
-                    'SELECT * FROM lens_compositions ORDER BY updated_at DESC LIMIT ?',
-                    (limit,)
-                )
-            rows = cursor.fetchall()
+                query_str += " ORDER BY updated_at DESC LIMIT :limit"
+
+            rows = conn.execute(text(query_str), params).fetchall()
             return [self._row_to_composition(row) for row in rows]
 
     def _row_to_composition(self, row) -> LensComposition:
         """Convert database row to LensComposition."""
-        lens_stack_data = self.deserialize_json(row['lens_stack'], default=[])
+        data = row._mapping if hasattr(row, "_mapping") else row
+        lens_stack_data = self.deserialize_json(data["lens_stack"], default=[])
         lens_stack = [LensReference(**l) for l in lens_stack_data]
 
         return LensComposition(
-            composition_id=row['composition_id'],
-            workspace_id=row['workspace_id'],
-            name=row['name'],
-            description=row['description'],
+            composition_id=data["composition_id"],
+            workspace_id=data["workspace_id"],
+            name=data["name"],
+            description=data["description"],
             lens_stack=lens_stack,
-            fusion_strategy=row['fusion_strategy'] or 'priority_then_weighted',
-            metadata=self.deserialize_json(row['metadata']),
-            created_at=self.from_isoformat(row['created_at']),
-            updated_at=self.from_isoformat(row['updated_at'])
+            fusion_strategy=data["fusion_strategy"] or "priority_then_weighted",
+            metadata=self.deserialize_json(data["metadata"]),
+            created_at=data["created_at"],
+            updated_at=data["updated_at"],
         )
-
-
-
-
-
-
-

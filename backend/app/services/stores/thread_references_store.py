@@ -161,9 +161,9 @@ class ThreadReferencesStore(StoreBase):
             source_type=row['source_type'],
             uri=row['uri'],
             title=row['title'],
-            snippet=row['snippet'] if row.get('snippet') else None,
-            reason=row['reason'] if row.get('reason') else None,
-            pinned_by=row['pinned_by'] if row.get('pinned_by') else 'user',
+            snippet=row['snippet'] if 'snippet' in row.keys() and row['snippet'] else None,
+            reason=row['reason'] if 'reason' in row.keys() and row['reason'] else None,
+            pinned_by=row['pinned_by'] if 'pinned_by' in row.keys() and row['pinned_by'] else 'user',
             created_at=self.from_isoformat(row['created_at']),
             updated_at=self.from_isoformat(row['updated_at'])
         )

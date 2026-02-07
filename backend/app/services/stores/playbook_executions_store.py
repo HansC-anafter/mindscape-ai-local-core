@@ -403,13 +403,13 @@ class PlaybookExecutionsStore(StoreBase):
             workspace_id=row["workspace_id"],
             playbook_code=row["playbook_code"],
             intent_instance_id=row["intent_instance_id"],
-            thread_id=row.get("thread_id"),
+            thread_id=str(row["thread_id"]) if "thread_id" in row.keys() and row["thread_id"] else None,
             status=row["status"],
             phase=row["phase"],
             last_checkpoint=row["last_checkpoint"],
             progress_log_path=row["progress_log_path"],
             feature_list_path=row["feature_list_path"],
-            metadata=self.deserialize_json(row.get("metadata")) if row.get("metadata") else None,
+            metadata=self.deserialize_json(row["metadata"]) if "metadata" in row.keys() and row["metadata"] else None,
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"])
         )
