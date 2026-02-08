@@ -1,0 +1,140 @@
+# .dockerignore for local-core
+# 排除 cloud playbook packs 和其他不需要的文件
+
+# ============================================
+# Cloud Playbook Packs (必须排除)
+# ============================================
+# 排除所有 cloud 相关的 playbook packs
+# 这些路径通过 CapabilityInstaller 安装，不应进入 local-core image
+**/playbook-packs/**
+backend/playbooks/packs-cloud/**
+backend/packs/cloud/**
+# ⚠️ 关键：排除 cloud capability packs 的安装位置
+backend/app/capabilities/**
+web-console/src/app/capabilities/**
+# 如果存在其他 cloud pack 目录，也排除
+backend/app/services/cloud_providers/**
+backend/app/services/cloud_sync/**
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ============================================
+# Node
+# ============================================
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# IDEs
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ============================================
+# OS
+# ============================================
+.DS_Store
+Thumbs.db
+
+# ============================================
+# Data (本地开发数据，不应进入 image)
+# ============================================
+*.db
+*.sqlite
+data/
+uploads/
+logs/
+*.log
+
+# ============================================
+# Environment
+# ============================================
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# Temporary
+# ============================================
+*.tmp
+temp/
+tmp/
+
+# ============================================
+# Test files
+# ============================================
+test_data/
+*.test.*
+*_test.py
+*_test.json
+*_test.yaml
+test_*.py
+test_*.json
+test_*.yaml
+tests/
+
+# ============================================
+# Internal documentation
+# ============================================
+docs-internal/
+**/*_COMPLETE_REPORT.md
+**/*_PROGRESS_REPORT.md
+**/*_TODOS.md
+**/*_TESTING*.md
+**/*_TEST_LOG*.md
+**/PHASE*.md
+**/REFACTORING_*.md
+**/ARCHITECTURE_NEUTRALITY_*.md
+**/*DEBUG*.md
+**/*_EXPERIENCE_SUMMARY.md
+**/*_IMPLEMENTATION_*.md
+**/ROUTES_CLASSIFICATION.md
+**/*_CLASSIFICATION.md
+**/*_ANALYSIS.md
+
+# ============================================
+# Internal scripts
+# ============================================
+scripts-internal/
+
+# ============================================
+# Local development overrides
+# ============================================
+docker-compose.override.yml
+
+# ============================================
+# Git
+# ============================================
+.git
+.gitignore
+
+# ============================================
+# Nested backend/backend/ (should not exist)
+# ============================================
+backend/backend/
+

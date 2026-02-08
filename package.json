@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@types/dagre": "^0.7.53",
+    "dagre": "^0.8.5",
+    "reactflow": "^11.11.4"
+  }
+}

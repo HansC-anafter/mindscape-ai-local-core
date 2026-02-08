@@ -1,0 +1,203 @@
+# Docker Compose - Monitoring Stack for Mindscape AI Local-Core
+#
+# Architecture:
+# 1. Prometheus (Agent mode) - Local 7-day retention
+# 2. VictoriaMetrics (Single node) - Long-term storage 90 days
+# 3. Grafana (On-demand) - Run only when needed
+# 4. Alertmanager - Alerts (no Grafana required)
+#
+# Usage:
+# - Always running: docker compose -f docker-compose.monitoring.yml up -d prometheus victoria-metrics alertmanager
+# - On-demand Grafana: docker compose -f docker-compose.monitoring.yml up -d grafana
+# - Stop Grafana: docker compose -f docker-compose.monitoring.yml stop grafana
+#
+# Note: All data is stored locally (no GCP dependencies, no cloud costs)
+
+version: '3.8'
+
+services:
+  # === Prometheus Agent Mode (Local Short Retention) ===
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: mindscape-local-core-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=8GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-recording-rules.yml:/etc/prometheus/rules/recording.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - mindscape-network
+    environment:
+      - TZ=${TZ:-UTC}
+    # Resource limits (small size)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # === VictoriaMetrics Single Node (Long-term Storage) ===
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.96.0
+    container_name: mindscape-local-core-victoria-metrics
+    restart: unless-stopped
+    command:
+      - '--storageDataPath=/storage'
+      - '--retentionPeriod=90d'           # Retain 90 days
+      - '--httpListenAddr=:8428'
+      - '--search.maxQueryDuration=60s'   # Limit query duration
+      - '--search.maxConcurrentRequests=4' # Limit concurrent queries
+    volumes:
+      - victoria-metrics-data:/storage
+    ports:
+      - "8428:8428"
+    networks:
+      - mindscape-network
+    environment:
+      - TZ=${TZ:-UTC}
+    # Resource limits (medium size)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+  # === Grafana (On-demand, normally stopped) ===
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: mindscape-local-core-grafana
+    restart: "no"  # No auto-restart, manual control
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - mindscape-network
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=
+      - TZ=${TZ:-UTC}
+      # Performance optimization
+      - GF_DATABASE_WAL=true
+      - GF_DATABASE_CACHE_MODE=shared
+    # Resource limits (small size)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # === Alertmanager (Alerts without Grafana) ===
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: mindscape-local-core-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks:
+      - mindscape-network
+    environment:
+      - TZ=${TZ:-UTC}
+    # Resource limits (very small size)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # === Node Exporter (System Metrics) ===
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: mindscape-local-core-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      - "9100:9100"
+    networks:
+      - mindscape-network
+    # Resource limits (very small size)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+
+volumes:
+  prometheus-data:
+    driver: local
+  victoria-metrics-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+
+networks:
+  mindscape-network:
+    name: mindscape-network  # Match network name from docker-compose.yml
+    external: true  # Use existing network from docker-compose.yml
+
+# === Usage Instructions ===
+#
+# 1. Start core monitoring (always running):
+#    docker compose -f docker-compose.monitoring.yml up -d prometheus victoria-metrics alertmanager node-exporter
+#
+# 2. Start Grafana on-demand (when dashboard needed):
+#    docker compose -f docker-compose.monitoring.yml up -d grafana
+#
+# 3. Stop Grafana (save costs):
+#    docker compose -f docker-compose.monitoring.yml stop grafana
+#
+# 4. View metrics (without Grafana):
+#    - Prometheus: http://localhost:9090
+#    - VictoriaMetrics: http://localhost:8428
+#    - Node Exporter: http://localhost:9100/metrics
+#
+# 5. Scheduled start/stop Grafana (crontab example):
+#    # Start at 9:00 AM on weekdays
+#    0 9 * * 1-5 cd /path/to/mindscape-ai-local-core && docker compose -f docker-compose.monitoring.yml start grafana
+#    # Stop at 6:00 PM on weekdays
+#    0 18 * * 1-5 cd /path/to/mindscape-ai-local-core && docker compose -f docker-compose.monitoring.yml stop grafana
+#
+# Cost Benefits:
+# - All services run locally (no cloud costs)
+# - Grafana can be stopped when not needed
+# - Minimal resource usage (suitable for local development)
+
