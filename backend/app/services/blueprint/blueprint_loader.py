@@ -25,19 +25,25 @@ logger = logging.getLogger(__name__)
 
 class BlueprintInfo(BaseModel):
     """Blueprint metadata"""
+
     blueprint_id: str = Field(..., description="Blueprint identifier")
     title: str = Field(..., description="Blueprint display title")
     description: str = Field(..., description="Blueprint description")
     version: str = Field(..., description="Blueprint version")
-    workspace_type: Optional[str] = Field(None, description="Workspace type this blueprint creates")
+    workspace_type: Optional[str] = Field(
+        None, description="Workspace type this blueprint creates"
+    )
 
 
 class BlueprintLoadResult(BaseModel):
     """Result of loading a blueprint"""
+
     workspace_id: str = Field(..., description="Created workspace ID")
     blueprint_id: str = Field(..., description="Blueprint ID that was loaded")
     artifacts_created: int = Field(0, description="Number of artifacts created")
-    playbooks_recommended: List[str] = Field(default_factory=list, description="Recommended playbook IDs")
+    playbooks_recommended: List[str] = Field(
+        default_factory=list, description="Recommended playbook IDs"
+    )
 
 
 class BlueprintLoader:
@@ -86,7 +92,7 @@ class BlueprintLoader:
                 continue
 
             try:
-                with open(playbooks_json, 'r', encoding='utf-8') as f:
+                with open(playbooks_json, "r", encoding="utf-8") as f:
                     playbooks_data = json.load(f)
 
                 blueprint_info = BlueprintInfo(
@@ -94,11 +100,14 @@ class BlueprintLoader:
                     title=playbooks_data.get("title", blueprint_dir.name),
                     description=playbooks_data.get("description", ""),
                     version=playbooks_data.get("version", "1.0.0"),
-                    workspace_type=playbooks_data.get("workspace_type")
+                    workspace_type=playbooks_data.get("workspace_type"),
                 )
                 blueprints.append(blueprint_info)
             except Exception as e:
-                logger.error(f"Failed to load blueprint info from {blueprint_dir}: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to load blueprint info from {blueprint_dir}: {e}",
+                    exc_info=True,
+                )
 
         return blueprints
 
@@ -123,7 +132,7 @@ class BlueprintLoader:
         blueprint_id: str,
         owner_user_id: str,
         workspace_title: Optional[str] = None,
-        workspace_description: Optional[str] = None
+        workspace_description: Optional[str] = None,
     ) -> BlueprintLoadResult:
         """
         Load a blueprint and create a workspace
@@ -149,21 +158,25 @@ class BlueprintLoader:
         if not playbooks_json.exists():
             raise ValueError(f"Blueprint {blueprint_id} missing playbooks.json")
 
-        with open(playbooks_json, 'r', encoding='utf-8') as f:
+        with open(playbooks_json, "r", encoding="utf-8") as f:
             playbooks_data = json.load(f)
 
         workspace_json = blueprint_dir / "workspace.json"
         workspace_config = {}
         if workspace_json.exists():
-            with open(workspace_json, 'r', encoding='utf-8') as f:
+            with open(workspace_json, "r", encoding="utf-8") as f:
                 workspace_config = json.load(f)
 
         # Determine workspace type
-        workspace_type_str = playbooks_data.get("workspace_type") or workspace_config.get("workspace_type", "personal")
+        workspace_type_str = playbooks_data.get(
+            "workspace_type"
+        ) or workspace_config.get("workspace_type", "personal")
         try:
             workspace_type = WorkspaceType(workspace_type_str)
         except ValueError:
-            logger.warning(f"Invalid workspace_type {workspace_type_str}, defaulting to personal")
+            logger.warning(
+                f"Invalid workspace_type {workspace_type_str}, defaulting to personal"
+            )
             workspace_type = WorkspaceType.PERSONAL
 
         # Create workspace
@@ -178,17 +191,21 @@ class BlueprintLoader:
             default_locale=workspace_config.get("default_locale", "zh-TW"),
             mode=workspace_config.get("mode"),
             data_sources=workspace_config.get("data_sources"),
-            playbook_auto_execution_config=workspace_config.get("playbook_auto_execution_config"),
+            playbook_auto_execution_config=workspace_config.get(
+                "playbook_auto_execution_config"
+            ),
             execution_mode=workspace_config.get("execution_mode", "qa"),
             expected_artifacts=workspace_config.get("expected_artifacts"),
             execution_priority=workspace_config.get("execution_priority", "medium"),
             metadata=workspace_config.get("metadata", {}),
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
 
         created_workspace = self.store.workspaces.create_workspace(workspace)
-        logger.info(f"Created workspace {created_workspace.id} from blueprint {blueprint_id}")
+        logger.info(
+            f"Created workspace {created_workspace.id} from blueprint {blueprint_id}"
+        )
 
         # Load initial artifacts
         artifacts_created = self._load_artifacts(blueprint_dir, created_workspace.id)
@@ -200,7 +217,7 @@ class BlueprintLoader:
             workspace_id=created_workspace.id,
             blueprint_id=blueprint_id,
             artifacts_created=artifacts_created,
-            playbooks_recommended=recommended_playbooks
+            playbooks_recommended=recommended_playbooks,
         )
 
     def _load_artifacts(self, blueprint_dir: Path, workspace_id: str) -> int:
@@ -221,7 +238,7 @@ class BlueprintLoader:
         artifacts_created = 0
         for artifact_file in artifacts_dir.glob("*.md"):
             try:
-                with open(artifact_file, 'r', encoding='utf-8') as f:
+                with open(artifact_file, "r", encoding="utf-8") as f:
                     content = f.read()
 
                 # Parse front matter if present
@@ -234,13 +251,19 @@ class BlueprintLoader:
                         for line in front_matter.split("\n"):
                             if ":" in line:
                                 key, value = line.split(":", 1)
-                                metadata[key.strip()] = value.strip().strip('"').strip("'")
+                                metadata[key.strip()] = (
+                                    value.strip().strip('"').strip("'")
+                                )
                         content = parts[2].strip()
 
                 # Determine artifact kind from metadata or filename
                 kind = metadata.get("kind", artifact_file.stem)
-                title = metadata.get("title", artifact_file.stem.replace("_", " ").title())
-                summary = metadata.get("summary", content[:200] if len(content) > 200 else content)
+                title = metadata.get(
+                    "title", artifact_file.stem.replace("_", " ").title()
+                )
+                summary = metadata.get(
+                    "summary", content[:200] if len(content) > 200 else content
+                )
 
                 artifact = Artifact(
                     id=str(uuid.uuid4()),
@@ -253,13 +276,124 @@ class BlueprintLoader:
                     primary_action_type=PrimaryActionType.EDIT,
                     metadata={"kind": kind, **metadata},
                     created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    updated_at=datetime.utcnow(),
                 )
 
                 self.store.artifacts.create_artifact(artifact)
                 artifacts_created += 1
                 logger.info(f"Created artifact {artifact.id} ({kind}) from blueprint")
             except Exception as e:
-                logger.error(f"Failed to load artifact from {artifact_file}: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to load artifact from {artifact_file}: {e}", exc_info=True
+                )
 
         return artifacts_created
+
+    def export_to_blueprint(
+        self, workspace_id: str, blueprint_id: str, output_dir: Optional[Path] = None
+    ) -> Dict[str, Any]:
+        """
+        Export a workspace to a blueprint (reverse flow)
+
+        This enables workspace → blueprint migration, creating portable
+        brand content that can be versioned and transferred.
+
+        Args:
+            workspace_id: Workspace ID to export
+            blueprint_id: Target blueprint identifier
+            output_dir: Output directory (defaults to blueprints_dir)
+
+        Returns:
+            Dict with export results including artifacts count and path
+        """
+        target_dir = (output_dir or self.blueprints_dir) / blueprint_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        artifacts_dir = target_dir / "artifacts"
+        artifacts_dir.mkdir(exist_ok=True)
+
+        # Get workspace
+        workspace = self.store.workspaces.get(workspace_id)
+        if not workspace:
+            raise ValueError(f"Workspace not found: {workspace_id}")
+
+        # Export workspace config
+        workspace_config = {
+            "workspace_type": (
+                workspace.workspace_type.value
+                if workspace.workspace_type
+                else "personal"
+            ),
+            "default_locale": workspace.default_locale or "zh-TW",
+            "mode": workspace.mode,
+            "execution_mode": workspace.execution_mode or "qa",
+            "metadata": workspace.metadata or {},
+        }
+        with open(target_dir / "workspace.json", "w", encoding="utf-8") as f:
+            json.dump(workspace_config, f, indent=2, ensure_ascii=False)
+
+        # Export playbooks reference
+        playbooks_config = {
+            "blueprint_id": blueprint_id,
+            "title": workspace.title,
+            "description": workspace.description or "",
+            "version": "1.0.0",
+            "workspace_type": workspace_config["workspace_type"],
+            "playbooks": [],  # Playbook IDs can be added later
+        }
+        with open(target_dir / "playbooks.json", "w", encoding="utf-8") as f:
+            json.dump(playbooks_config, f, indent=2, ensure_ascii=False)
+
+        # Export artifacts as markdown files
+        artifacts = self.store.artifacts.list_by_workspace(workspace_id)
+        artifacts_exported = 0
+        for artifact in artifacts:
+            try:
+                kind = (
+                    artifact.metadata.get("kind", "unknown")
+                    if artifact.metadata
+                    else "unknown"
+                )
+                filename = f"{kind}.md"
+
+                # Build front matter
+                front_matter = [
+                    "---",
+                    f'kind: "{kind}"',
+                    f'title: "{artifact.title}"',
+                    f'summary: "{artifact.summary[:100] if artifact.summary else ""}"',
+                    f'workspace_id: "{workspace_id}"',
+                    "---",
+                    "",
+                ]
+
+                # Get content
+                content = ""
+                if artifact.content:
+                    if isinstance(artifact.content, dict):
+                        content = artifact.content.get("markdown", "")
+                    else:
+                        content = str(artifact.content)
+
+                full_content = "\n".join(front_matter) + content
+
+                with open(artifacts_dir / filename, "w", encoding="utf-8") as f:
+                    f.write(full_content)
+
+                artifacts_exported += 1
+                logger.info(f"Exported artifact {artifact.id} ({kind}) to {filename}")
+            except Exception as e:
+                logger.error(
+                    f"Failed to export artifact {artifact.id}: {e}", exc_info=True
+                )
+
+        logger.info(
+            f"Exported workspace {workspace_id} to blueprint {blueprint_id} ({artifacts_exported} artifacts)"
+        )
+
+        return {
+            "success": True,
+            "blueprint_id": blueprint_id,
+            "blueprint_path": str(target_dir),
+            "artifacts_exported": artifacts_exported,
+            "workspace_id": workspace_id,
+        }

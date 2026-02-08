@@ -34,6 +34,7 @@ class PlaybookScopeResolver:
         self.store = store
         self.project_manager = ProjectManager(store)
         from backend.app.services.playbook_service import PlaybookService
+
         self.playbook_service = PlaybookService(store)
 
     async def resolve_effective_playbooks(
@@ -58,13 +59,12 @@ class PlaybookScopeResolver:
             List of effective playbooks (dict format for ExecutionPlanGenerator)
         """
         all_candidates = await self._list_visible_playbooks(
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            user_id=user_id
+            tenant_id=tenant_id, workspace_id=workspace_id, user_id=user_id
         )
 
         scoped = [
-            pb for pb in all_candidates
+            pb
+            for pb in all_candidates
             if self._is_playbook_visible_to_user_in_workspace(
                 pb, user_id, workspace_id, tenant_id
             )
@@ -72,24 +72,28 @@ class PlaybookScopeResolver:
 
         if project_profile:
             scoped = [
-                pb for pb in scoped
+                pb
+                for pb in scoped
                 if self._matches_project_capability_profile(pb, project_profile)
             ]
 
         if project_id:
-            project = await self.project_manager.get_project(project_id, workspace_id=workspace_id)
+            project = await self.project_manager.get_project(
+                project_id, workspace_id=workspace_id
+            )
             if project:
                 scoped = [
-                    pb for pb in scoped
-                    if self._matches_project_type(pb, project)
+                    pb for pb in scoped if self._matches_project_type(pb, project)
                 ]
 
         executable_playbooks = [
-            pb for pb in scoped
+            pb
+            for pb in scoped
             if pb.get("visibility") != PlaybookVisibility.PUBLIC_TEMPLATE
         ]
         template_playbooks = [
-            pb for pb in scoped
+            pb
+            for pb in scoped
             if pb.get("visibility") == PlaybookVisibility.PUBLIC_TEMPLATE
         ]
 
@@ -102,10 +106,7 @@ class PlaybookScopeResolver:
         return executable_playbooks
 
     async def _list_visible_playbooks(
-        self,
-        tenant_id: Optional[str],
-        workspace_id: str,
-        user_id: str
+        self, tenant_id: Optional[str], workspace_id: str, user_id: str
     ) -> List[Dict[str, Any]]:
         """
         List all playbooks visible to this context
@@ -128,13 +129,14 @@ class PlaybookScopeResolver:
 
         if tenant_id:
             tenant_playbooks = await self.playbook_service.list_by_owner_type(
-                owner_type=PlaybookOwnerType.TENANT,
-                owner_id=tenant_id
+                owner_type=PlaybookOwnerType.TENANT, owner_id=tenant_id
             )
             all_candidates.extend(tenant_playbooks)
 
         if workspace_id:
-            workspace_playbooks = await self.playbook_service.list_for_workspace(workspace_id)
+            workspace_playbooks = await self.playbook_service.list_for_workspace(
+                workspace_id
+            )
             all_candidates.extend(workspace_playbooks)
         # Note: When workspace_id is None, we still get system playbooks from above
         # and can optionally include all playbooks for testing
@@ -156,20 +158,30 @@ class PlaybookScopeResolver:
             if code and code not in unique_by_code:
                 # Convert to dict if needed
                 if not isinstance(pb, dict):
-                    pb_dict = pb.dict() if hasattr(pb, "dict") else pb.model_dump() if hasattr(pb, "model_dump") else {}
+                    pb_dict = (
+                        pb.dict()
+                        if hasattr(pb, "dict")
+                        else pb.model_dump() if hasattr(pb, "model_dump") else {}
+                    )
                 else:
                     pb_dict = pb
                 unique_by_code[code] = pb_dict
             elif code:
                 existing = unique_by_code[code]
                 existing_priority = self._get_owner_priority(
-                    existing.get("owner_type") if isinstance(existing, dict) else getattr(existing, "owner_type", None)
+                    existing.get("owner_type")
+                    if isinstance(existing, dict)
+                    else getattr(existing, "owner_type", None)
                 )
                 new_priority = self._get_owner_priority(owner_type)
                 if new_priority < existing_priority:
                     # Convert to dict if needed
                     if not isinstance(pb, dict):
-                        pb_dict = pb.dict() if hasattr(pb, "dict") else pb.model_dump() if hasattr(pb, "model_dump") else {}
+                        pb_dict = (
+                            pb.dict()
+                            if hasattr(pb, "dict")
+                            else pb.model_dump() if hasattr(pb, "model_dump") else {}
+                        )
                     else:
                         pb_dict = pb
                     unique_by_code[code] = pb_dict
@@ -199,7 +211,7 @@ class PlaybookScopeResolver:
         playbook: Dict[str, Any],
         user_id: str,
         workspace_id: str,
-        tenant_id: Optional[str]
+        tenant_id: Optional[str],
     ) -> bool:
         """
         Check if playbook is visible to user in workspace
@@ -233,6 +245,8 @@ class PlaybookScopeResolver:
             return owner_id == user_id
 
         if visibility == PlaybookVisibility.WORKSPACE_SHARED:
+            if owner_type == PlaybookOwnerType.SYSTEM:
+                return True
             if owner_type == PlaybookOwnerType.WORKSPACE:
                 return owner_id == workspace_id
             if owner_type == PlaybookOwnerType.USER:
@@ -256,9 +270,7 @@ class PlaybookScopeResolver:
         return False
 
     def _matches_project_capability_profile(
-        self,
-        playbook: Dict[str, Any],
-        project_profile: Dict[str, Any]
+        self, playbook: Dict[str, Any], project_profile: Dict[str, Any]
     ) -> bool:
         """
         Check if playbook matches project capability profile
@@ -290,9 +302,7 @@ class PlaybookScopeResolver:
         return True
 
     def _matches_project_type(
-        self,
-        playbook: Dict[str, Any],
-        project: "Project"
+        self, playbook: Dict[str, Any], project: "Project"
     ) -> bool:
         """
         Check if playbook matches project type

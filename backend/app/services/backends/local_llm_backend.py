@@ -8,13 +8,9 @@ import logging
 from typing import Dict, List, Optional, Any
 
 from backend.app.services.agent_backend import AgentBackend
-from backend.app.models.mindscape import (
-    MindscapeProfile, IntentCard, AgentResponse
-)
-from backend.app.services.agent_runner import (
-    LLMProviderManager, AgentPromptBuilder
-)
-from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+from backend.app.models.mindscape import MindscapeProfile, IntentCard, AgentResponse
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +18,14 @@ logger = logging.getLogger(__name__)
 class LocalLLMBackend(AgentBackend):
     """Local LLM-based agent backend"""
 
-    def __init__(self, openai_key: Optional[str] = None, anthropic_key: Optional[str] = None):
+    def __init__(
+        self, openai_key: Optional[str] = None, anthropic_key: Optional[str] = None
+    ):
         from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+        from backend.app.services.agent_runner import AgentPromptBuilder
+
         self.llm_manager = create_llm_provider_manager(
-            openai_key=openai_key,
-            anthropic_key=anthropic_key
+            openai_key=openai_key, anthropic_key=anthropic_key
         )
         self.prompt_builder = AgentPromptBuilder()
 
@@ -36,12 +35,14 @@ class LocalLLMBackend(AgentBackend):
         agent_type: str,
         profile: Optional[MindscapeProfile] = None,
         active_intents: Optional[List[IntentCard]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> AgentResponse:
         """Execute agent using local LLM providers"""
 
         if not self.is_available():
-            raise Exception("No LLM providers configured. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY")
+            raise Exception(
+                "No LLM providers configured. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY"
+            )
 
         # Build system prompt with context
         system_prompt = self.prompt_builder.build_system_prompt(
@@ -51,10 +52,15 @@ class LocalLLMBackend(AgentBackend):
         # Prepare messages
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": task}
+            {"role": "user", "content": task},
         ]
 
         # Get LLM provider and execute
+        # Get LLMProviderManager type for hint but import at runtime
+        from backend.app.shared.llm_provider_helper import (
+            get_llm_provider_from_settings,
+        )
+
         provider = get_llm_provider_from_settings(self.llm_manager)
         response_text = await provider.chat_completion(messages)
 
@@ -69,8 +75,8 @@ class LocalLLMBackend(AgentBackend):
                 "agent_type": agent_type,
                 "backend": "local_llm",
                 "provider": provider.__class__.__name__,
-                **(metadata or {})
-            }
+                **(metadata or {}),
+            },
         )
 
     def is_available(self) -> bool:
@@ -84,5 +90,5 @@ class LocalLLMBackend(AgentBackend):
             "name": "Local LLM",
             "description": "Execute agents using local LLM providers (OpenAI, Anthropic)",
             "available": self.is_available(),
-            "providers": self.llm_manager.get_available_providers()
+            "providers": self.llm_manager.get_available_providers(),
         }

@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 class SimpleRuntime(RuntimePort):
     """Default simple runtime (wraps existing WorkflowOrchestrator)"""
 
+    # Best-effort support flags (used by RuntimeFactory scoring)
+    supports_resume: bool = True
+    supports_human_approval: bool = True
+
     def __init__(self, store=None):
         """
         Initialize SimpleRuntime
@@ -54,11 +58,9 @@ class SimpleRuntime(RuntimePort):
         Returns:
             True if profile matches simple mode requirements
         """
-        return (
-            execution_profile.execution_mode == "simple" and
-            not execution_profile.supports_resume and
-            not execution_profile.requires_human_approval
-        )
+        # Best-effort: allow SimpleRuntime to run workflow playbooks even when they request
+        # resume/human approval. We implement a lightweight pause/resume with checkpoints.
+        return execution_profile.execution_mode in {"simple", "durable"}
 
     async def execute(
         self,
@@ -131,13 +133,26 @@ class SimpleRuntime(RuntimePort):
             # Determine status from result
             status = "completed"
             error = None
-            if result.get("status") == "error" or result.get("error"):
+            checkpoint = None
+            if isinstance(result, dict) and result.get("status") == "paused":
+                status = "paused"
+                checkpoint = result.get("checkpoint")
+            elif result.get("status") == "error" or result.get("error"):
                 status = "failed"
                 error = result.get("error") or "Execution failed"
 
             # Extract outputs from result context
-            outputs = result.get("context", {})
-            steps_info = result.get("steps", {})
+            outputs = result.get("context", {}) if isinstance(result, dict) else {}
+            steps_info = result.get("steps", {}) if isinstance(result, dict) else {}
+
+            if steps_info:
+                for _, step_result in steps_info.items():
+                    if isinstance(step_result, dict):
+                        step_status = step_result.get("status")
+                        if step_status in ["error", "failed", "FAILED"]:
+                            status = "failed"
+                            error = step_result.get("error") or "Execution failed"
+                            break
 
             # Log steps info for debugging
             logger.info(f"SimpleRuntime: steps_info keys: {list(steps_info.keys()) if steps_info else 'empty'}")
@@ -187,6 +202,7 @@ class SimpleRuntime(RuntimePort):
                         status=status,
                         execution_id=execution_id or "unknown",
                         outputs=outputs,
+                        checkpoint=checkpoint,
                         error=error,
                         metadata=metadata
                     )
@@ -201,6 +217,7 @@ class SimpleRuntime(RuntimePort):
                 status=status,
                 execution_id=execution_id or "unknown",
                 outputs=outputs,
+                checkpoint=checkpoint,
                 error=error,
                 metadata=metadata
             )

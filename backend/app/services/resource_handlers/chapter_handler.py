@@ -30,9 +30,7 @@ class ChapterResourceHandler(ResourceHandler):
         return "chapters"
 
     def _derive_chapters_from_intents(
-        self,
-        intents: List[IntentCard],
-        workspace_id: str
+        self, intents: List[IntentCard], workspace_id: str
     ) -> List[Dict[str, Any]]:
         """Derive chapters from Intent structure"""
 
@@ -50,7 +48,7 @@ class ChapterResourceHandler(ResourceHandler):
             # Find the primary intent (usually the one without parent or the first one)
             primary_intent = next(
                 (i for i in chapter_intents if not i.parent_intent_id),
-                chapter_intents[0] if chapter_intents else None
+                chapter_intents[0] if chapter_intents else None,
             )
 
             if not primary_intent:
@@ -61,17 +59,23 @@ class ChapterResourceHandler(ResourceHandler):
 
             for intent in chapter_intents:
                 # Check if intent has illustration needs in metadata
-                needs = intent.metadata.get("illustration_needs") if intent.metadata else None
+                needs = (
+                    intent.metadata.get("illustration_needs")
+                    if intent.metadata
+                    else None
+                )
                 if needs and isinstance(needs, list):
                     for need in needs:
-                        illustration_needs.append({
-                            "intent_id": intent.id,
-                            "type": need.get("type", "diagram"),
-                            "description": need.get("description", ""),
-                            "style": need.get("style"),
-                            "status": need.get("status", "pending"),
-                            "artifact_id": need.get("artifact_id")
-                        })
+                        illustration_needs.append(
+                            {
+                                "intent_id": intent.id,
+                                "type": need.get("type", "diagram"),
+                                "description": need.get("description", ""),
+                                "style": need.get("style"),
+                                "status": need.get("status", "pending"),
+                                "artifact_id": need.get("artifact_id"),
+                            }
+                        )
 
             # Build chapter dictionary
             chapter = {
@@ -80,23 +84,21 @@ class ChapterResourceHandler(ResourceHandler):
                 "title": primary_intent.title,
                 "description": primary_intent.description,
                 "parent_intent_id": primary_intent.id,
-                "illustration_needs": illustration_needs
+                "illustration_needs": illustration_needs,
             }
             chapters.append(chapter)
 
         return chapters
 
     async def list(
-        self,
-        workspace_id: str,
-        filters: Optional[Dict[str, Any]] = None
+        self, workspace_id: str, filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """List all chapters for a workspace"""
 
         filters = filters or {}
 
         # Get workspace to find owner_user_id (profile_id)
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -104,15 +106,15 @@ class ChapterResourceHandler(ResourceHandler):
 
         # Get all intents for this profile
         intents = self.store.list_intents(
-            profile_id=profile_id,
-            status=None,
-            priority=None
+            profile_id=profile_id, status=None, priority=None
         )
 
         # Filter intents that belong to this workspace
         workspace_intents = []
         for intent in intents:
-            intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
+            intent_workspace_id = (
+                intent.metadata.get("workspace_id") if intent.metadata else None
+            )
             if intent_workspace_id == workspace_id or not intent_workspace_id:
                 workspace_intents.append(intent)
 
@@ -122,9 +124,7 @@ class ChapterResourceHandler(ResourceHandler):
         return chapters
 
     async def get(
-        self,
-        workspace_id: str,
-        resource_id: str
+        self, workspace_id: str, resource_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get a single chapter by ID"""
 
@@ -138,11 +138,7 @@ class ChapterResourceHandler(ResourceHandler):
 
         return None
 
-    async def create(
-        self,
-        workspace_id: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def create(self, workspace_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a new chapter
 
@@ -153,7 +149,7 @@ class ChapterResourceHandler(ResourceHandler):
         from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
 
         # Get workspace
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -188,10 +184,7 @@ class ChapterResourceHandler(ResourceHandler):
         raise ValueError("Failed to create chapter")
 
     async def update(
-        self,
-        workspace_id: str,
-        resource_id: str,
-        data: Dict[str, Any]
+        self, workspace_id: str, resource_id: str, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Update a chapter
@@ -226,11 +219,7 @@ class ChapterResourceHandler(ResourceHandler):
         # Return updated chapter
         return await self.get(workspace_id, resource_id)
 
-    async def delete(
-        self,
-        workspace_id: str,
-        resource_id: str
-    ) -> bool:
+    async def delete(self, workspace_id: str, resource_id: str) -> bool:
         """
         Delete a chapter
 
@@ -238,7 +227,7 @@ class ChapterResourceHandler(ResourceHandler):
         """
 
         # Get all intents for this workspace
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             return False
 
@@ -248,10 +237,14 @@ class ChapterResourceHandler(ResourceHandler):
         # Find and delete intents with this chapter ID
         deleted_count = 0
         for intent in intents:
-            intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
+            intent_workspace_id = (
+                intent.metadata.get("workspace_id") if intent.metadata else None
+            )
             intent_chapter = intent.metadata.get("chapter") if intent.metadata else None
 
-            if (intent_workspace_id == workspace_id or not intent_workspace_id) and intent_chapter == resource_id:
+            if (
+                intent_workspace_id == workspace_id or not intent_workspace_id
+            ) and intent_chapter == resource_id:
                 if self.store.intents.delete_intent(intent.id):
                     deleted_count += 1
 
@@ -279,12 +272,11 @@ class ChapterResourceHandler(ResourceHandler):
                                 "description": {"type": "string"},
                                 "style": {"type": "string"},
                                 "status": {"type": "string"},
-                                "artifact_id": {"type": "string"}
-                            }
-                        }
-                    }
+                                "artifact_id": {"type": "string"},
+                            },
+                        },
+                    },
                 },
-                "required": ["id", "title"]
-            }
+                "required": ["id", "title"],
+            },
         }
-

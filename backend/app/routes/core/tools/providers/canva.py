@@ -102,7 +102,13 @@ async def create_canva_connection(
             raise_api_error(400, "redirect_uri is required when using client_id and client_secret")
 
         from backend.app.services.tools.base import ToolConnection
-        from backend.app.services.tools.registry import register_canva_tools
+        # ✅ Updated: Import from capability pack instead of local-core
+        try:
+            from capabilities.canva.services.tool_registration import register_canva_tools
+        except ImportError:
+            # Fallback to local-core version if capability pack not installed
+            from backend.app.services.tools.registry import register_canva_tools
+            logger.warning("Canva capability pack not found, using local-core version")
 
         # Create ToolConnectionModel instance
         connection_model = ToolConnectionModel(
@@ -143,6 +149,7 @@ async def create_canva_connection(
         if request.client_id and request.client_secret and not request.oauth_token:
             logger.info(f"Canva connection created with OAuth credentials. OAuth flow needs to be completed.")
 
+        # ✅ Updated: Call register_canva_tools from capability pack
         tools = register_canva_tools(tool_connection)
         logger.info(f"Registered {len(tools)} Canva tools for connection: {request.connection_id}")
 
@@ -169,7 +176,13 @@ async def canva_oauth_authorize(
     Redirects user to Canva authorization page.
     """
     try:
-        from backend.app.services.tools.canva.oauth_manager import get_canva_oauth_manager
+        # ✅ Updated: Import from capability pack
+        try:
+            from capabilities.canva.services.oauth_manager import get_canva_oauth_manager
+        except ImportError:
+            # Fallback to local-core version if capability pack not installed
+            from backend.app.services.tools.canva.oauth_manager import get_canva_oauth_manager
+            logger.warning("Canva capability pack not found, using local-core OAuth manager")
 
         connection_model = None
         if connection_id:
@@ -235,7 +248,13 @@ async def canva_oauth_callback(
     Exchanges authorization code for access token and updates connection.
     """
     try:
-        from backend.app.services.tools.canva.oauth_manager import get_canva_oauth_manager
+        # ✅ Updated: Import from capability pack
+        try:
+            from capabilities.canva.services.oauth_manager import get_canva_oauth_manager
+        except ImportError:
+            # Fallback to local-core version if capability pack not installed
+            from backend.app.services.tools.canva.oauth_manager import get_canva_oauth_manager
+            logger.warning("Canva capability pack not found, using local-core OAuth manager")
 
         oauth_manager = get_canva_oauth_manager()
 
@@ -289,7 +308,13 @@ async def canva_oauth_callback(
         # Register tools after OAuth completion
         try:
             from backend.app.services.tools.base import ToolConnection
-            from backend.app.services.tools.registry import register_canva_tools
+            # ✅ Updated: Import from capability pack instead of local-core
+            try:
+                from capabilities.canva.services.tool_registration import register_canva_tools
+            except ImportError:
+                # Fallback to local-core version if capability pack not installed
+                from backend.app.services.tools.registry import register_canva_tools
+                logger.warning("Canva capability pack not found, using local-core version")
 
             tool_connection = ToolConnection(
                 id=connection_model.id,
@@ -299,6 +324,7 @@ async def canva_oauth_callback(
                 base_url=connection_model.base_url,
                 name=connection_model.name
             )
+            # ✅ Updated: Call register_canva_tools from capability pack
             tools = register_canva_tools(tool_connection)
             logger.info(f"Registered {len(tools)} Canva tools after OAuth completion")
         except Exception as e:

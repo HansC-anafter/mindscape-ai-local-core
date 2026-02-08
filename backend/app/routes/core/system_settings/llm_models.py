@@ -1,9 +1,12 @@
 """
 Llm Models endpoints
 """
+
 from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Dict, Any, List, Optional
 import logging
+
+from app.database.config import get_vector_postgres_config
 
 from .shared import settings_store
 from .constants import DEFAULT_CHAT_MODELS, DEFAULT_EMBEDDING_MODELS
@@ -14,16 +17,19 @@ from backend.app.models.system_settings import (
     LLMModelConfig,
     LLMModelSettingsResponse,
     ModelType,
-    SettingType
+    SettingType,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 @router.get("/llm-models", response_model=Dict[str, Any])
 async def get_llm_model_settings(
-    include_embedding_status: bool = Query(False, description="Include embedding migration status")
+    include_embedding_status: bool = Query(
+        False, description="Include embedding migration status"
+    )
 ):
     """Get LLM model configurations (chat and embedding models)"""
     try:
@@ -37,7 +43,7 @@ async def get_llm_model_settings(
                 provider=chat_setting.metadata.get("provider", "openai"),
                 model_type=ModelType.CHAT,
                 api_key_setting_key=chat_setting.metadata.get("api_key_setting_key"),
-                metadata=chat_setting.metadata
+                metadata=chat_setting.metadata,
             )
 
         embedding_model = None
@@ -46,8 +52,10 @@ async def get_llm_model_settings(
                 model_name=str(embedding_setting.value),
                 provider=embedding_setting.metadata.get("provider", "openai"),
                 model_type=ModelType.EMBEDDING,
-                api_key_setting_key=embedding_setting.metadata.get("api_key_setting_key"),
-                metadata=embedding_setting.metadata
+                api_key_setting_key=embedding_setting.metadata.get(
+                    "api_key_setting_key"
+                ),
+                metadata=embedding_setting.metadata,
             )
 
         # Use module-level default models
@@ -58,23 +66,24 @@ async def get_llm_model_settings(
             "chat_model": chat_model,
             "embedding_model": embedding_model,
             "available_chat_models": available_chat_models,
-            "available_embedding_models": available_embedding_models
+            "available_embedding_models": available_embedding_models,
         }
 
         # Include embedding migration status if requested
         if include_embedding_status and embedding_setting:
             current_model = {
                 "model_name": str(embedding_setting.value),
-                "provider": embedding_setting.metadata.get("provider", "openai")
+                "provider": embedding_setting.metadata.get("provider", "openai"),
             }
             try:
                 migration_info = await _analyze_embedding_migration_needs(
-                    previous_model=current_model,
-                    new_model=current_model
+                    previous_model=current_model, new_model=current_model
                 )
                 if migration_info:
                     migration_info["needs_migration"] = False
-                    migration_info["migration_recommendation"] = "Current model is active. Embedding status is healthy."
+                    migration_info["migration_recommendation"] = (
+                        "Current model is active. Embedding status is healthy."
+                    )
                 else:
                     # Create basic migration_info if analysis returned None
                     migration_info = {
@@ -92,11 +101,13 @@ async def get_llm_model_settings(
                         },
                         "historical_models": [],
                         "missing_periods": [],
-                        "migration_recommendation": "Current model is active. Embedding status is healthy."
+                        "migration_recommendation": "Current model is active. Embedding status is healthy.",
                     }
                 response["migration_info"] = migration_info
             except Exception as e:
-                logger.warning(f"Failed to get embedding migration status: {e}", exc_info=True)
+                logger.warning(
+                    f"Failed to get embedding migration status: {e}", exc_info=True
+                )
                 # Return basic migration_info even if analysis fails
                 response["migration_info"] = {
                     "needs_migration": False,
@@ -114,19 +125,23 @@ async def get_llm_model_settings(
                     "historical_models": [],
                     "missing_periods": [],
                     "migration_recommendation": f"Unable to query embedding status: {str(e)}. Please check database connection.",
-                    "error": str(e)
+                    "error": str(e),
                 }
 
         return response
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get LLM model settings: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get LLM model settings: {str(e)}"
+        )
 
 
 @router.get("/models", response_model=List[Dict[str, Any]])
 async def get_models(
-    model_type: Optional[str] = Query(None, description="Filter by model type ('chat' or 'embedding')"),
+    model_type: Optional[str] = Query(
+        None, description="Filter by model type ('chat' or 'embedding')"
+    ),
     enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
-    provider: Optional[str] = Query(None, description="Filter by provider name")
+    provider: Optional[str] = Query(None, description="Filter by provider name"),
 ):
     """
     Get all models with optional filters
@@ -150,9 +165,7 @@ async def get_models(
             model_type_enum = ModelType(model_type)
 
         filtered_models = store.get_all_models(
-            model_type=model_type_enum,
-            enabled=enabled,
-            provider=provider
+            model_type=model_type_enum, enabled=enabled, provider=provider
         )
 
         return [
@@ -180,10 +193,7 @@ async def get_models(
 
 
 @router.put("/models/{model_id}/enable", response_model=Dict[str, Any])
-async def toggle_model_enabled(
-    model_id: int,
-    request: Dict[str, bool] = Body(...)
-):
+async def toggle_model_enabled(model_id: int, request: Dict[str, bool] = Body(...)):
     """
     Enable or disable a model
 
@@ -203,7 +213,9 @@ async def toggle_model_enabled(
         model = store.toggle_model_enabled(model_id, enabled)
 
         if not model:
-            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Model with id {model_id} not found"
+            )
 
         return {
             "id": model.id,
@@ -225,7 +237,9 @@ async def toggle_model_enabled(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to toggle model enabled: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to toggle model enabled: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to toggle model enabled: {str(e)}"
+        )
 
 
 @router.get("/models/{model_id}/config", response_model=Dict[str, Any])
@@ -248,7 +262,9 @@ async def get_model_config(model_id: int):
 
         model = model_store.get_model_by_id(model_id)
         if not model:
-            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Model with id {model_id} not found"
+            )
 
         api_key_setting_key = f"{model.provider_name}_api_key"
         api_key_setting = settings_store.get_setting(api_key_setting_key)
@@ -256,7 +272,9 @@ async def get_model_config(model_id: int):
         provider_api_key = api_key_setting.value if api_key_setting else None
 
         if model.provider_name == "vertex-ai":
-            service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+            service_account_setting = settings_store.get_setting(
+                "vertex_ai_service_account_json"
+            )
             if service_account_setting and service_account_setting.value:
                 api_key_configured = True
                 provider_api_key = service_account_setting.value
@@ -266,7 +284,9 @@ async def get_model_config(model_id: int):
         if model.provider_name == "ollama":
             base_url = "http://localhost:11434"
             ollama_base_url_setting = settings_store.get_setting("ollama_base_url")
-            provider_base_url = ollama_base_url_setting.value if ollama_base_url_setting else base_url
+            provider_base_url = (
+                ollama_base_url_setting.value if ollama_base_url_setting else base_url
+            )
 
         project_id = None
         location = None
@@ -275,8 +295,12 @@ async def get_model_config(model_id: int):
         if model.provider_name == "vertex-ai":
             project_id_setting = settings_store.get_setting("vertex_ai_project_id")
             location_setting = settings_store.get_setting("vertex_ai_location")
-            provider_project_id = project_id_setting.value if project_id_setting else None
-            provider_location = location_setting.value if location_setting else "us-central1"
+            provider_project_id = (
+                project_id_setting.value if project_id_setting else None
+            )
+            provider_location = (
+                location_setting.value if location_setting else "us-central1"
+            )
             project_id = provider_project_id
             location = provider_location
 
@@ -312,7 +336,9 @@ async def get_model_config(model_id: int):
         }
     except Exception as e:
         logger.error(f"Failed to get model config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get model config: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get model config: {str(e)}"
+        )
 
 
 @router.put("/models/{model_id}/config", response_model=Dict[str, Any])
@@ -336,7 +362,9 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
 
         model = model_store.get_model_by_id(model_id)
         if not model:
-            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Model with id {model_id} not found"
+            )
 
         is_provider_level = config.get("provider_level", False)
 
@@ -348,7 +376,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                 value_type=SettingType.STRING,
                 category="models",
                 description=f"API key for {model.provider_name}",
-                is_sensitive=True
+                is_sensitive=True,
             )
             settings_store.save_setting(setting)
 
@@ -358,7 +386,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                 value=config.get("base_url", "http://localhost:11434"),
                 value_type=SettingType.STRING,
                 category="models",
-                description="Ollama base URL"
+                description="Ollama base URL",
             )
             settings_store.save_setting(setting)
 
@@ -369,7 +397,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                     value=config["project_id"],
                     value_type=SettingType.STRING,
                     category="models",
-                    description="GCP Project ID for Vertex AI"
+                    description="GCP Project ID for Vertex AI",
                 )
                 settings_store.save_setting(setting)
             if "location" in config and config["location"]:
@@ -378,21 +406,29 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                     value=config["location"],
                     value_type=SettingType.STRING,
                     category="models",
-                    description="GCP Location/Region for Vertex AI"
+                    description="GCP Location/Region for Vertex AI",
                 )
                 settings_store.save_setting(setting)
             if "api_key" in config and config["api_key"]:
                 import json
+
                 try:
-                    service_account_data = json.loads(config["api_key"]) if isinstance(config["api_key"], str) else config["api_key"]
-                    if isinstance(service_account_data, dict) and service_account_data.get("type") == "service_account":
+                    service_account_data = (
+                        json.loads(config["api_key"])
+                        if isinstance(config["api_key"], str)
+                        else config["api_key"]
+                    )
+                    if (
+                        isinstance(service_account_data, dict)
+                        and service_account_data.get("type") == "service_account"
+                    ):
                         setting = SystemSetting(
                             key="vertex_ai_service_account_json",
                             value=json.dumps(service_account_data),
                             value_type=SettingType.JSON,
                             category="models",
                             description="GCP Service Account JSON for Vertex AI",
-                            is_sensitive=True
+                            is_sensitive=True,
                         )
                         settings_store.save_setting(setting)
                 except (json.JSONDecodeError, TypeError):
@@ -401,7 +437,9 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
         return {"success": True, "message": "Model configuration updated successfully"}
     except Exception as e:
         logger.error(f"Failed to update model config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update model config: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update model config: {str(e)}"
+        )
 
 
 @router.post("/models/{model_id}/test", response_model=Dict[str, Any])
@@ -426,7 +464,9 @@ async def test_model_connection(model_id: int):
 
         model = model_store.get_model_by_id(model_id)
         if not model:
-            raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Model with id {model_id} not found"
+            )
 
         model_name = model.model_name
         provider = model.provider_name
@@ -445,55 +485,86 @@ async def test_model_connection(model_id: int):
             if model_type == "chat":
                 try:
                     import openai
+
                     client = openai.OpenAI(api_key=api_key)
                     models = client.models.list()
                     next(iter(models), None)
-                    return {"success": True, "message": "OpenAI chat model connection successful"}
+                    return {
+                        "success": True,
+                        "message": "OpenAI chat model connection successful",
+                    }
                 except Exception as e:
-                    return {"success": False, "message": f"OpenAI connection failed: {str(e)}"}
+                    return {
+                        "success": False,
+                        "message": f"OpenAI connection failed: {str(e)}",
+                    }
             elif model_type == "embedding":
                 try:
                     import openai
+
                     client = openai.OpenAI(api_key=api_key)
                     # Test embedding with a small text
-                    client.embeddings.create(
-                        model=model_name,
-                        input="test"
-                    )
-                    return {"success": True, "message": "OpenAI embedding model connection successful"}
+                    client.embeddings.create(model=model_name, input="test")
+                    return {
+                        "success": True,
+                        "message": "OpenAI embedding model connection successful",
+                    }
                 except Exception as e:
-                    return {"success": False, "message": f"OpenAI embedding connection failed: {str(e)}"}
+                    return {
+                        "success": False,
+                        "message": f"OpenAI embedding connection failed: {str(e)}",
+                    }
 
         elif provider == "anthropic":
-            api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+            api_key = config.agent_backend.anthropic_api_key or os.getenv(
+                "ANTHROPIC_API_KEY"
+            )
             if not api_key:
                 return {"success": False, "message": "Anthropic API key not configured"}
 
             if model_type == "chat":
                 try:
                     import anthropic
+
                     client = anthropic.Anthropic(api_key=api_key)
                     client.messages.create(
                         model=model_name,
                         max_tokens=10,
-                        messages=[{"role": "user", "content": "test"}]
+                        messages=[{"role": "user", "content": "test"}],
                     )
-                    return {"success": True, "message": "Anthropic chat model connection successful"}
+                    return {
+                        "success": True,
+                        "message": "Anthropic chat model connection successful",
+                    }
                 except Exception as e:
-                    return {"success": False, "message": f"Anthropic connection failed: {str(e)}"}
+                    return {
+                        "success": False,
+                        "message": f"Anthropic connection failed: {str(e)}",
+                    }
 
         elif provider == "vertex-ai":
             # Check for service account JSON
-            service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+            service_account_setting = settings_store.get_setting(
+                "vertex_ai_service_account_json"
+            )
             project_id_setting = settings_store.get_setting("vertex_ai_project_id")
             location_setting = settings_store.get_setting("vertex_ai_location")
 
             if not service_account_setting:
-                return {"success": False, "message": "Vertex AI service account JSON not configured"}
+                return {
+                    "success": False,
+                    "message": "Vertex AI service account JSON not configured",
+                }
             if not project_id_setting:
-                return {"success": False, "message": "Vertex AI project ID not configured"}
+                return {
+                    "success": False,
+                    "message": "Vertex AI project ID not configured",
+                }
             if not location_setting:
-                return {"success": False, "message": "Vertex AI location not configured"}
+                return {
+                    "success": False,
+                    "message": "Vertex AI location not configured",
+                }
 
             try:
                 import json
@@ -502,41 +573,68 @@ async def test_model_connection(model_id: int):
                 from google.cloud import aiplatform
 
                 service_account_data = json.loads(service_account_setting.value)
-                credentials = service_account.Credentials.from_service_account_info(service_account_data)
+                credentials = service_account.Credentials.from_service_account_info(
+                    service_account_data
+                )
                 project_id = project_id_setting.value
                 location = location_setting.value
 
                 # Initialize Vertex AI
-                aiplatform.init(project=project_id, location=location, credentials=credentials)
+                aiplatform.init(
+                    project=project_id, location=location, credentials=credentials
+                )
 
                 if model_type == "chat":
                     from vertexai.generative_models import GenerativeModel
+
                     model_instance = GenerativeModel(model_name)
                     response = model_instance.generate_content("test")
-                    return {"success": True, "message": "Vertex AI chat model connection successful"}
+                    return {
+                        "success": True,
+                        "message": "Vertex AI chat model connection successful",
+                    }
                 elif model_type == "embedding":
                     from vertexai.language_models import TextEmbeddingModel
+
                     model_instance = TextEmbeddingModel.from_pretrained(model_name)
                     embeddings = model_instance.get_embeddings(["test"])
-                    return {"success": True, "message": "Vertex AI embedding model connection successful"}
+                    return {
+                        "success": True,
+                        "message": "Vertex AI embedding model connection successful",
+                    }
             except Exception as e:
-                return {"success": False, "message": f"Vertex AI connection failed: {str(e)}"}
+                return {
+                    "success": False,
+                    "message": f"Vertex AI connection failed: {str(e)}",
+                }
 
         elif provider == "ollama":
             base_url_setting = settings_store.get_setting("ollama_base_url")
-            base_url = base_url_setting.value if base_url_setting else "http://localhost:11434"
+            base_url = (
+                base_url_setting.value if base_url_setting else "http://localhost:11434"
+            )
 
             try:
                 import requests
+
                 response = requests.get(f"{base_url}/api/tags", timeout=5)
                 if response.status_code == 200:
                     return {"success": True, "message": "Ollama connection successful"}
                 else:
-                    return {"success": False, "message": f"Ollama connection failed: {response.status_code}"}
+                    return {
+                        "success": False,
+                        "message": f"Ollama connection failed: {response.status_code}",
+                    }
             except Exception as e:
-                return {"success": False, "message": f"Ollama connection failed: {str(e)}"}
+                return {
+                    "success": False,
+                    "message": f"Ollama connection failed: {str(e)}",
+                }
 
-        return {"success": False, "message": f"Test not implemented for provider: {provider}"}
+        return {
+            "success": False,
+            "message": f"Test not implemented for provider: {provider}",
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -544,20 +642,68 @@ async def test_model_connection(model_id: int):
         return {"success": False, "message": f"Test failed: {str(e)}"}
 
 
-@router.get("/category/{category}", response_model=List[SystemSetting])
+@router.post("/llm-models/pull", response_model=Dict[str, Any])
+async def pull_model(
+    payload: Dict[str, Any] = Body(..., description="Model pull payload")
+):
+    """
+    Trigger model pull (specifically for Ollama)
+    """
+    try:
+        from backend.app.services.system_settings_store import SystemSettingsStore
+        import requests
+
+        model_name = payload.get("model_name")
+        provider = payload.get("provider")
+
+        if not model_name:
+            raise HTTPException(status_code=400, detail="model_name is required")
+
+        if provider != "ollama":
+            return {
+                "success": False,
+                "message": "Pull only supported for Ollama provider",
+            }
+
+        settings_store = SystemSettingsStore()
+        base_url_setting = settings_store.get_setting("ollama_base_url")
+        base_url = (
+            base_url_setting.value if base_url_setting else "http://localhost:11434"
+        )
+
+        try:
+            # Short timeout to fire and forget (or return quickly)
+            requests.post(
+                f"{base_url}/api/pull",
+                json={"name": model_name, "stream": True},
+                timeout=0.1,
+            )
+        except requests.exceptions.ReadTimeout:
+            return {
+                "success": True,
+                "message": f"Model download started for {model_name}. It may take a while.",
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Failed to start download: {str(e)}"}
+
+        return {"success": True, "message": f"Model download started for {model_name}"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to pull model: {e}", exc_info=True)
+        return {"success": False, "message": f"Pull failed: {str(e)}"}
+
 
 @router.put("/llm-models/chat", response_model=LLMModelConfig)
 async def update_chat_model(
     model_name: str,
     provider: str = Query("openai", description="Model provider"),
-    api_key_setting_key: Optional[str] = Query(None, description="API key setting key")
+    api_key_setting_key: Optional[str] = Query(None, description="API key setting key"),
 ):
     """Update chat/conversation model configuration"""
     try:
-        metadata = {
-            "provider": provider,
-            "model_type": "chat"
-        }
+        metadata = {"provider": provider, "model_type": "chat"}
         if api_key_setting_key:
             metadata["api_key_setting_key"] = api_key_setting_key
 
@@ -569,7 +715,7 @@ async def update_chat_model(
             description="Model for chat/conversation inference",
             is_sensitive=False,
             is_user_editable=True,
-            metadata=metadata
+            metadata=metadata,
         )
 
         updated = settings_store.save_setting(setting)
@@ -579,15 +725,16 @@ async def update_chat_model(
             provider=updated.metadata.get("provider", "openai"),
             model_type=ModelType.CHAT,
             api_key_setting_key=updated.metadata.get("api_key_setting_key"),
-            metadata=updated.metadata
+            metadata=updated.metadata,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update chat model: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update chat model: {str(e)}"
+        )
 
 
 async def _analyze_embedding_migration_needs(
-    previous_model: Dict[str, str],
-    new_model: Dict[str, str]
+    previous_model: Dict[str, str], new_model: Dict[str, str]
 ) -> Optional[Dict[str, Any]]:
     """
     Analyze embedding migration needs by querying historical embedding usage
@@ -599,20 +746,13 @@ async def _analyze_embedding_migration_needs(
     - Total embeddings count per model
     """
     try:
-        import os
         import psycopg2
         from psycopg2.extras import RealDictCursor
         from collections import defaultdict
         from datetime import datetime, timezone
 
         # Get PostgreSQL config
-        pg_config = {
-            "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-            "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-            "user": os.getenv("POSTGRES_USER", "mindscape"),
-            "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-        }
+        pg_config = get_vector_postgres_config()
 
         # Set connection timeout (5 seconds)
         pg_config["connect_timeout"] = 5
@@ -623,7 +763,8 @@ async def _analyze_embedding_migration_needs(
             cursor.execute("SET statement_timeout = 10000")  # 10 seconds
 
             # Query all historical embedding models and their usage
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     metadata->>'embedding_model' as model_name,
                     metadata->>'embedding_provider' as provider,
@@ -635,12 +776,14 @@ async def _analyze_embedding_migration_needs(
                 WHERE metadata->>'embedding_model' IS NOT NULL
                 GROUP BY metadata->>'embedding_model', metadata->>'embedding_provider'
                 ORDER BY last_used DESC
-            """)
+            """
+            )
 
             historical_models = cursor.fetchall()
 
             # Query embeddings for previous model
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     COUNT(*) as count,
                     MIN(created_at) as first_used,
@@ -649,12 +792,15 @@ async def _analyze_embedding_migration_needs(
                 FROM mindscape_personal
                 WHERE metadata->>'embedding_model' = %s
                   AND metadata->>'embedding_provider' = %s
-            """, (previous_model["model_name"], previous_model["provider"]))
+            """,
+                (previous_model["model_name"], previous_model["provider"]),
+            )
 
             previous_model_stats = cursor.fetchone()
 
             # Query embeddings for new model (if any exist)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     COUNT(*) as count,
                     MIN(created_at) as first_used,
@@ -663,21 +809,30 @@ async def _analyze_embedding_migration_needs(
                 FROM mindscape_personal
                 WHERE metadata->>'embedding_model' = %s
                   AND metadata->>'embedding_provider' = %s
-            """, (new_model["model_name"], new_model["provider"]))
+            """,
+                (new_model["model_name"], new_model["provider"]),
+            )
 
             new_model_stats = cursor.fetchone()
 
             # Check for active migrations
-            from backend.app.services.embedding_migration_store import EmbeddingMigrationStore
+            from backend.app.services.embedding_migration_store import (
+                EmbeddingMigrationStore,
+            )
             from backend.app.models.embedding_migration import MigrationStatus
+
             migration_store = EmbeddingMigrationStore()
-            running_migrations = migration_store.list_migrations(status=MigrationStatus.IN_PROGRESS)
-            pending_migrations = migration_store.list_migrations(status=MigrationStatus.PENDING)
+            running_migrations = migration_store.list_migrations(
+                status=MigrationStatus.IN_PROGRESS
+            )
+            pending_migrations = migration_store.list_migrations(
+                status=MigrationStatus.PENDING
+            )
             active_migrations = running_migrations + pending_migrations
 
             has_active_migration = any(
-                m.source_model == previous_model["model_name"] and
-                m.target_model == new_model["model_name"]
+                m.source_model == previous_model["model_name"]
+                and m.target_model == new_model["model_name"]
                 for m in active_migrations
             )
 
@@ -686,12 +841,14 @@ async def _analyze_embedding_migration_needs(
             # 1. Previous model has embeddings
             # 2. New model doesn't have all the embeddings (or has fewer)
             # 3. No active migration for this model pair
-            previous_count = previous_model_stats["count"] if previous_model_stats else 0
+            previous_count = (
+                previous_model_stats["count"] if previous_model_stats else 0
+            )
             new_count = new_model_stats["count"] if new_model_stats else 0
             needs_migration = (
-                previous_count > 0 and
-                (new_count < previous_count or new_count == 0) and
-                not has_active_migration
+                previous_count > 0
+                and (new_count < previous_count or new_count == 0)
+                and not has_active_migration
             )
 
             # Build response
@@ -702,55 +859,98 @@ async def _analyze_embedding_migration_needs(
                     "model_name": previous_model["model_name"],
                     "provider": previous_model["provider"],
                     "total_embeddings": previous_count,
-                    "first_used": previous_model_stats["first_used"].isoformat() if previous_model_stats and previous_model_stats["first_used"] else None,
-                    "last_used": previous_model_stats["last_used"].isoformat() if previous_model_stats and previous_model_stats["last_used"] else None,
-                    "last_updated": previous_model_stats["last_updated"].isoformat() if previous_model_stats and previous_model_stats["last_updated"] else None,
+                    "first_used": (
+                        previous_model_stats["first_used"].isoformat()
+                        if previous_model_stats and previous_model_stats["first_used"]
+                        else None
+                    ),
+                    "last_used": (
+                        previous_model_stats["last_used"].isoformat()
+                        if previous_model_stats and previous_model_stats["last_used"]
+                        else None
+                    ),
+                    "last_updated": (
+                        previous_model_stats["last_updated"].isoformat()
+                        if previous_model_stats and previous_model_stats["last_updated"]
+                        else None
+                    ),
                 },
                 "new_model": {
                     "model_name": new_model["model_name"],
                     "provider": new_model["provider"],
                     "existing_embeddings": new_count,
-                    "first_used": new_model_stats["first_used"].isoformat() if new_model_stats and new_model_stats["first_used"] else None,
-                    "last_used": new_model_stats["last_used"].isoformat() if new_model_stats and new_model_stats["last_used"] else None,
+                    "first_used": (
+                        new_model_stats["first_used"].isoformat()
+                        if new_model_stats and new_model_stats["first_used"]
+                        else None
+                    ),
+                    "last_used": (
+                        new_model_stats["last_used"].isoformat()
+                        if new_model_stats and new_model_stats["last_used"]
+                        else None
+                    ),
                 },
                 "historical_models": [
                     {
                         "model_name": row["model_name"],
                         "provider": row["provider"],
                         "count": row["count"],
-                        "first_used": row["first_used"].isoformat() if row["first_used"] else None,
-                        "last_used": row["last_used"].isoformat() if row["last_used"] else None,
-                        "last_updated": row["last_updated"].isoformat() if row["last_updated"] else None,
+                        "first_used": (
+                            row["first_used"].isoformat() if row["first_used"] else None
+                        ),
+                        "last_used": (
+                            row["last_used"].isoformat() if row["last_used"] else None
+                        ),
+                        "last_updated": (
+                            row["last_updated"].isoformat()
+                            if row["last_updated"]
+                            else None
+                        ),
                     }
                     for row in historical_models
                 ],
                 "missing_periods": [],
-                "migration_recommendation": None
+                "migration_recommendation": None,
             }
 
             # Calculate missing time periods
             if previous_model_stats and previous_model_stats["count"] > 0:
-                if previous_model_stats["first_used"] and previous_model_stats["last_used"]:
-                    migration_info["missing_periods"].append({
-                        "from": previous_model_stats["first_used"].isoformat(),
-                        "to": previous_model_stats["last_used"].isoformat(),
-                        "model": previous_model["model_name"],
-                        "count": previous_model_stats["count"]
-                    })
+                if (
+                    previous_model_stats["first_used"]
+                    and previous_model_stats["last_used"]
+                ):
+                    migration_info["missing_periods"].append(
+                        {
+                            "from": previous_model_stats["first_used"].isoformat(),
+                            "to": previous_model_stats["last_used"].isoformat(),
+                            "model": previous_model["model_name"],
+                            "count": previous_model_stats["count"],
+                        }
+                    )
 
             # Generate migration recommendation
             if needs_migration:
                 if new_count == 0:
-                    migration_info["migration_recommendation"] = "New model has no embeddings. Strongly recommend re-embedding all documents to ensure search accuracy."
+                    migration_info["migration_recommendation"] = (
+                        "New model has no embeddings. Strongly recommend re-embedding all documents to ensure search accuracy."
+                    )
                 elif new_count < previous_count:
                     missing_count = previous_count - new_count
-                    migration_info["migration_recommendation"] = f"New model is missing {missing_count:,} embeddings. Recommend re-embedding to fill the gap."
+                    migration_info["migration_recommendation"] = (
+                        f"New model is missing {missing_count:,} embeddings. Recommend re-embedding to fill the gap."
+                    )
                 else:
-                    migration_info["migration_recommendation"] = "Recommend re-embedding to ensure all vectors are generated with the new model."
+                    migration_info["migration_recommendation"] = (
+                        "Recommend re-embedding to ensure all vectors are generated with the new model."
+                    )
             elif has_active_migration:
-                migration_info["migration_recommendation"] = "Active migration task in progress. Please wait for completion before checking again."
+                migration_info["migration_recommendation"] = (
+                    "Active migration task in progress. Please wait for completion before checking again."
+                )
             elif new_count >= previous_count and new_count > 0:
-                migration_info["migration_recommendation"] = "New model has sufficient embeddings. Migration may not be necessary."
+                migration_info["migration_recommendation"] = (
+                    "New model has sufficient embeddings. Migration may not be necessary."
+                )
 
             return migration_info
 
@@ -758,7 +958,9 @@ async def _analyze_embedding_migration_needs(
             conn.close()
 
     except Exception as e:
-        logger.warning(f"Failed to analyze embedding migration needs: {e}", exc_info=True)
+        logger.warning(
+            f"Failed to analyze embedding migration needs: {e}", exc_info=True
+        )
         # Return basic info even if database query fails
         return {
             "needs_migration": False,  # Don't assume migration needed if we can't check
@@ -776,7 +978,7 @@ async def _analyze_embedding_migration_needs(
             "historical_models": [],
             "missing_periods": [],
             "migration_recommendation": f"Unable to query embedding status: {str(e)}. Please check database connection.",
-            "error": f"Could not query historical data: {str(e)}"
+            "error": f"Could not query historical data: {str(e)}",
         }
 
 
@@ -784,7 +986,7 @@ async def _analyze_embedding_migration_needs(
 async def update_embedding_model(
     model_name: str,
     provider: str = Query("openai", description="Model provider"),
-    api_key_setting_key: Optional[str] = Query(None, description="API key setting key")
+    api_key_setting_key: Optional[str] = Query(None, description="API key setting key"),
 ):
     """Update embedding model configuration and check if migration is needed"""
     try:
@@ -794,14 +996,11 @@ async def update_embedding_model(
         if previous_setting:
             previous_model = {
                 "model_name": str(previous_setting.value),
-                "provider": previous_setting.metadata.get("provider", "openai")
+                "provider": previous_setting.metadata.get("provider", "openai"),
             }
 
         # Update the setting
-        metadata = {
-            "provider": provider,
-            "model_type": "embedding"
-        }
+        metadata = {"provider": provider, "model_type": "embedding"}
         if api_key_setting_key:
             metadata["api_key_setting_key"] = api_key_setting_key
 
@@ -813,31 +1012,35 @@ async def update_embedding_model(
             description="Model for embeddings/vectorization",
             is_sensitive=False,
             is_user_editable=True,
-            metadata=metadata
+            metadata=metadata,
         )
 
         updated = settings_store.save_setting(setting)
 
         # Always analyze embedding status (even if model didn't change, show current status)
         migration_info = None
-        if previous_model and (previous_model["model_name"] != model_name or previous_model["provider"] != provider):
+        if previous_model and (
+            previous_model["model_name"] != model_name
+            or previous_model["provider"] != provider
+        ):
             # Model changed, analyze migration needs
             migration_info = await _analyze_embedding_migration_needs(
                 previous_model=previous_model,
-                new_model={"model_name": model_name, "provider": provider}
+                new_model={"model_name": model_name, "provider": provider},
             )
         else:
             # Model didn't change or no previous model, but still show current embedding status
             # Use current model as both previous and new to get status
             current_model = {"model_name": model_name, "provider": provider}
             migration_info = await _analyze_embedding_migration_needs(
-                previous_model=current_model,
-                new_model=current_model
+                previous_model=current_model, new_model=current_model
             )
             # Since model didn't change, migration is not needed
             if migration_info:
                 migration_info["needs_migration"] = False
-                migration_info["migration_recommendation"] = "Current model is active. Embedding status is healthy."
+                migration_info["migration_recommendation"] = (
+                    "Current model is active. Embedding status is healthy."
+                )
 
         response = {
             "model": LLMModelConfig(
@@ -845,7 +1048,7 @@ async def update_embedding_model(
                 provider=updated.metadata.get("provider", "openai"),
                 model_type=ModelType.EMBEDDING,
                 api_key_setting_key=updated.metadata.get("api_key_setting_key"),
-                metadata=updated.metadata
+                metadata=updated.metadata,
             )
         }
 
@@ -867,7 +1070,7 @@ async def update_embedding_model(
                 },
                 "historical_models": [],
                 "missing_periods": [],
-                "migration_recommendation": "Unable to query embedding status. Please check database connection."
+                "migration_recommendation": "Unable to query embedding status. Please check database connection.",
             }
 
         response["migration_info"] = migration_info
@@ -875,12 +1078,16 @@ async def update_embedding_model(
         return response
     except Exception as e:
         logger.error(f"Failed to update embedding model: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update embedding model: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update embedding model: {str(e)}"
+        )
 
 
 @router.post("/llm-models/test-chat", response_model=Dict[str, Any])
 async def test_chat_model_connection(
-    model_name: Optional[str] = Query(None, description="Model name to test (uses current setting if not provided)")
+    model_name: Optional[str] = Query(
+        None, description="Model name to test (uses current setting if not provided)"
+    )
 ):
     """Test chat model connection"""
     try:
@@ -910,25 +1117,34 @@ async def test_chat_model_connection(
         if provider == "openai":
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             if not api_key:
-                raise HTTPException(status_code=400, detail="OpenAI API key not configured")
+                raise HTTPException(
+                    status_code=400, detail="OpenAI API key not configured"
+                )
         elif provider == "anthropic":
-            api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+            api_key = config.agent_backend.anthropic_api_key or os.getenv(
+                "ANTHROPIC_API_KEY"
+            )
             if not api_key:
-                raise HTTPException(status_code=400, detail="Anthropic API key not configured")
+                raise HTTPException(
+                    status_code=400, detail="Anthropic API key not configured"
+                )
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported provider: {provider}"
+            )
 
         # Test connection with a simple API call
         try:
             if provider == "openai":
                 import openai
+
                 client = openai.OpenAI(api_key=api_key)
                 # For newer models (gpt-5.1+), don't use max_tokens/max_completion_tokens
                 # as the SDK version may not support max_completion_tokens yet
                 # Just use a minimal test call
                 create_params = {
                     "model": model_name,
-                    "messages": [{"role": "user", "content": "Hi"}]
+                    "messages": [{"role": "user", "content": "Hi"}],
                 }
                 # Only add max_tokens for older models that require it
                 # For gpt-5.x, skip the parameter to avoid SDK compatibility issues
@@ -940,11 +1156,12 @@ async def test_chat_model_connection(
                 message = "Connection successful" if success else "Connection failed"
             elif provider == "anthropic":
                 import anthropic
+
                 client = anthropic.Anthropic(api_key=api_key)
                 response = client.messages.create(
                     model=model_name,
                     max_tokens=10,
-                    messages=[{"role": "user", "content": "Hello"}]
+                    messages=[{"role": "user", "content": "Hello"}],
                 )
                 success = bool(response.content)
                 message = "Connection successful" if success else "Connection failed"
@@ -956,7 +1173,7 @@ async def test_chat_model_connection(
                 "model_name": model_name,
                 "provider": provider,
                 "message": message,
-                "tested_at": datetime.utcnow().isoformat()
+                "tested_at": datetime.utcnow().isoformat(),
             }
         except Exception as api_error:
             return {
@@ -965,13 +1182,15 @@ async def test_chat_model_connection(
                 "provider": provider,
                 "message": f"Connection failed: {str(api_error)}",
                 "error": str(api_error),
-                "tested_at": datetime.utcnow().isoformat()
+                "tested_at": datetime.utcnow().isoformat(),
             }
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to test chat model: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to test chat model: {str(e)}"
+        )
 
 
 @router.get("/capability-profiles", response_model=Dict[str, Any])
@@ -979,27 +1198,37 @@ async def get_capability_profiles():
     """Get capability profile configuration"""
     try:
         from backend.app.services.system_settings_store import SystemSettingsStore
+
         settings_store = SystemSettingsStore()
 
         return {
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
             "profile_model_mapping": settings_store.get_profile_model_mapping(),
-            "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping()
+            "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
     except Exception as e:
         logger.error(f"Failed to get capability profiles: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get capability profiles: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get capability profiles: {str(e)}"
+        )
 
 
 @router.put("/capability-profiles", response_model=Dict[str, Any])
 async def update_capability_profiles(
-    capability_profile_mapping: Optional[Dict[str, str]] = Body(None, description="Stage to capability profile mapping"),
-    profile_model_mapping: Optional[Dict[str, List[str]]] = Body(None, description="Profile to model list mapping"),
-    custom_model_provider_mapping: Optional[Dict[str, str]] = Body(None, description="Custom model to provider mapping")
+    capability_profile_mapping: Optional[Dict[str, str]] = Body(
+        None, description="Stage to capability profile mapping"
+    ),
+    profile_model_mapping: Optional[Dict[str, List[str]]] = Body(
+        None, description="Profile to model list mapping"
+    ),
+    custom_model_provider_mapping: Optional[Dict[str, str]] = Body(
+        None, description="Custom model to provider mapping"
+    ),
 ):
     """Update capability profile configuration"""
     try:
         from backend.app.services.system_settings_store import SystemSettingsStore
+
         settings_store = SystemSettingsStore()
 
         if capability_profile_mapping is not None:
@@ -1007,26 +1236,33 @@ async def update_capability_profiles(
         if profile_model_mapping is not None:
             settings_store.set_profile_model_mapping(profile_model_mapping)
         if custom_model_provider_mapping is not None:
-            settings_store.set_custom_model_provider_mapping(custom_model_provider_mapping)
+            settings_store.set_custom_model_provider_mapping(
+                custom_model_provider_mapping
+            )
 
         return {
             "status": "success",
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
             "profile_model_mapping": settings_store.get_profile_model_mapping(),
-            "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping()
+            "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
     except Exception as e:
         logger.error(f"Failed to update capability profiles: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update capability profiles: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update capability profiles: {str(e)}"
+        )
 
 
-@router.get("/workspaces/{workspace_id}/capability-profile", response_model=Dict[str, Any])
+@router.get(
+    "/workspaces/{workspace_id}/capability-profile", response_model=Dict[str, Any]
+)
 async def get_workspace_capability_profile(workspace_id: str):
     """Get workspace capability profile override"""
     try:
         from backend.app.services.mindscape_store import MindscapeStore
+
         store = MindscapeStore()
-        workspace = store.get_workspace(workspace_id)
+        workspace = await store.get_workspace(workspace_id)
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
         return {"capability_profile": workspace.capability_profile}
@@ -1034,39 +1270,52 @@ async def get_workspace_capability_profile(workspace_id: str):
         raise
     except Exception as e:
         logger.error(f"Failed to get workspace capability profile: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get workspace capability profile: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get workspace capability profile: {str(e)}",
+        )
 
 
-@router.put("/workspaces/{workspace_id}/capability-profile", response_model=Dict[str, Any])
+@router.put(
+    "/workspaces/{workspace_id}/capability-profile", response_model=Dict[str, Any]
+)
 async def update_workspace_capability_profile(
     workspace_id: str,
-    capability_profile: Optional[str] = Body(None, description="Capability profile override (fast/standard/precise/tool_strict/safe_write)")
+    capability_profile: Optional[str] = Body(
+        None,
+        description="Capability profile override (fast/standard/precise/tool_strict/safe_write)",
+    ),
 ):
     """Update workspace capability profile override"""
     try:
         from backend.app.services.mindscape_store import MindscapeStore
+
         store = MindscapeStore()
-        workspace = store.get_workspace(workspace_id)
+        workspace = await store.get_workspace(workspace_id)
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
         workspace.capability_profile = capability_profile
-        updated = store.update_workspace(workspace)
+        updated = await store.update_workspace(workspace)
 
-        return {
-            "status": "success",
-            "capability_profile": updated.capability_profile
-        }
+        return {"status": "success", "capability_profile": updated.capability_profile}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update workspace capability profile: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update workspace capability profile: {str(e)}")
+        logger.error(
+            f"Failed to update workspace capability profile: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update workspace capability profile: {str(e)}",
+        )
 
 
 @router.get("/model-utility-configs", response_model=Dict[str, Any])
 async def get_model_utility_configs(
-    auto_assign: bool = Query(False, description="Auto-assign configs for enabled models if not exist")
+    auto_assign: bool = Query(
+        False, description="Auto-assign configs for enabled models if not exist"
+    )
 ):
     """
     Get all model utility configurations
@@ -1078,7 +1327,9 @@ async def get_model_utility_configs(
         Dictionary mapping model_name to utility config
     """
     try:
-        from backend.app.services.model_utility_config_store import ModelUtilityConfigStore
+        from backend.app.services.model_utility_config_store import (
+            ModelUtilityConfigStore,
+        )
 
         store = ModelUtilityConfigStore()
 
@@ -1089,12 +1340,17 @@ async def get_model_utility_configs(
         all_configs = store.get_all_configs()
 
         return {
-            "configs": {model_name: config.to_dict() for model_name, config in all_configs.items()},
-            "total_count": len(all_configs)
+            "configs": {
+                model_name: config.to_dict()
+                for model_name, config in all_configs.items()
+            },
+            "total_count": len(all_configs),
         }
     except Exception as e:
         logger.error(f"Failed to get model utility configs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get model utility configs: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get model utility configs: {str(e)}"
+        )
 
 
 @router.get("/model-utility-configs/{model_name}", response_model=Dict[str, Any])
@@ -1109,26 +1365,32 @@ async def get_model_utility_config(model_name: str):
         Model utility configuration
     """
     try:
-        from backend.app.services.model_utility_config_store import ModelUtilityConfigStore
+        from backend.app.services.model_utility_config_store import (
+            ModelUtilityConfigStore,
+        )
 
         store = ModelUtilityConfigStore()
         config = store.get_model_config(model_name)
 
         if not config:
-            raise HTTPException(status_code=404, detail=f"Utility config not found for model: {model_name}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Utility config not found for model: {model_name}",
+            )
 
         return config.to_dict()
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get model utility config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get model utility config: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get model utility config: {str(e)}"
+        )
 
 
 @router.put("/model-utility-configs/{model_name}", response_model=Dict[str, Any])
 async def update_model_utility_config(
-    model_name: str,
-    config: Dict[str, Any] = Body(...)
+    model_name: str, config: Dict[str, Any] = Body(...)
 ):
     """
     Update utility configuration for a model
@@ -1141,7 +1403,10 @@ async def update_model_utility_config(
         Updated configuration
     """
     try:
-        from backend.app.services.model_utility_config_store import ModelUtilityConfigStore, ModelUtilityConfig
+        from backend.app.services.model_utility_config_store import (
+            ModelUtilityConfigStore,
+            ModelUtilityConfig,
+        )
 
         store = ModelUtilityConfigStore()
 
@@ -1152,7 +1417,9 @@ async def update_model_utility_config(
             updated_config = ModelUtilityConfig(
                 model_name=model_name,
                 provider=config.get("provider", existing_config.provider),
-                cost_per_1m_tokens=config.get("cost_per_1m_tokens", existing_config.cost_per_1m_tokens),
+                cost_per_1m_tokens=config.get(
+                    "cost_per_1m_tokens", existing_config.cost_per_1m_tokens
+                ),
                 success_rate=config.get("success_rate", existing_config.success_rate),
                 latency_ms=config.get("latency_ms", existing_config.latency_ms),
                 enabled=config.get("enabled", existing_config.enabled),
@@ -1160,25 +1427,26 @@ async def update_model_utility_config(
             )
         else:
             # Create new config
-            updated_config = ModelUtilityConfig.from_dict({
-                "model_name": model_name,
-                "provider": config.get("provider", "unknown"),
-                "cost_per_1m_tokens": config.get("cost_per_1m_tokens", 1.0),
-                "success_rate": config.get("success_rate", 0.85),
-                "latency_ms": config.get("latency_ms"),
-                "enabled": config.get("enabled", True),
-                "metadata": config.get("metadata"),
-            })
+            updated_config = ModelUtilityConfig.from_dict(
+                {
+                    "model_name": model_name,
+                    "provider": config.get("provider", "unknown"),
+                    "cost_per_1m_tokens": config.get("cost_per_1m_tokens", 1.0),
+                    "success_rate": config.get("success_rate", 0.85),
+                    "latency_ms": config.get("latency_ms"),
+                    "enabled": config.get("enabled", True),
+                    "metadata": config.get("metadata"),
+                }
+            )
 
         store.save_model_config(updated_config)
 
-        return {
-            "status": "success",
-            "config": updated_config.to_dict()
-        }
+        return {"status": "success", "config": updated_config.to_dict()}
     except Exception as e:
         logger.error(f"Failed to update model utility config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update model utility config: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update model utility config: {str(e)}"
+        )
 
 
 @router.post("/model-utility-configs/auto-assign", response_model=Dict[str, Any])
@@ -1190,7 +1458,9 @@ async def auto_assign_model_utility_configs():
         Dictionary of assigned configurations
     """
     try:
-        from backend.app.services.model_utility_config_store import ModelUtilityConfigStore
+        from backend.app.services.model_utility_config_store import (
+            ModelUtilityConfigStore,
+        )
 
         store = ModelUtilityConfigStore()
         assigned_configs = store.auto_assign_configs_for_enabled_models()
@@ -1198,17 +1468,22 @@ async def auto_assign_model_utility_configs():
         return {
             "status": "success",
             "assigned_count": len(assigned_configs),
-            "configs": {model_name: config.to_dict() for model_name, config in assigned_configs.items()}
+            "configs": {
+                model_name: config.to_dict()
+                for model_name, config in assigned_configs.items()
+            },
         }
     except Exception as e:
         logger.error(f"Failed to auto-assign model utility configs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to auto-assign model utility configs: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to auto-assign model utility configs: {str(e)}",
+        )
 
 
 @router.post("/llm-models/test-embedding", response_model=Dict[str, Any])
 async def _analyze_embedding_migration_needs(
-    previous_model: Dict[str, str],
-    new_model: Dict[str, str]
+    previous_model: Dict[str, str], new_model: Dict[str, str]
 ) -> Optional[Dict[str, Any]]:
     """
     Analyze embedding migration needs by querying historical embedding usage
@@ -1228,11 +1503,7 @@ async def _analyze_embedding_migration_needs(
 
         # Get PostgreSQL config
         pg_config = {
-            "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-            "database": os.getenv("POSTGRES_DB", "mindscape_vectors"),
-            "user": os.getenv("POSTGRES_USER", "mindscape"),
-            "password": os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+            **get_vector_postgres_config(),
         }
 
         # Set connection timeout (5 seconds)
@@ -1244,7 +1515,8 @@ async def _analyze_embedding_migration_needs(
             cursor.execute("SET statement_timeout = 10000")  # 10 seconds
 
             # Query all historical embedding models and their usage
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     metadata->>'embedding_model' as model_name,
                     metadata->>'embedding_provider' as provider,
@@ -1256,12 +1528,14 @@ async def _analyze_embedding_migration_needs(
                 WHERE metadata->>'embedding_model' IS NOT NULL
                 GROUP BY metadata->>'embedding_model', metadata->>'embedding_provider'
                 ORDER BY last_used DESC
-            """)
+            """
+            )
 
             historical_models = cursor.fetchall()
 
             # Query embeddings for previous model
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     COUNT(*) as count,
                     MIN(created_at) as first_used,
@@ -1270,12 +1544,15 @@ async def _analyze_embedding_migration_needs(
                 FROM mindscape_personal
                 WHERE metadata->>'embedding_model' = %s
                   AND metadata->>'embedding_provider' = %s
-            """, (previous_model["model_name"], previous_model["provider"]))
+            """,
+                (previous_model["model_name"], previous_model["provider"]),
+            )
 
             previous_model_stats = cursor.fetchone()
 
             # Query embeddings for new model (if any exist)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     COUNT(*) as count,
                     MIN(created_at) as first_used,
@@ -1284,21 +1561,30 @@ async def _analyze_embedding_migration_needs(
                 FROM mindscape_personal
                 WHERE metadata->>'embedding_model' = %s
                   AND metadata->>'embedding_provider' = %s
-            """, (new_model["model_name"], new_model["provider"]))
+            """,
+                (new_model["model_name"], new_model["provider"]),
+            )
 
             new_model_stats = cursor.fetchone()
 
             # Check for active migrations
-            from backend.app.services.embedding_migration_store import EmbeddingMigrationStore
+            from backend.app.services.embedding_migration_store import (
+                EmbeddingMigrationStore,
+            )
             from backend.app.models.embedding_migration import MigrationStatus
+
             migration_store = EmbeddingMigrationStore()
-            running_migrations = migration_store.list_migrations(status=MigrationStatus.IN_PROGRESS)
-            pending_migrations = migration_store.list_migrations(status=MigrationStatus.PENDING)
+            running_migrations = migration_store.list_migrations(
+                status=MigrationStatus.IN_PROGRESS
+            )
+            pending_migrations = migration_store.list_migrations(
+                status=MigrationStatus.PENDING
+            )
             active_migrations = running_migrations + pending_migrations
 
             has_active_migration = any(
-                m.source_model == previous_model["model_name"] and
-                m.target_model == new_model["model_name"]
+                m.source_model == previous_model["model_name"]
+                and m.target_model == new_model["model_name"]
                 for m in active_migrations
             )
 
@@ -1307,12 +1593,14 @@ async def _analyze_embedding_migration_needs(
             # 1. Previous model has embeddings
             # 2. New model doesn't have all the embeddings (or has fewer)
             # 3. No active migration for this model pair
-            previous_count = previous_model_stats["count"] if previous_model_stats else 0
+            previous_count = (
+                previous_model_stats["count"] if previous_model_stats else 0
+            )
             new_count = new_model_stats["count"] if new_model_stats else 0
             needs_migration = (
-                previous_count > 0 and
-                (new_count < previous_count or new_count == 0) and
-                not has_active_migration
+                previous_count > 0
+                and (new_count < previous_count or new_count == 0)
+                and not has_active_migration
             )
 
             # Build response
@@ -1323,55 +1611,98 @@ async def _analyze_embedding_migration_needs(
                     "model_name": previous_model["model_name"],
                     "provider": previous_model["provider"],
                     "total_embeddings": previous_count,
-                    "first_used": previous_model_stats["first_used"].isoformat() if previous_model_stats and previous_model_stats["first_used"] else None,
-                    "last_used": previous_model_stats["last_used"].isoformat() if previous_model_stats and previous_model_stats["last_used"] else None,
-                    "last_updated": previous_model_stats["last_updated"].isoformat() if previous_model_stats and previous_model_stats["last_updated"] else None,
+                    "first_used": (
+                        previous_model_stats["first_used"].isoformat()
+                        if previous_model_stats and previous_model_stats["first_used"]
+                        else None
+                    ),
+                    "last_used": (
+                        previous_model_stats["last_used"].isoformat()
+                        if previous_model_stats and previous_model_stats["last_used"]
+                        else None
+                    ),
+                    "last_updated": (
+                        previous_model_stats["last_updated"].isoformat()
+                        if previous_model_stats and previous_model_stats["last_updated"]
+                        else None
+                    ),
                 },
                 "new_model": {
                     "model_name": new_model["model_name"],
                     "provider": new_model["provider"],
                     "existing_embeddings": new_count,
-                    "first_used": new_model_stats["first_used"].isoformat() if new_model_stats and new_model_stats["first_used"] else None,
-                    "last_used": new_model_stats["last_used"].isoformat() if new_model_stats and new_model_stats["last_used"] else None,
+                    "first_used": (
+                        new_model_stats["first_used"].isoformat()
+                        if new_model_stats and new_model_stats["first_used"]
+                        else None
+                    ),
+                    "last_used": (
+                        new_model_stats["last_used"].isoformat()
+                        if new_model_stats and new_model_stats["last_used"]
+                        else None
+                    ),
                 },
                 "historical_models": [
                     {
                         "model_name": row["model_name"],
                         "provider": row["provider"],
                         "count": row["count"],
-                        "first_used": row["first_used"].isoformat() if row["first_used"] else None,
-                        "last_used": row["last_used"].isoformat() if row["last_used"] else None,
-                        "last_updated": row["last_updated"].isoformat() if row["last_updated"] else None,
+                        "first_used": (
+                            row["first_used"].isoformat() if row["first_used"] else None
+                        ),
+                        "last_used": (
+                            row["last_used"].isoformat() if row["last_used"] else None
+                        ),
+                        "last_updated": (
+                            row["last_updated"].isoformat()
+                            if row["last_updated"]
+                            else None
+                        ),
                     }
                     for row in historical_models
                 ],
                 "missing_periods": [],
-                "migration_recommendation": None
+                "migration_recommendation": None,
             }
 
             # Calculate missing time periods
             if previous_model_stats and previous_model_stats["count"] > 0:
-                if previous_model_stats["first_used"] and previous_model_stats["last_used"]:
-                    migration_info["missing_periods"].append({
-                        "from": previous_model_stats["first_used"].isoformat(),
-                        "to": previous_model_stats["last_used"].isoformat(),
-                        "model": previous_model["model_name"],
-                        "count": previous_model_stats["count"]
-                    })
+                if (
+                    previous_model_stats["first_used"]
+                    and previous_model_stats["last_used"]
+                ):
+                    migration_info["missing_periods"].append(
+                        {
+                            "from": previous_model_stats["first_used"].isoformat(),
+                            "to": previous_model_stats["last_used"].isoformat(),
+                            "model": previous_model["model_name"],
+                            "count": previous_model_stats["count"],
+                        }
+                    )
 
             # Generate migration recommendation
             if needs_migration:
                 if new_count == 0:
-                    migration_info["migration_recommendation"] = "New model has no embeddings. Strongly recommend re-embedding all documents to ensure search accuracy."
+                    migration_info["migration_recommendation"] = (
+                        "New model has no embeddings. Strongly recommend re-embedding all documents to ensure search accuracy."
+                    )
                 elif new_count < previous_count:
                     missing_count = previous_count - new_count
-                    migration_info["migration_recommendation"] = f"New model is missing {missing_count:,} embeddings. Recommend re-embedding to fill the gap."
+                    migration_info["migration_recommendation"] = (
+                        f"New model is missing {missing_count:,} embeddings. Recommend re-embedding to fill the gap."
+                    )
                 else:
-                    migration_info["migration_recommendation"] = "Recommend re-embedding to ensure all vectors are generated with the new model."
+                    migration_info["migration_recommendation"] = (
+                        "Recommend re-embedding to ensure all vectors are generated with the new model."
+                    )
             elif has_active_migration:
-                migration_info["migration_recommendation"] = "Active migration task in progress. Please wait for completion before checking again."
+                migration_info["migration_recommendation"] = (
+                    "Active migration task in progress. Please wait for completion before checking again."
+                )
             elif new_count >= previous_count and new_count > 0:
-                migration_info["migration_recommendation"] = "New model has sufficient embeddings. Migration may not be necessary."
+                migration_info["migration_recommendation"] = (
+                    "New model has sufficient embeddings. Migration may not be necessary."
+                )
 
             return migration_info
 
@@ -1379,7 +1710,9 @@ async def _analyze_embedding_migration_needs(
             conn.close()
 
     except Exception as e:
-        logger.warning(f"Failed to analyze embedding migration needs: {e}", exc_info=True)
+        logger.warning(
+            f"Failed to analyze embedding migration needs: {e}", exc_info=True
+        )
         # Return basic info even if database query fails
         return {
             "needs_migration": False,  # Don't assume migration needed if we can't check
@@ -1397,7 +1730,5 @@ async def _analyze_embedding_migration_needs(
             "historical_models": [],
             "missing_periods": [],
             "migration_recommendation": f"Unable to query embedding status: {str(e)}. Please check database connection.",
-            "error": f"Could not query historical data: {str(e)}"
+            "error": f"Could not query historical data: {str(e)}",
         }
-
-

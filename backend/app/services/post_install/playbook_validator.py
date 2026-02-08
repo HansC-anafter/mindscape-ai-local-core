@@ -284,7 +284,7 @@ class PlaybookValidator:
 
             if tool_test_errors:
                 # Check if errors are due to missing optional dependencies
-                optional_dep_errors, critical_errors = self._categorize_tool_errors(tool_test_errors)
+                optional_dep_errors, critical_errors = self._categorize_tool_errors(tool_test_errors, capability_code)
 
                 # Only critical errors are treated as failures
                 if critical_errors:
@@ -314,13 +314,46 @@ class PlaybookValidator:
             })
             logger.error(f"Playbook {playbook_code} tool call test exception: {e}")
 
-    def _categorize_tool_errors(self, errors: List[str]) -> Tuple[List[str], List[str]]:
+    def _categorize_tool_errors(self, errors: List[str], capability_code: str = None) -> Tuple[List[str], List[str]]:
         """将工具错误分类为可选依赖错误和关键错误"""
         optional_dep_errors = []
         critical_errors = []
+
+        # 讀取 manifest 中的可選 Python 依賴
+        optional_python_packages = []
+        if capability_code:
+            possible_dir_names = [capability_code, capability_code.replace("_", "-"), capability_code.replace("-", "_")]
+            for dir_name in possible_dir_names:
+                manifest_path = self.capabilities_dir / dir_name / "manifest.yaml"
+                if manifest_path.exists():
+                    try:
+                        import yaml
+                        with open(manifest_path, "r", encoding="utf-8") as f:
+                            manifest = yaml.safe_load(f) or {}
+                            deps = manifest.get("dependencies", {})
+                            python_packages = deps.get("python_packages", {})
+                            optional_python_packages = python_packages.get("optional", [])
+                            break
+                    except Exception as e:
+                        logger.debug(f"Failed to read manifest for optional Python packages: {e}")
+                    break
+
         for err in errors:
-            # Check if error is about missing module (optional dependency)
-            if "No module named" in err and any(dep in err.lower() for dep in ['bs4', 'beautifulsoup', 'httpx', 'requests']):
+            is_optional = False
+
+            # Check against manifest-defined optional Python packages
+            if optional_python_packages:
+                for pkg in optional_python_packages:
+                    if pkg.lower() in err.lower():
+                        is_optional = True
+                        break
+
+            # Fallback: check common optional dependencies
+            if not is_optional and "No module named" in err:
+                if any(dep in err.lower() for dep in ['bs4', 'beautifulsoup', 'httpx', 'requests']):
+                    is_optional = True
+
+            if is_optional:
                 optional_dep_errors.append(err)
             else:
                 critical_errors.append(err)

@@ -252,17 +252,21 @@ command.upgrade(config, '{revision}')
                 logger.info(f"Alembic stdout: {result.stdout}")
             if result.stderr:
                 # Check for revision conflict warnings
+                # Only treat as error if the conflicting revision is the one we're trying to execute
                 if "Revision" in result.stderr and "is present more than once" in result.stderr:
-                    logger.error(f"Migration revision conflict detected in stderr: {result.stderr}")
-                    # Extract the conflicting revision ID
                     import re
                     conflict_match = re.search(r"Revision (\d+) is present more than once", result.stderr)
                     if conflict_match:
                         conflicting_revision = conflict_match.group(1)
-                        error_msg = f"Migration revision ID conflict: Revision {conflicting_revision} is present more than once. This will prevent migrations from executing correctly."
-                        logger.error(error_msg)
-                        # Return False to indicate failure
-                        return False
+                        # Only fail if the conflict is with the revision we're trying to execute
+                        if conflicting_revision == revision:
+                            logger.error(f"Migration revision conflict detected in stderr: {result.stderr}")
+                            error_msg = f"Migration revision ID conflict: Revision {conflicting_revision} is present more than once. This will prevent migrations from executing correctly."
+                            logger.error(error_msg)
+                            return False
+                        else:
+                            # Conflict is with other capability's revision, log warning but continue
+                            logger.warning(f"Revision conflict detected for {conflicting_revision} (not the current revision {revision}), continuing...")
                 logger.warning(f"Alembic stderr: {result.stderr}")
             return True
         except subprocess.TimeoutExpired:
@@ -280,9 +284,9 @@ command.upgrade(config, '{revision}')
     def _get_env_requirements(self, db_type: str) -> Dict:
         """Get environment requirements for validation."""
         if db_type == "postgres":
-            from app.database.config import get_postgres_url
+            from app.database.config import get_postgres_url_core
             return {
-                "postgres_url": get_postgres_url(),
+                "postgres_url": get_postgres_url_core(),
                 "environment_requirements": {
                     "postgres": {
                         "extensions": ["vector"],

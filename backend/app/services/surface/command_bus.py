@@ -1,13 +1,15 @@
 """Command Bus service for unified command dispatch."""
 import logging
-import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from ...models.surface import Command, CommandStatus, SurfaceDefinition
 from ...services.playbook_run_executor import PlaybookRunExecutor
-from ...services.stores.commands_store import CommandsStore
-from ...services.stores.playbook_executions_store import PlaybookExecutionsStore
+from ...database.connection_factory import ConnectionFactory
+from ...services.stores.postgres.remaining_stores import (
+    PostgresCommandsStore,
+    PostgresPlaybookExecutionsStore,
+)
 
 # Optional import for gate service (cloud service)
 try:
@@ -73,18 +75,15 @@ class CommandBus:
         Args:
             db_path: Optional database path (defaults to standard location)
         """
-        if db_path is None:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                from pathlib import Path
-                base_dir = Path(__file__).parent.parent.parent.parent.parent
-                data_dir = base_dir / "data"
-                data_dir.mkdir(exist_ok=True)
-                db_path = str(data_dir / "mindscape.db")
-
-        self.store = CommandsStore(db_path)
-        self.executions_store = PlaybookExecutionsStore(db_path)
+        if db_path is not None:
+            logger.warning("CommandBus ignores db_path in Postgres-only mode.")
+        db_type = ConnectionFactory().get_db_type()
+        if db_type != "postgres":
+            raise RuntimeError(
+                "SQLite is no longer supported for CommandBus. Configure PostgreSQL."
+            )
+        self.store = PostgresCommandsStore()
+        self.executions_store = PostgresPlaybookExecutionsStore()
         self.playbook_executor = PlaybookRunExecutor()
         self.gate_service = GateService() if GATE_SERVICE_AVAILABLE else None
 
@@ -337,4 +336,3 @@ class CommandBus:
                 }
             )
             logger.info(f"Created gate {gate['gate_id']} for artifact {artifact_id}")
-

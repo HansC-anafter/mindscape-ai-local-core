@@ -1,77 +1,96 @@
 """
 Playbook Database Loader
-Loads playbooks from SQLite database
+Loads playbooks from PostgreSQL database
 """
 
 import json
-import sqlite3
 import logging
-from typing import List, Optional
-from contextlib import contextmanager
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 
+from sqlalchemy import text
+
 from backend.app.models.playbook import Playbook, PlaybookMetadata
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
 
 
-class PlaybookDatabaseLoader:
-    """Loads playbooks from database"""
+class PlaybookDatabaseLoader(PostgresStoreBase):
+    """Loads playbooks from PostgreSQL database"""
 
     @staticmethod
-    @contextmanager
-    def _get_connection(db_path: str):
-        """Get database connection with proper cleanup"""
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
+    def _deserialize_json(value: Any, default: Any):
+        if value is None:
+            return default
+        if isinstance(value, (dict, list)):
+            return value
+        if isinstance(value, str):
+            if not value.strip():
+                return default
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return default
+        return default
 
     @staticmethod
-    def _row_to_playbook(row) -> Playbook:
+    def _to_datetime(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return datetime.fromisoformat(value)
+        raise ValueError(f"Unsupported datetime value: {value}")
+
+    @classmethod
+    def _row_to_playbook(cls, row: Dict[str, Any]) -> Playbook:
         """Convert database row to Playbook"""
         return Playbook(
             metadata=PlaybookMetadata(
-                playbook_code=row['playbook_code'],
-                version=row['version'],
-                locale=row.get('locale', 'zh-TW'),
-                name=row['name'],
-                description=row['description'] or '',
-                tags=json.loads(row['tags'] or '[]'),
-                entry_agent_type=row.get('entry_agent_type'),
-                onboarding_task=row.get('onboarding_task'),
-                icon=row.get('icon'),
-                required_tools=json.loads(row.get('required_tools') or '[]'),
-                scope=json.loads(row['scope']) if row.get('scope') else None,
-                owner=json.loads(row['owner']) if row.get('owner') else None,
-                created_at=datetime.fromisoformat(row['created_at']),
-                updated_at=datetime.fromisoformat(row['updated_at'])
+                playbook_code=row["playbook_code"],
+                version=row.get("version"),
+                locale=row.get("locale") or "zh-TW",
+                name=row.get("name") or "",
+                description=row.get("description") or "",
+                tags=cls._deserialize_json(row.get("tags"), []),
+                entry_agent_type=row.get("entry_agent_type"),
+                onboarding_task=row.get("onboarding_task"),
+                icon=row.get("icon"),
+                required_tools=cls._deserialize_json(row.get("required_tools"), []),
+                scope=cls._deserialize_json(row.get("scope"), None),
+                owner=cls._deserialize_json(row.get("owner"), None),
+                created_at=cls._to_datetime(row.get("created_at")),
+                updated_at=cls._to_datetime(row.get("updated_at")),
             ),
-            sop_content=row['sop_content'] or '',
-            user_notes=row['user_notes']
+            sop_content=row.get("sop_content") or "",
+            user_notes=row.get("user_notes"),
         )
 
-    @staticmethod
-    def load_playbooks_from_db(db_path: str, tags: Optional[List[str]] = None) -> List[Playbook]:
+    @classmethod
+    def load_playbooks_from_db(
+        cls,
+        db_path: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> List[Playbook]:
         """List all playbooks from database, optionally filtered by tags"""
-        with PlaybookDatabaseLoader._get_connection(db_path) as conn:
-            cursor = conn.cursor()
-
+        loader = cls()
+        with loader.get_connection() as conn:
             if tags:
-                query = 'SELECT * FROM playbooks WHERE '
-                conditions = []
-                params = []
-                for tag in tags:
-                    conditions.append('tags LIKE ?')
-                    params.append(f'%"{tag}"%')
-                query += ' OR '.join(conditions)
-                query += ' ORDER BY name'
-                cursor.execute(query, params)
+                tag_conditions = []
+                params: Dict[str, Any] = {}
+                for idx, tag in enumerate(tags):
+                    key = f"tag_{idx}"
+                    tag_conditions.append(f"tags::text LIKE :{key}")
+                    params[key] = f'%"{tag}"%'
+                query = (
+                    "SELECT * FROM playbooks WHERE "
+                    + " OR ".join(tag_conditions)
+                    + " ORDER BY name"
+                )
+                rows = conn.execute(text(query), params).mappings().all()
             else:
-                cursor.execute('SELECT * FROM playbooks ORDER BY name')
+                rows = conn.execute(
+                    text("SELECT * FROM playbooks ORDER BY name")
+                ).mappings().all()
 
-            rows = cursor.fetchall()
-            return [PlaybookDatabaseLoader._row_to_playbook(row) for row in rows]
-
+        return [cls._row_to_playbook(dict(row)) for row in rows]

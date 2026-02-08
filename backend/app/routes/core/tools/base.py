@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from backend.app.models.tool_registry import RegisteredTool
 from backend.app.services.tool_registry import ToolRegistryService
 from backend.app.services.tools.discovery_provider import ToolConfig
+from pathlib import Path
+import yaml
 import os
 import logging
 
@@ -50,6 +52,70 @@ def raise_api_error(status_code: int, detail: str) -> None:
     Helper function to raise HTTPException with consistent error handling
     """
     raise HTTPException(status_code=status_code, detail=detail)
+
+def _load_capability_tools_from_installed_manifests() -> List[RegisteredTool]:
+    """
+    Fallback: load capability tools from installed capability manifests.
+
+    Why this exists:
+    - `ToolListService._get_capability_tools()` relies on capability registry state.
+    - During hot-reload / startup ordering issues, registry-based enumeration can be empty.
+    - Installed manifests in `backend/app/capabilities/*/manifest.yaml` are the install SOT.
+    """
+    try:
+        # Resolve `backend/app` directory from this file: backend/app/routes/core/tools/base.py
+        app_dir = Path(__file__).resolve().parents[3]  # .../backend/app
+        capabilities_dir = app_dir / "capabilities"
+        if not capabilities_dir.exists():
+            return []
+
+        results: List[RegisteredTool] = []
+        for cap_dir in capabilities_dir.iterdir():
+            if not cap_dir.is_dir():
+                continue
+            manifest_path = cap_dir / "manifest.yaml"
+            if not manifest_path.exists():
+                continue
+
+            try:
+                manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+            except Exception as e:
+                logger.debug(f"Failed to read manifest for {cap_dir.name}: {e}")
+                continue
+
+            cap_code = manifest.get("code") or cap_dir.name
+            for tool_cfg in manifest.get("tools", []) or []:
+                if not isinstance(tool_cfg, dict):
+                    continue
+                tool_code = tool_cfg.get("code") or tool_cfg.get("name")
+                if not tool_code:
+                    continue
+                tool_id = f"{cap_code}.{tool_code}"
+                results.append(
+                    RegisteredTool(
+                        tool_id=tool_id,
+                        site_id=cap_code,
+                        provider="capability",
+                        display_name=tool_cfg.get("display_name") or tool_code,
+                        origin_capability_id=tool_id,
+                        category=tool_cfg.get("category") or "capability",
+                        description=tool_cfg.get("description") or "",
+                        endpoint="",
+                        methods=[],
+                        danger_level="low",
+                        input_schema=tool_cfg.get("input_schema") or {},
+                        enabled=True,
+                        read_only=False,
+                        allowed_agent_roles=[],
+                        side_effect_level=tool_cfg.get("side_effect_level") or "none",
+                        scope="system",
+                    )
+                )
+
+        return results
+    except Exception as e:
+        logger.warning(f"Fallback capability tool load failed: {e}", exc_info=True)
+        return []
 
 
 # Request/Response models
@@ -216,6 +282,26 @@ async def list_tools(
     except Exception as e:
         logger.warning(f"Failed to load capability tools: {e}", exc_info=True)
 
+    # Fallback: if capability tools are still missing, load them from installed manifests.
+    try:
+        if not any((t.provider == "capability") for t in tools):
+            fallback_tools = _load_capability_tools_from_installed_manifests()
+            added = 0
+            for t in fallback_tools:
+                if any(existing.tool_id == t.tool_id for existing in tools):
+                    continue
+                if enabled_only and not t.enabled:
+                    continue
+                if category and t.category != category:
+                    continue
+                if site_id and t.site_id != site_id:
+                    continue
+                tools.append(t)
+                added += 1
+            logger.info(f"list_tools: Fallback added {added} capability tools from manifests")
+    except Exception as e:
+        logger.warning(f"Failed to load fallback capability tools: {e}", exc_info=True)
+
     return tools
 
 
@@ -227,6 +313,10 @@ async def get_tool(
     """Get a specific tool"""
     tool = registry.get_tool(tool_id)
     if not tool:
+        # Fallback: capability tools may not be stored in ToolRegistryService DB.
+        for t in _load_capability_tools_from_installed_manifests():
+            if t.tool_id == tool_id:
+                return t
         raise_api_error(404, "Tool not found")
     return tool
 

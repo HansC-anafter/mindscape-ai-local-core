@@ -21,6 +21,7 @@ def get_provider_name_from_chat_model() -> Optional[str]:
         ValueError: If chat_model is not configured or cannot determine provider
     """
     from backend.app.services.system_settings_store import SystemSettingsStore
+
     settings_store = SystemSettingsStore()
     chat_setting = settings_store.get_setting("chat_model")
 
@@ -41,6 +42,11 @@ def get_provider_name_from_chat_model() -> Optional[str]:
             provider_name = "openai"
         elif "claude" in model_name.lower():
             provider_name = "anthropic"
+        elif any(
+            x in model_name.lower()
+            for x in ["llama", "mistral", "gemma", "deepseek", "qwen", "phi"]
+        ):
+            provider_name = "ollama"
         else:
             raise ValueError(
                 f"Cannot determine LLM provider from model name '{model_name}'. "
@@ -69,6 +75,7 @@ def get_llm_provider_from_settings(llm_manager) -> Optional[object]:
     if not provider:
         available_providers = llm_manager.get_available_providers()
         from backend.app.services.system_settings_store import SystemSettingsStore
+
         settings_store = SystemSettingsStore()
         chat_setting = settings_store.get_setting("chat_model")
         model_name = str(chat_setting.value) if chat_setting else "unknown"
@@ -86,6 +93,11 @@ def get_llm_provider_from_settings(llm_manager) -> Optional[object]:
                 f"Available providers: {', '.join(available_providers) if available_providers else 'none'}. "
                 f"Please configure the API key for '{provider_name}' in Settings."
             )
+        elif provider_name == "ollama":
+            error_msg = (
+                f"Selected provider 'ollama' (from chat_model '{model_name}') is not available. "
+                "Please ensure Ollama is running (default: http://localhost:11434) or configure the URL in Settings."
+            )
         else:
             error_msg = (
                 f"Selected provider '{provider_name}' (from chat_model '{model_name}') is not available. "
@@ -95,10 +107,13 @@ def get_llm_provider_from_settings(llm_manager) -> Optional[object]:
         raise ValueError(error_msg)
 
     from backend.app.services.system_settings_store import SystemSettingsStore
+
     settings_store = SystemSettingsStore()
     chat_setting = settings_store.get_setting("chat_model")
     model_name = str(chat_setting.value) if chat_setting else "unknown"
-    logger.info(f"Using LLM provider '{provider_name}' (from chat_model '{model_name}')")
+    logger.info(
+        f"Using LLM provider '{provider_name}' (from chat_model '{model_name}')"
+    )
     return provider
 
 
@@ -110,6 +125,7 @@ def get_model_name_from_chat_model() -> Optional[str]:
         Model name (e.g., 'gemini-2.5-pro', 'gpt-4o-mini') or None if not configured
     """
     from backend.app.services.system_settings_store import SystemSettingsStore
+
     settings_store = SystemSettingsStore()
     chat_setting = settings_store.get_setting("chat_model")
 
@@ -124,7 +140,9 @@ def create_llm_provider_manager(
     anthropic_key: Optional[str] = None,
     vertex_api_key: Optional[str] = None,
     vertex_project_id: Optional[str] = None,
-    vertex_location: Optional[str] = None
+    vertex_location: Optional[str] = None,
+    llama_model_path: Optional[str] = None,
+    ollama_base_url: Optional[str] = None,
 ):
     """
     Create LLMProviderManager with unified configuration from system settings
@@ -165,28 +183,46 @@ def create_llm_provider_manager(
     # Get Vertex AI config: parameter > system settings > environment variable
     if not vertex_api_key:
         # UI / settings route writes the JSON credential to vertex_ai_service_account_json
-        vertex_service_account = settings_store.get_setting("vertex_ai_service_account_json")
-        vertex_api_key = vertex_service_account.value if vertex_service_account else None
+        vertex_service_account = settings_store.get_setting(
+            "vertex_ai_service_account_json"
+        )
+        vertex_api_key = (
+            vertex_service_account.value if vertex_service_account else None
+        )
     if not vertex_api_key:
         vertex_api_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
     if not vertex_project_id:
         vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
-        vertex_project_id = vertex_project_setting.value if vertex_project_setting else None
+        vertex_project_id = (
+            vertex_project_setting.value if vertex_project_setting else None
+        )
     if not vertex_project_id:
         vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
     if not vertex_location:
-        vertex_location_setting = settings_store.get_setting("vertex_ai_location")
-        vertex_location = vertex_location_setting.value if vertex_location_setting else None
-    if not vertex_location:
         vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
+
+    # Get Llama model path: parameter > system settings > environment variable
+    if not llama_model_path:
+        llama_setting = settings_store.get_setting("llama_model_path")
+        llama_model_path = llama_setting.value if llama_setting else None
+    if not llama_model_path:
+        llama_model_path = os.getenv("LLAMA_MODEL_PATH")
+
+    # Get Ollama base URL: parameter > system settings > environment variable
+    if not ollama_base_url:
+        ollama_setting = settings_store.get_setting("ollama_base_url")
+        ollama_base_url = ollama_setting.value if ollama_setting else None
+    if not ollama_base_url:
+        ollama_base_url = os.getenv("OLLAMA_BASE_URL")
 
     return LLMProviderManager(
         openai_key=openai_key,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,
         vertex_project_id=vertex_project_id,
-        vertex_location=vertex_location
+        vertex_location=vertex_location,
+        llama_model_path=llama_model_path,
+        ollama_base_url=ollama_base_url,
     )
-

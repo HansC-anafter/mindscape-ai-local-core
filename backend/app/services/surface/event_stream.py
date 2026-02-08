@@ -1,6 +1,5 @@
 """Event Stream service for Surface events."""
 import logging
-import os
 import json
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -21,17 +20,7 @@ class EventStreamService:
         Args:
             db_path: Optional database path (defaults to standard location)
         """
-        if db_path is None:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                from pathlib import Path
-                base_dir = Path(__file__).parent.parent.parent.parent.parent
-                data_dir = base_dir / "data"
-                data_dir.mkdir(exist_ok=True)
-                db_path = str(data_dir / "mindscape.db")
-
-        self.store = SurfaceEventsStore(db_path)
+        self.store = SurfaceEventsStore()
 
     def collect_event(
         self,
@@ -141,4 +130,3 @@ class EventStreamService:
             card_id_filter=card_id_filter,
             limit=limit
         )
-

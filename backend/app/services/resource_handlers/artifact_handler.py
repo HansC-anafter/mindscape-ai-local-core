@@ -51,11 +51,15 @@ class ArtifactResourceHandler(ResourceHandler):
 
         # Extract file_path or external_url from storage_ref or metadata
         file_path = artifact.metadata.get("file_path") if artifact.metadata else None
-        external_url = artifact.metadata.get("external_url") if artifact.metadata else None
+        external_url = (
+            artifact.metadata.get("external_url") if artifact.metadata else None
+        )
 
         # Fallback to storage_ref if not in metadata
         if not file_path and not external_url and artifact.storage_ref:
-            if artifact.storage_ref.startswith("http://") or artifact.storage_ref.startswith("https://"):
+            if artifact.storage_ref.startswith(
+                "http://"
+            ) or artifact.storage_ref.startswith("https://"):
                 external_url = artifact.storage_ref
             else:
                 file_path = artifact.storage_ref
@@ -70,39 +74,54 @@ class ArtifactResourceHandler(ResourceHandler):
             "file_path": file_path,
             "external_url": external_url,
             "metadata": artifact.metadata or {},
-            "created_at": artifact.created_at.isoformat() if artifact.created_at else datetime.utcnow().isoformat(),
-            "updated_at": artifact.updated_at.isoformat() if artifact.updated_at else datetime.utcnow().isoformat(),
+            "created_at": (
+                artifact.created_at.isoformat()
+                if artifact.created_at
+                else datetime.utcnow().isoformat()
+            ),
+            "updated_at": (
+                artifact.updated_at.isoformat()
+                if artifact.updated_at
+                else datetime.utcnow().isoformat()
+            ),
         }
 
     def _create_artifact_from_data(
-        self,
-        workspace_id: str,
-        data: Dict[str, Any],
-        artifact_id: str
+        self, workspace_id: str, data: Dict[str, Any], artifact_id: str
     ) -> Artifact:
         """Create Artifact model from data dictionary"""
 
-        # Map API type to ArtifactType
-        type_map = {
-            "illustration": ArtifactType.IMAGE,
-            "document": ArtifactType.DOCX,
-            "other": ArtifactType.FILE,
-        }
+        # Map API type to ArtifactType.
+        # Note: for draft-like artifacts created from Workbench (e.g., divi_slot_draft),
+        # prefer ArtifactType.DRAFT to make it semantically clear in downstream UIs.
+        metadata = data.get("metadata", {}).copy()
+        kind = (metadata.get("kind") or "").strip().lower()
 
-        artifact_type = type_map.get(data.get("type", "other"), ArtifactType.FILE)
+        if kind.endswith("_draft") or kind in {"divi_slot_draft", "content_draft"}:
+            artifact_type = ArtifactType.DRAFT
+        else:
+            type_map = {
+                "illustration": ArtifactType.IMAGE,
+                "document": ArtifactType.DOCX,
+                "other": ArtifactType.FILE,
+            }
+            artifact_type = type_map.get(data.get("type", "other"), ArtifactType.FILE)
 
         # Determine storage_ref from file_path or external_url
         storage_ref = data.get("external_url") or data.get("file_path")
 
         # Add file_path and external_url to metadata if provided
-        metadata = data.get("metadata", {}).copy()
         if data.get("file_path"):
             metadata["file_path"] = data["file_path"]
         if data.get("external_url"):
             metadata["external_url"] = data["external_url"]
 
         # Determine primary_action_type based on type
-        primary_action_type = PrimaryActionType.OPEN_EXTERNAL if data.get("external_url") else PrimaryActionType.DOWNLOAD
+        primary_action_type = (
+            PrimaryActionType.OPEN_EXTERNAL
+            if data.get("external_url")
+            else PrimaryActionType.DOWNLOAD
+        )
 
         return Artifact(
             id=artifact_id,
@@ -110,23 +129,24 @@ class ArtifactResourceHandler(ResourceHandler):
             intent_id=data.get("intent_id"),
             task_id=None,
             execution_id=None,
+            thread_id=data.get("thread_id"),
             playbook_code=metadata.get("playbook_code", "manual"),
             artifact_type=artifact_type,
             title=data.get("title", ""),
             summary=data.get("description", ""),
-            content={},
+            content=(
+                data.get("content", {}) if isinstance(data.get("content"), dict) else {}
+            ),
             storage_ref=storage_ref,
             sync_state=None,
             primary_action_type=primary_action_type,
             metadata=metadata,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
 
     async def list(
-        self,
-        workspace_id: str,
-        filters: Optional[Dict[str, Any]] = None
+        self, workspace_id: str, filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """List all artifacts for a workspace"""
 
@@ -141,30 +161,38 @@ class ArtifactResourceHandler(ResourceHandler):
         if filters.get("type"):
             # Map API type to ArtifactType for filtering
             type_filter_map = {
-                "illustration": [ArtifactType.IMAGE, ArtifactType.VIDEO, ArtifactType.CANVA],
-                "document": [ArtifactType.DOCX, ArtifactType.CODE, ArtifactType.DATA, ArtifactType.LINK, ArtifactType.CHECKLIST, ArtifactType.DRAFT, ArtifactType.CONFIG],
+                "illustration": [
+                    ArtifactType.IMAGE,
+                    ArtifactType.VIDEO,
+                    ArtifactType.CANVA,
+                ],
+                "document": [
+                    ArtifactType.DOCX,
+                    ArtifactType.CODE,
+                    ArtifactType.DATA,
+                    ArtifactType.LINK,
+                    ArtifactType.CHECKLIST,
+                    ArtifactType.DRAFT,
+                    ArtifactType.CONFIG,
+                ],
             }
             requested_type = filters["type"].lower()
             allowed_types = type_filter_map.get(requested_type, [])
             if allowed_types:
                 filtered_artifacts = [
-                    a for a in filtered_artifacts
-                    if a.artifact_type in allowed_types
+                    a for a in filtered_artifacts if a.artifact_type in allowed_types
                 ]
 
         if filters.get("intent_id"):
             filtered_artifacts = [
-                a for a in filtered_artifacts
-                if a.intent_id == filters["intent_id"]
+                a for a in filtered_artifacts if a.intent_id == filters["intent_id"]
             ]
 
         # Convert to dictionaries
         return [self._artifact_to_dict(artifact) for artifact in filtered_artifacts]
 
     async def get(
-        self,
-        workspace_id: str,
-        resource_id: str
+        self, workspace_id: str, resource_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get a single artifact by ID"""
 
@@ -178,15 +206,11 @@ class ArtifactResourceHandler(ResourceHandler):
 
         return self._artifact_to_dict(artifact)
 
-    async def create(
-        self,
-        workspace_id: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def create(self, workspace_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new artifact"""
 
         # Validate workspace exists
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -208,10 +232,7 @@ class ArtifactResourceHandler(ResourceHandler):
         return self._artifact_to_dict(created_artifact)
 
     async def update(
-        self,
-        workspace_id: str,
-        resource_id: str,
-        data: Dict[str, Any]
+        self, workspace_id: str, resource_id: str, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Update an existing artifact"""
 
@@ -222,7 +243,9 @@ class ArtifactResourceHandler(ResourceHandler):
 
         # Verify it belongs to the workspace
         if artifact.workspace_id != workspace_id:
-            raise ValueError(f"Artifact {resource_id} does not belong to workspace {workspace_id}")
+            raise ValueError(
+                f"Artifact {resource_id} does not belong to workspace {workspace_id}"
+            )
 
         # Update fields
         if "title" in data:
@@ -259,11 +282,7 @@ class ArtifactResourceHandler(ResourceHandler):
 
         return self._artifact_to_dict(updated_artifact)
 
-    async def delete(
-        self,
-        workspace_id: str,
-        resource_id: str
-    ) -> bool:
+    async def delete(self, workspace_id: str, resource_id: str) -> bool:
         """Delete an artifact"""
 
         # Get artifact
@@ -288,16 +307,18 @@ class ArtifactResourceHandler(ResourceHandler):
                     "id": {"type": "string"},
                     "workspace_id": {"type": "string"},
                     "intent_id": {"type": "string"},
-                    "type": {"type": "string", "enum": ["illustration", "document", "other"]},
+                    "type": {
+                        "type": "string",
+                        "enum": ["illustration", "document", "other"],
+                    },
                     "title": {"type": "string"},
                     "description": {"type": "string"},
                     "file_path": {"type": "string"},
                     "external_url": {"type": "string"},
                     "metadata": {"type": "object"},
                     "created_at": {"type": "string"},
-                    "updated_at": {"type": "string"}
+                    "updated_at": {"type": "string"},
                 },
-                "required": ["id", "title"]
-            }
+                "required": ["id", "title"],
+            },
         }
-

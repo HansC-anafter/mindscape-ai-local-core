@@ -20,10 +20,8 @@ from backend.app.services.tools.wordpress.wordpress_tools import (
     get_wordpress_tool_by_name,
     validate_wp_connection
 )
-from backend.app.services.tools.canva.canva_tools import (
-    create_canva_tools,
-    get_canva_tool_by_name
-)
+# Canva tools moved to capability pack
+# Removed: Canva tools are now provided by the installed capability pack
 from backend.app.services.tools.slack.slack_tools import (
     create_slack_tools,
     get_slack_tool_by_name
@@ -198,38 +196,9 @@ def register_wordpress_v2_tools(connection: ToolConnection) -> List[MindscapeToo
     return tools
 
 
-def register_canva_tools(connection: ToolConnection) -> List[MindscapeTool]:
-    """
-    Register all Canva tools
-
-    Args:
-        connection: Canva connection configuration
-
-    Returns:
-        List of registered tools
-
-    Example:
-        >>> canva_conn = ToolConnection(
-        ...     id="my-canva",
-        ...     tool_type="canva",
-        ...     api_key="api_key_here",
-        ...     oauth_token="oauth_token_here",
-        ...     base_url="https://api.canva.com/rest/v1"
-        ... )
-        >>> tools = register_canva_tools(canva_conn)
-        >>> print(f"Registered {len(tools)} tools")
-    """
-    tools = create_canva_tools(connection)
-
-    for tool in tools:
-        tool_id = f"{connection.id}.{tool.metadata.name}"
-        # Set allowed agent roles for Canva tools
-        # Canva tools are useful for writers (content creators) and planners (presentations)
-        # Note: ToolMetadata doesn't have allowed_agent_roles field by default,
-        # but we can add it to the metadata if needed for tool filtering
-        register_mindscape_tool(tool_id, tool)
-
-    return tools
+# Canva tools registration moved to capability pack
+# Removed: register_canva_tools is now provided by capabilities.canva.services.tool_registration
+# The canva.py route will import from the capability pack instead
 
 
 def register_sandbox_tools(store) -> List[MindscapeTool]:

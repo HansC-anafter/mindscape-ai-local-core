@@ -28,7 +28,9 @@ class IntentResourceHandler(ResourceHandler):
         """Return the resource type identifier"""
         return "intents"
 
-    def _intent_card_to_dict(self, intent_card: IntentCard, workspace_id: str) -> Dict[str, Any]:
+    def _intent_card_to_dict(
+        self, intent_card: IntentCard, workspace_id: str
+    ) -> Dict[str, Any]:
         """Convert IntentCard to dictionary"""
 
         # Map IntentStatus to API status
@@ -48,15 +50,28 @@ class IntentResourceHandler(ResourceHandler):
             "status": api_status,
             "parent_id": intent_card.parent_intent_id,
             "metadata": intent_card.metadata or {},
-            "created_at": intent_card.created_at.isoformat() if intent_card.created_at else datetime.utcnow().isoformat(),
-            "updated_at": intent_card.updated_at.isoformat() if intent_card.updated_at else datetime.utcnow().isoformat(),
+            "created_at": (
+                intent_card.created_at.isoformat()
+                if intent_card.created_at
+                else datetime.utcnow().isoformat()
+            ),
+            "updated_at": (
+                intent_card.updated_at.isoformat()
+                if intent_card.updated_at
+                else datetime.utcnow().isoformat()
+            ),
         }
 
-    def _build_intent_tree(self, intents: List[IntentCard], workspace_id: str) -> List[Dict[str, Any]]:
+    def _build_intent_tree(
+        self, intents: List[IntentCard], workspace_id: str
+    ) -> List[Dict[str, Any]]:
         """Build tree structure from flat intent list"""
 
         # Convert to dictionary format
-        intent_dicts = {intent.id: self._intent_card_to_dict(intent, workspace_id) for intent in intents}
+        intent_dicts = {
+            intent.id: self._intent_card_to_dict(intent, workspace_id)
+            for intent in intents
+        }
 
         # Create tree nodes
         tree_nodes: Dict[str, Dict[str, Any]] = {}
@@ -64,10 +79,7 @@ class IntentResourceHandler(ResourceHandler):
 
         # First pass: create all nodes
         for intent in intents:
-            node = {
-                **intent_dicts[intent.id],
-                "children": []
-            }
+            node = {**intent_dicts[intent.id], "children": []}
             tree_nodes[intent.id] = node
 
         # Second pass: build tree structure
@@ -84,16 +96,14 @@ class IntentResourceHandler(ResourceHandler):
         return root_nodes
 
     async def list(
-        self,
-        workspace_id: str,
-        filters: Optional[Dict[str, Any]] = None
+        self, workspace_id: str, filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """List all intents for a workspace"""
 
         filters = filters or {}
 
         # Get workspace to find owner_user_id (profile_id)
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -111,15 +121,15 @@ class IntentResourceHandler(ResourceHandler):
 
         # Get intents
         intents = self.store.list_intents(
-            profile_id=profile_id,
-            status=intent_status,
-            priority=None
+            profile_id=profile_id, status=intent_status, priority=None
         )
 
         # Filter by workspace_id in metadata if needed
         filtered_intents = []
         for intent in intents:
-            intent_workspace_id = intent.metadata.get("workspace_id") if intent.metadata else None
+            intent_workspace_id = (
+                intent.metadata.get("workspace_id") if intent.metadata else None
+            )
             if intent_workspace_id == workspace_id or not intent_workspace_id:
                 filtered_intents.append(intent)
 
@@ -128,12 +138,13 @@ class IntentResourceHandler(ResourceHandler):
             return self._build_intent_tree(filtered_intents, workspace_id)
         else:
             # Return flat list
-            return [self._intent_card_to_dict(intent, workspace_id) for intent in filtered_intents]
+            return [
+                self._intent_card_to_dict(intent, workspace_id)
+                for intent in filtered_intents
+            ]
 
     async def get(
-        self,
-        workspace_id: str,
-        resource_id: str
+        self, workspace_id: str, resource_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get a single intent by ID"""
 
@@ -142,23 +153,21 @@ class IntentResourceHandler(ResourceHandler):
             return None
 
         # Get workspace_id from metadata or use provided one
-        intent_workspace_id = intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+        intent_workspace_id = (
+            intent_card.metadata.get("workspace_id") if intent_card.metadata else None
+        )
         if not intent_workspace_id:
             intent_workspace_id = workspace_id
 
         return self._intent_card_to_dict(intent_card, intent_workspace_id)
 
-    async def create(
-        self,
-        workspace_id: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def create(self, workspace_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new intent"""
 
         from ...models.mindscape import PriorityLevel
 
         # Get workspace
-        workspace = self.store.get_workspace(workspace_id)
+        workspace = await self.store.get_workspace(workspace_id)
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
@@ -195,10 +204,7 @@ class IntentResourceHandler(ResourceHandler):
         return self._intent_card_to_dict(created_intent, workspace_id)
 
     async def update(
-        self,
-        workspace_id: str,
-        resource_id: str,
-        data: Dict[str, Any]
+        self, workspace_id: str, resource_id: str, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Update an existing intent"""
 
@@ -218,7 +224,9 @@ class IntentResourceHandler(ResourceHandler):
                 "CANDIDATE": IntentStatus.PAUSED,
                 "REJECTED": IntentStatus.ARCHIVED,
             }
-            intent_card.status = status_map.get(data["status"].upper(), IntentStatus.ACTIVE)
+            intent_card.status = status_map.get(
+                data["status"].upper(), IntentStatus.ACTIVE
+            )
         if "parent_id" in data:
             intent_card.parent_intent_id = data["parent_id"]
         if "metadata" in data:
@@ -232,11 +240,7 @@ class IntentResourceHandler(ResourceHandler):
 
         return self._intent_card_to_dict(updated_intent, workspace_id)
 
-    async def delete(
-        self,
-        workspace_id: str,
-        resource_id: str
-    ) -> bool:
+    async def delete(self, workspace_id: str, resource_id: str) -> bool:
         """Delete an intent"""
 
         return self.store.intents.delete_intent(resource_id)
@@ -252,13 +256,15 @@ class IntentResourceHandler(ResourceHandler):
                     "workspace_id": {"type": "string"},
                     "title": {"type": "string"},
                     "description": {"type": "string"},
-                    "status": {"type": "string", "enum": ["CANDIDATE", "CONFIRMED", "REJECTED"]},
+                    "status": {
+                        "type": "string",
+                        "enum": ["CANDIDATE", "CONFIRMED", "REJECTED"],
+                    },
                     "parent_id": {"type": "string"},
                     "metadata": {"type": "object"},
                     "created_at": {"type": "string"},
-                    "updated_at": {"type": "string"}
+                    "updated_at": {"type": "string"},
                 },
-                "required": ["id", "title"]
-            }
+                "required": ["id", "title"],
+            },
         }
-

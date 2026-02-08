@@ -26,8 +26,7 @@ def status_command(db_type: str):
     """Check migration status for a database type."""
     capabilities_root = backend_dir / "app" / "capabilities"
     alembic_configs = {
-        "sqlite": backend_dir / "alembic.sqlite.ini",
-        "postgres": backend_dir / "alembic.postgres.ini",
+        "postgres": backend_dir / "alembic.ini",
     }
 
     orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
@@ -51,8 +50,7 @@ def dry_run_command(db_type: str):
     """Perform a dry-run to show what migrations would be executed."""
     capabilities_root = backend_dir / "app" / "capabilities"
     alembic_configs = {
-        "sqlite": backend_dir / "alembic.sqlite.ini",
-        "postgres": backend_dir / "alembic.postgres.ini",
+        "postgres": backend_dir / "alembic.ini",
     }
 
     orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
@@ -83,8 +81,7 @@ def apply_command(db_type: str, dry_run: bool = False):
     """Apply pending migrations for a database type."""
     capabilities_root = backend_dir / "app" / "capabilities"
     alembic_configs = {
-        "sqlite": backend_dir / "alembic.sqlite.ini",
-        "postgres": backend_dir / "alembic.postgres.ini",
+        "postgres": backend_dir / "alembic.ini",
     }
 
     orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
@@ -116,17 +113,17 @@ def main():
 
     # Status command
     status_parser = subparsers.add_parser('status', help='Check migration status')
-    status_parser.add_argument('--db', choices=['sqlite', 'postgres'], required=True,
+    status_parser.add_argument('--db', choices=['postgres'], required=True,
                                help='Database type')
 
     # Dry-run command
     dry_run_parser = subparsers.add_parser('dry-run', help='Perform dry-run')
-    dry_run_parser.add_argument('--db', choices=['sqlite', 'postgres'], required=True,
+    dry_run_parser.add_argument('--db', choices=['postgres'], required=True,
                                 help='Database type')
 
     # Apply command
     apply_parser = subparsers.add_parser('apply', help='Apply migrations')
-    apply_parser.add_argument('--db', choices=['sqlite', 'postgres'], required=True,
+    apply_parser.add_argument('--db', choices=['postgres'], required=True,
                              help='Database type')
     apply_parser.add_argument('--dry-run', action='store_true',
                              help='Perform dry-run instead of applying')
@@ -145,4 +142,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

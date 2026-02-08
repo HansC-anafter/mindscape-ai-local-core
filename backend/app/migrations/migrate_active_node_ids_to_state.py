@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import datetime, timezone
 from backend.app.services.stores.graph_store import GraphStore
+from sqlalchemy import text
 from backend.app.models.graph import LensNodeState
 import logging
 
@@ -36,10 +37,8 @@ def migrate_active_node_ids_to_state():
     store = GraphStore()
 
     with store.get_connection() as conn:
-        cursor = conn.cursor()
-
-        cursor.execute('SELECT DISTINCT profile_id FROM mind_lens_profiles')
-        profile_ids = [row['profile_id'] for row in cursor.fetchall()]
+        result = conn.execute(text("SELECT DISTINCT profile_id FROM mind_lens_profiles"))
+        profile_ids = [row._mapping["profile_id"] for row in result.fetchall()]
 
         if not profile_ids:
             logger.info("No lens profiles found, skipping migration")
@@ -55,11 +54,11 @@ def migrate_active_node_ids_to_state():
         for preset in all_presets:
             logger.info(f"Migrating preset: {preset.id} ({preset.name})")
 
-            cursor.execute('''
-                SELECT graph_node_id FROM mind_lens_active_nodes WHERE lens_id = ?
-            ''', (preset.id,))
-            active_node_rows = cursor.fetchall()
-            active_set = {row['graph_node_id'] for row in active_node_rows}
+            active_node_rows = conn.execute(
+                text("SELECT graph_node_id FROM mind_lens_active_nodes WHERE lens_id = :lens_id"),
+                {"lens_id": preset.id},
+            ).fetchall()
+            active_set = {row._mapping["graph_node_id"] for row in active_node_rows}
 
             logger.info(f"  Active nodes: {len(active_set)}")
 
@@ -81,8 +80,6 @@ def migrate_active_node_ids_to_state():
 
             logger.info(f"  Migrated {migrated_count} nodes")
 
-        conn.commit()
-
     logger.info("Migration completed successfully")
 
 
@@ -91,10 +88,8 @@ def verify_migration():
     store = GraphStore()
 
     with store.get_connection() as conn:
-        cursor = conn.cursor()
-
-        cursor.execute('SELECT DISTINCT profile_id FROM mind_lens_profiles')
-        profile_ids = [row['profile_id'] for row in cursor.fetchall()]
+        result = conn.execute(text("SELECT DISTINCT profile_id FROM mind_lens_profiles"))
+        profile_ids = [row._mapping["profile_id"] for row in result.fetchall()]
 
         if not profile_ids:
             logger.info("No lens profiles found for verification")
@@ -111,10 +106,10 @@ def verify_migration():
 
         all_passed = True
         for preset in all_presets:
-            cursor.execute('''
-                SELECT COUNT(*) FROM mind_lens_active_nodes WHERE lens_id = ?
-            ''', (preset.id,))
-            old_count = cursor.fetchone()[0]
+            old_count = conn.execute(
+                text("SELECT COUNT(*) AS count FROM mind_lens_active_nodes WHERE lens_id = :lens_id"),
+                {"lens_id": preset.id},
+            ).fetchone()._mapping["count"]
 
             new_count = store.count_lens_profile_nodes(
                 preset_id=preset.id,
@@ -197,4 +192,3 @@ if __name__ == "__main__":
     clarify_is_active_semantics()
 
     logger.info("Migration script completed")
-

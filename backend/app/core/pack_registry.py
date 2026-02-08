@@ -7,12 +7,15 @@ Scans /packs/*.yaml and registers enabled packs' routes.
 
 import importlib
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, APIRouter
 import yaml
 
 logger = logging.getLogger(__name__)
+
+from app.services.stores.installed_packs_store import InstalledPacksStore
 
 
 def load_pack_yaml(pack_path: Path) -> Dict[str, Any]:
@@ -113,64 +116,31 @@ def _auto_install_default_packs(pack_metas: List[Dict[str, Any]], default_enable
     even if they haven't been manually installed through the UI.
     """
     try:
-        import sqlite3
-        from contextlib import contextmanager
-        from datetime import datetime
-        import json
-        import os
-
-        def get_db_path():
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                return '/app/data/mindscape.db'
-            base_dir = Path(__file__).parent.parent.parent.parent
-            data_dir = base_dir / "data"
-            data_dir.mkdir(parents=True, exist_ok=True)
-            return str(data_dir / "mindscape.db")
-
-        @contextmanager
-        def get_connection():
-            conn = sqlite3.connect(get_db_path())
-            conn.row_factory = sqlite3.Row
-            try:
-                yield conn
-            finally:
-                conn.close()
-
-        # Initialize table if needed
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS installed_packs (
-                    pack_id TEXT PRIMARY KEY,
-                    installed_at TEXT NOT NULL,
-                    enabled BOOLEAN DEFAULT 1,
-                    metadata TEXT
-                )
-            ''')
-            conn.commit()
-
-        # Install default-enabled packs that are not yet in database
+        store = InstalledPacksStore()
         packs_to_install = default_enabled_packs - enabled_pack_ids
+        if not packs_to_install:
+            return
 
-        if packs_to_install:
-            with get_connection() as conn:
-                cursor = conn.cursor()
-                for pack_id in packs_to_install:
-                    # Find pack metadata
-                    pack_meta = next((p for p in pack_metas if p.get('id') == pack_id), None)
-                    if pack_meta:
-                        metadata_json = json.dumps({
-                            'name': pack_meta.get('name', pack_id),
-                            'description': pack_meta.get('description', ''),
-                            'enabled_by_default': True
-                        })
-                        cursor.execute('''
-                            INSERT OR IGNORE INTO installed_packs (pack_id, installed_at, enabled, metadata)
-                            VALUES (?, ?, ?, ?)
-                        ''', (pack_id, datetime.utcnow().isoformat(), 1, metadata_json))
-                conn.commit()
-                if packs_to_install:
-                    logger.info(f"Auto-installed {len(packs_to_install)} default-enabled packs: {packs_to_install}")
+        for pack_id in packs_to_install:
+            pack_meta = next((p for p in pack_metas if p.get("id") == pack_id), None)
+            if not pack_meta:
+                continue
+            metadata = {
+                "name": pack_meta.get("name", pack_id),
+                "description": pack_meta.get("description", ""),
+                "enabled_by_default": True,
+            }
+            store.upsert_pack(
+                pack_id=pack_id,
+                installed_at=datetime.utcnow(),
+                enabled=True,
+                metadata=metadata,
+            )
+        logger.info(
+            "Auto-installed %d default-enabled packs: %s",
+            len(packs_to_install),
+            packs_to_install,
+        )
     except Exception as e:
         logger.warning(f"Failed to auto-install default packs: {e}")
 
@@ -183,31 +153,8 @@ def get_enabled_pack_ids() -> set:
         Set of enabled pack IDs
     """
     try:
-        import sqlite3
-        from contextlib import contextmanager
-        import os
-
-        def get_db_path():
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                return '/app/data/mindscape.db'
-            base_dir = Path(__file__).parent.parent.parent.parent
-            data_dir = base_dir / "data"
-            data_dir.mkdir(parents=True, exist_ok=True)
-            return str(data_dir / "mindscape.db")
-
-        @contextmanager
-        def get_connection():
-            conn = sqlite3.connect(get_db_path())
-            conn.row_factory = sqlite3.Row
-            try:
-                yield conn
-            finally:
-                conn.close()
-
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT pack_id FROM installed_packs WHERE enabled = 1')
-            return {row['pack_id'] for row in cursor.fetchall()}
+        store = InstalledPacksStore()
+        return set(store.list_enabled_pack_ids())
     except Exception as e:
         logger.warning(f"Failed to get enabled pack IDs from database: {e}")
         return set()
@@ -307,4 +254,3 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
                 continue
 
     logger.info(f"Successfully registered {registered_count} routes from {len(packs_to_load)} enabled packs")
-

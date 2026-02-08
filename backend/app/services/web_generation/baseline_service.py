@@ -5,94 +5,70 @@ Implements baseline management (CRUD) and stale detection based on SemVer.
 
 import logging
 import uuid
+import json
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal
-from contextlib import contextmanager
 
+from sqlalchemy import text
+
+from app.services.stores.postgres_base import PostgresStoreBase
 from .version_utils import compare_versions
 
 logger = logging.getLogger(__name__)
 
 
-class BaselineService:
-    """Service for managing web-generation baselines."""
+class BaselineService(PostgresStoreBase):
+    """Service for managing web-generation baselines (Postgres)."""
 
-    def __init__(self, db_path: str = None):
-        """Initialize baseline service."""
-        import os
-        if db_path is None:
-            if os.path.exists('/.dockerenv') or os.environ.get('PYTHONPATH') == '/app':
-                db_path = '/app/data/mindscape.db'
-            else:
-                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-                data_dir = os.path.join(base_dir, "data")
-                os.makedirs(data_dir, exist_ok=True)
-                db_path = os.path.join(data_dir, "mindscape.db")
-
+    def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
+        super().__init__(db_role=db_role)
         self.db_path = db_path
         self._init_db()
 
-    @contextmanager
-    def get_connection(self):
-        """Get database connection with proper cleanup."""
-        import sqlite3
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
-
     def _init_db(self):
         """Initialize database tables (tables should already exist via Alembic migration)."""
-        # Tables are created by Alembic migration, so we just verify they exist
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT 1 FROM web_generation_baselines LIMIT 1")
-                cursor.execute("SELECT 1 FROM baseline_events LIMIT 1")
-            except Exception:
-                logger.warning("Baseline tables not found. Please run Alembic migration: alembic upgrade head")
+        try:
+            with self.get_connection() as conn:
+                conn.execute(text("SELECT 1 FROM web_generation_baselines LIMIT 1"))
+                conn.execute(text("SELECT 1 FROM baseline_events LIMIT 1"))
+        except Exception:
+            logger.warning(
+                "Baseline tables not found. Please run Alembic migration: alembic upgrade head"
+            )
 
     def get_baseline(
         self,
         workspace_id: str,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Get baseline for workspace/project.
-
-        Priority:
-        1. Project-specific baseline
-        2. Workspace-level default (project_id is NULL)
-        3. None if not found
-
-        Returns:
-            Baseline dict with all fields, or None if not found
-        """
+        """Get baseline for workspace/project."""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Try project-specific first
             if project_id:
-                cursor.execute("""
-                    SELECT * FROM web_generation_baselines
-                    WHERE workspace_id = ? AND project_id = ?
-                    LIMIT 1
-                """, (workspace_id, project_id))
-                row = cursor.fetchone()
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT * FROM web_generation_baselines
+                        WHERE workspace_id = :workspace_id AND project_id = :project_id
+                        LIMIT 1
+                    """
+                    ),
+                    {"workspace_id": workspace_id, "project_id": project_id},
+                ).fetchone()
                 if row:
-                    return dict(row)
+                    return dict(row._mapping)
 
-            # Fall back to workspace-level default (project_id is NULL)
-            cursor.execute("""
-                SELECT * FROM web_generation_baselines
-                WHERE workspace_id = ? AND project_id IS NULL
-                LIMIT 1
-            """, (workspace_id,))
-            row = cursor.fetchone()
+            row = conn.execute(
+                text(
+                    """
+                    SELECT * FROM web_generation_baselines
+                    WHERE workspace_id = :workspace_id AND project_id IS NULL
+                    LIMIT 1
+                """
+                ),
+                {"workspace_id": workspace_id},
+            ).fetchone()
             if row:
-                return dict(row)
+                return dict(row._mapping)
 
             return None
 
@@ -106,125 +82,138 @@ class BaselineService:
         bound_spec_version: Optional[str] = None,
         bound_outline_version: Optional[str] = None,
         updated_by: Optional[str] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Create or update baseline.
-
-        Uses UPSERT: if baseline exists for workspace_id + project_id, update it;
-        otherwise create new one.
-        """
+        """Create or update baseline."""
         baseline_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-
+        with self.transaction() as conn:
             # Check if baseline exists
             if project_id:
-                cursor.execute("""
-                    SELECT id FROM web_generation_baselines
-                    WHERE workspace_id = ? AND project_id = ?
-                """, (workspace_id, project_id))
+                existing = conn.execute(
+                    text(
+                        """
+                        SELECT id FROM web_generation_baselines
+                        WHERE workspace_id = :workspace_id AND project_id = :project_id
+                    """
+                    ),
+                    {"workspace_id": workspace_id, "project_id": project_id},
+                ).fetchone()
             else:
-                cursor.execute("""
-                    SELECT id FROM web_generation_baselines
-                    WHERE workspace_id = ? AND project_id IS NULL
-                """, (workspace_id,))
-
-            existing = cursor.fetchone()
+                existing = conn.execute(
+                    text(
+                        """
+                        SELECT id FROM web_generation_baselines
+                        WHERE workspace_id = :workspace_id AND project_id IS NULL
+                    """
+                    ),
+                    {"workspace_id": workspace_id},
+                ).fetchone()
 
             if existing:
-                # Update existing
-                baseline_id = existing['id']
-                # Only update bound versions if explicitly provided (not None)
+                baseline_id = existing._mapping["id"]
                 if bound_spec_version is not None or bound_outline_version is not None:
-                    # Get current values to preserve if new values are None
-                    cursor.execute("SELECT bound_spec_version, bound_outline_version FROM web_generation_baselines WHERE id = ?", (baseline_id,))
-                    current = cursor.fetchone()
-                    final_spec_version = bound_spec_version if bound_spec_version is not None else current[0]
-                    final_outline_version = bound_outline_version if bound_outline_version is not None else current[1]
+                    current = conn.execute(
+                        text(
+                            """
+                            SELECT bound_spec_version, bound_outline_version
+                            FROM web_generation_baselines WHERE id = :id
+                        """
+                        ),
+                        {"id": baseline_id},
+                    ).fetchone()
+                    final_spec_version = (
+                        bound_spec_version
+                        if bound_spec_version is not None
+                        else current._mapping["bound_spec_version"]
+                    )
+                    final_outline_version = (
+                        bound_outline_version
+                        if bound_outline_version is not None
+                        else current._mapping["bound_outline_version"]
+                    )
                 else:
-                    # Preserve existing values
-                    cursor.execute("SELECT bound_spec_version, bound_outline_version FROM web_generation_baselines WHERE id = ?", (baseline_id,))
-                    current = cursor.fetchone()
-                    final_spec_version = current[0]
-                    final_outline_version = current[1]
+                    current = conn.execute(
+                        text(
+                            """
+                            SELECT bound_spec_version, bound_outline_version
+                            FROM web_generation_baselines WHERE id = :id
+                        """
+                        ),
+                        {"id": baseline_id},
+                    ).fetchone()
+                    final_spec_version = current._mapping["bound_spec_version"]
+                    final_outline_version = current._mapping["bound_outline_version"]
 
-                cursor.execute("""
-                    UPDATE web_generation_baselines
-                    SET snapshot_id = ?,
-                        variant_id = ?,
-                        lock_mode = ?,
-                        bound_spec_version = ?,
-                        bound_outline_version = ?,
-                        updated_at = ?,
-                        updated_by = ?,
-                        notes = ?
-                    WHERE id = ?
-                """, (
-                    snapshot_id,
-                    variant_id,
-                    lock_mode,
-                    final_spec_version,
-                    final_outline_version,
-                    now,
-                    updated_by,
-                    notes,
-                    baseline_id
-                ))
+                conn.execute(
+                    text(
+                        """
+                        UPDATE web_generation_baselines
+                        SET snapshot_id = :snapshot_id,
+                            variant_id = :variant_id,
+                            lock_mode = :lock_mode,
+                            bound_spec_version = :bound_spec_version,
+                            bound_outline_version = :bound_outline_version,
+                            updated_at = :updated_at,
+                            updated_by = :updated_by,
+                            notes = :notes
+                        WHERE id = :id
+                    """
+                    ),
+                    {
+                        "snapshot_id": snapshot_id,
+                        "variant_id": variant_id,
+                        "lock_mode": lock_mode,
+                        "bound_spec_version": final_spec_version,
+                        "bound_outline_version": final_outline_version,
+                        "updated_at": now,
+                        "updated_by": updated_by,
+                        "notes": notes,
+                        "id": baseline_id,
+                    },
+                )
             else:
-                # Create new
-                cursor.execute("""
-                    INSERT INTO web_generation_baselines (
-                        id, workspace_id, project_id, snapshot_id, variant_id,
-                        lock_mode, bound_spec_version, bound_outline_version,
-                        created_at, updated_at, created_by, updated_by, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    baseline_id,
-                    workspace_id,
-                    project_id,
-                    snapshot_id,
-                    variant_id,
-                    lock_mode,
-                    bound_spec_version,
-                    bound_outline_version,
-                    now,
-                    now,
-                    updated_by,
-                    updated_by,
-                    notes
-                ))
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO web_generation_baselines (
+                            id, workspace_id, project_id, snapshot_id, variant_id,
+                            lock_mode, bound_spec_version, bound_outline_version,
+                            created_at, updated_at, created_by, updated_by, notes
+                        ) VALUES (
+                            :id, :workspace_id, :project_id, :snapshot_id, :variant_id,
+                            :lock_mode, :bound_spec_version, :bound_outline_version,
+                            :created_at, :updated_at, :created_by, :updated_by, :notes
+                        )
+                    """
+                    ),
+                    {
+                        "id": baseline_id,
+                        "workspace_id": workspace_id,
+                        "project_id": project_id,
+                        "snapshot_id": snapshot_id,
+                        "variant_id": variant_id,
+                        "lock_mode": lock_mode,
+                        "bound_spec_version": bound_spec_version,
+                        "bound_outline_version": bound_outline_version,
+                        "created_at": now,
+                        "updated_at": now,
+                        "created_by": updated_by,
+                        "updated_by": updated_by,
+                        "notes": notes,
+                    },
+                )
 
-            conn.commit()
-
-        # Return updated baseline
         return self.get_baseline(workspace_id, project_id)
 
     def check_baseline_stale(
         self,
         baseline: Dict[str, Any],
         current_spec_version: Optional[str] = None,
-        current_outline_version: Optional[str] = None
+        current_outline_version: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Check if baseline is stale based on version comparison.
-
-        Returns:
-        {
-            "is_stale": bool,
-            "severity": "high" | "medium" | None,
-            "reason": str,
-            "spec_diff": {...},
-            "outline_diff": {...}
-        }
-
-        Stale rules:
-        - MAJOR bump → must re-sync (stale = True, severity = "high")
-        - MINOR bump → recommended re-sync (stale = True, severity = "medium")
-        - PATCH bump → not stale (stale = False)
-        """
+        """Check if baseline is stale based on version comparison."""
         bound_spec_version = baseline.get("bound_spec_version")
         bound_outline_version = baseline.get("bound_outline_version")
 
@@ -233,31 +222,31 @@ class BaselineService:
         stale_levels = []
         reasons = []
 
-        # Check spec version
         if bound_spec_version and current_spec_version:
             spec_diff = compare_versions(bound_spec_version, current_spec_version)
             if spec_diff["level"] in ["major", "minor"] and spec_diff["is_newer"]:
                 stale_levels.append(spec_diff["level"])
-                reasons.append(f"Spec: {spec_diff['reason']}")
+                reasons.append(
+                    f"Spec version drift: {bound_spec_version} -> {current_spec_version}"
+                )
 
-        # Check outline version
         if bound_outline_version and current_outline_version:
             outline_diff = compare_versions(bound_outline_version, current_outline_version)
             if outline_diff["level"] in ["major", "minor"] and outline_diff["is_newer"]:
                 stale_levels.append(outline_diff["level"])
-                reasons.append(f"Outline: {outline_diff['reason']}")
+                reasons.append(
+                    f"Outline version drift: {bound_outline_version} -> {current_outline_version}"
+                )
 
-        # Determine stale status
         if not stale_levels:
             return {
                 "is_stale": False,
                 "severity": None,
-                "reason": "No version changes detected",
+                "reason": None,
                 "spec_diff": spec_diff,
-                "outline_diff": outline_diff
+                "outline_diff": outline_diff,
             }
 
-        # Highest severity wins
         severity = "high" if "major" in stale_levels else "medium"
         reason = "; ".join(reasons)
 
@@ -266,12 +255,19 @@ class BaselineService:
             "severity": severity,
             "reason": reason,
             "spec_diff": spec_diff,
-            "outline_diff": outline_diff
+            "outline_diff": outline_diff,
         }
 
     def record_baseline_event(
         self,
-        event_type: Literal["baseline.set", "baseline.unset", "baseline.lock", "baseline.unlock", "baseline.sync", "baseline.variant_change"],
+        event_type: Literal[
+            "baseline.set",
+            "baseline.unset",
+            "baseline.lock",
+            "baseline.unlock",
+            "baseline.sync",
+            "baseline.variant_change",
+        ],
         workspace_id: str,
         snapshot_id: str,
         new_state: Dict[str, Any],
@@ -280,43 +276,43 @@ class BaselineService:
         variant_id: Optional[str] = None,
         previous_state: Optional[Dict[str, Any]] = None,
         reason: Optional[str] = None,
-        execution_id: Optional[str] = None
+        execution_id: Optional[str] = None,
     ) -> str:
-        """
-        Record baseline change event for audit trail.
-
-        Returns:
-            Event ID
-        """
+        """Record baseline change event for audit trail."""
         event_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
-        import json
         previous_state_json = json.dumps(previous_state) if previous_state else None
         new_state_json = json.dumps(new_state)
 
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO baseline_events (
-                    id, event_type, workspace_id, project_id, snapshot_id, variant_id,
-                    previous_state, new_state, reason, triggered_by, triggered_at, execution_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                event_id,
-                event_type,
-                workspace_id,
-                project_id,
-                snapshot_id,
-                variant_id,
-                previous_state_json,
-                new_state_json,
-                reason,
-                triggered_by,
-                now,
-                execution_id
-            ))
-            conn.commit()
+        with self.transaction() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO baseline_events (
+                        id, event_type, workspace_id, project_id, snapshot_id, variant_id,
+                        previous_state, new_state, reason, triggered_by, triggered_at, execution_id
+                    ) VALUES (
+                        :id, :event_type, :workspace_id, :project_id, :snapshot_id, :variant_id,
+                        :previous_state, :new_state, :reason, :triggered_by, :triggered_at, :execution_id
+                    )
+                """
+                ),
+                {
+                    "id": event_id,
+                    "event_type": event_type,
+                    "workspace_id": workspace_id,
+                    "project_id": project_id,
+                    "snapshot_id": snapshot_id,
+                    "variant_id": variant_id,
+                    "previous_state": previous_state_json,
+                    "new_state": new_state_json,
+                    "reason": reason,
+                    "triggered_by": triggered_by,
+                    "triggered_at": now,
+                    "execution_id": execution_id,
+                },
+            )
 
         return event_id
 
@@ -324,39 +320,46 @@ class BaselineService:
         self,
         workspace_id: str,
         project_id: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        """
-        List baseline events for audit trail.
-
-        Returns:
-            List of event dicts, ordered by triggered_at DESC
-        """
+        """List baseline events for audit trail."""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
-
             if project_id:
-                cursor.execute("""
-                    SELECT * FROM baseline_events
-                    WHERE workspace_id = ? AND project_id = ?
-                    ORDER BY triggered_at DESC
-                    LIMIT ?
-                """, (workspace_id, project_id, limit))
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT * FROM baseline_events
+                        WHERE workspace_id = :workspace_id AND project_id = :project_id
+                        ORDER BY triggered_at DESC
+                        LIMIT :limit
+                    """
+                    ),
+                    {
+                        "workspace_id": workspace_id,
+                        "project_id": project_id,
+                        "limit": limit,
+                    },
+                ).fetchall()
             else:
-                cursor.execute("""
-                    SELECT * FROM baseline_events
-                    WHERE workspace_id = ? AND (project_id = ? OR project_id IS NULL)
-                    ORDER BY triggered_at DESC
-                    LIMIT ?
-                """, (workspace_id, project_id, limit))
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT * FROM baseline_events
+                        WHERE workspace_id = :workspace_id AND (project_id = :project_id OR project_id IS NULL)
+                        ORDER BY triggered_at DESC
+                        LIMIT :limit
+                    """
+                    ),
+                    {
+                        "workspace_id": workspace_id,
+                        "project_id": project_id,
+                        "limit": limit,
+                    },
+                ).fetchall()
 
-            rows = cursor.fetchall()
-
-            import json
             events = []
             for row in rows:
-                event = dict(row)
-                # Parse JSON fields
+                event = dict(row._mapping)
                 if event.get("previous_state"):
                     event["previous_state"] = json.loads(event["previous_state"])
                 if event.get("new_state"):

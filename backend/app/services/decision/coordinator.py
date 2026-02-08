@@ -1149,22 +1149,7 @@ class UnifiedDecisionCoordinator:
         """
         try:
             from backend.app.services.governance.decision_recorder import GovernanceDecisionRecorder
-            from pathlib import Path
-            import sqlite3
-
-            # Get database connection for Local-Core (SQLite) or Cloud (PostgreSQL)
-            db_connection = None
-            try:
-                # Try SQLite for Local-Core
-                db_path = Path("./data/mindscape.db")
-                if db_path.exists():
-                    conn = sqlite3.connect(str(db_path))
-                    conn.row_factory = sqlite3.Row
-                    db_connection = conn
-            except Exception as e:
-                logger.warning(f"Failed to get database connection for governance recording: {e}")
-
-            recorder = GovernanceDecisionRecorder(db_connection=db_connection)
+            recorder = GovernanceDecisionRecorder()
 
             # Record each governance layer decision
             if node_governance_decision:
@@ -1339,4 +1324,3 @@ class UnifiedDecisionCoordinator:
                 logger.info(f"Emitted BRANCH_PROPOSED event for branch {branch_id}")
         except Exception as e:
             logger.error(f"Failed to emit BRANCH_PROPOSED event: {e}", exc_info=True)
-

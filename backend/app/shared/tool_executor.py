@@ -6,12 +6,14 @@ Unified handler for capability package tools and external tools
 import logging
 from typing import Any, Dict, Optional
 import inspect
+import time
 
 from backend.app.capabilities.registry import (
     call_tool,
     call_tool_async,
     get_tool_backend,
     get_registry,
+    load_capabilities,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,26 @@ class ToolExecutor:
 
     def __init__(self):
         self.registry = get_registry()
+        self._last_capability_reload_at = 0.0
+
+    def _maybe_reload_capability_registry(self, reason: str, min_interval_seconds: float = 5.0) -> None:
+        """
+        Best-effort hot reload for capability registry.
+
+        Rationale: capability packs can be installed while the backend is running.
+        Some workers may not see newly-installed manifests immediately (or caches may be stale),
+        causing transient "Tool <cap>.<tool> not found in capability registry" errors.
+        """
+        now = time.time()
+        if (now - self._last_capability_reload_at) < min_interval_seconds:
+            return
+        self._last_capability_reload_at = now
+        try:
+            load_capabilities()
+            self.registry = get_registry()
+            logger.info(f"Reloaded capability registry ({reason})")
+        except Exception as e:
+            logger.warning(f"Failed to reload capability registry ({reason}): {e}", exc_info=True)
 
     def _ensure_filesystem_tools_registered(self):
         """
@@ -86,6 +108,11 @@ class ToolExecutor:
             if len(parts) == 2:
                 capability, tool = parts
                 tool_info = self.registry.get_tool(tool_name)
+                if not tool_info:
+                    # Hot-reload capability registry once if a capability tool is missing.
+                    # This avoids requiring a backend restart after installing packs.
+                    self._maybe_reload_capability_registry(reason=f"capability tool miss: {tool_name}")
+                    tool_info = self.registry.get_tool(tool_name)
                 if tool_info:
                     logger.debug(f"Calling capability tool: {tool_name}")
                     return await call_tool_async(capability, tool, **kwargs)
