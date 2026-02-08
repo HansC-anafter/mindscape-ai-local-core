@@ -93,12 +93,73 @@ export class MindscapeAPIClient {
       ? endpoint
       : `${this.baseUrl}${endpoint}`;
 
+    // Check if data is FormData
+    const isFormData = data instanceof FormData;
+
+    // Build headers - exclude Content-Type for FormData (browser will set it with boundary)
+    const headers = isFormData
+      ? this.buildHeadersWithoutContentType(options?.headers)
+      : this.buildHeaders(options?.headers);
+
+    // Use FormData directly or stringify JSON
+    const body = isFormData ? data : (data ? JSON.stringify(data) : undefined);
+
     return fetch(url, {
       ...options,
       method: 'POST',
-      headers: this.buildHeaders(options?.headers),
-      body: data ? JSON.stringify(data) : undefined
+      headers,
+      body
     });
+  }
+
+  /**
+   * Build headers without Content-Type (for FormData)
+   * Preserves all custom headers except Content-Type
+   */
+  private buildHeadersWithoutContentType(customHeaders?: HeadersInit): HeadersInit {
+    // Start with custom headers, excluding Content-Type
+    const headers: Record<string, string> = {};
+
+    if (customHeaders) {
+      if (customHeaders instanceof Headers) {
+        customHeaders.forEach((value, key) => {
+          if (key.toLowerCase() !== 'content-type') {
+            headers[key] = value;
+          }
+        });
+      } else if (Array.isArray(customHeaders)) {
+        customHeaders.forEach(([key, value]) => {
+          if (key.toLowerCase() !== 'content-type') {
+            headers[key] = value;
+          }
+        });
+      } else {
+        Object.entries(customHeaders).forEach(([key, value]) => {
+          if (key.toLowerCase() !== 'content-type') {
+            headers[key] = value as string;
+          }
+        });
+      }
+    }
+
+    // Add context-specific headers
+    if (this.context.tags?.mode === 'cloud') {
+      const token = this.getAuthToken();
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      if (this.context.tags.tenant_id) {
+        headers['X-Tenant-ID'] = this.context.tags.tenant_id;
+      }
+
+      if (this.context.tags.group_id) {
+        headers['X-Group-ID'] = this.context.tags.group_id;
+      }
+    }
+
+    return headers;
   }
 
   /**

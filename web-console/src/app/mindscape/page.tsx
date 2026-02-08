@@ -176,7 +176,7 @@ export default function MindscapePage() {
 
       if (response.ok) {
         await loadAllData();
-        alert(t('setupCompleteAlert'));
+        alert(t('setupCompleteAlert' as any));
       } else {
         throw new Error('Failed to complete self intro');
       }
@@ -244,7 +244,7 @@ export default function MindscapePage() {
         <Header />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
-            <p className="text-gray-600">{t('loading')}</p>
+            <p className="text-gray-600">{t('loading' as any)}</p>
           </div>
         </main>
       </div>
@@ -257,9 +257,9 @@ export default function MindscapePage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Page Title */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('navMindscape')}</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('navMindscape' as any)}</h1>
           <div className="text-gray-600">
-            {t('mindscapePageDescription')}
+            {t('mindscapePageDescription' as any)}
           </div>
         </div>
 
@@ -466,30 +466,30 @@ export default function MindscapePage() {
             {/* Task 1: Self Intro */}
             <TaskCard
               taskNumber={1}
-              title={t('roleCardTitle')}
+              title={t('roleCardTitle' as any)}
               subtitle={t('onboardingTask1Subtitle')}
               isCompleted={onboardingState?.task1_completed || false}
               footerText={t('onboardingTask1Footer')}
               completedContent={
                 profile?.self_description ? (
                   <div className="text-sm text-gray-700 space-y-2">
-                    <p>{t('aiWillUseThisPerspective')}</p>
+                    <p>{t('aiWillUseThisPerspective' as any)}</p>
                     <ul className="list-disc list-inside space-y-1">
-                      <li><strong>{t('currentlyDoing')}</strong>{profile.self_description.identity}</li>
-                      <li><strong>{t('tryingToSolve')}</strong>{profile.self_description.solving}</li>
-                      <li><strong>{t('thinking')}</strong>{profile.self_description.thinking}</li>
+                      <li><strong>{t('currentlyDoing' as any)}</strong>{profile.self_description.identity}</li>
+                      <li><strong>{t('tryingToSolve' as any)}</strong>{profile.self_description.solving}</li>
+                      <li><strong>{t('thinking' as any)}</strong>{profile.self_description.thinking}</li>
                     </ul>
                   </div>
                 ) : null
               }
               uncompletedContent={
                 <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                  <li>{t('whatAreYouMainlyDoing')}</li>
-                  <li>{t('whatDoYouWantToSolve')}</li>
-                  <li>{t('whatAreYouThinking')}</li>
+                  <li>{t('whatAreYouMainlyDoing' as any)}</li>
+                  <li>{t('whatDoYouWantToSolve' as any)}</li>
+                  <li>{t('whatAreYouThinking' as any)}</li>
                 </ul>
               }
-              buttonText={onboardingState?.task1_completed ? t('editButton') : t('quickSetup')}
+              buttonText={onboardingState?.task1_completed ? t('editButton' as any) : t('quickSetup' as any)}
               onButtonClick={() => {
                 if (onboardingState?.task1_completed) {
                   setShowSelfIntroDialog(true);
@@ -502,22 +502,22 @@ export default function MindscapePage() {
             {/* Task 2: First Project */}
             <TaskCard
               taskNumber={2}
-              title={t('firstLongTermTask')}
+              title={t('firstLongTermTask' as any)}
               subtitle={t('onboardingTask2Subtitle')}
               isCompleted={onboardingState?.task2_completed || false}
               isBlocked={!onboardingState?.task1_completed}
-              blockMessage={t('taskBlockMessage')}
+              blockMessage={t('taskBlockMessage' as any)}
               footerText={t('onboardingTask2Footer')}
               completedContent={
                 intents.length > 0 ? (
                   <div className="text-sm text-gray-700 space-y-2">
-                    <p className="mb-2">{t('aiWillUpdateProjectStatus')}</p>
+                    <p className="mb-2">{t('aiWillUpdateProjectStatus' as any)}</p>
                     {intents.slice(0, 2).map((intent) => (
                       <div key={intent.id} className="flex items-start">
                         <span className="mr-2">📋</span>
                         <div>
                           <p className="font-medium">{intent.title}</p>
-                          <p className="text-xs text-gray-500">{t('lastUpdated')}{new Date(intent.updated_at).toLocaleDateString('zh-TW')}</p>
+                          <p className="text-xs text-gray-500">{t('lastUpdated' as any)}{new Date(intent.updated_at).toLocaleDateString('zh-TW')}</p>
                         </div>
                       </div>
                     ))}
@@ -526,9 +526,9 @@ export default function MindscapePage() {
               }
               uncompletedContent={
                 <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                  <li>{t('tellUsOneThingYouWantToPush')}</li>
-                  <li>{t('aiWillBreakItDown')}</li>
-                  <li>{t('autoCreateFirstIntent')}</li>
+                  <li>{t('tellUsOneThingYouWantToPush' as any)}</li>
+                  <li>{t('aiWillBreakItDown' as any)}</li>
+                  <li>{t('autoCreateFirstIntent' as any)}</li>
                 </ul>
               }
               buttonText={onboardingState?.task2_completed ? t('onboardingTask2ButtonCompleted') : t('onboardingTask2ButtonUncompleted')}
@@ -550,21 +550,21 @@ export default function MindscapePage() {
               subtitle={t('onboardingTask3Subtitle')}
               isCompleted={onboardingState?.task3_completed || false}
               isBlocked={!onboardingState?.task1_completed}
-              blockMessage={t('taskBlockMessage')}
+              blockMessage={t('taskBlockMessage' as any)}
               footerText={t('onboardingTask3Footer')}
               completedContent={
                 <div className="text-sm text-gray-700 space-y-2">
-                  <p>{t('aiWillUseThesePreferences')}</p>
-                  <p><strong>{t('preferredRhythm')}</strong>{t('morningFocusImportantTasks')}</p>
-                  <p><strong>{t('commonTools')}</strong>{t('toolsWordPressNotion')}</p>
+                  <p>{t('aiWillUseThesePreferences' as any)}</p>
+                  <p><strong>{t('preferredRhythm' as any)}</strong>{t('morningFocusImportantTasks' as any)}</p>
+                  <p><strong>{t('commonTools' as any)}</strong>{t('toolsWordPressNotion' as any)}</p>
                 </div>
               }
               uncompletedContent={
                 <div>
                   <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                    <li>{t('whatThreeThingsThisWeek')}</li>
-                    <li>{t('whatToolsDoYouUse')}</li>
-                    <li>{t('whatWorkRhythmDoYouLike')}</li>
+                    <li>{t('whatThreeThingsThisWeek' as any)}</li>
+                    <li>{t('whatToolsDoYouUse' as any)}</li>
+                    <li>{t('whatWorkRhythmDoYouLike' as any)}</li>
                   </ul>
                   <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-800">
                     {t('onboardingTask3WordPressHint')}
@@ -588,10 +588,10 @@ export default function MindscapePage() {
         {/* Current Mode Overview (only show after onboarding complete, but hide when showing episode selection) */}
         {!isOnboarding && !hasState && currentMode && (
           <div className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-gray-200 rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('mindscapeCurrentState')}</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('mindscapeCurrentState' as any)}</h2>
             <div className="space-y-2">
               <div>
-                <span className="text-sm font-medium text-gray-700">{t('currentMainMode')}</span>
+                <span className="text-sm font-medium text-gray-700">{t('currentMainMode' as any)}</span>
                 <span className="ml-2 text-sm text-gray-900 font-semibold">{currentMode.mainMode}</span>
               </div>
               <div>
@@ -637,13 +637,13 @@ export default function MindscapePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center mb-2 flex-wrap gap-2">
                         <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded flex-shrink-0">
-                          {suggestion.type === 'project' ? t('longTermProject') :
-                           suggestion.type === 'principle' ? t('designPrinciple') :
-                           suggestion.type === 'preference' ? t('preferences') : t('intents')}
+                          {suggestion.type === 'project' ? t('longTermProject' as any) :
+                           suggestion.type === 'principle' ? t('designPrinciple' as any) :
+                           suggestion.type === 'preference' ? t('preferences' as any) : t('intents' as any)}
                         </span>
                         <span className="text-xs text-gray-500 flex-shrink-0">{suggestion.source}</span>
                         <span className="text-xs text-gray-400 flex-shrink-0">
-                          {t('confidence')}{Math.round(suggestion.confidence * 100)}%
+                          {t('confidence' as any)}{Math.round(suggestion.confidence * 100)}%
                         </span>
                       </div>
                       <h3 className="font-medium text-gray-900 mb-1 break-words">
@@ -679,13 +679,13 @@ export default function MindscapePage() {
                         onClick={() => handleAcceptSuggestion(suggestion)}
                         className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 whitespace-nowrap"
                       >
-                        {t('accept')}
+                        {t('accept' as any)}
                       </button>
                       <button
                         onClick={() => handleDismissSuggestion(suggestion)}
                         className="px-3 py-1 bg-gray-300 text-gray-700 rounded text-sm hover:bg-gray-400 whitespace-nowrap"
                       >
-                        {t('skip')}
+                        {t('skip' as any)}
                       </button>
                     </div>
                   </div>
@@ -736,38 +736,38 @@ export default function MindscapePage() {
                 {intents.length > 0 ? (
                   <>
                     <div className="mb-2">
-                      <span className="font-medium">{t('inProgress')}</span>
-                      <span className="ml-2">{intents.filter(i => i.status === 'active').length} {t('items')}</span>
+                      <span className="font-medium">{t('inProgress' as any)}</span>
+                      <span className="ml-2">{intents.filter(i => i.status === 'active').length} {t('items' as any)}</span>
                     </div>
                     <div className="mb-2">
-                      <span className="font-medium">{t('completed')}</span>
-                      <span className="ml-2">{intents.filter(i => i.status === 'completed').length} {t('items')}</span>
+                      <span className="font-medium">{t('completed' as any)}</span>
+                      <span className="ml-2">{intents.filter(i => i.status === 'completed').length} {t('items' as any)}</span>
                     </div>
                   </>
                 ) : (
-                  <span className="text-gray-400">{t('noLongTermTasks')}</span>
+                  <span className="text-gray-400">{t('noLongTermTasks' as any)}</span>
                 )}
               </p>
               <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
-                {t('viewAll')}
+                {t('viewAll' as any)}
               </button>
             </div>
 
             {/* Work Mode */}
             <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('workRhythmSettings')}</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('workRhythmSettings' as any)}</h3>
               <p className="text-sm text-gray-600 mb-4">
                 <div className="mb-2">
-                  <span className="font-medium">{t('preferredRhythm')}</span>
-                  <span className="ml-2 text-gray-400">{t('extractingSuggestions')}</span>
+                  <span className="font-medium">{t('preferredRhythm' as any)}</span>
+                  <span className="ml-2 text-gray-400">{t('extractingSuggestions' as any)}</span>
                 </div>
                 <div className="mb-2">
-                  <span className="font-medium">{t('commonTools')}</span>
-                  <span className="ml-2 text-gray-400">{t('toolsWordPressNotion')}</span>
+                  <span className="font-medium">{t('commonTools' as any)}</span>
+                  <span className="ml-2 text-gray-400">{t('toolsWordPressNotion' as any)}</span>
                 </div>
               </p>
               <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
-                {t('viewDetails')}
+                {t('viewDetails' as any)}
               </button>
             </div>
           </div>
@@ -776,7 +776,7 @@ export default function MindscapePage() {
         {/* Footer Note */}
         <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-blue-800">
-            <strong>{t('mindscapeNote').split('：')[0]}：</strong> {t('mindscapeNote').split('：').slice(1).join('：')}
+            <strong>{t('mindscapeNote' as any).split('：')[0]}：</strong> {t('mindscapeNote' as any).split('：').slice(1).join('：')}
           </p>
         </div>
       </main>

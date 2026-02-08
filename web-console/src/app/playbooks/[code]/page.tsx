@@ -33,6 +33,7 @@ interface Playbook {
     required_tools: string[];
     scope?: any;
     owner?: any;
+    capability_code?: string;
   };
   sop_content: string;
   user_notes?: string;
@@ -79,9 +80,9 @@ export default function PlaybookDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const playbookCode = Array.isArray(params?.code) ? params.code[0] : (params?.code as string);
-  const onboardingTask = searchParams?.get('onboarding');
-  const workspaceId = searchParams?.get('workspace');
+  const playbookCode = Array.isArray(params?.code) ? params?.code[0] : (params?.code as string);
+  const onboardingTask = searchParams?.get('onboarding' as any);
+  const workspaceId = searchParams?.get('workspace' as any);
   const [locale] = useLocale();
 
   const [playbook, setPlaybook] = useState<Playbook | null>(null);
@@ -133,7 +134,7 @@ export default function PlaybookDetailPage() {
       try {
         const stored = localStorage.getItem('playbook_recent_views');
         if (stored) {
-          const recent = JSON.parse(stored) as Array<{playbook_code: string; name: string; description: string; icon?: string; viewed_at: string}>;
+          const recent = JSON.parse(stored) as Array<{ playbook_code: string; name: string; description: string; icon?: string; viewed_at: string }>;
           // Filter out current playbook and limit to 5
           const filtered = recent
             .filter(p => p.playbook_code !== playbookCode)
@@ -239,7 +240,7 @@ export default function PlaybookDetailPage() {
         if (typeof window !== 'undefined' && data.metadata) {
           try {
             const stored = localStorage.getItem('playbook_recent_views');
-            let recent: Array<{playbook_code: string; name: string; description: string; icon?: string; viewed_at: string}> = [];
+            let recent: Array<{ playbook_code: string; name: string; description: string; icon?: string; viewed_at: string }> = [];
 
             if (stored) {
               recent = JSON.parse(stored);
@@ -363,7 +364,7 @@ export default function PlaybookDetailPage() {
       }
     } catch (err) {
       console.error('Failed to save user notes:', err);
-      alert(t('playbookSaveFailed'));
+      alert(t('playbookSaveFailed' as any));
       throw err;
     }
   };
@@ -394,7 +395,7 @@ export default function PlaybookDetailPage() {
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const response = await fetch(
-        `${apiUrl}/api/v1/playbooks/${playbookCode}/variants/copy?profile_id=default-user&variant_name=${encodeURIComponent(variantName || t('playbookMyVariantDefault'))}&variant_description=${encodeURIComponent(variantDescription || '')}`,
+        `${apiUrl}/api/v1/playbooks/${playbookCode}/variants/copy?profile_id=default-user&variant_name=${encodeURIComponent(variantName || t('playbookMyVariantDefault' as any))}&variant_description=${encodeURIComponent(variantDescription || '')}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' } }
       );
       if (response.ok) {
@@ -471,7 +472,8 @@ export default function PlaybookDetailPage() {
             title: `${playbookName} Workspace`,
             description: `Workspace for executing ${playbookName}`,
             default_playbook_id: playbookCode,
-            default_locale: targetLanguage
+            default_locale: targetLanguage,
+            execution_mode: 'hybrid'  // 預設為混合模式（邊做邊聊）
           })
         }
       );
@@ -539,7 +541,7 @@ export default function PlaybookDetailPage() {
         <Header />
         <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
-            <p className="text-gray-600 dark:text-gray-400">{t('loading')}</p>
+            <p className="text-gray-600 dark:text-gray-400">{t('loading' as any)}</p>
             {error && (
               <div className="mt-4">
                 <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
@@ -595,7 +597,7 @@ export default function PlaybookDetailPage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                <span>{t('backToList')}</span>
+                <span>{t('backToList' as any)}</span>
               </Link>
             </div>
 
@@ -620,9 +622,9 @@ export default function PlaybookDetailPage() {
                 disabled={isExecuting}
                 className="px-6 py-2.5 bg-accent dark:bg-blue-700 text-white rounded-lg hover:bg-accent/90 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
               >
-                {isExecuting ? t('executing') : selectedVersion === 'personal' && playbook.version_info?.default_variant
+                {isExecuting ? t('executing' as any) : selectedVersion === 'personal' && playbook.version_info?.default_variant
                   ? t('executingVariant', { name: playbook.version_info.default_variant.variant_name })
-                  : t('executingInWorkspace')}
+                  : t('executingInWorkspace' as any)}
               </button>
             </div>
           </div>
@@ -697,7 +699,7 @@ export default function PlaybookDetailPage() {
           {/* Right Column: LLM Component for Finding Playbooks */}
           <div className="col-span-12 lg:col-span-3">
             <div className="bg-surface-secondary dark:bg-gray-900 shadow h-[calc(100vh-7rem)] flex flex-col p-4 sticky top-[7rem]">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('findPlaybook')}</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('findPlaybook' as any)}</h3>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <PlaybookDiscoveryChat
                   onPlaybookSelect={(playbookCode) => {
@@ -736,7 +738,7 @@ export default function PlaybookDetailPage() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('playbookOptimizationSuggestions')}</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('playbookOptimizationSuggestions' as any)}</h2>
                 <button
                   onClick={() => {
                     setShowOptimizeModal(false);
@@ -750,12 +752,12 @@ export default function PlaybookDetailPage() {
 
               {optimizationLoading ? (
                 <div className="text-center py-8">
-                  <p className="text-gray-600 dark:text-gray-400">{t('analyzingPatterns')}</p>
+                  <p className="text-gray-600 dark:text-gray-400">{t('analyzingPatterns' as any)}</p>
                 </div>
               ) : optimizationSuggestions.length > 0 ? (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    {t('basedOnUsagePattern')}
+                    {t('basedOnUsagePattern' as any)}
                   </p>
                   {optimizationSuggestions.map((suggestion, index) => (
                     <div
@@ -769,7 +771,7 @@ export default function PlaybookDetailPage() {
                           <p className="text-xs text-gray-500 dark:text-gray-400">{suggestion.rationale}</p>
                           {suggestion.step_number && (
                             <span className="inline-block mt-2 px-2 py-1 text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded">
-                              {t('step')} {suggestion.step_number}
+                              {t('step' as any)} {suggestion.step_number}
                             </span>
                           )}
                         </div>
@@ -789,7 +791,7 @@ export default function PlaybookDetailPage() {
                                 }
                               );
                               if (response.ok) {
-                                alert(t('playbookVariantCreatedSuccess'));
+                                alert(t('playbookVariantCreatedSuccess' as any));
                                 loadVariants();
                                 setShowOptimizeModal(false);
                               } else {
@@ -801,7 +803,7 @@ export default function PlaybookDetailPage() {
                           }}
                           className="ml-4 px-3 py-1 text-sm bg-accent dark:bg-blue-700 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-600"
                         >
-                          {t('apply')}
+                          {t('apply' as any)}
                         </button>
                       </div>
                     </div>
@@ -809,7 +811,7 @@ export default function PlaybookDetailPage() {
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-gray-600 dark:text-gray-400">{t('noOptimizationSuggestions')}</p>
+                  <p className="text-gray-600 dark:text-gray-400">{t('noOptimizationSuggestions' as any)}</p>
                 </div>
               )}
             </div>
@@ -821,7 +823,7 @@ export default function PlaybookDetailPage() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('myNotes')}</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('myNotes' as any)}</h2>
                 <button
                   onClick={() => setShowNotesModal(false)}
                   className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl"
@@ -834,14 +836,14 @@ export default function PlaybookDetailPage() {
                 onChange={(e) => setUserNotes(e.target.value)}
                 className="w-full px-4 py-2 border border-default dark:border-gray-600 rounded-md mb-4 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 rows={8}
-                placeholder={t('writeYourNotesHere')}
+                placeholder={t('writeYourNotesHere' as any)}
               />
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => setShowNotesModal(false)}
                   className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-default dark:border-gray-600 rounded-md hover:bg-tertiary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
                 >
-                  {t('cancel')}
+                  {t('cancel' as any)}
                 </button>
                 <button
                   onClick={async () => {
@@ -850,7 +852,7 @@ export default function PlaybookDetailPage() {
                   }}
                   className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded-md hover:bg-accent/90 dark:hover:bg-blue-600"
                 >
-                  {t('saveNotes')}
+                  {t('saveNotes' as any)}
                 </button>
               </div>
             </div>
@@ -871,7 +873,7 @@ export default function PlaybookDetailPage() {
             />
             {onboardingTask && !executionComplete && (
               <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-                {t('willReturnAfterCompletion')}
+                {t('willReturnAfterCompletion' as any)}
               </p>
             )}
           </div>

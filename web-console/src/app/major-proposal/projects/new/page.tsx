@@ -55,11 +55,11 @@ export default function NewProjectPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTemplateId) {
-      alert(t('majorProposalSelectTemplate'));
+      alert(t('majorProposalSelectTemplate' as any));
       return;
     }
     if (!projectName.trim()) {
-      alert(t('majorProposalEnterProjectName'));
+      alert(t('majorProposalEnterProjectName' as any));
       return;
     }
 
@@ -155,7 +155,7 @@ export default function NewProjectPage() {
               type="text"
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder={t('majorProposalEnterProjectNamePlaceholder')}
+              placeholder={t('majorProposalEnterProjectNamePlaceholder' as any)}
               className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               required
             />
@@ -173,7 +173,7 @@ export default function NewProjectPage() {
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
               disabled={creating || !selectedTemplateId || !projectName.trim()}
             >
-              {creating ? t('majorProposalCreating') : t('majorProposalCreateProject')}
+              {creating ? t('majorProposalCreating' as any) : t('majorProposalCreateProject' as any)}
             </button>
           </div>
         </form>

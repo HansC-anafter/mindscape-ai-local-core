@@ -149,7 +149,7 @@ export default function ProjectDetailPage() {
 
       if (response.ok) {
         await loadSections();
-        alert(t('majorProposalDraftGenerated'));
+        alert(t('majorProposalDraftGenerated' as any));
       } else {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to generate section');
@@ -203,7 +203,7 @@ export default function ProjectDetailPage() {
         <Header />
         <div className="container mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-            {error || t('majorProposalProjectNotFound')}
+            {error || t('majorProposalProjectNotFound' as any)}
           </div>
           <Link href="/major-proposal" className="mt-4 text-blue-600 hover:underline">
             返回專案列表
@@ -239,7 +239,7 @@ export default function ProjectDetailPage() {
             disabled={!allRequiredSectionsHaveDrafts || assembling}
             className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {assembling ? t('majorProposalAssembling') : t('majorProposalAssembleComplete')}
+            {assembling ? t('majorProposalAssembling' as any) : t('majorProposalAssembleComplete' as any)}
           </button>
         </div>
 
@@ -329,7 +329,7 @@ function SectionWritingPanel({ section, onGenerate, generating, projectId }: Sec
       setEditingContent(section.draft.user_edited || section.draft.ai_draft || '');
     } else {
       setRawInputs(['']);
-      setEditingContent('');
+      setEditingContent('' as any);
     }
   }, [section.draft]);
 
@@ -352,7 +352,7 @@ function SectionWritingPanel({ section, onGenerate, generating, projectId }: Sec
   const handleGenerate = async () => {
     const nonEmptyInputs = rawInputs.filter((input) => input.trim());
     if (nonEmptyInputs.length === 0) {
-      alert(t('majorProposalEnterContent'));
+      alert(t('majorProposalEnterContent' as any));
       return;
     }
     await onGenerate(section.id, nonEmptyInputs);
@@ -376,7 +376,7 @@ function SectionWritingPanel({ section, onGenerate, generating, projectId }: Sec
       );
 
       if (response.ok) {
-        alert(t('majorProposalSaved'));
+        alert(t('majorProposalSaved' as any));
       } else {
         throw new Error('Failed to save');
       }
@@ -405,7 +405,7 @@ function SectionWritingPanel({ section, onGenerate, generating, projectId }: Sec
                 <textarea
                   value={input}
                   onChange={(e) => handleInputChange(index, e.target.value)}
-                  placeholder={t('majorProposalEnterInfo')}
+                  placeholder={t('majorProposalEnterInfo' as any)}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   rows={3}
                 />
@@ -431,7 +431,7 @@ function SectionWritingPanel({ section, onGenerate, generating, projectId }: Sec
             disabled={generating}
             className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            {generating ? t('majorProposalGenerating') : t('majorProposalGenerateDraft')}
+            {generating ? t('majorProposalGenerating' as any) : t('majorProposalGenerateDraft' as any)}
           </button>
         </div>
       ) : (
@@ -449,7 +449,7 @@ function SectionWritingPanel({ section, onGenerate, generating, projectId }: Sec
               disabled={saving}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
             >
-              {saving ? t('majorProposalSaving') : t('majorProposalSaveEdit')}
+              {saving ? t('majorProposalSaving' as any) : t('majorProposalSaveEdit' as any)}
             </button>
           </div>
         </div>

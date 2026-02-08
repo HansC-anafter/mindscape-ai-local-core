@@ -81,18 +81,18 @@ export default function HistoryPage() {
       <Header />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">{t('navHistory')}</h1>
+          <h1 className="text-3xl font-bold text-gray-900">{t('navHistory' as any)}</h1>
           <button
             onClick={loadHistory}
             className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
           >
-            {t('refresh')}
+            {t('refresh' as any)}
           </button>
         </div>
 
         {loading && (
           <div className="text-center py-12">
-            <p className="text-gray-600">{t('loading')}</p>
+            <p className="text-gray-600">{t('loading' as any)}</p>
           </div>
         )}
 
@@ -104,8 +104,8 @@ export default function HistoryPage() {
 
         {!loading && !error && executions.length === 0 && (
           <div className="bg-white shadow rounded-lg p-12 text-center">
-            <p className="text-gray-600">{t('noData')}</p>
-            <p className="text-sm text-gray-500 mt-2">{t('noExecutionHistory')}</p>
+            <p className="text-gray-600">{t('noData' as any)}</p>
+            <p className="text-sm text-gray-500 mt-2">{t('noExecutionHistory' as any)}</p>
           </div>
         )}
 
@@ -115,19 +115,19 @@ export default function HistoryPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('time')}
+                    {t('time' as any)}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('historyAgentType')}
+                    {t('historyAgentType' as any)}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('historyTask')}
+                    {t('historyTask' as any)}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('status')}
+                    {t('status' as any)}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t('duration')}
+                    {t('duration' as any)}
                   </th>
                 </tr>
               </thead>

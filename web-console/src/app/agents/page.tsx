@@ -72,7 +72,7 @@ export default function AgentsPage() {
           const currentBackend = config.available_backends?.[config.current_mode];
           setBackendAvailable(currentBackend?.available || false);
           if (!currentBackend?.available) {
-            setConfigError(t('apiKeyNotConfigured'));
+            setConfigError(t('apiKeyNotConfigured' as any));
           }
         }
       } catch (err) {
@@ -136,7 +136,7 @@ export default function AgentsPage() {
       if (errorMessage.includes('No LLM providers configured') ||
           errorMessage.includes('OPENAI_API_KEY') ||
           errorMessage.includes('ANTHROPIC_API_KEY')) {
-        errorMessage = t('apiKeyNotConfigured');
+        errorMessage = t('apiKeyNotConfigured' as any);
       }
       setError(errorMessage);
     } finally {
@@ -176,7 +176,7 @@ export default function AgentsPage() {
       const data = await response.json();
       setAllAgentsResults(data);
     } catch (err: any) {
-      setError(err.message || t('error'));
+      setError(err.message || t('error' as any));
     } finally {
       setRunningAll(false);
     }
@@ -187,12 +187,12 @@ export default function AgentsPage() {
       <Header />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-3">{t('pageTitle')}</h1>
-          <p className="text-lg text-gray-700 dark:text-gray-300 mb-2">{t('pageSubtitle')}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{t('mindscapeHint')}</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-3">{t('pageTitle' as any)}</h1>
+          <p className="text-lg text-gray-700 dark:text-gray-300 mb-2">{t('pageSubtitle' as any)}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{t('mindscapeHint' as any)}</p>
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              <strong>💡 {t('hint')}：</strong> {t('selectAIRole')} {t('drawRoleCardDescription')}，或直接從下方選擇一個 AI 成員開始。
+              <strong>💡 {t('hint' as any)}：</strong> {t('selectAIRole' as any)} {t('drawRoleCardDescription' as any)}，或直接從下方選擇一個 AI 成員開始。
             </p>
           </div>
         </div>
@@ -207,8 +207,8 @@ export default function AgentsPage() {
                 onCategoryToggle={handleCategoryToggle}
               />
               <div className="flex-1">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('aiRoles')}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{t('selectAIRole')}</p>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('aiRoles' as any)}</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{t('selectAIRole' as any)}</p>
                 <RoleCardGrid
                   task={task}
                   backendAvailable={backendAvailable || false}
@@ -250,7 +250,7 @@ export default function AgentsPage() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
-                    {t('backToList')}
+                    {t('backToList' as any)}
                   </button>
                   <button
                     type="button"
@@ -260,7 +260,7 @@ export default function AgentsPage() {
                     }}
                     className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                   >
-                    {t('reselect')}
+                    {t('reselect' as any)}
                   </button>
                 </div>
               </div>
@@ -270,13 +270,13 @@ export default function AgentsPage() {
                   <span className="text-xl mr-3">🧠</span>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-300 mb-1">
-                      {t('memberMindscape')}
+                      {t('memberMindscape' as any)}
                     </p>
                     <p className="text-xs text-gray-700 dark:text-gray-400 mb-2">
-                      {t('primaryMindscape')}: <span className="font-medium">{t('defaultMindscape')}</span>{t('switchable')}
+                      {t('primaryMindscape' as any)}: <span className="font-medium">{t('defaultMindscape' as any)}</span>{t('switchable' as any)}
                     </p>
                     <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('memberPreferences')}：{t('memberPreferencesDescription')}
+                      {t('memberPreferences' as any)}：{t('memberPreferencesDescription' as any)}
                     </p>
                   </div>
                 </div>
@@ -285,10 +285,10 @@ export default function AgentsPage() {
               {role.playbooks && role.playbooks.length > 0 && (
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                    {t('memberPlaybooks')}
+                    {t('memberPlaybooks' as any)}
                   </label>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    {t('memberPlaybooksDescription')}
+                    {t('memberPlaybooksDescription' as any)}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {role.playbooks.map((playbookCode, index) => (
@@ -336,16 +336,16 @@ export default function AgentsPage() {
                     <span className="text-xl mr-3">💡</span>
                     <div className="flex-1">
                       <p className="text-sm text-blue-900 dark:text-blue-300 font-medium mb-1">
-                        {t('wantToHandleWordPressNotion')}
+                        {t('wantToHandleWordPressNotion' as any)}
                       </p>
                       <p className="text-xs text-blue-700 dark:text-blue-400 mb-3">
-                        {t('connectToolsDescription')}
+                        {t('connectToolsDescription' as any)}
                       </p>
                       <Link
                         href="/settings"
                         className="inline-block px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white text-sm rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
                       >
-                        {t('goToToolSettings')} →
+                        {t('goToToolSettings' as any)} →
                       </Link>
                     </div>
                   </div>
@@ -354,10 +354,10 @@ export default function AgentsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                  {t('suggestedTasks')}
+                  {t('suggestedTasks' as any)}
                 </label>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  {t('selectPlaybookFirst')}：{t('selectPlaybookFirstDescription')}
+                  {t('selectPlaybookFirst' as any)}：{t('selectPlaybookFirstDescription' as any)}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {localized.suggestedTasks.map((taskText, index) => (
@@ -391,7 +391,7 @@ export default function AgentsPage() {
                     href="/settings"
                     className="text-sm font-medium text-yellow-800 dark:text-yellow-300 underline hover:text-yellow-900 dark:hover:text-yellow-200"
                   >
-                    {t('goToSettingsConfigure')} →
+                    {t('goToSettingsConfigure' as any)} →
                   </a>
                 </div>
               </div>
@@ -403,14 +403,14 @@ export default function AgentsPage() {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t('task')}
+                {t('task' as any)}
               </label>
               <textarea
                 value={task}
                 onChange={(e) => setTask(e.target.value)}
                 rows={6}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                placeholder={t('taskPlaceholder')}
+                placeholder={t('taskPlaceholder' as any)}
                 required
               />
               <div className="mt-2 flex flex-wrap gap-2">
@@ -440,15 +440,15 @@ export default function AgentsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t('agentType')}
+                {t('agentType' as any)}
               </label>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t('agentTypeDescriptionNew')}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t('agentTypeDescriptionNew' as any)}</p>
               <textarea
                 value={agentTypeDescription}
                 onChange={(e) => setAgentTypeDescription(e.target.value)}
                 rows={3}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                placeholder={t('agentTypePlaceholder')}
+                placeholder={t('agentTypePlaceholder' as any)}
               />
             </div>
 
@@ -463,10 +463,10 @@ export default function AgentsPage() {
                 />
                 <div className="flex-1">
                   <label htmlFor="useMindscape" className="text-sm font-medium text-gray-700 dark:text-gray-300 block">
-                    {t('useMindscape')}
+                    {t('useMindscape' as any)}
                   </label>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {t('useMindscapeDescription')}
+                    {t('useMindscapeDescription' as any)}
                   </p>
                 </div>
               </div>
@@ -482,24 +482,24 @@ export default function AgentsPage() {
                     : 'bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
                 } ${loading ? 'opacity-50' : ''}`}
               >
-                {loading ? t('loading') : selectedRole ? (() => {
+                {loading ? t('loading' as any) : selectedRole ? (() => {
                   const role = AI_ROLES.find(r => r.id === selectedRole);
-                  return role ? t('launchRole').replace('{roleName}', getLocalizedRole(role, t).name) : t('runAgent');
-                })() : t('runAgent')}
+                  return role ? t('launchRole' as any).replace('{roleName}', getLocalizedRole(role, t).name) : t('runAgent' as any);
+                })() : t('runAgent' as any)}
               </button>
               {!selectedRole && !selectedScene && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-                  {t('pleaseSelectAIMemberFirst')}
+                  {t('pleaseSelectAIMemberFirst' as any)}
                 </p>
               )}
               {!task.trim() && (selectedRole || selectedScene) && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-                  {t('pleaseDescribeTask')}
+                  {t('pleaseDescribeTask' as any)}
                 </p>
               )}
               {backendAvailable === false && task.trim() && (selectedRole || selectedScene) && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-                  {t('configureApiKeyFirst')}
+                  {t('configureApiKeyFirst' as any)}
                 </p>
               )}
             </div>
@@ -522,7 +522,7 @@ export default function AgentsPage() {
                       href="/settings"
                       className="text-sm font-medium text-red-800 dark:text-red-300 underline hover:text-red-900 dark:hover:text-red-200"
                     >
-                      {t('goToSettings')} →
+                      {t('goToSettings' as any)} →
                     </a>
                   </div>
                 )}
@@ -533,7 +533,7 @@ export default function AgentsPage() {
 
         {result && (
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('executionResult')}</h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('executionResult' as any)}</h2>
             <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-4">
               <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
                 {result.output || result.error_message}
@@ -541,8 +541,8 @@ export default function AgentsPage() {
             </div>
             {result.metadata && (
               <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
-                <p>{t('executionId')}: {result.execution_id}</p>
-                <p>{t('status')}: {result.status}</p>
+                <p>{t('executionId' as any)}: {result.execution_id}</p>
+                <p>{t('status' as any)}: {result.status}</p>
               </div>
             )}
           </div>
@@ -550,7 +550,7 @@ export default function AgentsPage() {
 
         {suggestedPlaybooks.length > 0 && (
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mt-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('suggestedPlaybooks')}</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('suggestedPlaybooks' as any)}</h2>
             <div className="space-y-2">
               {suggestedPlaybooks.map(code => (
                 <Link
@@ -563,14 +563,14 @@ export default function AgentsPage() {
               ))}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
-              {t('playbookHelp')}
+              {t('playbookHelp' as any)}
             </p>
           </div>
         )}
 
         <div className="mt-8 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <p className="text-sm text-blue-800 dark:text-blue-300">
-            <strong>{t('hint')}：</strong> {t('settingsHint')}
+            <strong>{t('hint' as any)}：</strong> {t('settingsHint' as any)}
           </p>
         </div>
       </main>

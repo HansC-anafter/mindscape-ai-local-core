@@ -9,7 +9,12 @@ const nextConfig = {
   },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8200';
+    const mediaProxyUrl = process.env.MEDIA_PROXY_URL || 'http://127.0.0.1:8202';
     return [
+      {
+        source: '/api/v1/media/:path*',
+        destination: `${mediaProxyUrl}/api/v1/media/:path*`,
+      },
       {
         source: '/api/:path*',
         destination: `${backendUrl}/api/:path*`,
@@ -25,7 +30,7 @@ const nextConfig = {
       '@mindscape-ai/core/api': path.resolve(corePackagePath, 'api/index.ts'),
       '@mindscape-ai/core/contexts': path.resolve(corePackagePath, 'contexts/index.ts'),
     };
-    config.resolve.symlinks = false;
+    // config.resolve.symlinks = false; // Disabled to support pnpm symlinks
     config.resolve.extensions = [
       ...(config.resolve.extensions || []),
       '.ts',
