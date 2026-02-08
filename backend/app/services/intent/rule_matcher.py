@@ -1,12 +1,12 @@
 """
 Rule-Based Intent Matcher
 
-Layer 1 rule-based matching for interaction type classification.
+Provides regex-based pattern matching for command detection and interaction type classification.
 """
 
 import re
-from typing import Optional
 import logging
+from typing import Optional
 
 from .models import InteractionType
 

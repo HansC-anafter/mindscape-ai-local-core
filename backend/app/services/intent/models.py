@@ -1,7 +1,7 @@
 """
-Intent Analysis Models
+Intent Models and Enums
 
-Core models and enums for the intent analysis pipeline.
+Core data structures for intent analysis pipeline.
 """
 
 from enum import Enum
