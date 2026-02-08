@@ -1,0 +1,39 @@
+# Local development overrides example
+# Copy this file to docker-compose.override.yml to enable dev features
+#
+# Usage:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   docker compose up -d
+
+services:
+  backend:
+    # Dev auto-reload: restart uvicorn when capability files change
+    command:
+      - sh
+      - -c
+      - |
+        exec uvicorn backend.app.main:app --host 0.0.0.0 --port $${PORT} \
+          --reload \
+          --reload-dir /app/backend/app/capabilities \
+          --reload-dir /mindscape-ai-cloud/capabilities
+    volumes:
+      # Mount mindscape-ai-cloud capabilities for local development
+      - ../mindscape-ai-cloud:/mindscape-ai-cloud:ro
+    environment:
+      # Cloud API URL (for connecting to Cloud service)
+      - CLOUD_API_URL=${CLOUD_API_URL:-http://host.docker.internal:8002}
+      # Cloud Frontend URL (for navigation to Cloud frontend)
+      - CLOUD_FRONTEND_URL=${CLOUD_FRONTEND_URL:-http://host.docker.internal:3000}
+      # Remote capabilities directory (for loading remote capability tools)
+      - MINDSCAPE_REMOTE_CAPABILITIES_DIR=/mindscape-ai-cloud/capabilities
+      # Device Node URL (for container restart via host)
+      - DEVICE_NODE_URL=http://host.docker.internal:3100
+      # Environment mode
+      - ENVIRONMENT=development
+
+  frontend:
+    volumes:
+      # Mount mindscape-ai-cloud for UI component access
+      - ../mindscape-ai-cloud:/mindscape-ai-cloud:ro
+    environment:
+      - NEXT_PUBLIC_CLOUD_API_URL=${NEXT_PUBLIC_CLOUD_API_URL:-http://localhost:8002}

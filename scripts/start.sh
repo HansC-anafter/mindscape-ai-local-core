@@ -106,7 +106,40 @@ fi
 echo "Starting services..."
 echo ""
 
-# Start services
+# Start Device Node (for host-level operations like container restart)
+if [ -d "$PROJECT_ROOT/device-node" ] && command -v node &> /dev/null; then
+    echo "Starting Device Node..."
+
+    # Check if already running
+    DEVICE_NODE_PID=$(pgrep -f "device-node" 2>/dev/null || true)
+    if [ -n "$DEVICE_NODE_PID" ]; then
+        echo "  ✓ Device Node already running (PID: $DEVICE_NODE_PID)"
+    else
+        cd "$PROJECT_ROOT/device-node"
+
+        # Build if needed
+        if [ ! -d "dist" ]; then
+            echo "  Building Device Node..."
+            npm run build --silent 2>/dev/null || true
+        fi
+
+        # Start in background with HTTP transport
+        MCP_TRANSPORT=http MCP_HTTP_PORT=3100 nohup npm start > /tmp/device-node.log 2>&1 &
+        DEVICE_NODE_PID=$!
+
+        sleep 2
+        if ps -p $DEVICE_NODE_PID > /dev/null 2>&1; then
+            echo "  ✓ Device Node started (PID: $DEVICE_NODE_PID, Port: 3100)"
+        else
+            echo "  ⚠️  Device Node failed to start. See /tmp/device-node.log"
+        fi
+
+        cd "$PROJECT_ROOT"
+    fi
+    echo ""
+fi
+
+# Start Docker services
 echo "Building and starting containers..."
 docker compose up -d
 
@@ -114,20 +147,20 @@ if [ $? -ne 0 ]; then
     echo ""
     echo "❌ Failed to start services"
     echo ""
-    
+
     # Wait a moment for containers to initialize
     sleep 2
-    
+
     # Check which services failed
     echo "Checking service status..."
     FAILED_SERVICES=$(docker compose ps --format json 2>/dev/null | jq -r '.[] | select(.State != "running" and .State != "healthy") | .Service' 2>/dev/null || docker compose ps --format "{{.Service}}\t{{.State}}" | grep -v "running\|healthy" | cut -f1)
-    
+
     if [ -n "$FAILED_SERVICES" ]; then
         echo ""
         echo "⚠️  The following services failed to start:"
         docker compose ps --format "table {{.Service}}\t{{.State}}" | grep -v "running\|healthy" || true
         echo ""
-        
+
         # Show logs for failed services
         echo "Showing logs for failed services..."
         echo ""
@@ -142,7 +175,7 @@ if [ $? -ne 0 ]; then
         echo ""
         docker compose logs --tail=50
     fi
-    
+
     echo ""
     echo "For more detailed logs, run:"
     echo "  docker compose logs [service-name]"

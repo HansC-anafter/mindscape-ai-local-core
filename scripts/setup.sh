@@ -110,6 +110,16 @@ if command -v node &> /dev/null; then
     else
         echo "   ⚠️  web-console directory not found. Skipping frontend setup."
     fi
+
+    # Install Device Node (for host-level operations)
+    if [ -d "device-node" ]; then
+        echo "🔌 Installing Device Node..."
+        cd device-node
+        npm install --silent
+        npm run build --silent 2>/dev/null || echo "   ⚠️  Build failed, will retry on first run"
+        echo "   ✓ Device Node installed"
+        cd ..
+    fi
 fi
 
 # Initialize database
