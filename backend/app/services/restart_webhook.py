@@ -1,7 +1,7 @@
 """
 Restart Webhook Service
 
-Sends validated restart notifications to external orchestrators.
+Sends restart commands to Device Node for infrastructure management.
 Only triggers after validation passes.
 """
 
@@ -15,16 +15,23 @@ logger = logging.getLogger(__name__)
 
 
 class RestartWebhookService:
-    """Service for notifying orchestrators about restart requirements"""
+    """Service for triggering backend restart via Device Node"""
 
     def __init__(self):
-        self.webhook_url = os.getenv("RESTART_WEBHOOK_URL")
-        self.webhook_secret = os.getenv("RESTART_WEBHOOK_SECRET", "")
-        self.timeout = float(os.getenv("RESTART_WEBHOOK_TIMEOUT", "10"))
+        # Device Node MCP endpoint (runs on host)
+        self.device_node_url = os.getenv(
+            "DEVICE_NODE_URL", "http://host.docker.internal:3100"
+        )
+        self.timeout = float(os.getenv("RESTART_WEBHOOK_TIMEOUT", "30"))
+        # Project root on host machine (for docker compose command)
+        self.project_root = os.getenv(
+            "LOCAL_CORE_PROJECT_ROOT",
+            "/Users/shock/Projects_local/workspace/mindscape-ai-local-core",
+        )
 
     def is_configured(self) -> bool:
-        """Check if webhook is configured"""
-        return bool(self.webhook_url)
+        """Check if Device Node URL is configured"""
+        return bool(self.device_node_url)
 
     async def notify_restart_required(
         self,
@@ -34,76 +41,96 @@ class RestartWebhookService:
         extra_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Send restart notification to configured webhook.
+        Request backend restart via Device Node shell capability.
 
-        Only sends if validation_passed is True.
+        Only executes if validation_passed is True.
 
         Args:
             capability_code: The installed capability code
             validation_passed: Whether pre-restart validation passed
             version: Capability version
-            extra_data: Additional data to include
+            extra_data: Additional data for logging
 
         Returns:
             Result dict with success status and details
         """
         if not self.is_configured():
-            return {"sent": False, "reason": "webhook_not_configured"}
+            return {"sent": False, "reason": "device_node_not_configured"}
 
         if not validation_passed:
-            logger.warning(
-                f"Restart webhook skipped for {capability_code}: validation failed"
-            )
+            logger.warning(f"Restart skipped for {capability_code}: validation failed")
             return {"sent": False, "reason": "validation_failed"}
 
-        payload = {
-            "action": "restart_required",
-            "capability": capability_code,
-            "version": version,
-            "validated": True,
-            "environment": os.getenv("ENVIRONMENT", "development"),
+        # MCP tool call format for Device Node
+        mcp_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "shell_execute",
+                "arguments": {
+                    "command": "docker",
+                    "args": ["compose", "restart", "backend"],
+                    "cwd": self.project_root,
+                    "capability": "docker_admin",
+                },
+            },
         }
-
-        if extra_data:
-            payload["extra"] = extra_data
 
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "Mindscape-LocalCore/1.0",
+            "X-Request-Source": "capability-install",
+            "X-Capability-Code": capability_code,
         }
-
-        if self.webhook_secret:
-            headers["X-Webhook-Secret"] = self.webhook_secret
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
-                    self.webhook_url, json=payload, headers=headers
+                    f"{self.device_node_url}/mcp", json=mcp_request, headers=headers
                 )
 
+            result = response.json()
+
             if response.status_code >= 200 and response.status_code < 300:
-                logger.info(f"Restart webhook sent successfully for {capability_code}")
-                return {
-                    "sent": True,
-                    "status_code": response.status_code,
-                    "capability": capability_code,
-                }
+                if result.get("result", {}).get("success", False):
+                    logger.info(
+                        f"Backend restart triggered via Device Node for {capability_code}"
+                    )
+                    return {
+                        "sent": True,
+                        "method": "device_node",
+                        "capability": capability_code,
+                        "result": result.get("result"),
+                    }
+                else:
+                    error = result.get("error", {}).get("message", "Unknown error")
+                    logger.warning(f"Device Node restart failed: {error}")
+                    return {
+                        "sent": False,
+                        "reason": "device_node_error",
+                        "error": error,
+                    }
             else:
-                logger.warning(
-                    f"Restart webhook failed: {response.status_code} - {response.text}"
-                )
+                logger.warning(f"Device Node request failed: {response.status_code}")
                 return {
                     "sent": False,
-                    "reason": "webhook_error",
+                    "reason": "http_error",
                     "status_code": response.status_code,
-                    "error": response.text[:200],
                 }
 
         except httpx.TimeoutException:
-            logger.error(f"Restart webhook timeout for {capability_code}")
+            logger.error(f"Device Node timeout for {capability_code}")
             return {"sent": False, "reason": "timeout"}
+        except httpx.ConnectError:
+            logger.warning("Device Node not reachable - is it running on host?")
+            return {
+                "sent": False,
+                "reason": "device_node_unreachable",
+                "hint": "Start Device Node on host with: cd device-node && npm run dev",
+            }
         except Exception as e:
-            logger.error(f"Restart webhook error: {e}")
+            logger.error(f"Device Node error: {e}")
             return {"sent": False, "reason": "error", "error": str(e)}
 
 

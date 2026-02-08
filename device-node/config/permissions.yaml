@@ -75,3 +75,20 @@ capabilities:
       - dd
       - kill
       - killall
+
+  # Admin-level operations for infrastructure management
+  docker_admin:
+    trust_level: admin
+    confirm_required: false
+    allowed_commands:
+      - docker
+      - "docker compose"
+    allowed_operations:
+      - restart
+      - ps
+      - logs
+    denied_operations:
+      - rm
+      - rmi
+      - prune
+      - down

@@ -50,6 +50,11 @@ const DEFAULT_WHITELIST: CommandWhitelist = {
     pwd: { allowed_subcommands: [], denied_flags: [] },
     mkdir: { allowed_subcommands: [], denied_flags: [] },
     touch: { allowed_subcommands: [], denied_flags: [] },
+    // Docker commands for infrastructure management
+    docker: {
+        allowed_subcommands: ["compose", "ps", "logs", "inspect"],
+        denied_flags: ["--rm", "--force-rm", "-f"],
+    },
 };
 
 function validateCommand(

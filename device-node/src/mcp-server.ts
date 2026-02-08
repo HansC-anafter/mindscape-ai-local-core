@@ -15,6 +15,7 @@ import { PermissionMap, TrustLevel } from "./governance/permission-map.js";
 import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import { filesystemRead, filesystemWrite, filesystemList } from "./capabilities/filesystem.js";
 import { shellExecute } from "./capabilities/shell.js";
+import * as http from "http";
 
 export interface MCPServerConfig {
     name: string;
@@ -35,6 +36,7 @@ export class MCPServer {
     private permissionMap: PermissionMap;
     private bridge?: LocalCoreBridge;
     private tools: Map<string, ToolDefinition> = new Map();
+    private httpServer?: http.Server;
 
     constructor(config: MCPServerConfig) {
         this.permissionMap = config.permissionMap;
@@ -209,12 +211,111 @@ export class MCPServer {
         await this.server.connect(transport);
     }
 
+    /**
+     * Start HTTP server for MCP requests
+     * Simplified JSON-RPC over HTTP implementation
+     */
     async startHttp(port: number): Promise<void> {
-        console.log(`HTTP mode not yet implemented, falling back to stdio. Port: ${port}`);
-        await this.startStdio();
+        this.httpServer = http.createServer(async (req, res) => {
+            // CORS headers for Docker container access
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+            res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Request-Source, X-Capability-Code");
+
+            if (req.method === "OPTIONS") {
+                res.writeHead(204);
+                res.end();
+                return;
+            }
+
+            if (req.method !== "POST" || req.url !== "/mcp") {
+                res.writeHead(404, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "Not found" }));
+                return;
+            }
+
+            let body = "";
+            for await (const chunk of req) {
+                body += chunk;
+            }
+
+            try {
+                const request = JSON.parse(body);
+                const { method, params, id } = request;
+
+                let result: unknown;
+
+                if (method === "tools/list") {
+                    const toolsList = Array.from(this.tools.values()).map((tool) => ({
+                        name: tool.name,
+                        description: tool.description,
+                        inputSchema: tool.inputSchema,
+                    }));
+                    result = { tools: toolsList };
+                } else if (method === "tools/call") {
+                    const { name, arguments: args } = params;
+                    const tool = this.tools.get(name);
+
+                    if (!tool) {
+                        throw new Error(`Unknown tool: ${name}`);
+                    }
+
+                    const permissionCheck = await this.permissionMap.checkPermission(
+                        name,
+                        args as Record<string, unknown>
+                    );
+
+                    if (!permissionCheck.allowed) {
+                        throw new Error(`Permission denied: ${permissionCheck.reason}`);
+                    }
+
+                    const toolResult = await tool.handler(args as Record<string, unknown>);
+                    result = {
+                        success: true,
+                        content: [
+                            {
+                                type: "text",
+                                text: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult, null, 2),
+                            },
+                        ],
+                    };
+                } else {
+                    throw new Error(`Unknown method: ${method}`);
+                }
+
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({
+                    jsonrpc: "2.0",
+                    id,
+                    result,
+                }));
+            } catch (error) {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: null,
+                    error: {
+                        code: -32000,
+                        message: error instanceof Error ? error.message : String(error),
+                    },
+                }));
+            }
+        });
+
+        await new Promise<void>((resolve) => {
+            this.httpServer!.listen(port, () => {
+                console.log(`MCP HTTP Server listening on port ${port}`);
+                resolve();
+            });
+        });
     }
 
     async stop(): Promise<void> {
+        if (this.httpServer) {
+            await new Promise<void>((resolve) => {
+                this.httpServer!.close(() => resolve());
+            });
+        }
         await this.server.close();
     }
 }
