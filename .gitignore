@@ -107,6 +107,7 @@ docker-compose.override.yml
 # Capability-installed playbooks (透過 API 安裝，不應該直接 commit)
 /backend/i18n/playbooks/
 /backend/playbooks/
+/backend/playbooks/specs/
 
 # Cloud 特定的模型目录（不应在 local-core 中）
 /backend/app/models/sonic_space/
