@@ -29,10 +29,10 @@ installed_packs_store = InstalledPacksStore()
 
 def _load_manifest_file(manifest_path: Path) -> Optional[Dict[str, Any]]:
     try:
-        with open(manifest_path, 'r', encoding='utf-8') as f:
+        with open(manifest_path, "r", encoding="utf-8") as f:
             pack_meta = yaml.safe_load(f)
             if pack_meta and isinstance(pack_meta, dict):
-                pack_meta['_file_path'] = str(manifest_path)
+                pack_meta["_file_path"] = str(manifest_path)
                 return pack_meta
     except Exception as e:
         logger.warning(f"Failed to load pack file {manifest_path}: {e}")
@@ -66,7 +66,9 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
             if alt_path.exists():
                 packs_dir = alt_path
             else:
-                logger.warning(f"Packs directory not found. Tried: {base_dir / 'packs'}, {Path('/app/backend/packs')}, {base_dir / 'backend' / 'packs'}")
+                logger.warning(
+                    f"Packs directory not found. Tried: {base_dir / 'packs'}, {Path('/app/backend/packs')}, {base_dir / 'backend' / 'packs'}"
+                )
                 return packs
 
     # Scan for .yaml files
@@ -116,7 +118,9 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
                     "description": description,
                     "version": meta.get("version", "1.0.0"),
                     "playbooks": playbooks,
-                    "ui_components": meta.get("ui_components", []),  # Include UI components
+                    "ui_components": meta.get(
+                        "ui_components", []
+                    ),  # Include UI components
                     "_file_path": str(manifest_path),
                 }
                 # Merge other fields from original meta
@@ -140,6 +144,7 @@ def _get_enabled_pack_ids() -> set:
 
 class PackResponse(BaseModel):
     """Response model for pack information"""
+
     id: str
     name: str
     description: str
@@ -178,15 +183,17 @@ async def list_packs():
 
         packs = []
         for pack_meta in pack_metas:
-            pack_id = pack_meta.get('id')
+            pack_id = pack_meta.get("id")
             if not pack_id:
-                logger.warning(f"Pack metadata missing 'id' field: {pack_meta.get('_file_path', 'unknown')}")
+                logger.warning(
+                    f"Pack metadata missing 'id' field: {pack_meta.get('_file_path', 'unknown')}"
+                )
                 continue
 
             installed_info = installed_metadata.get(pack_id, {})
 
             # Handle tools field: if it's a list of dicts, extract tool names
-            tools_raw = pack_meta.get('tools', [])
+            tools_raw = pack_meta.get("tools", [])
             tools_list = []
             if isinstance(tools_raw, list):
                 for tool in tools_raw:
@@ -194,34 +201,39 @@ async def list_packs():
                         tools_list.append(tool)
                     elif isinstance(tool, dict):
                         # Extract tool name from dict
-                        tool_name = tool.get('name') or tool.get('id') or tool.get('tool')
+                        tool_name = (
+                            tool.get("name") or tool.get("id") or tool.get("tool")
+                        )
                         if tool_name:
                             tools_list.append(tool_name)
 
-            playbooks_raw = pack_meta.get('playbooks', [])
+            playbooks_raw = pack_meta.get("playbooks", [])
             playbooks_list = []
             if isinstance(playbooks_raw, list):
                 for pb in playbooks_raw:
                     if isinstance(pb, str):
                         playbooks_list.append(pb)
                     elif isinstance(pb, dict):
-                        pb_code = pb.get('code') or pb.get('id') or pb.get('playbook')
+                        pb_code = pb.get("code") or pb.get("id") or pb.get("playbook")
                         if pb_code:
                             playbooks_list.append(pb_code)
 
-            packs.append(PackResponse(
-                id=pack_id,
-                name=pack_meta.get('name', pack_id),
-                description=pack_meta.get('description', ''),
-                enabled_by_default=pack_meta.get('enabled_by_default', False),
-                enabled=pack_id in enabled_ids,
-                installed=pack_id in installed_ids,
-                routes=pack_meta.get('routes', []),
-                playbooks=playbooks_list,
-                tools=tools_list,
-                version=installed_info.get('version') or pack_meta.get('version', '1.0.0'),
-                installed_at=installed_info.get('installed_at')
-            ))
+            packs.append(
+                PackResponse(
+                    id=pack_id,
+                    name=pack_meta.get("name", pack_id),
+                    description=pack_meta.get("description", ""),
+                    enabled_by_default=pack_meta.get("enabled_by_default", False),
+                    enabled=pack_id in enabled_ids,
+                    installed=pack_id in installed_ids,
+                    routes=pack_meta.get("routes", []),
+                    playbooks=playbooks_list,
+                    tools=tools_list,
+                    version=installed_info.get("version")
+                    or pack_meta.get("version", "1.0.0"),
+                    installed_at=installed_info.get("installed_at"),
+                )
+            )
 
         return packs
 
@@ -241,10 +253,12 @@ async def enable_pack(pack_id: str):
     try:
         # Check if pack exists in YAML files
         pack_metas = _scan_pack_yaml_files()
-        pack_meta = next((p for p in pack_metas if p.get('id') == pack_id), None)
+        pack_meta = next((p for p in pack_metas if p.get("id") == pack_id), None)
 
         if not pack_meta:
-            raise HTTPException(status_code=404, detail=f"Capability pack '{pack_id}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Capability pack '{pack_id}' not found"
+            )
 
         existing = installed_packs_store.get_pack(pack_id)
         if existing:
@@ -260,7 +274,7 @@ async def enable_pack(pack_id: str):
         return {
             "success": True,
             "pack_id": pack_id,
-            "message": f"Capability pack '{pack_id}' enabled successfully"
+            "message": f"Capability pack '{pack_id}' enabled successfully",
         }
 
     except HTTPException:
@@ -280,12 +294,14 @@ async def disable_pack(pack_id: str):
     try:
         updated = installed_packs_store.set_enabled(pack_id, False)
         if not updated:
-            raise HTTPException(status_code=404, detail=f"Pack '{pack_id}' is not installed")
+            raise HTTPException(
+                status_code=404, detail=f"Pack '{pack_id}' is not installed"
+            )
 
         return {
             "success": True,
             "pack_id": pack_id,
-            "message": f"Capability pack '{pack_id}' disabled successfully"
+            "message": f"Capability pack '{pack_id}' disabled successfully",
         }
 
     except HTTPException:
@@ -325,25 +341,36 @@ async def list_installed_capabilities():
         # Filter to only installed packs and format response
         installed_capabilities = []
         for pack_meta in pack_metas:
-            pack_id = pack_meta.get('id')
+            pack_id = pack_meta.get("id")
             if pack_id and pack_id in installed_ids:
-                installed_capabilities.append({
-                    'id': pack_id,
-                    'code': pack_meta.get('code', pack_id),  # Use code from meta if available
-                    'display_name': pack_meta.get('name', pack_id),
-                    'version': pack_meta.get('version', '1.0.0'),
-                    'description': pack_meta.get('description', ''),
-                    'scope': pack_meta.get('scope', 'global'),
-                    'ui_components': pack_meta.get('ui_components', [])  # Include UI components info
-                })
+                installed_capabilities.append(
+                    {
+                        "id": pack_id,
+                        "code": pack_meta.get(
+                            "code", pack_id
+                        ),  # Use code from meta if available
+                        "display_name": pack_meta.get("name", pack_id),
+                        "version": pack_meta.get("version", "1.0.0"),
+                        "description": pack_meta.get("description", ""),
+                        "scope": pack_meta.get("scope", "global"),
+                        "ui_components": pack_meta.get(
+                            "ui_components", []
+                        ),  # Include UI components info
+                    }
+                )
 
         return installed_capabilities
     except Exception as e:
         logger.error(f"Failed to list installed capabilities: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list installed capabilities: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list installed capabilities: {str(e)}"
+        )
 
 
-@router.get("/installed-capabilities/{capability_code}/ui-components", response_model=List[Dict[str, Any]])
+@router.get(
+    "/installed-capabilities/{capability_code}/ui-components",
+    response_model=List[Dict[str, Any]],
+)
 async def get_capability_ui_components(capability_code: str):
     """
     Get UI components information for an installed capability
@@ -359,20 +386,29 @@ async def get_capability_ui_components(capability_code: str):
         pack_metas = _scan_pack_yaml_files()
 
         pack_meta = next(
-            (p for p in pack_metas if p.get('id') == capability_code or p.get('code') == capability_code),
-            None
+            (
+                p
+                for p in pack_metas
+                if p.get("id") == capability_code or p.get("code") == capability_code
+            ),
+            None,
         )
 
         if not pack_meta:
-            raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Capability '{capability_code}' not found"
+            )
 
         installed_ids = _get_installed_pack_ids()
-        pack_id = pack_meta.get('id')
+        pack_id = pack_meta.get("id")
         if pack_id not in installed_ids:
-            raise HTTPException(status_code=404, detail=f"Capability '{capability_code}' (pack_id: {pack_id}) is not installed")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Capability '{capability_code}' (pack_id: {pack_id}) is not installed",
+            )
 
         # Return UI components from manifest
-        ui_components = pack_meta.get('ui_components', [])
+        ui_components = pack_meta.get("ui_components", [])
 
         # Format response with component metadata
         formatted_components = []
@@ -380,47 +416,59 @@ async def get_capability_ui_components(capability_code: str):
             # Component path from manifest (e.g., "ui/pages/ChapterStudioPage.tsx" or "ui/components/WorkbenchLayout.tsx")
             component_path = component.get("path", "")
             component_filename = Path(component_path).name
-            component_name = component_filename.replace('.tsx', '').replace('.ts', '')
+            component_name = component_filename.replace(".tsx", "").replace(".ts", "")
 
             # Extract subdirectory from path (e.g., "pages" from "ui/pages/ChapterStudioPage.tsx")
             # Path structure: ui/{subdirectory}/{filename}
-            path_parts = component_path.split('/')
-            subdirectory = 'components'  # default
-            if len(path_parts) >= 3 and path_parts[0] == 'ui':
+            path_parts = component_path.split("/")
+            subdirectory = "components"  # default
+            if len(path_parts) >= 3 and path_parts[0] == "ui":
                 # Extract subdirectory (e.g., "pages", "components")
                 subdirectory = path_parts[1]
 
             # Build import path based on actual file structure
-            import_path = f'@/app/capabilities/{capability_code}/{subdirectory}/{component_name}'
+            import_path = (
+                f"@/app/capabilities/{capability_code}/{subdirectory}/{component_name}"
+            )
 
-            formatted_components.append({
-                'code': component.get('code'),
-                'path': component_path,
-                'description': component.get('description', ''),
-                'export': component.get('export', 'default'),
-                'artifact_types': component.get('artifact_types', []),
-                'playbook_codes': component.get('playbook_codes', []),
-                'import_path': import_path
-            })
+            formatted_components.append(
+                {
+                    "code": component.get("code"),
+                    "path": component_path,
+                    "description": component.get("description", ""),
+                    "export": component.get("export", "default"),
+                    "artifact_types": component.get("artifact_types", []),
+                    "playbook_codes": component.get("playbook_codes", []),
+                    "import_path": import_path,
+                }
+            )
 
         return formatted_components
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get UI components for capability {capability_code}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get UI components: {str(e)}")
+        logger.error(
+            f"Failed to get UI components for capability {capability_code}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get UI components: {str(e)}"
+        )
 
 
 # ============================================
 # .mindpack File Installation (Offline Capability Packs)
 # ============================================
 
+
 @router.post("/install-from-file", response_model=Dict[str, Any])
 async def install_from_file(
     fastapi_request: Request,
     file: UploadFile = File(...),
     allow_overwrite: str = Form("false"),
-    profile_id: str = Query("default-user", description="User profile ID for role mapping")
+    profile_id: str = Query(
+        "default-user", description="User profile ID for role mapping"
+    ),
 ):
     """
     Install capability package from .mindpack file
@@ -428,11 +476,8 @@ async def install_from_file(
     Supports offline installation of capability packages.
     Validates manifest, checks conflicts, and installs to capabilities directory.
     """
-    if not file.filename.endswith('.mindpack'):
-        raise HTTPException(
-            status_code=400,
-            detail="File must be a .mindpack file"
-        )
+    if not file.filename.endswith(".mindpack"):
+        raise HTTPException(status_code=400, detail="File must be a .mindpack file")
 
     try:
         import sys
@@ -458,7 +503,7 @@ async def install_from_file(
         from app.services.post_install import PostInstallHandler
         from app.services.install_result import InstallResult
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mindpack') as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mindpack") as tmp_file:
             content = await file.read()
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
@@ -471,29 +516,29 @@ async def install_from_file(
 
             # 1. Extract mindpack
             extractor = MindpackExtractor(local_core_root)
-            extract_success, temp_dir, capability_code, cap_dir = extractor.extract(tmp_path)
+            extract_success, temp_dir, capability_code, cap_dir = extractor.extract(
+                tmp_path
+            )
 
             if not extract_success or not capability_code or not cap_dir:
                 raise HTTPException(
                     status_code=400,
-                    detail="Failed to extract mindpack file or capability code not found"
+                    detail="Failed to extract mindpack file or capability code not found",
                 )
 
             # 2. Load and validate manifest
             manifest_path = cap_dir / "manifest.yaml"
             if not manifest_path.exists():
                 raise HTTPException(
-                    status_code=400,
-                    detail="manifest.yaml not found in mindpack"
+                    status_code=400, detail="manifest.yaml not found in mindpack"
                 )
 
             try:
-                with open(manifest_path, 'r', encoding='utf-8') as f:
+                with open(manifest_path, "r", encoding="utf-8") as f:
                     manifest = yaml.safe_load(f)
             except Exception as e:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to parse manifest: {e}"
+                    status_code=400, detail=f"Failed to parse manifest: {e}"
                 )
 
             # Validate manifest
@@ -506,10 +551,7 @@ async def install_from_file(
             if not is_valid and not skip_validation:
                 error_msg = f"Manifest validation failed: {validation_errors}"
                 logger.error(error_msg)
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
+                raise HTTPException(status_code=400, detail=error_msg)
 
             # 3. Initialize install result
             result = InstallResult(capability_code=capability_code)
@@ -521,25 +563,30 @@ async def install_from_file(
             playbook_installer.specs_dir = specs_dir
             playbook_installer.i18n_base_dir = i18n_base_dir
             playbook_installer.local_core_root = local_core_root
-            playbook_installer._install_playbooks(cap_dir, capability_code, manifest, result)
+            playbook_installer._install_playbooks(
+                cap_dir, capability_code, manifest, result
+            )
 
             # 5. Install runtime assets
             runtime_installer = RuntimeAssetsInstaller(
-                local_core_root=local_core_root,
-                capabilities_dir=capabilities_dir
+                local_core_root=local_core_root, capabilities_dir=capabilities_dir
             )
-            runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
+            runtime_installer.install_all(
+                cap_dir, capability_code, manifest, result, temp_dir
+            )
 
             # 5b. Execute migrations (before playbook validation to ensure tables exist)
             runtime_installer.execute_migrations(capability_code, result)
-            if hasattr(result, 'migration_status') and result.migration_status:
+            if hasattr(result, "migration_status") and result.migration_status:
                 migration_status = result.migration_status.get(capability_code)
-                if migration_status in ['failed', 'error']:
+                if migration_status in ["failed", "error"]:
                     error_msg = f"Migration execution failed for {capability_code}: {migration_status}"
                     logger.error(error_msg)
                     result.add_error(error_msg)
-                elif migration_status == 'applied':
-                    logger.info(f"Successfully executed migrations for {capability_code}")
+                elif migration_status == "applied":
+                    logger.info(
+                        f"Successfully executed migrations for {capability_code}"
+                    )
             else:
                 logger.warning(f"Migration status not available for {capability_code}")
 
@@ -548,78 +595,80 @@ async def install_from_file(
                 local_core_root=local_core_root,
                 capabilities_dir=capabilities_dir,
                 specs_dir=specs_dir,
-                validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call
+                validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
             )
             post_install_handler.run_all(cap_dir, capability_code, manifest, result)
 
             # 7. Reload capability registry
             try:
                 from app.capabilities.registry import get_registry
+
                 registry = get_registry()
-                if hasattr(registry, '_capabilities_cache'):
+                if hasattr(registry, "_capabilities_cache"):
                     registry._capabilities_cache.clear()
-                if hasattr(registry, '_tools_cache'):
+                if hasattr(registry, "_tools_cache"):
                     registry._tools_cache.clear()
                 logger.info(f"Reloaded capability registry for {capability_code}")
             except Exception as e:
                 logger.warning(f"Failed to reload capability registry: {e}")
                 result.add_warning(f"Failed to reload capability registry: {e}")
 
-            # 8. Hot-reload capability APIs (best-effort)
-            # This avoids requiring a backend restart after installing a new pack.
-            # Note: still respects CAPABILITY_ALLOWLIST if present.
-            try:
-                from app.capabilities.api_loader import load_capability_apis
+            # 8. Trigger reload in dev mode (--reload flag watches directories)
+            # In production, return restart_required flag for orchestrator
+            restart_triggered = False
+            env = os.getenv("ENVIRONMENT", "development")
 
-                allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
-                if allowlist_env:
-                    allowlist = [cap.strip() for cap in allowlist_env.split(",") if cap.strip()]
-                else:
-                    allowlist = None
-
-                load_capability_apis(fastapi_request.app, allowlist=allowlist)
-                logger.info(f"Capability APIs hot-reloaded after installing {capability_code}")
-            except Exception as e:
-                logger.warning(f"Failed to hot-reload capability APIs: {e}", exc_info=True)
-                result.add_warning(f"Failed to hot-reload capability APIs: {e}")
+            if env in ("development", "dev"):
+                try:
+                    # Touch trigger file to activate uvicorn --reload
+                    trigger_file = Path("/app/backend/app/capabilities/.reload_trigger")
+                    trigger_file.touch()
+                    restart_triggered = True
+                    logger.info(
+                        f"Reload triggered for {capability_code} via file touch"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to trigger reload: {e}")
+                    result.add_warning(f"Restart required - auto-trigger failed: {e}")
 
             # Convert result format
             if result.has_errors():
-                error_msg = result.errors[0] if result.errors else 'Installation failed'
-                result_dict = {'success': False, 'error': error_msg}
+                error_msg = result.errors[0] if result.errors else "Installation failed"
+                result_dict = {"success": False, "error": error_msg}
             else:
-                correct_backend_dir = local_core_root / 'backend'
+                correct_backend_dir = local_core_root / "backend"
                 result_dict = {
-                    'success': True,
-                    'capability_id': capability_code,
-                    'version': manifest.get('version', '1.0.0'),
-                    'target_dir': str(correct_backend_dir / 'app' / 'capabilities' / capability_code)
+                    "success": True,
+                    "capability_id": capability_code,
+                    "version": manifest.get("version", "1.0.0"),
+                    "target_dir": str(
+                        correct_backend_dir / "app" / "capabilities" / capability_code
+                    ),
                 }
 
-            if not result_dict.get('success'):
-                error_msg = result_dict.get('error', 'Installation failed')
+            if not result_dict.get("success"):
+                error_msg = result_dict.get("error", "Installation failed")
                 logger.error(f"Installation failed: {error_msg}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
+                raise HTTPException(status_code=400, detail=error_msg)
 
             # Register in installed_packs table
-            capability_id = result_dict.get('capability_id')
+            capability_id = result_dict.get("capability_id")
             if capability_id:
                 try:
                     # Read manifest for metadata
-                    target_dir = Path(result_dict.get('target_dir'))
+                    target_dir = Path(result_dict.get("target_dir"))
                     manifest_path = target_dir / "manifest.yaml"
 
                     pack_metadata = {}
                     if manifest_path.exists():
-                        with open(manifest_path, 'r', encoding='utf-8') as f:
+                        with open(manifest_path, "r", encoding="utf-8") as f:
                             installed_manifest = yaml.safe_load(f)
                             pack_metadata = {
-                                'side_effect_level': installed_manifest.get('side_effect_level'),
-                                'installed_from_file': True,
-                                'version': result_dict.get('version')
+                                "side_effect_level": installed_manifest.get(
+                                    "side_effect_level"
+                                ),
+                                "installed_from_file": True,
+                                "version": result_dict.get("version"),
                             }
 
                     installed_packs_store.upsert_pack(
@@ -634,17 +683,20 @@ async def install_from_file(
             return {
                 "success": True,
                 "capability_id": capability_id,
-                "version": result_dict.get('version'),
+                "version": result_dict.get("version"),
                 "message": f"Successfully installed {capability_id} v{result_dict.get('version')}",
-                "warnings": result.warnings
+                "warnings": result.warnings,
+                "restart_required": not restart_triggered,
+                "restart_triggered": restart_triggered,
             }
 
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
             # Clean up temporary extraction directory
-            if 'temp_dir' in locals() and temp_dir and temp_dir.exists():
+            if "temp_dir" in locals() and temp_dir and temp_dir.exists():
                 import shutil
+
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
@@ -655,24 +707,24 @@ async def install_from_file(
     except ImportError as e:
         logger.error(f"Import error in install_from_file: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to import capability installer: {str(e)}"
+            status_code=500, detail=f"Failed to import capability installer: {str(e)}"
         )
     except Exception as e:
         logger.error(f"Installation failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Installation failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Installation failed: {str(e)}")
 
 
 # ============================================
 # Cloud Pack Installation (From Remote Provider)
 # ============================================
 
+
 class InstallFromCloudRequest(BaseModel):
     """Request model for installing pack from cloud provider"""
-    pack_ref: str = Field(..., description="Pack reference in format 'provider_id:code@version'")
+
+    pack_ref: str = Field(
+        ..., description="Pack reference in format 'provider_id:code@version'"
+    )
     provider_id: str = Field(..., description="Provider ID to download from")
     verify_checksum: bool = Field(True, description="Whether to verify SHA256 checksum")
 
@@ -681,7 +733,9 @@ class InstallFromCloudRequest(BaseModel):
 async def install_from_cloud(
     fastapi_request: Request,
     request: InstallFromCloudRequest,
-    profile_id: str = Query("default-user", description="User profile ID for role mapping")
+    profile_id: str = Query(
+        "default-user", description="User profile ID for role mapping"
+    ),
 ):
     """
     Install capability pack from cloud provider
@@ -730,20 +784,20 @@ async def install_from_cloud(
         if not provider:
             raise HTTPException(
                 status_code=404,
-                detail=f"Provider '{request.provider_id}' not found. Please configure it first."
+                detail=f"Provider '{request.provider_id}' not found. Please configure it first.",
             )
 
         if not provider.is_configured():
             raise HTTPException(
                 status_code=400,
-                detail=f"Provider '{request.provider_id}' is not configured. Please configure it first."
+                detail=f"Provider '{request.provider_id}' is not configured. Please configure it first.",
             )
 
         # Check if provider supports get_download_link
-        if not hasattr(provider, 'get_download_link'):
+        if not hasattr(provider, "get_download_link"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Provider '{request.provider_id}' does not support pack downloads"
+                detail=f"Provider '{request.provider_id}' does not support pack downloads",
             )
 
         # Download pack from cloud provider
@@ -751,19 +805,17 @@ async def install_from_cloud(
         success, pack_file, error_msg = await download_service.download_pack(
             provider=provider,
             pack_ref=request.pack_ref,
-            verify_checksum=request.verify_checksum
+            verify_checksum=request.verify_checksum,
         )
 
         if not success:
             raise HTTPException(
-                status_code=400,
-                detail=f"Failed to download pack: {error_msg}"
+                status_code=400, detail=f"Failed to download pack: {error_msg}"
             )
 
         if not pack_file:
             raise HTTPException(
-                status_code=500,
-                detail="Download succeeded but pack file not returned"
+                status_code=500, detail="Download succeeded but pack file not returned"
             )
 
         try:
@@ -774,29 +826,29 @@ async def install_from_cloud(
 
             # 1. Extract mindpack
             extractor = MindpackExtractor(local_core_root)
-            extract_success, temp_dir, capability_code, cap_dir = extractor.extract(pack_file)
+            extract_success, temp_dir, capability_code, cap_dir = extractor.extract(
+                pack_file
+            )
 
             if not extract_success or not capability_code or not cap_dir:
                 raise HTTPException(
                     status_code=400,
-                    detail="Failed to extract mindpack file or capability code not found"
+                    detail="Failed to extract mindpack file or capability code not found",
                 )
 
             # 2. Load and validate manifest
             manifest_path = cap_dir / "manifest.yaml"
             if not manifest_path.exists():
                 raise HTTPException(
-                    status_code=400,
-                    detail="manifest.yaml not found in mindpack"
+                    status_code=400, detail="manifest.yaml not found in mindpack"
                 )
 
             try:
-                with open(manifest_path, 'r', encoding='utf-8') as f:
+                with open(manifest_path, "r", encoding="utf-8") as f:
                     manifest = yaml.safe_load(f)
             except Exception as e:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to parse manifest: {e}"
+                    status_code=400, detail=f"Failed to parse manifest: {e}"
                 )
 
             # Validate manifest
@@ -809,10 +861,7 @@ async def install_from_cloud(
             if not is_valid and not skip_validation:
                 error_msg = f"Manifest validation failed: {validation_errors}"
                 logger.error(error_msg)
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
+                raise HTTPException(status_code=400, detail=error_msg)
 
             # 3. Initialize install result
             result = InstallResult(capability_code=capability_code)
@@ -824,25 +873,30 @@ async def install_from_cloud(
             playbook_installer.specs_dir = specs_dir
             playbook_installer.i18n_base_dir = i18n_base_dir
             playbook_installer.local_core_root = local_core_root
-            playbook_installer._install_playbooks(cap_dir, capability_code, manifest, result)
+            playbook_installer._install_playbooks(
+                cap_dir, capability_code, manifest, result
+            )
 
             # 5. Install runtime assets
             runtime_installer = RuntimeAssetsInstaller(
-                local_core_root=local_core_root,
-                capabilities_dir=capabilities_dir
+                local_core_root=local_core_root, capabilities_dir=capabilities_dir
             )
-            runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
+            runtime_installer.install_all(
+                cap_dir, capability_code, manifest, result, temp_dir
+            )
 
             # 5b. Execute migrations (before playbook validation to ensure tables exist)
             runtime_installer.execute_migrations(capability_code, result)
-            if hasattr(result, 'migration_status') and result.migration_status:
+            if hasattr(result, "migration_status") and result.migration_status:
                 migration_status = result.migration_status.get(capability_code)
-                if migration_status in ['failed', 'error']:
+                if migration_status in ["failed", "error"]:
                     error_msg = f"Migration execution failed for {capability_code}: {migration_status}"
                     logger.error(error_msg)
                     result.add_error(error_msg)
-                elif migration_status == 'applied':
-                    logger.info(f"Successfully executed migrations for {capability_code}")
+                elif migration_status == "applied":
+                    logger.info(
+                        f"Successfully executed migrations for {capability_code}"
+                    )
             else:
                 logger.warning(f"Migration status not available for {capability_code}")
 
@@ -851,70 +905,75 @@ async def install_from_cloud(
                 local_core_root=local_core_root,
                 capabilities_dir=capabilities_dir,
                 specs_dir=specs_dir,
-                validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call
+                validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
             )
             post_install_handler.run_all(cap_dir, capability_code, manifest, result)
 
             # 7. Reload capability registry
             try:
                 from app.capabilities.registry import get_registry
+
                 registry = get_registry()
-                if hasattr(registry, '_capabilities_cache'):
+                if hasattr(registry, "_capabilities_cache"):
                     registry._capabilities_cache.clear()
-                if hasattr(registry, '_tools_cache'):
+                if hasattr(registry, "_tools_cache"):
                     registry._tools_cache.clear()
                 logger.info(f"Reloaded capability registry for {capability_code}")
             except Exception as e:
                 logger.warning(f"Failed to reload capability registry: {e}")
                 result.add_warning(f"Failed to reload capability registry: {e}")
 
-            # 8. Hot-reload capability APIs (best-effort)
-            # Note: still respects CAPABILITY_ALLOWLIST if present.
-            try:
-                from app.capabilities.api_loader import load_capability_apis
+            # 8. Trigger reload in dev mode (--reload flag watches directories)
+            restart_triggered = False
+            env = os.getenv("ENVIRONMENT", "development")
 
-                allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
-                if allowlist_env:
-                    allowlist = [cap.strip() for cap in allowlist_env.split(",") if cap.strip()]
-                else:
-                    allowlist = None
-
-                load_capability_apis(fastapi_request.app, allowlist=allowlist)
-                logger.info(f"Capability APIs hot-reloaded after installing {capability_code} from cloud")
-            except Exception as e:
-                logger.warning(f"Failed to hot-reload capability APIs: {e}", exc_info=True)
-                result.add_warning(f"Failed to hot-reload capability APIs: {e}")
+            if env in ("development", "dev"):
+                try:
+                    trigger_file = Path("/app/backend/app/capabilities/.reload_trigger")
+                    trigger_file.touch()
+                    restart_triggered = True
+                    logger.info(
+                        f"Reload triggered for {capability_code} from cloud via file touch"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to trigger reload: {e}")
+                    result.add_warning(f"Restart required - auto-trigger failed: {e}")
 
             # Check for errors
             if result.has_errors():
-                error_msg = result.errors[0] if result.errors else 'Installation failed'
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
+                error_msg = result.errors[0] if result.errors else "Installation failed"
+                raise HTTPException(status_code=400, detail=error_msg)
 
-            correct_backend_dir = local_core_root / 'backend'
+            correct_backend_dir = local_core_root / "backend"
 
             # Register in installed_packs table
             if capability_code:
                 try:
-                    target_dir = correct_backend_dir / 'app' / 'capabilities' / capability_code
+                    target_dir = (
+                        correct_backend_dir / "app" / "capabilities" / capability_code
+                    )
                     manifest_path = target_dir / "manifest.yaml"
 
                     pack_metadata = {
-                        'installed_from_cloud': True,
-                        'provider_id': request.provider_id,
-                        'pack_ref': request.pack_ref,
-                        'version': manifest.get('version', '1.0.0')
+                        "installed_from_cloud": True,
+                        "provider_id": request.provider_id,
+                        "pack_ref": request.pack_ref,
+                        "version": manifest.get("version", "1.0.0"),
                     }
 
                     if manifest_path.exists():
-                        with open(manifest_path, 'r', encoding='utf-8') as f:
+                        with open(manifest_path, "r", encoding="utf-8") as f:
                             installed_manifest = yaml.safe_load(f)
-                            pack_metadata.update({
-                                'side_effect_level': installed_manifest.get('side_effect_level'),
-                                'version': installed_manifest.get('version', pack_metadata['version'])
-                            })
+                            pack_metadata.update(
+                                {
+                                    "side_effect_level": installed_manifest.get(
+                                        "side_effect_level"
+                                    ),
+                                    "version": installed_manifest.get(
+                                        "version", pack_metadata["version"]
+                                    ),
+                                }
+                            )
 
                     installed_packs_store.upsert_pack(
                         pack_id=capability_code,
@@ -928,11 +987,13 @@ async def install_from_cloud(
             return {
                 "success": True,
                 "capability_id": capability_code,
-                "version": pack_metadata.get('version', '1.0.0'),
+                "version": pack_metadata.get("version", "1.0.0"),
                 "message": f"Successfully installed {capability_code} from {request.provider_id}",
                 "warnings": result.warnings,
                 "provider_id": request.provider_id,
-                "pack_ref": request.pack_ref
+                "pack_ref": request.pack_ref,
+                "restart_required": not restart_triggered,
+                "restart_triggered": restart_triggered,
             }
 
         finally:
@@ -943,8 +1004,9 @@ async def install_from_cloud(
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary pack file: {e}")
             # Clean up temporary extraction directory
-            if 'temp_dir' in locals() and temp_dir and temp_dir.exists():
+            if "temp_dir" in locals() and temp_dir and temp_dir.exists():
                 import shutil
+
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
@@ -955,12 +1017,10 @@ async def install_from_cloud(
     except ImportError as e:
         logger.error(f"Import error in install_from_cloud: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to import required modules: {str(e)}"
+            status_code=500, detail=f"Failed to import required modules: {str(e)}"
         )
     except Exception as e:
         logger.error(f"Cloud installation failed: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Cloud installation failed: {str(e)}"
+            status_code=500, detail=f"Cloud installation failed: {str(e)}"
         )

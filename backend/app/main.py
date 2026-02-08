@@ -182,6 +182,15 @@ def register_core_routes(app: FastAPI) -> None:
 
     app.include_router(dashboard_router, tags=["dashboard"])
 
+    # Admin reload routes (pre-restart validation, reload trigger)
+    try:
+        from .routes.core.admin_reload import router as admin_reload_router
+
+        app.include_router(admin_reload_router, tags=["admin"])
+        logger.info("Admin reload routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register admin reload routes: {e}")
+
     try:
         from backend.app.capabilities.api_loader import load_capability_apis
         import os
