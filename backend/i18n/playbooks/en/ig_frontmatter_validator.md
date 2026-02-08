@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_frontmatter_validator
 version: 1.0.0
+capability_code: instagram
 name: IG Frontmatter Validator
 description: Validate post frontmatter against Unified Frontmatter Schema v2.0.0 and calculate Readiness Score
 tags:

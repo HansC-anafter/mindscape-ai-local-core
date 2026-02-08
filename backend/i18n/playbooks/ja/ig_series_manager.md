@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_series_manager
 version: 1.0.0
+capability_code: instagram
 name: IG シリーズ管理
 description: 作成、更新、クエリ、相互参照を含む IG 投稿シリーズを管理
 tags:

@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_metrics_backfill
 version: 1.0.0
+capability_code: instagram
 name: IG Metrics Backfill
 description: Manage post-publication metrics including manual backfill, data analysis, and performance element tracking
 tags:

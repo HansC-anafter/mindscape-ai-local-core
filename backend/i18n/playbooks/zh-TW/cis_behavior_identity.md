@@ -33,6 +33,7 @@ auto_localize: true
 
 entry_agent_type: consultant
 icon: 💬
+capability_code: brand_identity
 ---
 
 # 💬 BI 行為場景
@@ -90,5 +91,10 @@ path: spec/mind_identity/personality.md
 ## Step 4: 確認衝突立場
 
 品牌方親自決定在各種衝突情況下的立場。
+
+
+
+
+
 
 

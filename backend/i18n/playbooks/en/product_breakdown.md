@@ -1,0 +1,122 @@
+---
+playbook_code: product_breakdown
+version: 1.0.0
+capability_code: planning
+name: Product Breakdown & Requirements Analysis
+description: Break down vague product ideas into concrete feature points, identify core value propositions, and generate structured product specifications
+tags:
+  - product
+  - design
+  - planning
+  - requirements
+
+kind: user_workflow
+interaction_mode:
+  - conversational
+  - needs_review
+visible_in:
+  - workspace_tools_panel
+  - workspace_playbook_menu
+
+required_tools:
+  - sandbox.write_file
+  - sandbox.read_file
+  - filesystem_write_file
+  - filesystem_read_file
+  - core_llm.generate
+  - core_llm.structured_extract
+
+language_strategy: model_native
+locale: en
+supported_locales:
+  - zh-TW
+  - en
+default_locale: zh-TW
+auto_localize: true
+
+entry_agent_type: planner
+icon: 🎨
+---
+
+# Product Breakdown & Requirements Analysis - SOP
+
+## Goal
+Help users break down vague product ideas into concrete feature points, identify core value propositions, define user flows, and generate structured product specifications.
+
+## Execution Steps
+
+### Phase 1: Collect Product Ideas and Target Users
+- Ask user about their product idea or concept
+- Identify target user groups and personas
+- Understand the problem the product aims to solve
+- Collect any existing documentation or notes
+
+### Phase 2: Identify Core Value Proposition
+- Analyze the unique value the product provides
+- Compare with existing solutions (if any)
+- Define the key differentiators
+- Articulate the value proposition clearly
+
+### Phase 3: Break Down Feature Modules
+- Decompose the product into major feature modules
+- Identify dependencies between modules
+- Prioritize features based on value and feasibility
+- Define the scope for each module
+
+### Phase 4: Define User Flows
+- Map user journeys for key scenarios
+- Identify entry points and user actions
+- Define the flow between features
+- Consider edge cases and error handling
+
+### Phase 5: Generate Feature Specification
+- Create structured feature specifications
+- Document functional requirements
+- Define acceptance criteria
+- Generate a comprehensive product specification document
+
+## Personalization
+
+Based on user's Mindscape Profile:
+- **Role**: If "entrepreneur", emphasize ROI and market fit
+- **Work Style**: If prefers "structured", provide detailed breakdowns
+- **Tone Preference**: If prefers "direct", reduce formal language
+
+## Integration with Long-term Intents
+
+If user has related Active Intent (e.g., "Launch MVP in 3 months"), explicitly reference it in responses:
+> "Since you're working towards 'Launch MVP in 3 months', I recommend focusing on..."
+
+### Phase 6: File Generation and Saving
+
+#### Step 6.1: Save Product Specification
+**Must** use `sandbox.write_file` tool to save complete product specification (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `product_specification.md` (relative path, relative to sandbox root)
+- Content: Complete product specification document, including:
+  - Product overview and value proposition
+  - Feature module breakdown
+  - Functional requirements specification
+  - Acceptance criteria
+- Format: Markdown format
+
+#### Step 6.2: Save Feature List
+**Must** use `sandbox.write_file` tool to save feature list (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `feature_list.md` (relative path, relative to sandbox root)
+- Content: Detailed list of all feature modules and features
+- Format: Markdown format
+
+#### Step 6.3: Save User Flows
+**Must** use `sandbox.write_file` tool to save user flows (preferred) or `filesystem_write_file` (requires manual confirmation):
+
+- File Path: `user_flows.md` (relative path, relative to sandbox root)
+- Content: User journeys and flow diagrams for key scenarios
+- Format: Markdown format
+
+## Success Criteria
+- User understands the product structure
+- Clear feature breakdown is established
+- User flows are defined
+- Comprehensive specification document is generated
+

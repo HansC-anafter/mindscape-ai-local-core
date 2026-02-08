@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_vault_structure_manager
 version: 1.0.0
+capability_code: instagram
 name: IG Vault 結構管理
 description: 管理 IG 貼文工作流的 Obsidian Vault 結構。支援初始化、驗證和內容掃描。
 tags:

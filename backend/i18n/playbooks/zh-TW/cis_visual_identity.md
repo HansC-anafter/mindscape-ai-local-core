@@ -1,3 +1,8 @@
+---
+playbook_code: cis_visual_identity
+version: 1.0.0
+capability_code: brand_identity
+---
 # 👁 VI 視覺系統
 
 > **你現在看到的是 *草稿宇宙*，還不是可以直接扛十年的 CIS。**

@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_hashtag_manager
 version: 1.0.0
+capability_code: instagram
 name: IG Hashtag Manager
 description: Manage hashtag groups and combine hashtags for IG posts based on intent, audience, and region
 tags:

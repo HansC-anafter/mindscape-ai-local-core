@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_hashtag_manager
 version: 1.0.0
+capability_code: instagram
 name: IG Hashtag 管理
 description: 投稿意図、オーディエンス、地域に基づいて IG 投稿のハッシュタググループを管理し、ハッシュタグを組み合わせる
 tags:

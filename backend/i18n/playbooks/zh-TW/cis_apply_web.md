@@ -32,6 +32,7 @@ auto_localize: true
 
 entry_agent_type: content_creator
 icon: 🌐
+capability_code: brand_identity
 ---
 
 # 🌐 應用：網站生成
@@ -74,5 +75,10 @@ params:
 ## 輸出
 
 - `website_spec`: 生成的網站規格
+
+
+
+
+
 
 

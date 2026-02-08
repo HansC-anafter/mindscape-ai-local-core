@@ -1,7 +1,7 @@
 ---
 playbook_code: cis_apply_web
 version: 1.0.0
-name: Apply: Website Generation
+name: "Apply: Website Generation"
 description: Generate website based on CIS Lens
 tags:
   - brand
@@ -32,6 +32,7 @@ auto_localize: true
 
 entry_agent_type: content_creator
 icon: 🌐
+capability_code: brand_identity
 ---
 
 # 🌐 Apply: Website Generation
@@ -67,5 +68,10 @@ Generate website content based on Brand Lens, ensuring it matches brand visual a
 ## Outputs
 
 - `website_spec`: Generated website specification
+
+
+
+
+
 
 

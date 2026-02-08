@@ -32,6 +32,7 @@ auto_localize: true
 
 entry_agent_type: planner
 icon: 📦
+capability_code: brand_identity
 ---
 
 # 📦 Lens Packaging
@@ -69,5 +70,10 @@ Package all CIS components into Brand Lens.
 ## Step 3: Verify Lens
 
 Verify that the packaged Brand Lens is complete and usable.
+
+
+
+
+
 
 

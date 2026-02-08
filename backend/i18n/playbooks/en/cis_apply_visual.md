@@ -1,7 +1,7 @@
 ---
 playbook_code: cis_apply_visual
 version: 1.0.0
-name: Apply: Visual Assets
+name: "Apply: Visual Assets"
 description: Generate posters, presentations, and banners based on CIS Lens
 tags:
   - brand
@@ -34,6 +34,7 @@ auto_localize: true
 
 entry_agent_type: content_creator
 icon: 🎨
+capability_code: brand_identity
 ---
 
 # 🎨 Apply: Visual Assets
@@ -66,5 +67,10 @@ Generate visual specification based on Brand Lens and visual type, ensuring it m
 ## Outputs
 
 - `visual_spec`: Generated visual specification
+
+
+
+
+
 
 

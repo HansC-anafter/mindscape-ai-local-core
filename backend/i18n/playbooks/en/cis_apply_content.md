@@ -1,7 +1,7 @@
 ---
 playbook_code: cis_apply_content
 version: 1.0.0
-name: Apply: Content Generation
+name: "Apply: Content Generation"
 description: Generate copywriting, blog, and social media content based on CIS Lens
 tags:
   - brand
@@ -34,6 +34,7 @@ auto_localize: true
 
 entry_agent_type: content_creator
 icon: ✍️
+capability_code: brand_identity
 ---
 
 # ✍️ Apply: Content Generation
@@ -66,5 +67,10 @@ Generate content based on Brand Lens and content type, ensuring it matches brand
 ## Outputs
 
 - `generated_content`: Generated content
+
+
+
+
+
 
 

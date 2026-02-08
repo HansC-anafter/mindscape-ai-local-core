@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_template_engine
 version: 1.0.0
+capability_code: instagram
 name: IG 模板引擎
 description: 應用模板生成多個具有不同語調和 CTA 的 IG 貼文變體
 tags:

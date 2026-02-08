@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_batch_processor
 version: 1.0.0
+capability_code: instagram
 name: IG Batch Processor
 description: Manage batch processing of multiple posts including validation, generation, and export operations
 tags:

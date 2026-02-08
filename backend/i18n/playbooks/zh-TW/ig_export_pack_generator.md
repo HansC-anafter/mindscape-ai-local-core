@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_export_pack_generator
 version: 1.0.0
+capability_code: instagram
 name: IG 匯出包生成器
 description: 為 IG 貼文生成完整的匯出包，包括 post.md、hashtags.txt、CTA 變體和檢查清單
 tags:

@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_batch_processor
 version: 1.0.0
+capability_code: instagram
 name: IG 批量處理器
 description: 管理多個貼文的批量處理，包括驗證、生成和匯出操作
 tags:

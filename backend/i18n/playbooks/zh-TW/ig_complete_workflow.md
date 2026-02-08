@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_complete_workflow
 version: 1.0.0
+capability_code: instagram
 name: IG 完整工作流
 description: 編排多個 playbook 以執行端到端工作流
 tags:

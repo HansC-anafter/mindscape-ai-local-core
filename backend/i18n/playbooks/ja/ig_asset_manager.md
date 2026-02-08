@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_asset_manager
 version: 1.0.0
+capability_code: instagram
 name: IG アセット管理
 description: 命名検証、サイズチェック、フォーマット検証を含む IG 投稿アセットの管理
 tags:

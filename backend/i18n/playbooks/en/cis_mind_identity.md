@@ -32,6 +32,7 @@ auto_localize: true
 
 entry_agent_type: consultant
 icon: 🧠
+capability_code: brand_identity
 ---
 
 # 🧠 MI Brand Mind Identity
@@ -84,5 +85,10 @@ Analyze competitors and propose differentiated value proposition.
 ## Step 4: Define Brand Personality
 
 Generate brand personality trait options.
+
+
+
+
+
 
 

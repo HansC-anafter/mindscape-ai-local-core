@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_review_system
 version: 1.0.0
+capability_code: instagram
 name: IG 審查系統
 description: 管理審查工作流，包括變更日誌追蹤、審查備註和決策日誌
 tags:

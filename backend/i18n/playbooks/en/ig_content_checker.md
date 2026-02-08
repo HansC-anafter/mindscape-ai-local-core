@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_content_checker
 version: 1.0.0
+capability_code: instagram
 name: IG Content Checker
 description: Check IG Post content for compliance issues including medical/investment claims, copyright, personal data, and brand tone
 tags:

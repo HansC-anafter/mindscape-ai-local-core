@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_series_manager
 version: 1.0.0
+capability_code: instagram
 name: IG Series Manager
 description: Manage IG Post series including creation, updates, querying, and cross-referencing
 tags:

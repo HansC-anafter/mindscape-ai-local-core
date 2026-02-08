@@ -33,6 +33,7 @@ auto_localize: true
 
 entry_agent_type: consultant
 icon: 💬
+capability_code: brand_identity
 ---
 
 # 💬 BI Behavior Identity
@@ -79,5 +80,10 @@ Establish standard crisis handling process for the brand.
 ## Step 4: Confirm Conflict Positions
 
 Brand decides positions in various conflict situations.
+
+
+
+
+
 
 

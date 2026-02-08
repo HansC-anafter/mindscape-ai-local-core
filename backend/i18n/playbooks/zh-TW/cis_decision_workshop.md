@@ -1,3 +1,8 @@
+---
+playbook_code: cis_decision_workshop
+version: 1.0.0
+capability_code: brand_identity
+---
 # 📝 決策工作坊
 
 > **品牌不是「unique prompt」生出來的，是一連串人類決策構成。**

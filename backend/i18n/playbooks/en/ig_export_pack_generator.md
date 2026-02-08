@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_export_pack_generator
 version: 1.0.0
+capability_code: instagram
 name: IG Export Pack Generator
 description: Generate complete export pack for IG Post including post.md, hashtags.txt, CTA variants, and checklist
 tags:

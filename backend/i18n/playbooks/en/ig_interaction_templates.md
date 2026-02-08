@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_interaction_templates
 version: 1.0.0
+capability_code: instagram
 name: IG Interaction Templates
 description: Manage interaction templates including common comment replies, DM scripts, and tone switching
 tags:

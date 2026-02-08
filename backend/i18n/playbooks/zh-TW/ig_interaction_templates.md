@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_interaction_templates
 version: 1.0.0
+capability_code: instagram
 name: IG 互動模板
 description: 管理互動模板，包括常見留言回覆、DM 腳本和語調切換
 tags:

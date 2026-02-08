@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_vault_structure_manager
 version: 1.0.0
+capability_code: instagram
 name: IG Vault Structure Manager
 description: Manage Obsidian Vault structure for IG Post workflow. Supports initialization, validation, and content scanning.
 tags:

@@ -1,6 +1,7 @@
 ---
 playbook_code: ig_template_engine
 version: 1.0.0
+capability_code: instagram
 name: IG Template Engine
 description: Apply templates to generate multiple IG post variants with different tones and CTAs
 tags:
