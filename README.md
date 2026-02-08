@@ -293,7 +293,23 @@ Cloud / multi-tenant features are provided through separate repositories and are
 
 ## 🚀 Getting started
 
-### Quick Start with Docker (Recommended)
+### One-Line Install (Recommended)
+
+The fastest way to get started - just run this in your terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.sh | bash
+```
+
+This will automatically:
+1. Clone the repository
+2. Install all dependencies
+3. Start all services (including Device Node)
+4. Open the web console
+
+> **Custom directory**: `curl -fsSL ... | bash -s -- --dir my-project`
+
+### Quick Start with Docker
 
 The easiest way to get started is using Docker Compose. **You can start the system immediately after cloning** - API keys are optional and can be configured later through the web interface.
 
