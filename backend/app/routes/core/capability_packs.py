@@ -19,6 +19,7 @@ import logging
 import yaml
 
 from app.services.stores.installed_packs_store import InstalledPacksStore
+from app.services.restart_webhook import get_restart_webhook_service
 
 logger = logging.getLogger(__name__)
 
@@ -680,6 +681,27 @@ async def install_from_file(
                 except Exception as e:
                     logger.warning(f"Failed to register pack in database: {e}")
 
+            # 9. Send webhook notification for production restart (if configured)
+            webhook_result = None
+            if not restart_triggered:
+                try:
+                    webhook_service = get_restart_webhook_service()
+                    if webhook_service.is_configured():
+                        from app.routes.core.admin_reload import CapabilityValidator
+
+                        validator = CapabilityValidator(
+                            [Path("/app/backend/app/capabilities")]
+                        )
+                        validation = validator.validate_all()
+
+                        webhook_result = await webhook_service.notify_restart_required(
+                            capability_code=capability_id,
+                            validation_passed=validation["valid"],
+                            version=result_dict.get("version", "1.0.0"),
+                        )
+                except Exception as e:
+                    logger.warning(f"Webhook notification failed: {e}")
+
             return {
                 "success": True,
                 "capability_id": capability_id,
@@ -688,6 +710,7 @@ async def install_from_file(
                 "warnings": result.warnings,
                 "restart_required": not restart_triggered,
                 "restart_triggered": restart_triggered,
+                "webhook": webhook_result,
             }
 
         finally:
@@ -984,6 +1007,28 @@ async def install_from_cloud(
                 except Exception as e:
                     logger.warning(f"Failed to register pack in database: {e}")
 
+            # 9. Send webhook notification for production restart (if configured)
+            webhook_result = None
+            if not restart_triggered:
+                try:
+                    webhook_service = get_restart_webhook_service()
+                    if webhook_service.is_configured():
+                        from app.routes.core.admin_reload import CapabilityValidator
+
+                        validator = CapabilityValidator(
+                            [Path("/app/backend/app/capabilities")]
+                        )
+                        validation = validator.validate_all()
+
+                        webhook_result = await webhook_service.notify_restart_required(
+                            capability_code=capability_code,
+                            validation_passed=validation["valid"],
+                            version=pack_metadata.get("version", "1.0.0"),
+                            extra_data={"provider_id": request.provider_id},
+                        )
+                except Exception as e:
+                    logger.warning(f"Webhook notification failed: {e}")
+
             return {
                 "success": True,
                 "capability_id": capability_code,
@@ -994,6 +1039,7 @@ async def install_from_cloud(
                 "pack_ref": request.pack_ref,
                 "restart_required": not restart_triggered,
                 "restart_triggered": restart_triggered,
+                "webhook": webhook_result,
             }
 
         finally:
