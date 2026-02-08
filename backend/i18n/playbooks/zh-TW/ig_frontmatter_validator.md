@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_frontmatter_validator
 version: 1.0.0
-capability_code: instagram
 name: IG Frontmatter 驗證
 description: 根據統一 Frontmatter Schema v2.0.0 驗證貼文 frontmatter 並計算就緒分數
 tags:

@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_metrics_backfill
 version: 1.0.0
-capability_code: instagram
 name: IG 指標回填
 description: 管理發布後指標，包括手動回填、數據分析和績效元素追蹤
 tags:

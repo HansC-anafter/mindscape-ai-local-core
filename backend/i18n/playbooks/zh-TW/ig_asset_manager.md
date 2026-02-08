@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_asset_manager
 version: 1.0.0
-capability_code: instagram
 name: IG 素材管理
 description: 管理 IG 貼文素材，包含命名驗證、尺寸檢查和格式驗證
 tags:

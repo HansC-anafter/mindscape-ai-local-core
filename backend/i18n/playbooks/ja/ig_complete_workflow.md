@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_complete_workflow
 version: 1.0.0
-capability_code: instagram
 name: IG 完全ワークフロー
 description: 複数の playbook を順番に編成してエンドツーエンドのワークフローを実行
 tags:

@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_content_checker
 version: 1.0.0
-capability_code: instagram
 name: IG 內容檢查
 description: 檢查 IG 貼文內容的合規問題，包括醫療/投資聲明、版權、個人資料和品牌調性
 tags:

@@ -40,7 +40,6 @@ auto_localize: true
 
 entry_agent_type: content_creator
 icon: 📖
-capability_code: brand_identity
 ---
 
 # 📖 跨平台故事線

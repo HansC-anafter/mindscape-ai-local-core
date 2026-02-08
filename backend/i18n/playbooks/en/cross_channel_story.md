@@ -33,7 +33,6 @@ auto_localize: true
 
 entry_agent_type: content_creator
 icon: 📖
-capability_code: brand_identity
 ---
 
 # 📖 Cross-Channel Storyline
@@ -65,10 +64,5 @@ Generate content for multiple platforms (website, social media, course, ebook) b
 ## Outputs
 
 - `cross_channel_content`: Generated cross-platform content
-
-
-
-
-
 
 

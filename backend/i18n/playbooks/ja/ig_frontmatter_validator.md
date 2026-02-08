@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_frontmatter_validator
 version: 1.0.0
-capability_code: instagram
 name: IG Frontmatter 検証
 description: 統一 Frontmatter Schema v2.0.0 に基づいて投稿 frontmatter を検証し、準備スコアを計算
 tags:

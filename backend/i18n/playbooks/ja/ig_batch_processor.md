@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_batch_processor
 version: 1.0.0
-capability_code: instagram
 name: IG バッチプロセッサ
 description: 検証、生成、エクスポート操作を含む複数の投稿のバッチ処理を管理
 tags:

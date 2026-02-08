@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_export_pack_generator
 version: 1.0.0
-capability_code: instagram
 name: IG エクスポートパック生成器
 description: post.md、hashtags.txt、CTA バリアント、チェックリストを含む IG 投稿の完全なエクスポートパックを生成
 tags:

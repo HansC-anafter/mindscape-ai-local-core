@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_review_system
 version: 1.0.0
-capability_code: instagram
 name: IG レビューシステム
 description: 変更ログ追跡、レビューノート、意思決定ログを含むレビューワークフローを管理
 tags:

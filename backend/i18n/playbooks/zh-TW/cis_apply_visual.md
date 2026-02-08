@@ -76,8 +76,3 @@ params:
 - `visual_spec`: 生成的視覺規格
 
 
-
-
-
-
-

@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_series_manager
 version: 1.0.0
-capability_code: instagram
 name: IG 系列管理
 description: 管理 IG 貼文系列，包括創建、更新、查詢和交叉引用
 tags:

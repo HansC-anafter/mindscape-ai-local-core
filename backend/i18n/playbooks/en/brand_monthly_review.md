@@ -33,7 +33,6 @@ auto_localize: true
 
 entry_agent_type: analyst
 icon: 📊
-capability_code: brand_identity
 ---
 
 # 📊 Brand Monthly Review
@@ -70,10 +69,5 @@ Generate improvement recommendations based on coverage analysis.
 
 - `coverage_analysis`: Coverage analysis
 - `recommendations`: Improvement recommendations
-
-
-
-
-
 
 

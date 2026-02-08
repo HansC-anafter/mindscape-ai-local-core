@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_hashtag_manager
 version: 1.0.0
-capability_code: instagram
 name: IG Hashtag 管理
 description: 管理 hashtag 群組，並根據意圖、受眾和地區為 IG 貼文組合 hashtag
 tags:

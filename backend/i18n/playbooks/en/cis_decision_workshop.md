@@ -33,7 +33,6 @@ auto_localize: true
 
 entry_agent_type: facilitator
 icon: 📝
-capability_code: brand_identity
 ---
 
 # 📝 Decision Workshop
@@ -112,10 +111,5 @@ Commit to visual elements that will remain consistent for ten years.
 ### Decision Card
 
 Brand commits to long-term visual elements.
-
-
-
-
-
 
 

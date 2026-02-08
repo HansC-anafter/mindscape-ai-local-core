@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_template_engine
 version: 1.0.0
-capability_code: instagram
 name: IG テンプレートエンジン
 description: 異なるトーンと CTA を持つ複数の IG 投稿バリアントを生成するためにテンプレートを適用
 tags:

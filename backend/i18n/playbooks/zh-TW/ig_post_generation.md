@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_post_generation
 version: 1.0.0
-capability_code: instagram
 name: IG 貼文生成
 description: 從內容生成 Instagram 貼文，針對 IG 平台特性優化（字數限制、hashtag、語氣等）
 tags:

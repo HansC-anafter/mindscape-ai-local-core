@@ -35,7 +35,6 @@ auto_localize: true
 
 entry_agent_type: designer
 icon: 👁
-capability_code: brand_identity
 ---
 
 # 👁 VI Visual Identity
@@ -98,10 +97,5 @@ Generate layout templates based on color and typography systems.
 ## Step 6: Application Templates 🟢
 
 Generate application templates for various use cases.
-
-
-
-
-
 
 

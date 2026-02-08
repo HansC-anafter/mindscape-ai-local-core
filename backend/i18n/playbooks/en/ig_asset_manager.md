@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_asset_manager
 version: 1.0.0
-capability_code: instagram
 name: IG Asset Manager
 description: Manage IG Post assets with naming validation, size checking, and format validation
 tags:

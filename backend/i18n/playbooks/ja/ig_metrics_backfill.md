@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_metrics_backfill
 version: 1.0.0
-capability_code: instagram
 name: IG メトリクスバックフィル
 description: 手動バックフィル、データ分析、パフォーマンス要素追跡を含む投稿公開後のメトリクスを管理
 tags:

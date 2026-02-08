@@ -41,7 +41,6 @@ auto_localize: true
 
 entry_agent_type: analyst
 icon: 📊
-capability_code: brand_identity
 ---
 
 # 📊 品牌月度檢視

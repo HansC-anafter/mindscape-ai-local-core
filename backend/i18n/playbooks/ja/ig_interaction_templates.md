@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_interaction_templates
 version: 1.0.0
-capability_code: instagram
 name: IG インタラクションテンプレート
 description: 一般的なコメント返信、DM スクリプト、トーン切り替えを含むインタラクションテンプレートを管理
 tags:

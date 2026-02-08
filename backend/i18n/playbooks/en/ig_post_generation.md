@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_post_generation
 version: 1.0.0
-capability_code: instagram
 name: IG Post Generation
 description: Generate Instagram posts from content, optimized for IG platform features (character limits, hashtags, tone, etc.)
 tags:

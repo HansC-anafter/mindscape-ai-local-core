@@ -76,8 +76,3 @@ params:
 - `generated_content`: 生成的內容
 
 
-
-
-
-
-

@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_review_system
 version: 1.0.0
-capability_code: instagram
 name: IG Review System
 description: Manage review workflow including changelog tracking, review notes, and decision logs
 tags:

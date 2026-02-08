@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_content_reuse
 version: 1.0.0
-capability_code: instagram
 name: IG コンテンツ再利用
 description: 異なる IG フォーマット間でのコンテンツ変換と再利用を管理
 tags:

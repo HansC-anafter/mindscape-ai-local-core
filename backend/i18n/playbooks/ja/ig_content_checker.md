@@ -1,7 +1,6 @@
 ---
 playbook_code: ig_content_checker
 version: 1.0.0
-capability_code: instagram
 name: IG コンテンツチェッカー
 description: 医療/投資の主張、著作権、個人データ、ブランドトーンを含む IG 投稿コンテンツのコンプライアンス問題をチェック
 tags:
