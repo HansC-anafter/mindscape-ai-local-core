@@ -15,6 +15,9 @@ from .projects import router as projects_router
 from .flows.routes import router as flows_router
 from .threads import router as threads_router
 
+# mindscape_graph module was removed - graph functionality moved elsewhere
+from .workspace_indexing import router as workspace_indexing_router
+
 router = APIRouter()
 
 router.include_router(timeline_router)
@@ -25,4 +28,5 @@ router.include_router(artifacts_router)
 router.include_router(projects_router)
 router.include_router(flows_router)
 router.include_router(threads_router)
-
+# router.include_router(mindscape_graph_router)  # Disabled - module removed
+router.include_router(workspace_indexing_router)

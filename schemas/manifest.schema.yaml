@@ -1,5 +1,5 @@
 # Manifest Schema for Capability Packs
-# 
+#
 # 此 schema 定義 capability pack manifest.yaml 的結構要求。
 # 包含 portability 字段（必需）、環境適配宣告
 #
@@ -22,7 +22,7 @@ properties:
   # ============================================================================
   # 基本資訊
   # ============================================================================
-  
+
   code:
     type: string
     pattern: "^[a-z0-9_]+$"
@@ -31,7 +31,7 @@ properties:
       - example_capability
       - data_processor
       - content_analyzer
-    
+
   version:
     type: string
     pattern: "^\\d+\\.\\d+\\.\\d+$"
@@ -39,18 +39,18 @@ properties:
     examples:
       - "1.0.0"
       - "2.1.3"
-    
+
   display_name:
     type: string
     description: "顯示名稱"
     examples:
       - "Example Capability"
       - "Data Processor"
-    
+
   description:
     type: string
     description: "能力描述"
-    
+
   type:
     type: string
     enum: [feature, core, extension]
@@ -64,7 +64,7 @@ properties:
   # ============================================================================
   # 可移植性宣告（必需）
   # ============================================================================
-  
+
   portability:
     type: object
     required:
@@ -79,7 +79,7 @@ properties:
         examples:
           - "0.9.0"
           - "1.0.0"
-        
+
       environments:
         type: array
         items:
@@ -92,7 +92,7 @@ properties:
         examples:
           - [cloud, local-core]
           - [local-core]
-        
+
       degradation_strategy:
         type: string
         enum: [fail-fast, graceful]
@@ -105,7 +105,7 @@ properties:
   # ============================================================================
   # 依賴宣告
   # ============================================================================
-  
+
   dependencies:
     type: object
     description: "依賴宣告"
@@ -118,7 +118,7 @@ properties:
         examples:
           - [core_llm]
           - [core_llm, database]
-        
+
       optional:
         type: array
         items:
@@ -148,7 +148,7 @@ properties:
             degraded_features:
               - pipeline_orchestration
               - async_job_dispatch
-                
+
       external_services:
         type: array
         items:
@@ -177,7 +177,7 @@ properties:
   # ============================================================================
   # Playbook 定義
   # ============================================================================
-  
+
   playbooks:
     type: array
     description: "Playbook 列表"
@@ -233,7 +233,7 @@ properties:
   # ============================================================================
   # Tool 定義
   # ============================================================================
-  
+
   tools:
     type: array
     description: "Tool 列表"
@@ -274,7 +274,7 @@ properties:
   # ============================================================================
   # Service 定義
   # ============================================================================
-  
+
   services:
     type: array
     description: "Service 列表"
@@ -300,7 +300,7 @@ properties:
   # ============================================================================
   # API 定義
   # ============================================================================
-  
+
   apis:
     type: array
     description: "API endpoint 定義"
@@ -384,7 +384,7 @@ properties:
   # ============================================================================
   # UI 組件
   # ============================================================================
-  
+
   ui_components:
     type: array
     description: "前端 UI 組件列表"
@@ -410,7 +410,7 @@ properties:
   # ============================================================================
   # 數據邊界
   # ============================================================================
-  
+
   data_locality_default:
     type: object
     description: "默認數據邊界宣告"
@@ -435,7 +435,7 @@ properties:
   # ============================================================================
   # 運行時配置
   # ============================================================================
-  
+
   runtime_affinity:
     type: string
     enum: [local, semantic, hybrid]
@@ -445,12 +445,12 @@ properties:
       - local: 僅本地執行
       - semantic: 僅 Cloud 執行
       - hybrid: 混合執行
-    
+
   max_expected_runtime_sec:
     type: number
     minimum: 0
     description: "預期最大運行時間（秒）"
-    
+
   token_estimate:
     type: number
     minimum: 0
@@ -459,7 +459,7 @@ properties:
   # ============================================================================
   # Bootstrap 腳本
   # ============================================================================
-  
+
   bootstrap:
     type: array
     description: "安裝後執行的 bootstrap 腳本"
@@ -488,14 +488,14 @@ examples:
     display_name: "Example Capability"
     type: feature
     description: "An example capability demonstrating the manifest structure"
-    
+
     portability:
       min_local_core_version: "0.9.0"
       environments:
         - cloud
         - local-core
       degradation_strategy: graceful
-    
+
     dependencies:
       required:
         - core_llm
@@ -509,17 +509,17 @@ examples:
           env_var: STORAGE_CREDENTIALS
           degraded_features:
             - file_upload
-    
+
     playbooks:
       - code: example_playbook
         locales: [zh-TW, en]
         path: playbooks/{locale}/example_playbook.md
         spec_path: playbooks/specs/example_playbook.json
-    
+
     tools:
       - name: data_processor
         backend: "capabilities.example_capability.tools.data_processor:process_data"
-    
+
     apis:
       - code: example_capability
         path: api/__init__.py

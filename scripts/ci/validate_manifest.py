@@ -19,6 +19,7 @@ import sys
 import argparse
 import re
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
@@ -106,16 +107,38 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
             severity="error"
         ))
     else:
-        # Calculate schema path (relative to script location)
+        # Calculate schema path (relative to script location), with fallbacks
         script_dir = Path(__file__).parent  # scripts/ci/
-        schema_path = script_dir.parent.parent / "schemas" / "manifest.schema.yaml"
+        default_schema_path = script_dir.parent.parent / "schemas" / "manifest.schema.yaml"
+        env_schema_path_str = os.environ.get("MANIFEST_SCHEMA_PATH", "")
+        env_schema_path = Path(env_schema_path_str).expanduser() if env_schema_path_str else None
+        cwd_schema_path = Path.cwd() / "schemas" / "manifest.schema.yaml"
+        monorepo_schema_path = Path.cwd() / "mindscape-ai-local-core" / "schemas" / "manifest.schema.yaml"
 
-        if not schema_path.exists():
+        candidate_paths = [
+            default_schema_path,
+            env_schema_path,
+            cwd_schema_path,
+            monorepo_schema_path,
+        ]
+        # Filter out None and non-file paths (e.g., directories)
+        schema_path = next((path for path in candidate_paths if path and path.exists() and path.is_file()), None)
+
+        if not schema_path:
             # Schema file missing is a warning, not an error (schema validation is optional)
+            # Note: Schema file may exist in local filesystem but not in Docker container
+            # This is expected if schemas/ directory is not mounted into container
+            searched_paths = [str(p) for p in candidate_paths if p and p != Path('.')]
+            message = (
+                f"Schema file not found in container (searched: {', '.join(searched_paths)}). "
+                "Note: Schema may exist in local filesystem but not mounted into container. "
+                "JSON Schema validation skipped (optional)."
+            )
+
             warnings.append(ValidationError(
                 capability=capability_code,
                 field="manifest.yaml",
-                message=f"Schema file not found: {schema_path}. JSON Schema validation skipped.",
+                message=message,
                 severity="warning"
             ))
         else:
@@ -261,7 +284,7 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
                 ))
             else:
                 # Simple format check: capabilities.{capability}.{module}:{function}
-                pattern = r"^capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
+                pattern = r"^capabilities\.[a-z0-9_]+\.[a-z0-9_.]+:[a-z0-9_]+$"
                 if not re.match(pattern, backend):
                     warnings.append(ValidationError(
                         capability=capability_code,
@@ -571,4 +594,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

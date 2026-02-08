@@ -31,13 +31,16 @@ if [ ! -f .env ]; then
 # OPENAI_API_KEY=your_openai_api_key_here
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# Database
-DATABASE_URL=sqlite:///./data/mindscape.db
-
-# PostgreSQL (optional, for vector storage)
-POSTGRES_DB=mindscape_vectors
-POSTGRES_USER=mindscape
-POSTGRES_PASSWORD=mindscape_password
+# Database (PostgreSQL primary)
+POSTGRES_CORE_DB=mindscape_core
+POSTGRES_VECTOR_DB=mindscape_vectors
+POSTGRES_CORE_USER=mindscape
+POSTGRES_CORE_PASSWORD=mindscape_password
+POSTGRES_VECTOR_USER=mindscape
+POSTGRES_VECTOR_PASSWORD=mindscape_password
+DATABASE_URL=postgresql://mindscape:mindscape_password@postgres:5432/mindscape_core
+DATABASE_URL_CORE=postgresql://mindscape:mindscape_password@postgres:5432/mindscape_core
+DATABASE_URL_VECTOR=postgresql://mindscape:mindscape_password@postgres:5432/mindscape_vectors
 
 # Security
 LOCAL_AUTH_SECRET=dev-secret-key-change-in-production
@@ -87,4 +90,3 @@ echo "📋 Useful commands:"
 echo "   - View logs: docker compose logs -f"
 echo "   - Stop services: docker compose down"
 echo "   - Restart: docker compose restart"
-

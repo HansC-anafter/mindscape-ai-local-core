@@ -6,14 +6,16 @@ Handles /workspaces/{id}/threads endpoints for conversation thread management.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Literal
 from fastapi import APIRouter, HTTPException, Path, Body, Query, Depends
 
+from backend.app.models.mindscape import MindEvent, EventActor, EventType
 from backend.app.models.workspace import ConversationThread
 from backend.app.routes.workspace_dependencies import get_workspace, get_store
 from backend.app.models.workspace import Workspace
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.i18n_service import get_i18n_service
 from backend.app.models.thread_bundle import (
     ThreadBundle, ThreadOverview, ThreadDeliverable,
     ThreadReferenceResponse, ThreadRun, ThreadSource
@@ -46,15 +48,10 @@ async def create_thread(
     store: MindscapeStore = Depends(get_store)
 ) -> ConversationThread:
     """
-    創建新的對話 Thread
-
-    流程：
-    1. 生成 thread_id
-    2. 如果沒有提供 title，從 project 或自動生成（例如：「新對話 2026-01-08 14:30」）
-    3. 創建 Thread 記錄
-    4. 返回 Thread 對象
+    Create a new conversation thread in a workspace.
     """
     thread_id = str(uuid.uuid4())
+    now_utc = datetime.now(timezone.utc)
 
     # 自動生成標題（如果沒有提供）
     title = request.title
@@ -68,8 +65,7 @@ async def create_thread(
                 logger.warning(f"Failed to get project {request.project_id} for thread title: {e}")
 
         if not title:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-            title = f"新對話 {timestamp}"
+            title = "新對話"
 
     thread = ConversationThread(
         id=thread_id,
@@ -77,9 +73,9 @@ async def create_thread(
         title=title,
         project_id=request.project_id,
         pinned_scope=request.pinned_scope,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-        last_message_at=datetime.utcnow(),
+        created_at=now_utc,
+        updated_at=now_utc,
+        last_message_at=now_utc,
         message_count=0,
         metadata={},
         is_default=False
@@ -87,6 +83,53 @@ async def create_thread(
 
     # 保存到資料庫
     store.conversation_threads.create_thread(thread)
+
+    # Seed a welcome message so a new thread isn't an empty screen.
+    try:
+        locale = workspace.default_locale or "zh-TW"
+        i18n = get_i18n_service(default_locale=locale)
+        welcome_message = i18n.t("workspace", "welcome.returning_workspace", workspace_title=workspace.title)
+
+        welcome_event = MindEvent(
+            id=str(uuid.uuid4()),
+            timestamp=now_utc,
+            actor=EventActor.ASSISTANT,
+            channel="local_workspace",
+            profile_id=workspace.owner_user_id,
+            project_id=request.project_id or workspace.primary_project_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            event_type=EventType.MESSAGE,
+            payload={
+                "message": welcome_message,
+                "is_welcome": True,
+                # Frontend renders these via i18n keys when present.
+                "suggestions": [
+                    "suggestions.organize_tasks",
+                    "suggestions.daily_planning",
+                    "suggestions.view_progress",
+                ],
+            },
+            entity_ids=[],
+            metadata={"is_cold_start": False},
+        )
+        store.create_event(welcome_event)
+
+        # Update thread statistics after seeding the welcome message.
+        try:
+            message_count = store.events.count_messages_by_thread(
+                workspace_id=workspace_id,
+                thread_id=thread_id,
+            )
+            store.conversation_threads.update_thread(
+                thread_id=thread_id,
+                last_message_at=now_utc,
+                message_count=message_count,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update thread statistics for seeded welcome message: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to seed welcome message for new thread {thread_id}: {e}")
 
     logger.info(f"Created conversation thread {thread_id} for workspace {workspace_id}")
     return thread

@@ -10,7 +10,7 @@ import traceback
 import sys
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, AsyncGenerator, List
 from fastapi import APIRouter, HTTPException, Path, Query, Depends
 from fastapi.responses import StreamingResponse
@@ -99,19 +99,22 @@ async def get_workspace_events(
                     )
 
                     if welcome_message:
-                        # 🆕 Get or create default thread for welcome message
-                        from backend.features.workspace.chat.streaming.generator import _get_or_create_default_thread
-                        default_thread_id = _get_or_create_default_thread(workspace_id, store)
+                        # If this request is scoped to a thread, write welcome into that thread.
+                        # Otherwise, fall back to (get or create) the default thread.
+                        target_thread_id = thread_id
+                        if not target_thread_id:
+                            from backend.features.workspace.chat.streaming.generator import _get_or_create_default_thread
+                            target_thread_id = _get_or_create_default_thread(workspace_id, store)
 
                         welcome_event = MindEvent(
                             id=str(uuid.uuid4()),
-                            timestamp=datetime.utcnow(),
+                            timestamp=datetime.now(timezone.utc),
                             actor=EventActor.ASSISTANT,
                             channel="local_workspace",
                             profile_id=workspace.owner_user_id,
                             project_id=workspace.primary_project_id,
                             workspace_id=workspace_id,
-                            thread_id=default_thread_id,  # 🆕
+                            thread_id=target_thread_id,
                             event_type=EventType.MESSAGE,
                             payload={
                                 "message": welcome_message,
@@ -123,29 +126,39 @@ async def get_workspace_events(
                         )
                         store.create_event(welcome_event)
 
-                        # 🆕 Update thread statistics
+                        # Update thread statistics (best effort)
                         try:
                             # Use COUNT query to accurately calculate message count
                             message_count = store.events.count_messages_by_thread(
                                 workspace_id=workspace_id,
-                                thread_id=default_thread_id
+                                thread_id=target_thread_id
                             )
                             store.conversation_threads.update_thread(
-                                thread_id=default_thread_id,
-                                last_message_at=datetime.utcnow(),
+                                thread_id=target_thread_id,
+                                last_message_at=datetime.now(timezone.utc),
                                 message_count=message_count
                             )
                         except Exception as e:
                             logger.warning(f"Failed to update thread statistics for welcome message: {e}")
 
-                        # Reload events to include the new welcome message
-                        recent_events = store.get_events_by_workspace(
-                            workspace_id=workspace_id,
-                            start_time=start_dt,
-                            end_time=end_dt,
-                            limit=limit,
-                            before_id=before_id
-                        )
+                        # Reload events to include the new welcome message (respect thread filter)
+                        if thread_id:
+                            recent_events = store.events.get_events_by_thread(
+                                workspace_id=workspace_id,
+                                thread_id=thread_id,
+                                start_time=start_dt,
+                                end_time=end_dt,
+                                limit=limit,
+                                before_id=before_id
+                            )
+                        else:
+                            recent_events = store.get_events_by_workspace(
+                                workspace_id=workspace_id,
+                                start_time=start_dt,
+                                end_time=end_dt,
+                                limit=limit,
+                                before_id=before_id
+                            )
                         logger.info(f"Generated cold start welcome message for workspace {workspace_id}")
                 except Exception as e:
                     logger.warning(f"Failed to generate welcome message for workspace {workspace_id}: {e}")

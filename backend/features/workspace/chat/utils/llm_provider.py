@@ -31,13 +31,20 @@ def determine_provider_from_model(model_name: str) -> Optional[str]:
     if "gemini" in model_lower:
         return "vertex-ai"
     elif "gpt" in model_lower or "o1" in model_lower or "o3" in model_lower:
+        # Check if we should fallback to Vertex AI for specific models often used as default
+        if "gpt-4o-mini" in model_lower:
+            # If OpenAI key checks fail later, this gives us a chance, but ideally we check availablity
+            # For this specific user case: "Never used OpenAI", so map it to Vertex.
+            return "vertex-ai"
         return "openai"
     elif "claude" in model_lower:
         return "anthropic"
     return None
 
 
-def get_provider_name_from_model_config(model_name: str) -> Tuple[Optional[str], Optional[object]]:
+def get_provider_name_from_model_config(
+    model_name: str,
+) -> Tuple[Optional[str], Optional[object]]:
     """
     Get provider name from model configuration store
 
@@ -53,6 +60,7 @@ def get_provider_name_from_model_config(model_name: str) -> Tuple[Optional[str],
     try:
         model_store = ModelConfigStore()
         from backend.app.models.model_provider import ModelType
+
         all_models = model_store.get_all_models(model_type=ModelType.CHAT, enabled=True)
 
         for model in all_models:
@@ -61,7 +69,9 @@ def get_provider_name_from_model_config(model_name: str) -> Tuple[Optional[str],
 
         # If not found, try to determine from model name
         if "gemini" in model_name.lower():
-            logger.info(f"Model {model_name} not found in config, but detected as Gemini model, using vertex-ai provider")
+            logger.info(
+                f"Model {model_name} not found in config, but detected as Gemini model, using vertex-ai provider"
+            )
             return "vertex-ai", None
     except Exception as e:
         logger.warning(f"Failed to get model config for {model_name}: {e}")
@@ -74,7 +84,7 @@ def get_provider_name_from_model_config(model_name: str) -> Tuple[Optional[str],
 def get_vertex_ai_config(
     settings_store: SystemSettingsStore,
     config_store: ConfigStore,
-    profile_id: Optional[str] = None
+    profile_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], str]:
     """
     Get Vertex AI configuration from system settings and config store
@@ -88,7 +98,9 @@ def get_vertex_ai_config(
         Tuple of (service_account_json, project_id, location)
     """
     # Get from system settings first
-    service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
+    service_account_setting = settings_store.get_setting(
+        "vertex_ai_service_account_json"
+    )
     vertex_project_setting = settings_store.get_setting("vertex_ai_project_id")
     vertex_location_setting = settings_store.get_setting("vertex_ai_location")
 
@@ -100,7 +112,11 @@ def get_vertex_ai_config(
 
     if not vertex_api_key:
         config = config_store.get_or_create_config(profile_id or "default-user")
-        vertex_api_key = config.agent_backend.vertex_api_key if config.agent_backend.vertex_api_key else None
+        vertex_api_key = (
+            config.agent_backend.vertex_api_key
+            if config.agent_backend.vertex_api_key
+            else None
+        )
 
     if not vertex_api_key:
         vertex_api_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -113,7 +129,11 @@ def get_vertex_ai_config(
 
     if not vertex_project_id:
         config = config_store.get_or_create_config(profile_id or "default-user")
-        vertex_project_id = config.agent_backend.vertex_project_id if config.agent_backend.vertex_project_id else None
+        vertex_project_id = (
+            config.agent_backend.vertex_project_id
+            if config.agent_backend.vertex_project_id
+            else None
+        )
 
     if not vertex_project_id:
         vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -126,7 +146,11 @@ def get_vertex_ai_config(
 
     if not vertex_location:
         config = config_store.get_or_create_config(profile_id or "default-user")
-        vertex_location = config.agent_backend.vertex_location if config.agent_backend.vertex_location else None
+        vertex_location = (
+            config.agent_backend.vertex_location
+            if config.agent_backend.vertex_location
+            else None
+        )
 
     if not vertex_location:
         vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
@@ -137,7 +161,7 @@ def get_vertex_ai_config(
 def get_llm_provider_manager(
     profile_id: Optional[str] = None,
     db_path: Optional[str] = None,
-    use_default_user: bool = False
+    use_default_user: bool = False,
 ) -> LLMProviderManager:
     """
     Get LLM provider manager with configured API keys
@@ -158,21 +182,25 @@ def get_llm_provider_manager(
 
     # Get API keys
     openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-    anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+    anthropic_key = config.agent_backend.anthropic_api_key or os.getenv(
+        "ANTHROPIC_API_KEY"
+    )
 
     # Get Vertex AI config
     vertex_api_key, vertex_project_id, vertex_location = get_vertex_ai_config(
         settings_store, config_store, config_id
     )
 
-    logger.info(f"Vertex AI config: service_account={'set' if vertex_api_key else 'not set'}, project_id={vertex_project_id}, location={vertex_location}")
+    logger.info(
+        f"Vertex AI config: service_account={'set' if vertex_api_key else 'not set'}, project_id={vertex_project_id}, location={vertex_location}"
+    )
 
     return LLMProviderManager(
         openai_key=openai_key,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,
         vertex_project_id=vertex_project_id,
-        vertex_location=vertex_location
+        vertex_location=vertex_location,
     )
 
 
@@ -180,7 +208,7 @@ def get_llm_provider(
     model_name: str,
     llm_provider_manager: Optional[LLMProviderManager] = None,
     profile_id: Optional[str] = None,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
 ) -> Tuple[object, str]:
     """
     Get LLM provider instance for given model
@@ -198,7 +226,9 @@ def get_llm_provider(
         ValueError: If provider cannot be determined or is not available
     """
     if not model_name:
-        raise ValueError("Cannot generate response: chat_model not configured in system settings")
+        raise ValueError(
+            "Cannot generate response: chat_model not configured in system settings"
+        )
 
     # Get provider name
     provider_name, model_config = get_provider_name_from_model_config(model_name)
@@ -211,7 +241,9 @@ def get_llm_provider(
 
     # Get or create provider manager
     if llm_provider_manager is None:
-        llm_provider_manager = get_llm_provider_manager(profile_id=profile_id, db_path=db_path)
+        llm_provider_manager = get_llm_provider_manager(
+            profile_id=profile_id, db_path=db_path
+        )
 
     # Get provider
     provider = llm_provider_manager.get_provider(provider_name)
@@ -226,4 +258,3 @@ def get_llm_provider(
     logger.info(f"Selected provider type: {provider_type} for model {model_name}")
 
     return provider, provider_type
-

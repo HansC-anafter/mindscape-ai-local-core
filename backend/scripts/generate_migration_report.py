@@ -1,4 +1,8 @@
 """
+DEPRECATED: This script is for legacy SQLite tool_registry.db migration.
+PostgreSQL is now the primary database. This script is retained for historical reference only.
+Last updated: 2026-01-27
+
 Generate Tool Registry Migration Report
 
 This script generates a comprehensive migration report for Runtime Profile support.
@@ -27,6 +31,7 @@ def check_dependencies() -> bool:
     """Check if required dependencies are available"""
     try:
         import sqlite3
+
         return True
     except ImportError:
         return False
@@ -36,50 +41,50 @@ def execute_validation(db_path: str) -> Dict[str, Any]:
     """Execute validation script and return results"""
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "backend.scripts.validate_tool_registry_runtime_profile", "--db-path", db_path],
+            [
+                sys.executable,
+                "-m",
+                "backend.scripts.validate_tool_registry_runtime_profile",
+                "--db-path",
+                db_path,
+            ],
             capture_output=True,
             text=True,
-            timeout=30
-        )
-        return {
-            "success": result.returncode == 0,
-            "exit_code": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-def execute_migration(db_path: str, dry_run: bool = False) -> Dict[str, Any]:
-    """Execute migration script and return results"""
-    try:
-        cmd = [sys.executable, "-m", "backend.scripts.migrate_tool_registry_for_runtime_profile", "--db-path", db_path]
-        if dry_run:
-            cmd.append("--dry-run")
-
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60
+            timeout=30,
         )
         return {
             "success": result.returncode == 0,
             "exit_code": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "dry_run": dry_run
         }
     except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def execute_migration(db_path: str, dry_run: bool = False) -> Dict[str, Any]:
+    """Execute migration script and return results"""
+    try:
+        cmd = [
+            sys.executable,
+            "-m",
+            "backend.scripts.migrate_tool_registry_for_runtime_profile",
+            "--db-path",
+            db_path,
+        ]
+        if dry_run:
+            cmd.append("--dry-run")
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         return {
-            "success": False,
-            "error": str(e),
-            "dry_run": dry_run
+            "success": result.returncode == 0,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "dry_run": dry_run,
         }
+    except Exception as e:
+        return {"success": False, "error": str(e), "dry_run": dry_run}
 
 
 def generate_template_report(db_path: str, dry_run: bool = False) -> str:
@@ -347,28 +352,28 @@ def main():
         "--db-path",
         type=str,
         default="./data/tool_registry.db",
-        help="Path to tool_registry database"
+        help="Path to tool_registry database",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Dry run mode (for migration)"
+        "--dry-run", action="store_true", help="Dry run mode (for migration)"
     )
     parser.add_argument(
-        "--output",
-        type=str,
-        help="Output file path (default: auto-generated)"
+        "--output", type=str, help="Output file path (default: auto-generated)"
     )
     parser.add_argument(
         "--force-template",
         action="store_true",
-        help="Force template report (don't execute migration)"
+        help="Force template report (don't execute migration)",
     )
 
     args = parser.parse_args()
 
     # Generate report
-    if args.force_template or not check_database_exists(args.db_path) or not check_dependencies():
+    if (
+        args.force_template
+        or not check_database_exists(args.db_path)
+        or not check_dependencies()
+    ):
         report = generate_template_report(args.db_path, args.dry_run)
     else:
         report = generate_actual_report(args.db_path, args.dry_run)
@@ -377,7 +382,12 @@ def main():
     if args.output:
         output_path = Path(args.output)
     else:
-        report_dir = Path(__file__).parent.parent.parent / "docs-internal" / "implementation" / "migration-reports"
+        report_dir = (
+            Path(__file__).parent.parent.parent
+            / "docs-internal"
+            / "implementation"
+            / "migration-reports"
+        )
         report_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = report_dir / f"tool_registry_migration_report_{timestamp}.md"
@@ -392,13 +402,10 @@ def main():
     print(f"  Database: {args.db_path}")
     print(f"  Exists: {'✅' if check_database_exists(args.db_path) else '❌'}")
     print(f"  Dependencies: {'✅' if check_dependencies() else '❌'}")
-    print(f"  Report Type: {'Template' if args.force_template or not check_database_exists(args.db_path) or not check_dependencies() else 'Actual'}")
+    print(
+        f"  Report Type: {'Template' if args.force_template or not check_database_exists(args.db_path) or not check_dependencies() else 'Actual'}"
+    )
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-

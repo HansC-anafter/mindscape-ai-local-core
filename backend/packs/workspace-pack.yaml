@@ -5,6 +5,7 @@ description: "Core workspace features including timeline, chat, background routi
 
 routes:
   - "backend.features.workspace.routes:router"
+  - "backend.features.workspace.ig_avatar_proxy:router"
 
 playbooks:
   - "workspace_setup"
@@ -12,4 +13,3 @@ playbooks:
 
 tools:
   - "workspace_storage"
-
