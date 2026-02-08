@@ -1,0 +1,51 @@
+# Alertmanager configuration for Mindscape AI Local-Core
+#
+# Handles alerts from Prometheus
+
+global:
+  resolve_timeout: 5m
+  # No external notification channels configured (local-only)
+  # Add email/slack/webhook if needed
+
+# Route tree
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'workspace_id']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  routes:
+    # Runtime Profile alerts
+    - match:
+        alertname: RuntimeProfileBudgetExhausted
+      receiver: 'runtime-profile-alerts'
+      continue: true
+
+    - match:
+        alertname: RuntimeProfilePolicyDenialRateHigh
+      receiver: 'runtime-profile-alerts'
+      continue: true
+
+    - match:
+        alertname: RuntimeProfileQualityGateFailureRateHigh
+      receiver: 'runtime-profile-alerts'
+      continue: true
+
+# Receivers
+receivers:
+  - name: 'default'
+    # No notification channels (local-only)
+    # Add webhook/email/slack if needed
+
+  - name: 'runtime-profile-alerts'
+    # No notification channels (local-only)
+    # Add webhook/email/slack if needed
+
+# Inhibition rules (suppress less important alerts when critical ones fire)
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['workspace_id']
+

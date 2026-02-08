@@ -1,0 +1,42 @@
+{
+    "name": "mindscape-device-node",
+    "version": "0.1.0",
+    "description": "Mindscape AI Device Node - Local Host Agent with MCP Server",
+    "main": "dist/index.js",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "dev": "tsx src/index.ts",
+        "install:macos": "bash scripts/install-macos.sh",
+        "install:windows": "powershell -File scripts/install-windows.ps1"
+    },
+    "keywords": [
+        "mindscape",
+        "mcp",
+        "device-node",
+        "host-agent"
+    ],
+    "author": "Mindscape AI",
+    "license": "MIT",
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.0",
+        "@types/minimatch": "^5.1.2",
+        "better-sqlite3": "^12.6.2",
+        "chokidar": "^5.0.0",
+        "glob": "^10.3.10",
+        "minimatch": "^10.1.1",
+        "ws": "^8.16.0",
+        "yaml": "^2.3.4"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "^20.10.0",
+        "@types/ws": "^8.5.10",
+        "tsx": "^4.7.0",
+        "typescript": "^5.3.3"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

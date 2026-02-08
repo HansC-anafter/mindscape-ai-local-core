@@ -1,0 +1,54 @@
+# Prometheus configuration for Mindscape AI Local-Core
+#
+# Scrapes metrics from:
+# - Backend API (/metrics endpoint)
+# - Node Exporter (system metrics)
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: 'local-core'
+    environment: 'development'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load rules
+rule_files:
+  - '/etc/prometheus/rules/recording.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Backend API metrics (Runtime Profile events)
+  - job_name: 'mindscape-backend'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['mindscape-ai-local-core-backend:8200']  # Container name from docker-compose.yml
+        # Alternative: Use service name if both compose files are merged
+        # - targets: ['backend:8200']
+        labels:
+          service: 'backend'
+          component: 'runtime-profile-monitoring'
+
+  # Node Exporter (system metrics)
+  - job_name: 'node-exporter'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'system'
+          component: 'node-exporter'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:9090']
+

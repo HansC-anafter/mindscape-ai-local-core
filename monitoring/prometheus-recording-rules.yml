@@ -1,0 +1,29 @@
+# Prometheus recording rules for Runtime Profile monitoring
+#
+# These rules pre-compute common queries to improve performance
+
+groups:
+  - name: runtime_profile_recording_rules
+    interval: 30s
+    rules:
+      # PolicyGuard metrics
+      - record: runtime_profile:policy_check:rate_5m
+        expr: rate(runtime_profile_policy_check_total[5m])
+
+      - record: runtime_profile:policy_check:denial_rate_5m
+        expr: |
+          sum(rate(runtime_profile_policy_check_total{allowed="false"}[5m]))
+          /
+          sum(rate(runtime_profile_policy_check_total[5m]))
+
+      # LoopBudget metrics
+      - record: runtime_profile:budget_exhausted:rate_5m
+        expr: rate(runtime_profile_budget_exhausted_total[5m])
+
+      # QualityGates metrics
+      - record: runtime_profile:quality_gate:pass_rate_5m
+        expr: |
+          sum(rate(runtime_profile_quality_gate_check_total{passed="true"}[5m]))
+          /
+          sum(rate(runtime_profile_quality_gate_check_total[5m]))
+

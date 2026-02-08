@@ -1,0 +1,77 @@
+# Mindscape Device Node Permissions
+# Configure trust levels and access rules for capabilities
+
+version: "1.0"
+
+trust_levels:
+  read: 1 # Read-only, no side effects
+  draft: 2 # Generate draft, requires confirmation
+  execute: 3 # Execute directly
+  admin: 4 # System-level operations
+
+capabilities:
+  filesystem_read:
+    trust_level: read
+    allowed_paths:
+      - "~/Documents/**"
+      - "~/Projects/**"
+      - "~/Desktop/**"
+      - "~/Downloads/**"
+    denied_paths:
+      - "~/.ssh/**"
+      - "~/.gnupg/**"
+      - "~/.aws/**"
+      - "~/.config/gcloud/**"
+
+  filesystem_write:
+    trust_level: draft
+    confirm_required: true
+    sandbox: true
+    allowed_paths:
+      - "~/Documents/Mindscape/**"
+      - "~/Projects/**"
+    denied_paths:
+      - "~/.ssh/**"
+      - "~/.gnupg/**"
+      - "~/.aws/**"
+      - "/etc/**"
+      - "/usr/**"
+      - "/System/**"
+
+  filesystem_list:
+    trust_level: read
+    allowed_paths:
+      - "~/**"
+    denied_paths:
+      - "~/.ssh/**"
+      - "~/.gnupg/**"
+      - "~/.aws/**"
+
+  shell_execute:
+    trust_level: execute
+    confirm_required: true
+    allowed_commands:
+      - git
+      - npm
+      - node
+      - python
+      - python3
+      - pip
+      - pip3
+      - ls
+      - cat
+      - echo
+      - pwd
+      - mkdir
+      - touch
+      - cp
+      - mv
+    denied_commands:
+      - "rm -rf"
+      - sudo
+      - chmod
+      - chown
+      - mkfs
+      - dd
+      - kill
+      - killall

@@ -1,0 +1,6 @@
+{
+    "localCoreUrl": "ws://localhost:8000/api/v1/ws/device-node",
+    "permissionsPath": "../config/permissions.yaml",
+    "transport": "stdio",
+    "httpPort": 3100
+}
