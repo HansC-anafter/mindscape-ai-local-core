@@ -60,6 +60,8 @@ tmp/
 
 # Test files
 test_data/
+tests/
+backend/tests/
 *.test.*
 *_test.py
 *_test.json
