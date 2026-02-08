@@ -295,7 +295,23 @@ Local Core 的重點放在：
 
 ## 🚀 安裝與快速上手
 
-### 使用 Docker 快速啟動（推薦）
+### 一行指令安裝（推薦）
+
+只需在終端機執行此命令，一步到位：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.sh | bash
+```
+
+這會自動：
+1. Clone 倉庫
+2. 安裝所有依賴
+3. 啟動所有服務（包含 Device Node）
+4. 開啟網頁控制台
+
+> **自訂目錄名稱**：`curl -fsSL ... | bash -s -- --dir 我的專案`
+
+### 使用 Docker 快速啟動
 
 最簡單的方式是使用 Docker Compose。**克隆後即可立即啟動** - API 金鑰是可選的，可以稍後透過網頁介面配置。
 
