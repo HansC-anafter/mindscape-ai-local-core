@@ -295,10 +295,17 @@ Cloud / multi-tenant features are provided through separate repositories and are
 
 ### One-Line Install (Recommended)
 
-The fastest way to get started - just run this in your terminal:
+The fastest way to get started - a single command handles everything:
 
+**Linux/macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.sh | bash
+```
+
+**Windows PowerShell:**
+```powershell
+# Run as Administrator if needed
+irm https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.ps1 | iex
 ```
 
 This will automatically:
@@ -307,7 +314,7 @@ This will automatically:
 3. Start all services (including Device Node)
 4. Open the web console
 
-> **Custom directory**: `curl -fsSL ... | bash -s -- --dir my-project`
+> **Custom directory**: Add `--dir my-project` (Linux/Mac) or `-Dir my-project` (Windows)
 
 ### Quick Start with Docker
 

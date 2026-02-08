@@ -297,10 +297,17 @@ Local Core 的重點放在：
 
 ### 一行指令安裝（推薦）
 
-只需在終端機執行此命令，一步到位：
+最快的安裝方式，一個指令搞定所有事：
 
+**Linux/macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.sh | bash
+```
+
+**Windows PowerShell:**
+```powershell
+# 如有需要請以管理員身份執行
+irm https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.ps1 | iex
 ```
 
 這會自動：
@@ -309,7 +316,7 @@ curl -fsSL https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-co
 3. 啟動所有服務（包含 Device Node）
 4. 開啟網頁控制台
 
-> **自訂目錄名稱**：`curl -fsSL ... | bash -s -- --dir 我的專案`
+> **自訂目錄名稱**：加上 `--dir 我的專案`（Linux/Mac）或 `-Dir 我的專案`（Windows）
 
 ### 使用 Docker 快速啟動
 
