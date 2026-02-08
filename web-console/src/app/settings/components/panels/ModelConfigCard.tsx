@@ -84,7 +84,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
     if (!file) return;
 
     if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
-      setTestResult('Please select a valid JSON file');
+      setTestResult('Please select a valid JSON file' as any);
       return;
     }
 
@@ -96,7 +96,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
       const jsonData = JSON.parse(text);
 
       if (jsonData.type !== 'service_account') {
-        setTestResult('Invalid service account JSON file');
+        setTestResult('Invalid service account JSON file' as any);
         return;
       }
 
@@ -151,7 +151,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
       }
 
       const response = await settingsApi.put<{ success: boolean; message: string }>(`/api/v1/system-settings/models/${model.id}/config`, config);
-      const message = response?.message || t('configSaved') || 'Settings saved successfully';
+      const message = response?.message || t('configSaved' as any) || 'Settings saved successfully';
       showNotification('success', message);
       setJsonFile(null);
       setJsonFileName('');
@@ -191,7 +191,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
       }
 
       const response = await settingsApi.put<{ success: boolean; message: string }>(`/api/v1/system-settings/models/${model.id}/config`, config);
-      const message = response?.message || t('configSaved') || 'Settings saved successfully';
+      const message = response?.message || t('configSaved' as any) || 'Settings saved successfully';
       setModelApiKey('');
       setModelBaseUrl('');
       setModelProjectId('');
@@ -219,10 +219,10 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
       if (result.success) {
         setTestResult(result.message);
       } else {
-        setTestResult(`${t('testFailedWithError')}: ${result.message}`);
+        setTestResult(`${t('testFailedWithError' as any)}: ${result.message}`);
       }
     } catch (err) {
-      setTestResult(`${t('testFailedWithError')}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setTestResult(`${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setTesting(false);
     }
@@ -237,7 +237,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             disabled={saving || !jsonFileName}
             className="px-4 py-1.5 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? (t('saving') || 'Saving...') : (provider_config?.api_key_configured ? t('update') : t('saveConfiguration'))}
+            {saving ? (t('saving' as any) || 'Saving...') : (provider_config?.api_key_configured ? t('update' as any) : t('saveConfiguration' as any))}
           </button>
         )}
         {model.provider !== 'vertex-ai' && (
@@ -246,7 +246,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             disabled={saving}
             className="px-4 py-1.5 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? (t('saving') || 'Saving...') : (provider_config?.api_key_configured ? t('update') : t('saveConfiguration'))}
+            {saving ? (t('saving' as any) || 'Saving...') : (provider_config?.api_key_configured ? t('update' as any) : t('saveConfiguration' as any))}
           </button>
         )}
       </div>
@@ -257,7 +257,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
           </h4>
           {model.provider === 'vertex-ai' && ((provider_config?.api_key_configured || (projectId && vertexLocation)) && !jsonFileName) && (
             <span className="text-xs text-green-600 dark:text-green-400 block mb-3">
-              ✓ {t('serviceAccountConfigured')}
+              ✓ {t('serviceAccountConfigured' as any)}
             </span>
           )}
 
@@ -265,7 +265,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             {model.provider === 'vertex-ai' ? (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {t('serviceAccountJsonFile')}
+                  {t('serviceAccountJsonFile' as any)}
                 </label>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -280,40 +280,40 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
                       htmlFor="vertex-ai-json-upload"
                       className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md cursor-pointer bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
                     >
-                      {jsonFileName || t('chooseJsonFile')}
+                      {jsonFileName || t('chooseJsonFile' as any)}
                     </label>
                     <button
                       onClick={() => document.getElementById('vertex-ai-json-upload')?.click()}
                       className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600"
                     >
-                      {t('browse')}
+                      {t('browse' as any)}
                     </button>
                   </div>
                   {jsonFileName && (
                     <p className="text-xs text-green-600 dark:text-green-400">
-                      ✓ {t('selected')} {jsonFileName}
+                      ✓ {t('selected' as any)} {jsonFileName}
                     </p>
                   )}
                   <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-xs">
                     <p className="font-medium text-blue-900 dark:text-blue-200 mb-2">
-                      {t('howToGetServiceAccountJson')}
+                      {t('howToGetServiceAccountJson' as any)}
                     </p>
                     <ol className="list-decimal list-inside space-y-1 text-blue-800 dark:text-blue-300">
                       <li>
-                        {t('vertexAiStep1') && <>{t('vertexAiStep1')} </>}
+                        {t('vertexAiStep1' as any) && <>{t('vertexAiStep1' as any)} </>}
                         <a
-                          href={t('vertexAiStep1Link')}
+                          href={t('vertexAiStep1Link' as any)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="underline hover:text-blue-600 dark:hover:text-blue-200"
                         >
-                          {t('vertexAiStep1LinkText')}
+                          {t('vertexAiStep1LinkText' as any)}
                         </a>
                       </li>
-                      <li>{t('vertexAiStep2')}</li>
-                      <li>{t('vertexAiStep3')}</li>
-                      <li>{t('vertexAiStep4')}</li>
-                      <li>{t('vertexAiStep5')}</li>
+                      <li>{t('vertexAiStep2' as any)}</li>
+                      <li>{t('vertexAiStep3' as any)}</li>
+                      <li>{t('vertexAiStep4' as any)}</li>
+                      <li>{t('vertexAiStep5' as any)}</li>
                     </ol>
                   </div>
                 </div>
@@ -321,18 +321,18 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             ) : (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {t('apiKey')}
+                  {t('apiKey' as any)}
                 </label>
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={provider_config?.api_key_configured ? '••••••••' : (t('enterApiKey') || 'Enter API Key')}
+                  placeholder={provider_config?.api_key_configured ? '••••••••' : (t('enterApiKey' as any) || 'Enter API Key')}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
                 {provider_config?.api_key_configured && (
                   <span className="text-xs text-green-600 dark:text-green-400 mt-1 block">
-                    {t('apiKeyConfigured') || 'API Key configured'}
+                    {t('apiKeyConfigured' as any) || 'API Key configured'}
                   </span>
                 )}
               </div>
@@ -341,7 +341,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             {model.provider === 'ollama' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {t('baseUrl') || 'Base URL'} ({t('optional') || 'Optional'})
+                  {t('baseUrl' as any) || 'Base URL'} ({t('optional' as any) || 'Optional'})
                 </label>
                 <input
                   type="text"
@@ -357,7 +357,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('gcpProjectId')} {projectId && <span className="text-xs text-gray-500">{t('fromJson')}</span>}
+                    {t('gcpProjectId' as any)} {projectId && <span className="text-xs text-gray-500">{t('fromJson' as any)}</span>}
                   </label>
                   <input
                     type="text"
@@ -370,7 +370,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Location ({t('optional') || 'Optional'})
+                    Location ({t('optional' as any) || 'Optional'})
                   </label>
                   <input
                     type="text"
@@ -406,7 +406,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
               onClick={() => setShowModelOverride(!showModelOverride)}
               className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
             >
-              <span>{t('modelOverride') || 'Model Override (Advanced)'}</span>
+              <span>{t('modelOverride' as any) || 'Model Override (Advanced)'}</span>
               <svg
                 className={`w-4 h-4 transition-transform ${showModelOverride ? 'rotate-180' : ''}`}
                 fill="none"
@@ -422,7 +422,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
                 disabled={saving}
                 className="px-4 py-1.5 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? (t('saving') || 'Saving...') : (t('saveModelOverride') || 'Save Model Override')}
+                {saving ? (t('saving' as any) || 'Saving...') : (t('saveModelOverride' as any) || 'Save Model Override')}
               </button>
             )}
           </div>
@@ -430,18 +430,18 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
           {showModelOverride && (
             <div className="mt-3 space-y-3 pt-3 border-t border-gray-200 dark:border-gray-700">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                {t('modelOverrideDescription') || 'Override provider settings for this specific model (usually not needed)'}
+                {t('modelOverrideDescription' as any) || 'Override provider settings for this specific model (usually not needed)'}
               </p>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {t('apiKey')} ({t('override') || 'Override'})
+                  {t('apiKey' as any)} ({t('override' as any) || 'Override'})
                 </label>
                 <input
                   type="password"
                   value={modelApiKey}
                   onChange={(e) => setModelApiKey(e.target.value)}
-                  placeholder={t('enterApiKey') || 'Enter API Key'}
+                  placeholder={t('enterApiKey' as any) || 'Enter API Key'}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
               </div>
@@ -449,7 +449,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
               {model.provider === 'ollama' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('baseUrl') || 'Base URL'} ({t('override') || 'Override'})
+                    {t('baseUrl' as any) || 'Base URL'} ({t('override' as any) || 'Override'})
                   </label>
                   <input
                     type="text"
@@ -465,7 +465,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      {t('gcpProjectId')} ({t('override') || 'Override'})
+                      {t('gcpProjectId' as any)} ({t('override' as any) || 'Override'})
                     </label>
                     <input
                       type="text"
@@ -477,7 +477,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      {t('location') || 'Location'} ({t('override') || 'Override'})
+                      {t('location' as any) || 'Location'} ({t('override' as any) || 'Override'})
                     </label>
                     <input
                       type="text"
@@ -496,13 +496,13 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
         <div className="grid grid-cols-2 gap-4">
           {model.dimensions && (
             <div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{t('dimensions') || 'Dimensions'}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{t('dimensions' as any) || 'Dimensions'}</span>
               <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{model.dimensions}</div>
             </div>
           )}
           {model.context_window && (
             <div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{t('contextWindow') || 'Context Window'}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{t('contextWindow' as any) || 'Context Window'}</span>
               <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {model.context_window.toLocaleString()}
               </div>
@@ -516,7 +516,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             disabled={testing}
             className="w-full px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {testing ? t('testing') : t('testConnection')}
+            {testing ? t('testing' as any) : t('testConnection' as any)}
           </button>
           {testResult && (
             <div className={`mt-2 p-2 rounded text-sm ${
@@ -533,7 +533,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {t('quotaUsage')}
+                {t('quotaUsage' as any)}
               </span>
               <span className="text-sm text-gray-500 dark:text-gray-400">
                 {quota_info.used} / {quota_info.limit}
@@ -547,7 +547,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             </div>
             {quota_info.reset_date && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {t('resetDate') || 'Reset Date'}: {quota_info.reset_date}
+                {t('resetDate' as any) || 'Reset Date'}: {quota_info.reset_date}
               </p>
             )}
           </div>

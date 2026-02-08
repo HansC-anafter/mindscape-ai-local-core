@@ -81,7 +81,7 @@ export function ServiceStatusPanel() {
               issues: generalHealth.issues || [{
                 type: 'workspace_not_selected',
                 severity: 'info',
-                message: t('workspaceNotSelected'),
+                message: t('workspaceNotSelected' as any),
               }],
               overall_status: generalHealth.status || 'healthy',
             });
@@ -133,7 +133,7 @@ export function ServiceStatusPanel() {
         setLastUpdated(new Date());
       } else {
         // No workspace ID and general health also failed
-        throw new Error(t('noWorkspaceSelected'));
+        throw new Error(t('noWorkspaceSelected' as any));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch health status');
@@ -231,7 +231,7 @@ export function ServiceStatusPanel() {
   if (loading && !healthStatus) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="text-gray-500 dark:text-gray-400">{t('loadingServiceStatus')}</div>
+        <div className="text-gray-500 dark:text-gray-400">{t('loadingServiceStatus' as any)}</div>
       </div>
     );
   }
@@ -239,13 +239,13 @@ export function ServiceStatusPanel() {
   if (error && !healthStatus) {
     return (
       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-        <p className="text-red-800 dark:text-red-300 font-medium">{t('failedToLoadServiceStatus')}</p>
+        <p className="text-red-800 dark:text-red-300 font-medium">{t('failedToLoadServiceStatus' as any)}</p>
         <p className="text-red-600 dark:text-red-400 text-sm mt-1">{error}</p>
         <button
           onClick={fetchHealthStatus}
           className="mt-3 px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-md text-sm hover:bg-red-700 dark:hover:bg-red-600"
         >
-          {t('retry')}
+          {t('retry' as any)}
         </button>
       </div>
     );
@@ -256,10 +256,10 @@ export function ServiceStatusPanel() {
       {/* Header with refresh controls */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('serviceStatus')}</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('serviceStatus' as any)}</h2>
           {lastUpdated && (
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {t('lastUpdated')} {lastUpdated.toLocaleTimeString()}
+              {t('lastUpdated' as any)} {lastUpdated.toLocaleTimeString()}
             </p>
           )}
         </div>
@@ -271,14 +271,14 @@ export function ServiceStatusPanel() {
               onChange={(e) => setAutoRefresh(e.target.checked)}
               className="mr-2"
             />
-            {t('autoRefreshInterval')}
+            {t('autoRefreshInterval' as any)}
           </label>
           <button
             onClick={fetchHealthStatus}
             disabled={loading}
             className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md text-sm hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
           >
-            {loading ? t('refreshing') : t('refresh')}
+            {loading ? t('refreshing' as any) : t('refresh' as any)}
           </button>
         </div>
       </div>
@@ -298,12 +298,12 @@ export function ServiceStatusPanel() {
             </span>
             <div>
               <p className="font-medium text-gray-900 dark:text-gray-100">
-                {t('overallStatus')} {healthStatus.overall_status.toUpperCase()}
+                {t('overallStatus' as any)} {healthStatus.overall_status.toUpperCase()}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 {healthStatus.overall_status === 'healthy'
-                  ? t('allServicesOperational')
-                  : t('someServicesHaveIssues')}
+                  ? t('allServicesOperational' as any)
+                  : t('someServicesHaveIssues' as any)}
               </p>
             </div>
           </div>
@@ -314,7 +314,7 @@ export function ServiceStatusPanel() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {healthStatus?.backend && (
           <ServiceCard
-            title={t('backendAPI')}
+            title={t('backendAPI' as any)}
             status={healthStatus.backend}
             details={{
               url: healthStatus.backend.url,
@@ -324,7 +324,7 @@ export function ServiceStatusPanel() {
 
         {healthStatus?.ocr_service && (
           <ServiceCard
-            title={t('ocrService')}
+            title={t('ocrService' as any)}
             status={healthStatus.ocr_service}
             details={{
               gpu_available: healthStatus.ocr_service.gpu_available ? 'Yes' : 'No',
@@ -335,31 +335,31 @@ export function ServiceStatusPanel() {
 
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('llmConfiguration')}</h3>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('llmConfiguration' as any)}</h3>
             <span className={`px-2 py-1 rounded text-xs font-medium border ${
               healthStatus?.llm_available
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
                 : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800'
             }`}>
-              {healthStatus?.llm_available ? `✓ ${t('configured')}` : `✗ ${t('notConfigured')}`}
+              {healthStatus?.llm_available ? `✓ ${t('configured' as any)}` : `✗ ${t('notConfigured' as any)}`}
             </span>
           </div>
           {healthStatus?.llm_provider && (
             <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-              {t('provider')} {healthStatus.llm_provider}
+              {t('provider' as any)} {healthStatus.llm_provider}
             </p>
           )}
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('vectorDB')}</h3>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('vectorDB' as any)}</h3>
             <span className={`px-2 py-1 rounded text-xs font-medium border ${
               healthStatus?.vector_db_connected
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
                 : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800'
             }`}>
-              {healthStatus?.vector_db_connected ? `✓ ${t('connected')}` : `⚠ ${t('notConnected')}`}
+              {healthStatus?.vector_db_connected ? `✓ ${t('connected' as any)}` : `⚠ ${t('notConnected' as any)}`}
             </span>
           </div>
         </div>
@@ -368,7 +368,7 @@ export function ServiceStatusPanel() {
       {/* Tool Connections */}
       {healthStatus?.tools && Object.keys(healthStatus.tools).length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{t('toolConnections')}</h3>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{t('toolConnections' as any)}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {Object.entries(healthStatus.tools).map(([toolName, toolStatus]) => (
               <ServiceCard
@@ -387,7 +387,7 @@ export function ServiceStatusPanel() {
       {/* Issues */}
       {healthStatus?.issues && healthStatus.issues.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{t('issuesAndRecommendations')}</h3>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{t('issuesAndRecommendations' as any)}</h3>
           <div className="space-y-2">
             {healthStatus.issues.map((issue, index) => (
               <div
@@ -417,7 +417,7 @@ export function ServiceStatusPanel() {
                       href={issue.action_url}
                       className="ml-3 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 underline"
                     >
-                      {t('fix')}
+                      {t('fix' as any)}
                     </a>
                   )}
                 </div>

@@ -96,12 +96,12 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
   const isLine = provider === 'line';
 
   useEffect(() => {
-    const oauthSuccess = searchParams?.get('oauth_success');
-    const oauthError = searchParams?.get('oauth_error');
-    const callbackProvider = searchParams?.get('provider');
+    const oauthSuccess = searchParams?.get('oauth_success' as any);
+    const oauthError = searchParams?.get('oauth_error' as any);
+    const callbackProvider = searchParams?.get('provider' as any);
 
     if (oauthSuccess === '1' && callbackProvider === provider) {
-      setSuccess(t('socialMediaConnected'));
+      setSuccess(t('socialMediaConnected' as any));
       // Clear OAuth parameters but keep provider
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete('oauth_success');
@@ -110,7 +110,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
       // Load connection after clearing params
       loadConnection();
     } else if (oauthError === '1' && callbackProvider === provider) {
-      const errorDesc = searchParams?.get('error_description') || 'Unknown error';
+      const errorDesc = searchParams?.get('error_description' as any) || 'Unknown error';
       setError(`OAuth failed: ${errorDesc}`);
       // Clear OAuth error parameters but keep provider
       const newUrl = new URL(window.location.href);
@@ -393,7 +393,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
   };
 
   const handleDisconnect = async () => {
-    if (!confirm(t('socialMediaDisconnectConfirm'))) {
+    if (!confirm(t('socialMediaDisconnectConfirm' as any))) {
       return;
     }
 
@@ -411,7 +411,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
         throw new Error('Failed to disconnect');
       }
 
-      setSuccess(t('socialMediaNotConnected'));
+      setSuccess(t('socialMediaNotConnected' as any));
       await loadConnection();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect');
@@ -429,7 +429,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
   if (loading) {
     return (
       <Card>
-        <div className="text-center py-8">{t('loading')}</div>
+        <div className="text-center py-8">{t('loading' as any)}</div>
       </Card>
     );
   }
@@ -447,7 +447,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          {t('back')}
+          {t('back' as any)}
         </button>
         <div className="flex items-center gap-3 mb-2">
           <div className={`w-12 h-12 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center ${platform.color} bg-gray-50 dark:bg-gray-800`}>
@@ -458,7 +458,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
               {t(platform.label as any)}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {t('socialMediaIntegrationDescription')}
+              {t('socialMediaIntegrationDescription' as any)}
             </p>
           </div>
         </div>
@@ -472,7 +472,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
         {isLine && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">
-              {t('lineConnectionMode')}
+              {t('lineConnectionMode' as any)}
             </h3>
             <div className="space-y-3">
               <label className="flex items-start gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -486,10 +486,10 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                 />
                 <div className="flex-1">
                   <div className="font-medium text-gray-900 dark:text-gray-100">
-                    {t('lineDirectConnection')}
+                    {t('lineDirectConnection' as any)}
                   </div>
                   <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {t('lineDirectConnectionDescription')}
+                    {t('lineDirectConnectionDescription' as any)}
                   </div>
                 </div>
               </label>
@@ -504,10 +504,10 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                 />
                 <div className="flex-1">
                   <div className="font-medium text-gray-900 dark:text-gray-100">
-                    {t('lineCloudRemoteTools')}
+                    {t('lineCloudRemoteTools' as any)}
                   </div>
                   <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {t('lineCloudRemoteToolsDescription')}
+                    {t('lineCloudRemoteToolsDescription' as any)}
                   </div>
                 </div>
               </label>
@@ -559,7 +559,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t('redirectURI') || 'Redirect URI'}
+                {t('redirectURI' as any) || 'Redirect URI'}
               </label>
               <input
                 type="url"
@@ -569,7 +569,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t('redirectURIDescription') || 'OAuth callback URL. Default will be used if not specified.'}
+                {t('redirectURIDescription' as any) || 'OAuth callback URL. Default will be used if not specified.'}
               </p>
             </div>
 
@@ -578,7 +578,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
               disabled={savingConfig || !oauthConfig.client_id || (!oauthConfig.client_secret && !connection?.config?.client_secret)}
               className="px-4 py-2 bg-gray-600 dark:bg-gray-500 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-sm font-medium"
             >
-              {savingConfig ? t('saving') : 'Save OAuth Configuration'}
+              {savingConfig ? t('saving' as any) : 'Save OAuth Configuration'}
             </button>
           </div>
         </div>
@@ -588,58 +588,58 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
         {isLine && connectionMode === 'remote' && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">
-              {t('lineCloudRemoteTools')}
+              {t('lineCloudRemoteTools' as any)}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              {t('lineCloudRemoteToolsDescription')}
+              {t('lineCloudRemoteToolsDescription' as any)}
             </p>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('cloudRemoteToolsUrl')} <span className="text-red-500">*</span>
+                  {t('cloudRemoteToolsUrl' as any)} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="url"
                   value={remoteConfig.cluster_url}
                   onChange={(e) => setRemoteConfig({ ...remoteConfig, cluster_url: e.target.value })}
-                  placeholder={t('cloudRemoteToolsUrlPlaceholder')}
+                  placeholder={t('cloudRemoteToolsUrlPlaceholder' as any)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {t('cloudRemoteToolsUrlDescription')}
+                  {t('cloudRemoteToolsUrlDescription' as any)}
                 </p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('channelId')} <span className="text-red-500">*</span>
+                  {t('channelId' as any)} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={remoteConfig.channel_id}
                   onChange={(e) => setRemoteConfig({ ...remoteConfig, channel_id: e.target.value })}
-                  placeholder={t('channelIdPlaceholder')}
+                  placeholder={t('channelIdPlaceholder' as any)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {t('channelIdDescription')}
+                  {t('channelIdDescription' as any)}
                 </p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('cloudRemoteToolsApiToken')}
+                  {t('cloudRemoteToolsApiToken' as any)}
                 </label>
                 <input
                   type="password"
                   value={remoteConfig.api_token}
                   onChange={(e) => setRemoteConfig({ ...remoteConfig, api_token: e.target.value })}
-                  placeholder={connection?.config && 'api_token' in connection.config ? '•••••••• (configured)' : t('cloudRemoteToolsApiTokenPlaceholder')}
+                  placeholder={connection?.config && 'api_token' in connection.config ? '•••••••• (configured)' : t('cloudRemoteToolsApiTokenPlaceholder' as any)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {t('cloudRemoteToolsApiTokenDescription')}
+                  {t('cloudRemoteToolsApiTokenDescription' as any)}
                 </p>
               </div>
 
@@ -648,7 +648,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                 disabled={savingConfig || !remoteConfig.cluster_url || !remoteConfig.channel_id}
                 className="px-4 py-2 bg-purple-600 dark:bg-purple-500 text-white rounded-md hover:bg-purple-700 dark:hover:bg-purple-600 disabled:opacity-50 text-sm font-medium"
               >
-                {savingConfig ? t('saving') : 'Save Cloud Remote Tools Configuration'}
+                {savingConfig ? t('saving' as any) : 'Save Cloud Remote Tools Configuration'}
               </button>
             </div>
           </div>
@@ -659,7 +659,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-1">
-                {t('connectionStatus')}
+                {t('connectionStatus' as any)}
               </h3>
               <div className="flex items-center gap-2">
                 <span
@@ -674,7 +674,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                       isConnected ? 'bg-green-500' : 'bg-gray-400'
                     }`}
                   />
-                  {isConnected ? t('socialMediaConnected') : t('socialMediaNotConnected')}
+                  {isConnected ? t('socialMediaConnected' as any) : t('socialMediaNotConnected' as any)}
                 </span>
               </div>
             </div>
@@ -684,7 +684,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                   onClick={handleDisconnect}
                   className="px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 border border-red-300 dark:border-red-700 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20"
                 >
-                  {t('disconnectSocialMedia')}
+                  {t('disconnectSocialMedia' as any)}
                 </button>
               ) : (
                 <button
@@ -692,7 +692,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                   disabled={connecting}
                   className="px-4 py-2 text-sm font-medium text-white bg-gray-600 dark:bg-gray-500 rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
                 >
-                  {connecting ? t('socialMediaConnecting') : t('connectSocialMedia')}
+                  {connecting ? t('socialMediaConnecting' as any) : t('connectSocialMedia' as any)}
                 </button>
               )}
             </div>
@@ -702,12 +702,12 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                 <div>
-                  <span className="text-gray-500 dark:text-gray-400">{t('connectionName')}:</span>
+                  <span className="text-gray-500 dark:text-gray-400">{t('connectionName' as any)}:</span>
                   <span className="ml-2 text-gray-900 dark:text-gray-100">{connection.name}</span>
                 </div>
                 {connection.last_validated_at && (
                   <div>
-                    <span className="text-gray-500 dark:text-gray-400">{t('lastValidated')}:</span>
+                    <span className="text-gray-500 dark:text-gray-400">{t('lastValidated' as any)}:</span>
                     <span className="ml-2 text-gray-900 dark:text-gray-100">
                       {new Date(connection.last_validated_at).toLocaleString()}
                     </span>
@@ -739,10 +739,10 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-medium text-gray-900 dark:text-gray-100">
-                {t('discoveredTools') || 'Discovered Tools'}
+                {t('discoveredTools' as any) || 'Discovered Tools'}
               </h3>
               {loadingTools && (
-                <span className="text-sm text-gray-500 dark:text-gray-400">{t('loading')}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{t('loading' as any)}</span>
               )}
             </div>
             {tools.length > 0 ? (
@@ -768,7 +768,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        {tool.enabled ? t('enabled') : t('disabled')}
+                        {tool.enabled ? t('enabled' as any) : t('disabled' as any)}
                       </span>
                     </div>
                   </div>
@@ -776,7 +776,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
               </div>
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                {loadingTools ? t('loading') : t('noToolsDiscovered') || 'No tools discovered yet'}
+                {loadingTools ? t('loading' as any) : t('noToolsDiscovered' as any) || 'No tools discovered yet'}
               </p>
             )}
           </div>

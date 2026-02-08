@@ -85,26 +85,26 @@ export function PortConfigurationSettings() {
       const environment = scopeOverride?.environment ?? config.environment;
       const site = scopeOverride?.site ?? config.site;
 
-      if (cluster) params.append('cluster', cluster);
-      if (environment) params.append('environment', environment);
-      if (site) params.append('site', site);
+      if (cluster) params?.append('cluster', cluster);
+      if (environment) params?.append('environment', environment);
+      if (site) params?.append('site', site);
 
       // 从 localStorage 读取作用域（如果存在）
-      if (typeof window !== 'undefined' && params.toString() === '') {
+      if (typeof window !== 'undefined' && params?.toString() === '') {
         try {
           const storedScope = localStorage.getItem('port_config_scope');
           if (storedScope) {
             const scope = JSON.parse(storedScope);
-            if (scope.cluster) params.append('cluster', scope.cluster);
-            if (scope.environment) params.append('environment', scope.environment);
-            if (scope.site) params.append('site', scope.site);
+            if (scope.cluster) params?.append('cluster', scope.cluster);
+            if (scope.environment) params?.append('environment', scope.environment);
+            if (scope.site) params?.append('site', scope.site);
           }
         } catch (e) {
           // 忽略 localStorage 错误
         }
       }
 
-      const url = `/api/v1/system-settings/ports/${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `/api/v1/system-settings/ports/${params?.toString() ? '?' + params?.toString() : ''}`;
       const data = await settingsApi.get<PortConfig>(url);
 
       // 清理数据：将 "default" 转换为 undefined（UI 显示为"全局默认"）

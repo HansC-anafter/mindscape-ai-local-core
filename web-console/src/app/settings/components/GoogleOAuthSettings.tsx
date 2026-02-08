@@ -69,7 +69,7 @@ export function GoogleOAuthSettings() {
       });
     } catch (err) {
       console.error('Failed to load config:', err);
-      setError(err instanceof Error ? err.message : t('failedToLoadOAuthConfiguration'));
+      setError(err instanceof Error ? err.message : t('failedToLoadOAuthConfiguration' as any));
     } finally {
       setLoading(false);
     }
@@ -115,7 +115,7 @@ export function GoogleOAuthSettings() {
       const response = await settingsApi.put('/api/v1/system-settings/google-oauth', updateData);
       console.log('Save response:', response);
 
-      setSuccess(t('googleOAuthConfigurationSaved'));
+      setSuccess(t('googleOAuthConfigurationSaved' as any));
 
       // Update config status to reflect saved state
       setConfig((prev) => ({
@@ -137,7 +137,7 @@ export function GoogleOAuthSettings() {
       // DON'T reload from server here - it would overwrite form values with empty database values
     } catch (err) {
       console.error('Failed to save Google OAuth config:', err);
-      setError(err instanceof Error ? err.message : t('failedToSaveOAuthConfiguration'));
+      setError(err instanceof Error ? err.message : t('failedToSaveOAuthConfiguration' as any));
     } finally {
       setSaving(false);
     }
@@ -186,7 +186,7 @@ export function GoogleOAuthSettings() {
         setTestResult(`❌ ${testData.message}${testData.errors?.length ? `\n${testData.errors.join(', ')}` : ''}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('failedToTestOAuthConfiguration'));
+      setError(err instanceof Error ? err.message : t('failedToTestOAuthConfiguration' as any));
     } finally {
       setTesting(false);
     }
@@ -195,7 +195,7 @@ export function GoogleOAuthSettings() {
   if (loading) {
     return (
       <div className="text-center py-4">
-        <span className="text-gray-500 dark:text-gray-400">{t('loadingOAuthConfiguration')}</span>
+        <span className="text-gray-500 dark:text-gray-400">{t('loadingOAuthConfiguration' as any)}</span>
       </div>
     );
   }
@@ -217,7 +217,7 @@ export function GoogleOAuthSettings() {
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       // Fallback for older browsers
-      const textArea = document.createElement('textarea');
+      const textArea = document.createElement('textarea' as any);
       textArea.value = redirectUriToCopy;
       textArea.style.position = 'fixed';
       textArea.style.opacity = '0';
@@ -237,16 +237,16 @@ export function GoogleOAuthSettings() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{t('googleOAuthConfiguration')}</h3>
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{t('googleOAuthConfiguration' as any)}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          {t('googleOAuthDescription')}{' '}
+          {t('googleOAuthDescription' as any)}{' '}
           <a
             href="https://console.cloud.google.com/apis/credentials"
             target="_blank"
             rel="noopener noreferrer"
             className="text-gray-600 dark:text-gray-400 hover:underline"
           >
-            {t('googleCloudConsole')}
+            {t('googleCloudConsole' as any)}
           </a>
           .
         </p>
@@ -264,7 +264,7 @@ export function GoogleOAuthSettings() {
               <p className="text-sm font-medium text-green-800 dark:text-green-300">{success}</p>
               {config.is_configured && (
                 <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                  {t('oauthConfigurationActiveDescription')}
+                  {t('oauthConfigurationActiveDescription' as any)}
                 </p>
               )}
             </div>
@@ -284,14 +284,14 @@ export function GoogleOAuthSettings() {
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('googleClientID')} <span className="text-red-500 dark:text-red-400">*</span>
+              {t('googleClientID' as any)} <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             {config.is_configured && form.client_id && (
               <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                {t('configured')}
+                {t('configured' as any)}
               </span>
             )}
           </div>
@@ -312,22 +312,22 @@ export function GoogleOAuthSettings() {
               : 'text-gray-500 dark:text-gray-400'
           }`}>
             {config.is_configured && form.client_id
-              ? `✓ ${t('googleClientIDDescription')}`
-              : t('googleClientIDDescription')}
+              ? `✓ ${t('googleClientIDDescription' as any)}`
+              : t('googleClientIDDescription' as any)}
           </p>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('googleClientSecret')} <span className="text-red-500 dark:text-red-400">*</span>
+              {t('googleClientSecret' as any)} <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             {config.is_configured && (
               <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                {t('configured')}
+                {t('configured' as any)}
               </span>
             )}
           </div>
@@ -335,7 +335,7 @@ export function GoogleOAuthSettings() {
             type="password"
             value={form.client_secret}
             onChange={(e) => setForm({ ...form, client_secret: e.target.value })}
-            placeholder={config.is_configured ? t('googleClientSecretPlaceholderConfigured') : t('googleClientSecretPlaceholder')}
+            placeholder={config.is_configured ? t('googleClientSecretPlaceholderConfigured' as any) : t('googleClientSecretPlaceholder' as any)}
             className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
               config.is_configured
                 ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 focus:ring-green-500 dark:focus:ring-green-400 text-gray-900 dark:text-gray-100'
@@ -348,14 +348,14 @@ export function GoogleOAuthSettings() {
               : 'text-gray-500 dark:text-gray-400'
           }`}>
             {config.is_configured
-              ? t('googleClientSecretKeepExisting')
-              : t('googleClientSecretDescription')}
+              ? t('googleClientSecretKeepExisting' as any)
+              : t('googleClientSecretDescription' as any)}
           </p>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {t('backendURL')} <span className="text-red-500 dark:text-red-400">*</span>
+            {t('backendURL' as any)} <span className="text-red-500 dark:text-red-400">*</span>
           </label>
           <input
             type="url"
@@ -365,13 +365,13 @@ export function GoogleOAuthSettings() {
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {t('backendURLDescription')}
+            {t('backendURLDescription' as any)}
           </p>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {t('redirectURI')} <span className="text-gray-500 dark:text-gray-400">{t('redirectURIOptional')}</span>
+            {t('redirectURI' as any)} <span className="text-gray-500 dark:text-gray-400">{t('redirectURIOptional' as any)}</span>
           </label>
           <div className="flex gap-2">
             <input
@@ -386,35 +386,35 @@ export function GoogleOAuthSettings() {
               onClick={handleCopyRedirectURI}
               disabled={!redirectUriToCopy}
               className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap bg-white dark:bg-gray-800"
-              title={t('copyRedirectURI')}
+              title={t('copyRedirectURI' as any)}
             >
               {copied ? (
                 <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                   </svg>
-                  {t('redirectURICopied')}
+                  {t('redirectURICopied' as any)}
                 </span>
               ) : (
                 <span className="flex items-center gap-1">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
-                  {t('copyRedirectURI')}
+                  {t('copyRedirectURI' as any)}
                 </span>
               )}
             </button>
           </div>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {t('redirectURIDescription')}
+            {t('redirectURIDescription' as any)}
             {suggestedRedirectUri && (
               <span className="block mt-1 text-gray-600 dark:text-gray-400">
-                {t('redirectURISuggested')} {suggestedRedirectUri}
+                {t('redirectURISuggested' as any)} {suggestedRedirectUri}
               </span>
             )}
           </p>
           <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-400">
-            {t('redirectURIWarning')}
+            {t('redirectURIWarning' as any)}
           </p>
         </div>
 
@@ -425,9 +425,9 @@ export function GoogleOAuthSettings() {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <div className="ml-3">
-                <p className="text-sm font-medium text-green-800 dark:text-green-300">{t('oauthConfigurationActive')}</p>
+                <p className="text-sm font-medium text-green-800 dark:text-green-300">{t('oauthConfigurationActive' as any)}</p>
                 <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                  {t('oauthConfigurationActiveDescription')}
+                  {t('oauthConfigurationActiveDescription' as any)}
                 </p>
               </div>
             </div>
@@ -441,7 +441,7 @@ export function GoogleOAuthSettings() {
             disabled={testing || !form.client_id || (!form.client_secret && !config.is_configured)}
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
           >
-            {testing ? t('testingConfiguration') : t('testConfiguration')}
+            {testing ? t('testingConfiguration' as any) : t('testConfiguration' as any)}
           </button>
 
           <button
@@ -450,7 +450,7 @@ export function GoogleOAuthSettings() {
             disabled={saving || !form.client_id || !form.backend_url}
             className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
           >
-            {saving ? t('saving') : t('saveConfiguration')}
+            {saving ? t('saving' as any) : t('saveConfiguration' as any)}
           </button>
         </div>
 

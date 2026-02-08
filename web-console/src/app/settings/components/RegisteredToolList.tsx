@@ -20,7 +20,7 @@ export function RegisteredToolList({ tools, maxDisplay = 10 }: RegisteredToolLis
 
   return (
     <Card>
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('registeredTools')}</h3>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('registeredTools' as any)}</h3>
       <div className="space-y-2">
         {displayTools.map((tool) => (
           <div
@@ -33,14 +33,14 @@ export function RegisteredToolList({ tools, maxDisplay = 10 }: RegisteredToolLis
             </div>
             <StatusPill
               status={tool.enabled ? 'enabled' : 'disabled'}
-              label={tool.enabled ? t('toolEnabled') : t('toolDisabled')}
+              label={tool.enabled ? t('toolEnabled' as any) : t('toolDisabled' as any)}
             />
           </div>
         ))}
       </div>
       {tools.length > maxDisplay && (
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400 text-center">
-          {t('showing')} {maxDisplay} {t('of')} {tools.length} {t('toolsCountLabel')}
+          {t('showing' as any)} {maxDisplay} {t('of' as any)} {tools.length} {t('toolsCountLabel' as any)}
         </p>
       )}
     </Card>

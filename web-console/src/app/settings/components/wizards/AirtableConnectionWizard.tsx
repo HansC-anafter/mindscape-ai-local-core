@@ -35,7 +35,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
       );
 
       setSuccess(
-        `${t('airtableConnectionSuccess')}! ${result.tools_count || 0} ${t('toolsCount')} discovered.`
+        `${t('airtableConnectionSuccess' as any)}! ${result.tools_count || 0} ${t('toolsCount' as any)} discovered.`
       );
       setTimeout(() => {
         onSuccess();
@@ -54,21 +54,21 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
         onClick={onClose}
         className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
-        {t('cancel')}
+        {t('cancel' as any)}
       </button>
       <button
         onClick={handleDiscover}
         disabled={discovering || !form.connection_id || !form.name || !form.api_key}
         className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {discovering ? t('discovering') : t('discoverAndRegister')}
+        {discovering ? t('discovering' as any) : t('discoverAndRegister' as any)}
       </button>
     </>
   );
 
   return (
     <WizardShell
-      title={t('connectAirtable')}
+      title={t('connectAirtable' as any)}
       onClose={onClose}
       error={error}
       success={success}
@@ -78,7 +78,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
     >
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('connectionName')}
+          {t('connectionName' as any)}
         </label>
         <input
           type="text"
@@ -91,7 +91,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('siteIdentifier')}
+          {t('siteIdentifier' as any)}
         </label>
         <input
           type="text"
@@ -104,7 +104,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('airtablePersonalAccessToken')}
+          {t('airtablePersonalAccessToken' as any)}
         </label>
         <input
           type="password"
@@ -114,7 +114,7 @@ export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnect
           placeholder="pat..."
         />
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          {t('airtableTokenDescription')}
+          {t('airtableTokenDescription' as any)}
         </p>
       </div>
     </WizardShell>

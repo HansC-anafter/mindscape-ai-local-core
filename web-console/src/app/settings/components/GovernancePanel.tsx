@@ -30,19 +30,19 @@ export function GovernancePanel({ activeSection }: GovernancePanelProps) {
       default:
         return (
           <div className="space-y-6">
-            <Section title={t('nodeGovernance')} id="node">
+            <Section title={t('nodeGovernance' as any)}>
               <NodeGovernanceSettings />
             </Section>
-            <Section title={t('preflight')} id="preflight">
+            <Section title={t('preflight' as any)}>
               <PreflightSettings />
             </Section>
-            <Section title={t('governanceMode')} id="mode">
+            <Section title={t('governanceMode' as any)}>
               <GovernanceModeSettings />
             </Section>
-            <Section title={t('costGovernance')} id="cost">
+            <Section title={t('costGovernance' as any)}>
               <CostGovernanceSettings />
             </Section>
-            <Section title={t('policyService')} id="policy">
+            <Section title={t('policyService' as any)}>
               <PolicyServiceSettings />
             </Section>
           </div>
@@ -53,13 +53,12 @@ export function GovernancePanel({ activeSection }: GovernancePanelProps) {
   return (
     <Card>
       <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
-        {t('governance')}
+        {t('governance' as any)}
       </h2>
       <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-        {t('governanceDescription')}
+        {t('governanceDescription' as any)}
       </p>
       {renderContent()}
     </Card>
   );
 }
-

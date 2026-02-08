@@ -113,12 +113,12 @@ export function ToolConfigModal({
       default:
         return (
           <div className="text-center py-8">
-            <p className="text-gray-500 dark:text-gray-400">{t('unsupportedToolType')}</p>
+            <p className="text-gray-500 dark:text-gray-400">{t('unsupportedToolType' as any)}</p>
             <button
               onClick={onClose}
               className="mt-4 px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600"
             >
-              {t('closeButton')}
+              {t('closeButton' as any)}
             </button>
           </div>
         );
@@ -129,7 +129,7 @@ export function ToolConfigModal({
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title={t('configureTool')}
+      title={t('configureTool' as any)}
       maxWidth="max-w-4xl"
     >
       {renderWizard()}

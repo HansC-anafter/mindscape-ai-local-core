@@ -30,10 +30,10 @@ export function PlaybookWhitelistManager({
       <div className="flex items-center justify-between mb-3">
         <div>
           <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {t('playbookWhitelist')}
+            {t('playbookWhitelist' as any)}
           </h4>
           <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-            {t('playbookWhitelistDescription')}
+            {t('playbookWhitelistDescription' as any)}
           </p>
         </div>
       </div>
@@ -44,7 +44,7 @@ export function PlaybookWhitelistManager({
           value={newPlaybook}
           onChange={(e) => setNewPlaybook(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-          placeholder={t('enterPlaybookCode')}
+          placeholder={t('enterPlaybookCode' as any)}
           className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
         />
         <button
@@ -52,7 +52,7 @@ export function PlaybookWhitelistManager({
           onClick={handleAdd}
           className="px-3 py-2 text-sm bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
         >
-          {t('add')}
+          {t('add' as any)}
         </button>
       </div>
 
@@ -76,7 +76,7 @@ export function PlaybookWhitelistManager({
         </div>
       ) : (
         <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-          {t('noWhitelistedPlaybooks')}
+          {t('noWhitelistedPlaybooks' as any)}
         </p>
       )}
     </div>

@@ -49,7 +49,7 @@ export function LanguagePreferencesSettings({ onLanguageChange }: LanguagePrefer
       await settingsApi.put('/api/v1/system-settings/default_language', language);
 
       setCurrentLanguage(language);
-      setSuccess(t('configSaved') || 'Settings saved successfully');
+      setSuccess(t('configSaved' as any) || 'Settings saved successfully');
 
       if (onLanguageChange) {
         onLanguageChange(language);
@@ -68,7 +68,7 @@ export function LanguagePreferencesSettings({ onLanguageChange }: LanguagePrefer
   if (loading) {
     return (
       <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
-        {t('loading')}
+        {t('loading' as any)}
       </div>
     );
   }
@@ -77,10 +77,10 @@ export function LanguagePreferencesSettings({ onLanguageChange }: LanguagePrefer
     <div className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('languagePreference') || '語言偏好'}
+          {t('languagePreference' as any) || '語言偏好'}
         </label>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          {t('languagePreferenceDescription') || '設定系統預設語言，新建立的 Workspace 將使用此語言設定'}
+          {t('languagePreferenceDescription' as any) || '設定系統預設語言，新建立的 Workspace 將使用此語言設定'}
         </p>
 
         {error && (

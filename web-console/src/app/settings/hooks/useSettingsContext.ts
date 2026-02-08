@@ -98,8 +98,15 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
           enabled: Array.isArray(packs) ? packs.filter(p => p.enabled).length : 0,
         },
         services: {
-          backend: healthStatus?.overall_status === 'healthy' ? 'healthy' : 'unhealthy',
-          llm: (backendConfig?.openai_api_key_configured || backendConfig?.anthropic_api_key_configured) ? 'configured' : 'not_configured',
+          backend: healthStatus?.overall_status === 'healthy' ? 'healthy' : (healthStatus ? 'unhealthy' : 'unavailable'),
+          // Check explicit flags first, then check providers array in available_backends
+          llm: (
+            backendConfig?.openai_api_key_configured ||
+            backendConfig?.anthropic_api_key_configured ||
+            backendConfig?.vertex_ai_configured ||
+            (backendConfig?.available_backends?.local as any)?.providers?.includes('vertex-ai') ||
+            (backendConfig?.available_backends?.local as any)?.providers?.includes('ollama')
+          ) ? 'configured' : 'not_configured',
           vector_db: healthStatus?.vector_db_connected ? 'connected' : 'not_connected',
           issues: healthStatus?.issues || []
         }

@@ -11,7 +11,7 @@ export function SocialMediaPanel({ activeProvider }: { activeProvider?: string }
 
   // Check if we should show configuration page (only when explicitly clicking "配置" button)
   // Sub-menu clicks should only show overview with anchor
-  const shouldShowConfig = searchParams?.get('configure') === '1' && activeProvider;
+  const shouldShowConfig = searchParams?.get('configure' as any) === '1' && activeProvider;
 
   const handleNavigate = (provider: string) => {
     // Navigate to configuration page

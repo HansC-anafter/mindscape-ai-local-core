@@ -28,11 +28,11 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
 
   const getStatus = () => {
     if (server.status === 'connected') {
-      return { status: 'connected' as const, label: t('connected') || 'Connected', icon: '✅' };
+      return { status: 'connected' as const, label: t('connected' as any) || 'Connected', icon: '✅' };
     } else if (server.status === 'error') {
-      return { status: 'error' as const, label: t('error') || 'Error', icon: '❌' };
+      return { status: 'unavailable' as const, label: t('error' as any) || 'Error', icon: '❌' };
     } else {
-      return { status: 'not_configured' as const, label: t('disconnected') || 'Disconnected', icon: '⚪' };
+      return { status: 'not_configured' as const, label: t('disconnected' as any) || 'Disconnected', icon: '⚪' };
     }
   };
 
@@ -63,7 +63,7 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
             </p>
             {server.tools_count !== undefined && (
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                {server.tools_count} {t('tools') || 'tools'}
+                {server.tools_count} {t('tools' as any) || 'tools'}
               </p>
             )}
             {server.error && (
@@ -75,20 +75,20 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
 
       {showDeleteConfirm ? (
         <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{t('confirmDelete') || 'Are you sure you want to delete this server?'}</p>
+          <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{t('confirmDelete' as any) || 'Are you sure you want to delete this server?'}</p>
           <div className="flex space-x-2">
             <button
               onClick={() => setShowDeleteConfirm(false)}
               className="flex-1 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
             >
-              {t('cancel') || 'Cancel'}
+              {t('cancel' as any) || 'Cancel'}
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
               className="flex-1 px-3 py-1.5 text-sm bg-red-600 dark:bg-red-700 text-white rounded-md hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50"
             >
-              {deleting ? (t('deleting') || 'Deleting...') : (t('delete') || 'Delete')}
+              {deleting ? (t('deleting' as any) || 'Deleting...') : (t('delete' as any) || 'Delete')}
             </button>
           </div>
         </div>
@@ -105,21 +105,21 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
                 onClick={() => onEdit(server)}
                 className="text-sm px-3 py-1 text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
               >
-                {t('edit') || 'Edit'}
+                {t('edit' as any) || 'Edit'}
               </button>
             )}
             <button
               onClick={onRefresh}
               className="text-sm px-3 py-1 text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
             >
-              {t('refresh') || 'Refresh'}
+              {t('refresh' as any) || 'Refresh'}
             </button>
             {onDelete && (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
                 className="text-sm px-3 py-1 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 whitespace-nowrap"
               >
-                {t('delete') || 'Delete'}
+                {t('delete' as any) || 'Delete'}
               </button>
             )}
           </div>

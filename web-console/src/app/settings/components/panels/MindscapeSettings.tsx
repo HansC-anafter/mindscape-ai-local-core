@@ -23,10 +23,10 @@ export function MindscapeSettings({
     <div className="space-y-6">
       <div>
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-          {t('mindscapeConfiguration') || '心智空間配置'}
+          {t('mindscapeConfiguration' as any) || '心智空間配置'}
         </h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          {t('mindscapeConfigurationDescription') || '配置心智空間的行為和偏好設定，之後會持續擴充功能'}
+          {t('mindscapeConfigurationDescription' as any) || '配置心智空間的行為和偏好設定，之後會持續擴充功能'}
         </p>
       </div>
 

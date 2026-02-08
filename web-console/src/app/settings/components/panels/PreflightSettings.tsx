@@ -73,7 +73,7 @@ export function PreflightSettings() {
   if (loading) {
     return (
       <Card>
-        <div className="text-center py-8 text-secondary dark:text-gray-400">{t('loading')}</div>
+        <div className="text-center py-8 text-secondary dark:text-gray-400">{t('loading' as any)}</div>
       </Card>
     );
   }
@@ -82,10 +82,10 @@ export function PreflightSettings() {
     <Card>
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-primary dark:text-gray-100 mb-2">
-          {t('preflight')}
+          {t('preflight' as any)}
         </h3>
         <p className="text-sm text-secondary dark:text-gray-400">
-          {t('preflightDescription')}
+          {t('preflightDescription' as any)}
         </p>
       </div>
 
@@ -104,10 +104,10 @@ export function PreflightSettings() {
           />
           <div className="flex-1">
             <div className="text-sm font-medium text-primary dark:text-gray-100">
-              {t('requiredInputsValidation')}
+              {t('requiredInputsValidation' as any)}
             </div>
             <div className="text-xs text-secondary dark:text-gray-400 mt-1">
-              {t('requiredInputsValidationDescription')}
+              {t('requiredInputsValidationDescription' as any)}
             </div>
           </div>
         </label>
@@ -123,10 +123,10 @@ export function PreflightSettings() {
           />
           <div className="flex-1">
             <div className="text-sm font-medium text-primary dark:text-gray-100">
-              {t('credentialValidation')}
+              {t('credentialValidation' as any)}
             </div>
             <div className="text-xs text-secondary dark:text-gray-400 mt-1">
-              {t('credentialValidationDescription')}
+              {t('credentialValidationDescription' as any)}
             </div>
           </div>
         </label>
@@ -142,10 +142,10 @@ export function PreflightSettings() {
           />
           <div className="flex-1">
             <div className="text-sm font-medium text-primary dark:text-gray-100">
-              {t('environmentValidation')}
+              {t('environmentValidation' as any)}
             </div>
             <div className="text-xs text-secondary dark:text-gray-400 mt-1">
-              {t('environmentValidationDescription')}
+              {t('environmentValidationDescription' as any)}
             </div>
           </div>
         </label>
@@ -157,7 +157,7 @@ export function PreflightSettings() {
             disabled={saving}
             className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {saving ? t('saving') : t('save')}
+            {saving ? t('saving' as any) : t('save' as any)}
           </button>
         </div>
       </div>

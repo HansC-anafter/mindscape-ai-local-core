@@ -55,7 +55,7 @@ export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
 
   // Handle anchor navigation from sub-menu
   useEffect(() => {
-    const anchorProvider = searchParams?.get('provider');
+    const anchorProvider = searchParams?.get('provider' as any);
     if (anchorProvider && cardRefs.current[anchorProvider]) {
       // Scroll to the card
       setTimeout(() => {
@@ -108,7 +108,7 @@ export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
   if (loading) {
     return (
       <Card>
-        <div className="text-center py-8">{t('loading')}</div>
+        <div className="text-center py-8">{t('loading' as any)}</div>
       </Card>
     );
   }
@@ -122,14 +122,14 @@ export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
     <Card>
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-          {t('socialMediaIntegration')}
+          {t('socialMediaIntegration' as any)}
         </h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          {t('socialMediaIntegrationDescription')}
+          {t('socialMediaIntegrationDescription' as any)}
         </p>
         <div className="flex items-center gap-4 text-sm">
           <span className="text-gray-600 dark:text-gray-400">
-            {t('connected')}: <span className="font-medium text-gray-900 dark:text-gray-100">{connectedCount}</span> / {totalCount}
+            {t('connected' as any)}: <span className="font-medium text-gray-900 dark:text-gray-100">{connectedCount}</span> / {totalCount}
           </span>
         </div>
       </div>
@@ -141,7 +141,7 @@ export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
           const connection = connections[platform.id];
           const isConnected = connection?.is_active && connection?.is_validated;
 
-          const isHighlighted = searchParams?.get('provider') === platform.id;
+          const isHighlighted = searchParams?.get('provider' as any) === platform.id;
 
           return (
             <div
@@ -179,7 +179,7 @@ export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
                             isConnected ? 'bg-green-500' : 'bg-gray-400'
                           }`}
                         />
-                        {isConnected ? t('socialMediaConnected') : t('socialMediaNotConnected')}
+                        {isConnected ? t('socialMediaConnected' as any) : t('socialMediaNotConnected' as any)}
                       </span>
                     </div>
                   </div>
@@ -191,7 +191,7 @@ export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
                   }}
                   className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-400 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/20"
                 >
-                  {t('configure')}
+                  {t('configure' as any)}
                 </button>
               </div>
             </div>

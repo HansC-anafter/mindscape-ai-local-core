@@ -121,6 +121,44 @@ const navigationItems: NavigationItem[] = [
     tab: 'mindscape',
   },
   {
+    id: 'ai-team-governance',
+    label: 'aiTeamGovernance',
+    icon: '🤖',
+    tab: 'ai-team-governance',
+    children: [
+      {
+        id: 'install-agents',
+        label: 'installAgents',
+        tab: 'ai-team-governance',
+        section: 'install-agents',
+      },
+      {
+        id: 'installed-agents',
+        label: 'installedAgents',
+        tab: 'ai-team-governance',
+        section: 'installed-agents',
+      },
+      {
+        id: 'model-policy',
+        label: 'modelPolicy',
+        tab: 'ai-team-governance',
+        section: 'model-policy',
+      },
+      {
+        id: 'network-policy',
+        label: 'networkPolicy',
+        tab: 'ai-team-governance',
+        section: 'network-policy',
+      },
+      {
+        id: 'secrets-policy',
+        label: 'secretsPolicy',
+        tab: 'ai-team-governance',
+        section: 'secrets-policy',
+      },
+    ],
+  },
+  {
     id: 'packs',
     label: 'capabilityPacks',
     icon: '📦',
@@ -410,13 +448,12 @@ export function SettingsNavigation({
                     }
                     onNavigate(item.tab);
                   }}
-                  className={`flex-1 text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                    isActive
-                      ? 'bg-accent-10 dark:bg-purple-900/30 text-accent dark:text-purple-300 border-l-4 border-accent dark:border-purple-500'
-                      : hoveredItemId === item.id
+                  className={`flex-1 text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${isActive
+                    ? 'bg-accent-10 dark:bg-purple-900/30 text-accent dark:text-purple-300 border-l-4 border-accent dark:border-purple-500'
+                    : hoveredItemId === item.id
                       ? 'bg-tertiary dark:hover:bg-gray-700 text-primary dark:text-gray-300'
                       : 'text-primary dark:text-gray-300'
-                  }`}
+                    }`}
                   onMouseEnter={(e) => {
                     e.stopPropagation();
                     if (!isActive) {
@@ -453,9 +490,8 @@ export function SettingsNavigation({
 
               {hasChildren && (
                 <div
-                  className={`ml-4 mt-1 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${
-                    isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-                  }`}
+                  className={`ml-4 mt-1 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+                    }`}
                 >
                   {item.children!.map((child) => {
                     const hasGrandchildren = child.children && child.children.length > 0;
@@ -486,13 +522,12 @@ export function SettingsNavigation({
                               }
                               onNavigate(child.tab, child.section);
                             }}
-                            className={`flex-1 text-left px-2 py-1 rounded-md text-xs transition-colors ${
-                              isChildActive
-                                ? 'bg-accent-10 dark:bg-purple-900/40 text-accent dark:text-purple-300 font-medium'
-                                : hoveredItemId === child.id
+                            className={`flex-1 text-left px-2 py-1 rounded-md text-xs transition-colors ${isChildActive
+                              ? 'bg-accent-10 dark:bg-purple-900/40 text-accent dark:text-purple-300 font-medium'
+                              : hoveredItemId === child.id
                                 ? 'bg-tertiary dark:hover:bg-gray-700 text-secondary dark:text-gray-400'
                                 : 'text-secondary dark:text-gray-400'
-                            }`}
+                              }`}
                             onMouseEnter={(e) => {
                               e.stopPropagation();
                               if (!isChildActive) {
@@ -528,9 +563,8 @@ export function SettingsNavigation({
 
                         {hasGrandchildren && (
                           <div
-                            className={`ml-3 mt-0.5 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${
-                              isChildExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-                            }`}
+                            className={`ml-3 mt-0.5 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${isChildExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+                              }`}
                           >
                             {child.children!.map((grandchild) => {
                               const isGrandchildActive = activeTab === grandchild.tab &&
@@ -541,13 +575,12 @@ export function SettingsNavigation({
                                 <button
                                   key={grandchild.id}
                                   onClick={() => onNavigate(grandchild.tab, grandchild.section, grandchild.provider, grandchild.model)}
-                                  className={`w-full text-left px-2 py-0.5 rounded text-xs transition-colors ${
-                                    isGrandchildActive
-                                      ? 'bg-accent-10 dark:bg-purple-900/50 text-accent dark:text-purple-200 font-medium'
-                                      : hoveredItemId === grandchild.id
+                                  className={`w-full text-left px-2 py-0.5 rounded text-xs transition-colors ${isGrandchildActive
+                                    ? 'bg-accent-10 dark:bg-purple-900/50 text-accent dark:text-purple-200 font-medium'
+                                    : hoveredItemId === grandchild.id
                                       ? 'bg-tertiary dark:hover:bg-gray-700 text-secondary dark:text-gray-400'
                                       : 'text-secondary dark:text-gray-400'
-                                  }`}
+                                    }`}
                                   onMouseEnter={(e) => {
                                     e.stopPropagation();
                                     if (!isGrandchildActive) {

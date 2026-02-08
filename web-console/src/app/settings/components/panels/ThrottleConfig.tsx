@@ -16,17 +16,17 @@ export function ThrottleConfig({ throttle, onChange }: ThrottleConfigProps) {
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <div className="mb-3">
         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
-          {t('throttleConfiguration')}
+          {t('throttleConfiguration' as any)}
         </h4>
         <p className="text-xs text-gray-600 dark:text-gray-400">
-          {t('throttleConfigurationDescription')}
+          {t('throttleConfigurationDescription' as any)}
         </p>
       </div>
 
       <div className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {t('writeOperationLimit')}
+            {t('writeOperationLimit' as any)}
           </label>
           <input
             type="number"
@@ -41,13 +41,13 @@ export function ThrottleConfig({ throttle, onChange }: ThrottleConfigProps) {
             className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('writeOperationLimitDescription')}
+            {t('writeOperationLimitDescription' as any)}
           </p>
         </div>
 
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {t('queueStrategy')}
+            {t('queueStrategy' as any)}
           </label>
           <select
             value={throttle.queue_strategy}
@@ -59,11 +59,11 @@ export function ThrottleConfig({ throttle, onChange }: ThrottleConfigProps) {
             }
             className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           >
-            <option value="reject">{t('reject')}</option>
-            <option value="queue">{t('queue')}</option>
+            <option value="reject">{t('reject' as any)}</option>
+            <option value="queue">{t('queue' as any)}</option>
           </select>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('queueStrategyDescription')}
+            {t('queueStrategyDescription' as any)}
           </p>
         </div>
       </div>

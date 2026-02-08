@@ -92,14 +92,14 @@ function EmptyPathInputWithWorkspaceName({
 
     const separator = isWindows ? '\\' : '/';
     if (trimmedPath.endsWith(separator + sanitized) ||
-        trimmedPath.endsWith('/' + sanitized) ||
-        trimmedPath.endsWith('\\' + sanitized)) {
+      trimmedPath.endsWith('/' + sanitized) ||
+      trimmedPath.endsWith('\\' + sanitized)) {
       return trimmedPath;
     }
 
     const pathEndsWithSeparator = trimmedPath.endsWith(separator) ||
-                                   trimmedPath.endsWith('/') ||
-                                   trimmedPath.endsWith('\\');
+      trimmedPath.endsWith('/') ||
+      trimmedPath.endsWith('\\');
     return pathEndsWithSeparator
       ? `${trimmedPath}${sanitized}`
       : `${trimmedPath}${separator}${sanitized}`;
@@ -137,7 +137,7 @@ function EmptyPathInputWithWorkspaceName({
           className="px-3 py-1 text-xs bg-green-100 text-green-700 border border-green-300 rounded hover:bg-green-200 transition-colors whitespace-nowrap"
           title={t('appendWorkspaceNameTooltip', { workspaceTitle: workspaceTitle || '' })}
         >
-          {t('appendWorkspaceName')}
+          {t('appendWorkspaceName' as any)}
         </button>
       ) : (
         <div className="text-xs text-red-500">No workspaceTitle!</div>
@@ -616,7 +616,7 @@ export function LocalFilesystemManagerContent({
           setArtifactsDir(responseData.artifacts_dir);
         }
 
-        setSuccess(t('storagePathConfigured'));
+        setSuccess(t('storagePathConfigured' as any));
         setTimeout(() => {
           onSuccess();
         }, 1500);
@@ -647,17 +647,17 @@ export function LocalFilesystemManagerContent({
               comment: 'Local filesystem mount path (auto-configured)'
             });
 
-            setSuccess(t('configSavedEnvUpdated'));
+            setSuccess(t('configSavedEnvUpdated' as any));
             setRequiresRestart(true);
           } catch (envErr) {
             console.error('Failed to update .env:', envErr);
             setSuccess(
-              `${t('configSavedEnvUpdateFailed')}\nHOST_DOCUMENTS_PATH=${response.env_update.host_path}`
+              `${t('configSavedEnvUpdateFailed' as any)}\nHOST_DOCUMENTS_PATH=${response.env_update.host_path}`
             );
             setRequiresRestart(true);
           }
         } else {
-          setSuccess(t('configSaved'));
+          setSuccess(t('configSaved' as any));
         }
 
         await loadConfiguredDirectories();
@@ -751,7 +751,7 @@ export function LocalFilesystemManagerContent({
                 onClick={handlePathInputCancel}
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
               >
-                {t('cancel')}
+                {t('cancel' as any)}
               </button>
               <button
                 onClick={handlePathInputConfirm}
@@ -803,7 +803,7 @@ export function LocalFilesystemManagerContent({
 
         {showHeader && (
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{workspaceMode ? t('configureWorkspaceStoragePath') : t('localFileSystemConfig')}</h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{workspaceMode ? t('configureWorkspaceStoragePath' as any) : t('localFileSystemConfig' as any)}</h2>
             {onClose && (
               <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
                 ×
@@ -835,27 +835,27 @@ export function LocalFilesystemManagerContent({
             {requiresRestart && (
               <div className="mt-3 p-3 bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800 rounded-lg">
                 <p className="text-sm text-accent dark:text-blue-300 mb-2">
-                  {t('restartRequired')}
+                  {t('restartRequired' as any)}
                 </p>
                 <button
                   type="button"
                   onClick={async () => {
                     setRestarting(true);
                     try {
-                      const response = await settingsApi.post('/api/v1/system-settings/restart');
+                      const response = await settingsApi.post<{ success: boolean; message?: string }>('/api/v1/system-settings/restart');
                       if (response.success) {
-                        setSuccess(t('configSaved'));
+                        setSuccess(t('configSaved' as any));
                         setRequiresRestart(false);
                         setTimeout(() => {
                           window.location.reload();
                         }, 5000);
                       } else {
-                        setError(response.message || t('restartFailed'));
+                        setError(response.message || t('restartFailed' as any));
                         setRequiresRestart(true);
                       }
                     } catch (err) {
                       console.error('Failed to restart service:', err);
-                      setError(t('restartFailed'));
+                      setError(t('restartFailed' as any));
                       setRequiresRestart(true);
                     } finally {
                       setRestarting(false);
@@ -864,10 +864,10 @@ export function LocalFilesystemManagerContent({
                   disabled={restarting}
                   className="px-4 py-2 bg-accent hover:bg-accent/90 disabled:bg-gray-400 text-white rounded-md text-sm font-medium transition-colors"
                 >
-                  {restarting ? t('restarting') : t('restartService')}
+                  {restarting ? t('restarting' as any) : t('restartService' as any)}
                 </button>
                 <p className="text-xs text-accent dark:text-blue-400 mt-2">
-                  {t('orManuallyRun')}
+                  {t('orManuallyRun' as any)}
                 </p>
               </div>
             )}
@@ -877,11 +877,11 @@ export function LocalFilesystemManagerContent({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {workspaceMode ? t('workspaceStoragePath') : t('allowedDirectories')}
+              {workspaceMode ? t('workspaceStoragePath' as any) : t('allowedDirectories' as any)}
             </label>
             {workspaceMode && (
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                {t('workspaceStoragePathDescription')}
+                {t('workspaceStoragePathDescription' as any)}
                 <br />
                 <span className="text-orange-600 dark:text-orange-400 font-medium">
                   {t('workspaceStoragePathAbsolutePathHint', { example: initialStorageBasePath || (isWindows ? 'C:\\Users\\...\\Documents' : '/Users/.../Documents') })}
@@ -893,10 +893,10 @@ export function LocalFilesystemManagerContent({
               {workspaceMode && (
                 <div className="mb-3 p-3 bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800 rounded-lg">
                   <p className="text-sm font-medium text-accent dark:text-blue-300 mb-2">
-                    {t('selectProjectRootDirectory')}
+                    {t('selectProjectRootDirectory' as any)}
                   </p>
                   <p className="text-xs text-accent dark:text-blue-400">
-                    {t('selectProjectRootDirectoryDescription')}
+                    {t('selectProjectRootDirectoryDescription' as any)}
                   </p>
                 </div>
               )}
@@ -905,18 +905,18 @@ export function LocalFilesystemManagerContent({
                 onClick={handleDirectoryPicker}
                 className={`px-6 py-3 ${workspaceMode ? 'bg-accent hover:bg-accent/90 text-lg font-medium' : 'px-4 py-2 bg-accent hover:bg-accent/90 text-sm'} text-white rounded-md flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md`}
                 title={typeof window !== 'undefined' && 'showDirectoryPicker' in window
-                  ? t('browseDirectoryChromeEdge')
-                  : t('browseDirectoryNotAvailable')}
+                  ? t('browseDirectoryChromeEdge' as any)
+                  : t('browseDirectoryNotAvailable' as any)}
               >
-                <span>{t('browseDirectory')} {typeof window !== 'undefined' && 'showDirectoryPicker' in window ? `(${t('browseDirectoryChromeEdge').replace('Browse Directory ', '')})` : `(${t('browseDirectoryNotAvailable').replace('Browse Directory ', '')})`}</span>
+                <span>{t('browseDirectory' as any)} {typeof window !== 'undefined' && 'showDirectoryPicker' in window ? `(${t('browseDirectoryChromeEdge' as any).replace('Browse Directory ', '')})` : `(${t('browseDirectoryNotAvailable' as any).replace('Browse Directory ', '')})`}</span>
               </button>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {workspaceMode ? (
-                  t('browseDirectoryDescription')
+                  t('browseDirectoryDescription' as any)
                 ) : (
                   typeof window !== 'undefined' && 'showDirectoryPicker' in window
-                    ? t('browseDirectoryWorkspaceDescription')
-                    : t('browseDirectoryNotAvailable')
+                    ? t('browseDirectoryWorkspaceDescription' as any)
+                    : t('browseDirectoryNotAvailable' as any)
                 )}
               </p>
               <input
@@ -932,14 +932,14 @@ export function LocalFilesystemManagerContent({
 
             {workspaceMode && (
               <div className="mb-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('orUseQuickSelect')}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('orUseQuickSelect' as any)}</p>
               </div>
             )}
             <div className="mb-4">
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                 {workspaceMode ? (
                   <>
-                    {t('quickSelectWorkspaceStoragePath')}
+                    {t('quickSelectWorkspaceStoragePath' as any)}
                     {!actualUsername && (
                       <>
                         <br />
@@ -995,7 +995,7 @@ export function LocalFilesystemManagerContent({
                     disabled={!newDirectory.trim()}
                     className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   >
-                    {t('add')}
+                    {t('add' as any)}
                   </button>
                 </div>
               </div>
@@ -1004,11 +1004,11 @@ export function LocalFilesystemManagerContent({
             {(directories.length > 0 || workspaceMode) && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{workspaceMode ? t('workspaceStoragePathLabel') : "Selected Directories:"}</p>
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{workspaceMode ? t('workspaceStoragePathLabel' as any) : "Selected Directories:"}</p>
                   {workspaceMode && savedStorageBasePath && directories.length > 0 && directories[0]?.path === savedStorageBasePath && (
                     <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
                       <span>✓</span>
-                      {t('configured')}
+                      {t('configured' as any)}
                     </span>
                   )}
                 </div>
@@ -1087,7 +1087,7 @@ export function LocalFilesystemManagerContent({
                                 className="px-3 py-1 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700 rounded hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors whitespace-nowrap"
                                 title={t('appendWorkspaceNameTooltip', { workspaceTitle: workspaceTitle || '' })}
                               >
-                                {t('appendWorkspaceName')}
+                                {t('appendWorkspaceName' as any)}
                               </button>
                             ) : (
                               <div className="text-xs text-red-500 dark:text-red-400">No title</div>
@@ -1106,9 +1106,9 @@ export function LocalFilesystemManagerContent({
                                   setDirectories(newDirs);
                                 }}
                                 className="rounded"
-                                title={t('allowWriteOperations')}
+                                title={t('allowWriteOperations' as any)}
                               />
-                              <span>{t('allowWriteOperations')}</span>
+                              <span>{t('allowWriteOperations' as any)}</span>
                             </label>
                           </>
                         )}
@@ -1166,12 +1166,12 @@ export function LocalFilesystemManagerContent({
           {workspaceMode && (
             <div className="border-t dark:border-gray-700 pt-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t('artifactsDirectory')}
+                {t('artifactsDirectory' as any)}
               </label>
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                {t('artifactsDirectoryDescription')}
+                {t('artifactsDirectoryDescription' as any)}
                 <br />
-                {t('artifactsDirectoryDefault')}: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">artifacts</code>
+                {t('artifactsDirectoryDefault' as any)}: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">artifacts</code>
               </p>
               <input
                 type="text"
@@ -1181,7 +1181,7 @@ export function LocalFilesystemManagerContent({
                 placeholder="artifacts"
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t('artifactsWillBeStoredAt')} <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{directories[0]?.path || '...'}/{artifactsDir || 'artifacts'}</code>
+                {t('artifactsWillBeStoredAt' as any)} <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{directories[0]?.path || '...'}/{artifactsDir || 'artifacts'}</code>
               </p>
             </div>
           )}
@@ -1190,14 +1190,14 @@ export function LocalFilesystemManagerContent({
             <div className="border-t dark:border-gray-700 pt-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {t('playbookStorageConfiguration')}
+                  {t('playbookStorageConfiguration' as any)}
                 </label>
                 {loadingPlaybooks && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('loadingPlaybooks')}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('loadingPlaybooks' as any)}</span>
                 )}
               </div>
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                {t('playbookStorageConfigurationDescription')}
+                {t('playbookStorageConfigurationDescription' as any)}
               </p>
 
               {usedPlaybooks.length > 0 && (
@@ -1238,7 +1238,7 @@ export function LocalFilesystemManagerContent({
                               }}
                               className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                             >
-                              {t('remove')}
+                              {t('remove' as any)}
                             </button>
                           )}
                         </div>
@@ -1246,7 +1246,7 @@ export function LocalFilesystemManagerContent({
                           <div className="space-y-2 mt-2">
                             <div>
                               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                {t('basePath')}
+                                {t('basePath' as any)}
                               </label>
                               <input
                                 type="text"
@@ -1265,7 +1265,7 @@ export function LocalFilesystemManagerContent({
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                {t('artifactsDirectory')}
+                                {t('artifactsDirectory' as any)}
                               </label>
                               <input
                                 type="text"
@@ -1292,7 +1292,7 @@ export function LocalFilesystemManagerContent({
 
               {usedPlaybooks.length === 0 && !loadingPlaybooks && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-                  {t('noPlaybooksUsedYet')}
+                  {t('noPlaybooksUsedYet' as any)}
                 </p>
               )}
             </div>
@@ -1300,19 +1300,18 @@ export function LocalFilesystemManagerContent({
 
           {configuredDirs.length > 0 && (
             <div className="border-t dark:border-gray-700 pt-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('configuredDirectories')}</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('configuredDirectories' as any)}</h3>
               <div className="space-y-2">
                 {configuredDirs.map((conn, idx) => (
                   <div key={idx} className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded">
                     <div className="flex items-center justify-between mb-2">
                       <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{conn.name}</div>
                       {conn.enabled !== undefined && (
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          conn.enabled
+                        <span className={`text-xs px-2 py-0.5 rounded ${conn.enabled
                             ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-                        }`}>
-                          {conn.enabled ? t('enabled') : t('disabled')}
+                          }`}>
+                          {conn.enabled ? t('enabled' as any) : t('disabled' as any)}
                         </span>
                       )}
                     </div>
@@ -1322,10 +1321,10 @@ export function LocalFilesystemManagerContent({
                         return (
                           <div key={dirIdx} className="flex items-center space-x-2">
                             {isEnabled && (
-                              <span className="text-green-600 dark:text-green-400 text-sm font-semibold" title={t('enabled')}>✓</span>
+                              <span className="text-green-600 dark:text-green-400 text-sm font-semibold" title={t('enabled' as any)}>✓</span>
                             )}
                             {!isEnabled && (
-                              <span className="text-gray-400 dark:text-gray-500 text-sm" title={t('disabled')}>✗</span>
+                              <span className="text-gray-400 dark:text-gray-500 text-sm" title={t('disabled' as any)}>✗</span>
                             )}
                             <span className="text-xs text-gray-600 dark:text-gray-400 flex-1 font-mono">{dir}</span>
                           </div>
@@ -1334,7 +1333,7 @@ export function LocalFilesystemManagerContent({
                     </div>
                     {conn.allow_write && (
                       <span className="text-xs text-orange-600 dark:text-orange-400 mt-2 block">
-                        {t('writeEnabled')}
+                        {t('writeEnabled' as any)}
                       </span>
                     )}
                   </div>
@@ -1351,7 +1350,7 @@ export function LocalFilesystemManagerContent({
                 onClick={onClose}
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
               >
-                {t('cancel')}
+                {t('cancel' as any)}
               </button>
             )}
             <button
@@ -1359,7 +1358,7 @@ export function LocalFilesystemManagerContent({
               disabled={saving || directories.length === 0}
               className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? t('saving') : t('save')}
+              {saving ? t('saving' as any) : t('save' as any)}
             </button>
           </div>
         )}

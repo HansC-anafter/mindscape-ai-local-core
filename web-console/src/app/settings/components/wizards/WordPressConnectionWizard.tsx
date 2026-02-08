@@ -41,7 +41,7 @@ export function WordPressConnectionWizard({
         wp_application_password: form.wp_application_password,
       });
 
-      const message = `${t('successDiscovered')} ${result.capabilities?.length || 0} ${t('capabilitiesCount')} ${result.registered_tools?.length || 0} ${t('toolsCount')}`;
+      const message = `${t('successDiscovered' as any)} ${result.capabilities?.length || 0} ${t('capabilitiesCount' as any)} ${result.registered_tools?.length || 0} ${t('toolsCount' as any)}`;
       setSuccess(message);
       setTimeout(() => {
         onSuccess();
@@ -60,21 +60,21 @@ export function WordPressConnectionWizard({
         onClick={onClose}
         className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
-        {t('cancel')}
+        {t('cancel' as any)}
       </button>
       <button
         onClick={handleDiscover}
         disabled={discovering || !form.connection_id || !form.name || !form.wp_url}
         className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {discovering ? t('discovering') : t('discoverAndRegister')}
+        {discovering ? t('discovering' as any) : t('discoverAndRegister' as any)}
       </button>
     </>
   );
 
   return (
     <WizardShell
-      title={t('connectWordPress')}
+      title={t('connectWordPress' as any)}
       onClose={onClose}
       error={error}
       success={success}
@@ -84,7 +84,7 @@ export function WordPressConnectionWizard({
     >
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('connectionName')}
+          {t('connectionName' as any)}
         </label>
         <input
           type="text"
@@ -97,7 +97,7 @@ export function WordPressConnectionWizard({
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('siteIdentifier')}
+          {t('siteIdentifier' as any)}
         </label>
         <input
           type="text"
@@ -110,7 +110,7 @@ export function WordPressConnectionWizard({
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('wordpressUrl')}
+          {t('wordpressUrl' as any)}
         </label>
         <input
           type="url"
@@ -123,7 +123,7 @@ export function WordPressConnectionWizard({
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('wordpressUsername')}
+          {t('wordpressUsername' as any)}
         </label>
         <input
           type="text"
@@ -136,7 +136,7 @@ export function WordPressConnectionWizard({
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('wordpressPassword')}
+          {t('wordpressPassword' as any)}
         </label>
         <input
           type="password"

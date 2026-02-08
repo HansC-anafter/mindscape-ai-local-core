@@ -42,8 +42,8 @@ export function MCPServerConfigModal({
   };
 
   const title = editingServer
-    ? t('editMCPServer')
-    : t('addMCPServer');
+    ? t('editMCPServer' as any)
+    : t('addMCPServer' as any);
 
   return (
     <BaseModal

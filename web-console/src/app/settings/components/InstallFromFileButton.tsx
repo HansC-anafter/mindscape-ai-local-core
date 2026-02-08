@@ -81,7 +81,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
 
       setPhase('completed');
       setSuccess(
-        `${t('successfullyInstalled')}: ${result.capability_id} v${result.version}`
+        `${t('successfullyInstalled' as any)}: ${result.capability_id} v${result.version}`
       );
 
       // Reset checkbox after successful installation
@@ -115,7 +115,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           className="rounded border-gray-300 text-gray-600 focus:ring-gray-500 w-3.5 h-3.5"
         />
         <span className="text-xs text-gray-700">
-          {t('allowOverwrite')}
+          {t('allowOverwrite' as any)}
         </span>
       </label>
       <input
@@ -143,11 +143,11 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           pointerEvents: (phase === 'installing' || phase === 'mapping_roles') ? 'none' : 'auto'
         }}
       >
-        {phase === 'installing' ? t('installing') :
-         phase === 'mapping_roles' ? t('mappingRoles') :
-         phase === 'completed' ? t('selectMindpackFile') :
-         phase === 'error' ? t('selectMindpackFile') :
-         t('selectMindpackFile')}
+        {phase === 'installing' ? t('installing' as any) :
+         phase === 'mapping_roles' ? t('mappingRoles' as any) :
+         phase === 'completed' ? t('selectMindpackFile' as any) :
+         phase === 'error' ? t('selectMindpackFile' as any) :
+         t('selectMindpackFile' as any)}
       </label>
 
       {/* Installation Progress */}
@@ -155,7 +155,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
         <div className="mt-3">
           <div className="flex items-center space-x-2 text-sm text-gray-600">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-            <span>{t('installingCapabilityPack')}</span>
+            <span>{t('installingCapabilityPack' as any)}</span>
           </div>
         </div>
       )}
@@ -164,7 +164,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
         <div className="mt-3 space-y-2">
           <div className="flex items-center space-x-2 text-sm text-gray-600">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-            <span>{t('analyzingRoleCapabilities')}</span>
+            <span>{t('analyzingRoleCapabilities' as any)}</span>
           </div>
         </div>
       )}
@@ -175,21 +175,21 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           {roleMappings.length > 0 && (
             <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-sm font-medium text-blue-900 mb-2">
-                ✅ {t('rolesAddedCapabilities')}
+                ✅ {t('rolesAddedCapabilities' as any)}
               </p>
               <ul className="space-y-1">
                 {roleMappings.map((mapping, idx) => (
                   <li key={idx} className="text-sm text-blue-800">
                     • <strong>{mapping.role_id}</strong>: {mapping.brief_label} - {mapping.blurb}
                     {mapping.is_fallback && (
-                      <span className="ml-2 text-xs text-blue-600">({t('temporarilyStoredInDefaultRole')})</span>
+                      <span className="ml-2 text-xs text-blue-600">({t('temporarilyStoredInDefaultRole' as any)})</span>
                     )}
                   </li>
                 ))}
               </ul>
               {installResult?.has_fallback_mapping && (
                 <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                  💡 {t('capabilityStoredInDefaultAssistant')}
+                  💡 {t('capabilityStoredInDefaultAssistant' as any)}
                 </div>
               )}
             </div>
@@ -197,10 +197,10 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           {installResult?.has_fallback_mapping && roleMappings.length === 0 && (
             <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
               <p className="text-sm font-medium text-yellow-900 mb-2">
-                💡 {t('capabilityStoredInDefaultAssistantTitle')}
+                💡 {t('capabilityStoredInDefaultAssistantTitle' as any)}
               </p>
               <p className="text-xs text-yellow-800">
-                {t('capabilityAssignedToDefaultAssistant')}
+                {t('capabilityAssignedToDefaultAssistant' as any)}
               </p>
             </div>
           )}

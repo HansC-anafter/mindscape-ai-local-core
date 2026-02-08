@@ -55,10 +55,10 @@ export function RiskLabelManager({
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <div className="mb-3">
         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
-          {t('riskLabels')}
+          {t('riskLabels' as any)}
         </h4>
         <p className="text-xs text-gray-600 dark:text-gray-400">
-          {t('riskLabelsDescription')}
+          {t('riskLabelsDescription' as any)}
         </p>
       </div>
 
@@ -68,7 +68,7 @@ export function RiskLabelManager({
           value={newPlaybook}
           onChange={(e) => setNewPlaybook(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleAddPlaybook()}
-          placeholder={t('enterPlaybookCode')}
+          placeholder={t('enterPlaybookCode' as any)}
           className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
         />
         <button
@@ -76,7 +76,7 @@ export function RiskLabelManager({
           onClick={handleAddPlaybook}
           className="px-3 py-2 text-sm bg-accent dark:bg-blue-700 text-white rounded hover:bg-accent/90 dark:hover:bg-blue-600 transition-colors"
         >
-          {t('add')}
+          {t('add' as any)}
         </button>
       </div>
 
@@ -96,7 +96,7 @@ export function RiskLabelManager({
                   onClick={() => handleRemovePlaybook(playbook)}
                   className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                 >
-                  {t('remove')}
+                  {t('remove' as any)}
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -120,7 +120,7 @@ export function RiskLabelManager({
         </div>
       ) : (
         <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-          {t('noRiskLabelsConfigured')}
+          {t('noRiskLabelsConfigured' as any)}
         </p>
       )}
     </div>

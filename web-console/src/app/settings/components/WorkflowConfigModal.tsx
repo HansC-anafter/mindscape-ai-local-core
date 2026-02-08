@@ -33,7 +33,7 @@ export function WorkflowConfigModal({
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title={t('configureWorkflow')}
+      title={t('configureWorkflow' as any)}
       maxWidth="max-w-4xl"
     >
       <WorkflowWizard

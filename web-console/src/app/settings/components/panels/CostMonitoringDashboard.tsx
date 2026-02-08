@@ -72,7 +72,7 @@ export function CostMonitoringDashboard() {
   if (loading) {
     return (
       <Card>
-        <div className="text-center py-8 text-secondary dark:text-gray-400">{t('loading')}</div>
+        <div className="text-center py-8 text-secondary dark:text-gray-400">{t('loading' as any)}</div>
       </Card>
     );
   }
@@ -107,33 +107,31 @@ export function CostMonitoringDashboard() {
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold text-primary dark:text-gray-100">
-            {t('costMonitoring')}
+            {t('costMonitoring' as any)}
           </h3>
           <div className="flex gap-2">
             <button
               onClick={() => setPeriod('day')}
-              className={`px-3 py-1 text-xs rounded ${
-                period === 'day'
+              className={`px-3 py-1 text-xs rounded ${period === 'day'
                   ? 'bg-accent dark:bg-blue-700 text-white'
                   : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
-              }`}
+                }`}
             >
-              {t('day')}
+              {t('day' as any)}
             </button>
             <button
               onClick={() => setPeriod('month')}
-              className={`px-3 py-1 text-xs rounded ${
-                period === 'month'
+              className={`px-3 py-1 text-xs rounded ${period === 'month'
                   ? 'bg-accent dark:bg-blue-700 text-white'
                   : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
-              }`}
+                }`}
             >
-              {t('month')}
+              {t('month' as any)}
             </button>
           </div>
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          {t('costMonitoringDescription')}
+          {t('costMonitoringDescription' as any)}
         </p>
       </div>
 
@@ -160,22 +158,20 @@ export function CostMonitoringDashboard() {
             <div className="flex justify-between text-xs mb-1">
               <span className="text-secondary dark:text-gray-400">Usage</span>
               <span
-                className={`font-medium ${
-                  isCritical
+                className={`font-medium ${isCritical
                     ? 'text-red-600 dark:text-red-400'
                     : isWarning
-                    ? 'text-yellow-600 dark:text-yellow-400'
-                    : 'text-primary dark:text-gray-100'
-                }`}
+                      ? 'text-yellow-600 dark:text-yellow-400'
+                      : 'text-primary dark:text-gray-100'
+                  }`}
               >
                 {usagePercentage.toFixed(1)}%
               </span>
             </div>
             <div className="w-full bg-surface-secondary dark:bg-gray-700 rounded-full h-3">
               <div
-                className={`h-3 rounded-full ${
-                  isCritical ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-accent dark:bg-blue-500'
-                }`}
+                className={`h-3 rounded-full ${isCritical ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-accent dark:bg-blue-500'
+                  }`}
                 style={{ width: `${Math.min(usagePercentage, 100)}%` }}
               />
             </div>
@@ -185,7 +181,7 @@ export function CostMonitoringDashboard() {
         {data.trend && data.trend.length > 0 && (
           <div className="border border-default dark:border-gray-700 rounded-lg p-4">
             <h4 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
-              {t('costTrend')}
+              {t('costTrend' as any)}
             </h4>
             <div className="space-y-2">
               {data.trend.slice(-7).map((item, index) => {
@@ -219,7 +215,7 @@ export function CostMonitoringDashboard() {
             {data.breakdown.by_playbook && Object.keys(data.breakdown.by_playbook).length > 0 && (
               <div className="border border-default dark:border-gray-700 rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
-                  {t('costByPlaybook')}
+                  {t('costByPlaybook' as any)}
                 </h4>
                 <div className="space-y-2">
                   {Object.entries(data.breakdown.by_playbook)
@@ -242,7 +238,7 @@ export function CostMonitoringDashboard() {
             {data.breakdown.by_model && Object.keys(data.breakdown.by_model).length > 0 && (
               <div className="border border-default dark:border-gray-700 rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
-                  {t('costByModel')}
+                  {t('costByModel' as any)}
                 </h4>
                 <div className="space-y-2">
                   {Object.entries(data.breakdown.by_model)

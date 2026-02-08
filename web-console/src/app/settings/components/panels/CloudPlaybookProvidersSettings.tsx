@@ -73,7 +73,7 @@ export function CloudPlaybookProvidersSettings() {
       }
         } catch (error: any) {
       console.error('Failed to load providers:', error);
-      showNotification('error', error.message || t('failedToLoadProviders'));
+      showNotification('error', error.message || t('failedToLoadProviders' as any));
     } finally {
       setLoading(false);
     }
@@ -131,22 +131,22 @@ export function CloudPlaybookProvidersSettings() {
       });
 
       if (response.ok) {
-        showNotification('success', editingProvider ? t('providerUpdatedSuccessfully') : t('providerCreatedSuccessfully'));
+        showNotification('success', editingProvider ? t('providerUpdatedSuccessfully' as any) : t('providerCreatedSuccessfully' as any));
         resetForm();
         loadProviders();
       } else {
         const error = await response.json();
-        showNotification('error', error.detail || (editingProvider ? t('failedToUpdateProvider') : t('failedToCreateProvider')));
+        showNotification('error', error.detail || (editingProvider ? t('failedToUpdateProvider' as any) : t('failedToCreateProvider' as any)));
       }
     } catch (error: any) {
-      showNotification('error', error.message || (editingProvider ? t('failedToUpdateProvider') : t('failedToCreateProvider')));
+      showNotification('error', error.message || (editingProvider ? t('failedToUpdateProvider' as any) : t('failedToCreateProvider' as any)));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (providerId: string) => {
-    if (!confirm(t('deleteProviderConfirm').replace('{providerId}', providerId))) {
+    if (!confirm(t('deleteProviderConfirm' as any).replace('{providerId}', providerId))) {
       return;
     }
 
@@ -156,14 +156,14 @@ export function CloudPlaybookProvidersSettings() {
       });
 
       if (response.ok) {
-        showNotification('success', t('providerDeletedSuccessfully'));
+        showNotification('success', t('providerDeletedSuccessfully' as any));
         loadProviders();
       } else {
         const error = await response.json();
-        showNotification('error', error.detail || t('failedToDeleteProvider'));
+        showNotification('error', error.detail || t('failedToDeleteProvider' as any));
       }
     } catch (error: any) {
-      showNotification('error', error.message || t('failedToDeleteProvider'));
+      showNotification('error', error.message || t('failedToDeleteProvider' as any));
     }
   };
 
@@ -188,7 +188,7 @@ export function CloudPlaybookProvidersSettings() {
 
   const handleTestConnection = async (providerId: string) => {
     setTestStatus(prev => ({ ...prev, [providerId]: 'testing' }));
-    setTestMessages(prev => ({ ...prev, [providerId]: t('testingConnection') }));
+    setTestMessages(prev => ({ ...prev, [providerId]: t('testingConnection' as any) }));
 
     try {
       const response = await fetch(`/api/v1/cloud-providers/${providerId}/test`, {
@@ -199,14 +199,14 @@ export function CloudPlaybookProvidersSettings() {
 
       if (result.success) {
         setTestStatus(prev => ({ ...prev, [providerId]: 'success' }));
-        setTestMessages(prev => ({ ...prev, [providerId]: result.message || t('connectionSuccessful') }));
+        setTestMessages(prev => ({ ...prev, [providerId]: result.message || t('connectionSuccessful' as any) }));
       } else {
         setTestStatus(prev => ({ ...prev, [providerId]: 'error' }));
-        setTestMessages(prev => ({ ...prev, [providerId]: result.message || t('connectionFailed') }));
+        setTestMessages(prev => ({ ...prev, [providerId]: result.message || t('connectionFailed' as any) }));
       }
     } catch (error: any) {
       setTestStatus(prev => ({ ...prev, [providerId]: 'error' }));
-      setTestMessages(prev => ({ ...prev, [providerId]: error.message || t('connectionTestFailed') }));
+      setTestMessages(prev => ({ ...prev, [providerId]: error.message || t('connectionTestFailed' as any) }));
     }
   };
 
@@ -233,7 +233,7 @@ export function CloudPlaybookProvidersSettings() {
 
             packsList.forEach((pack: Pack) => {
               const packId = pack.code;
-              const packRefId = pack.pack_ref?.split(':')[1]?.split('@')[0];
+              const packRefId = pack.pack_ref?.split(':' as any)[1]?.split('@' as any)[0];
               pack.installed = installedIds.has(packId) || installedIds.has(packRefId || '');
             });
           }
@@ -299,7 +299,7 @@ export function CloudPlaybookProvidersSettings() {
   if (loading) {
     return (
       <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
-        {t('loading')}
+        {t('loading' as any)}
       </div>
     );
   }
@@ -311,7 +311,7 @@ export function CloudPlaybookProvidersSettings() {
         <div className="space-y-6">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              {t('cloudPlaybookProviders')}
+              {t('cloudPlaybookProviders' as any)}
             </h2>
           </div>
 
@@ -319,7 +319,7 @@ export function CloudPlaybookProvidersSettings() {
           <div className="space-y-4">
             {providers.length === 0 ? (
               <div className="text-center py-8 text-sm text-gray-500 dark:text-gray-400">
-                {t('noCloudProvidersConfigured')}
+                {t('noCloudProvidersConfigured' as any)}
               </div>
             ) : (
               providers.map((provider) => (
@@ -338,21 +338,21 @@ export function CloudPlaybookProvidersSettings() {
                             ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
                             : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
                         }`}>
-                          {provider.enabled ? t('enabled') : t('disabled')}
+                          {provider.enabled ? t('enabled' as any) : t('disabled' as any)}
                         </span>
                         <span className={`px-2 py-1 text-xs rounded ${
                           provider.configured
                             ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400'
                             : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
                         }`}>
-                          {provider.configured ? t('configured') : t('notConfigured')}
+                          {provider.configured ? t('configured' as any) : t('notConfigured' as any)}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                         {provider.description}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                        {t('providerId')}: {provider.provider_id} | {t('providerType')}: {provider.provider_type}
+                        {t('providerId' as any)}: {provider.provider_id} | {t('providerType' as any)}: {provider.provider_type}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -362,21 +362,21 @@ export function CloudPlaybookProvidersSettings() {
                         disabled={testStatus[provider.provider_id] === 'testing'}
                         className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
                       >
-                        {testStatus[provider.provider_id] === 'testing' ? t('testing') : t('test')}
+                        {testStatus[provider.provider_id] === 'testing' ? t('testing' as any) : t('test' as any)}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleEdit(provider)}
                         className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
                       >
-                        {t('editProvider')}
+                        {t('editProvider' as any)}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(provider.provider_id)}
                         className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
                       >
-                        {t('deleteProvider')}
+                        {t('deleteProvider' as any)}
                       </button>
                     </div>
                   </div>
@@ -425,7 +425,7 @@ export function CloudPlaybookProvidersSettings() {
                         <div className="space-y-2">
                           {loadingPacks[provider.provider_id] ? (
                             <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
-                              {t('loading') || 'Loading...'}
+                              {t('loading' as any) || 'Loading...'}
                             </div>
                           ) : packs[provider.provider_id]?.length > 0 ? (
                             <>
@@ -446,7 +446,7 @@ export function CloudPlaybookProvidersSettings() {
                                         </h5>
                                         {pack.installed && (
                                           <span className="px-2 py-0.5 text-xs rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                                            {t('installed') || '已安裝'}
+                                            {t('installed' as any) || '已安裝'}
                                           </span>
                                         )}
                                       </div>
@@ -491,19 +491,19 @@ export function CloudPlaybookProvidersSettings() {
           <BaseModal
             isOpen={showAddForm}
             onClose={resetForm}
-            title={editingProvider ? t('editProvider') : t('addProvider')}
+            title={editingProvider ? t('editProvider' as any) : t('addProvider' as any)}
             maxWidth="max-w-2xl"
           >
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('providerId')} <span className="text-red-500">*</span>
+                  {t('providerId' as any)} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.provider_id}
                   onChange={(e) => setFormData({ ...formData, provider_id: e.target.value })}
-                  placeholder={t('enterProviderId')}
+                  placeholder={t('enterProviderId' as any)}
                   disabled={!!editingProvider}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 disabled:opacity-50"
                 />
@@ -511,14 +511,14 @@ export function CloudPlaybookProvidersSettings() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('providerType')} <span className="text-red-500">*</span>
+                  {t('providerType' as any)} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="hidden"
                   value="generic_http"
                 />
                 <div className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                  {t('providerTypeGenericHttp')}
+                  {t('providerTypeGenericHttp' as any)}
                 </div>
               </div>
 
@@ -526,7 +526,7 @@ export function CloudPlaybookProvidersSettings() {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      {t('providerName')} <span className="text-red-500">*</span>
+                      {t('providerName' as any)} <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -535,13 +535,13 @@ export function CloudPlaybookProvidersSettings() {
                         ...formData,
                         config: { ...formData.config, name: e.target.value }
                       })}
-                      placeholder={t('providerNamePlaceholder')}
+                      placeholder={t('providerNamePlaceholder' as any)}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      {t('apiUrl')} <span className="text-red-500">*</span>
+                      {t('apiUrl' as any)} <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -550,13 +550,13 @@ export function CloudPlaybookProvidersSettings() {
                         ...formData,
                         config: { ...formData.config, api_url: e.target.value }
                       })}
-                      placeholder={t('apiUrlPlaceholderGeneric')}
+                      placeholder={t('apiUrlPlaceholderGeneric' as any)}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      {t('authenticationType')} <span className="text-red-500">*</span>
+                      {t('authenticationType' as any)} <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.config.auth.auth_type}
@@ -569,14 +569,14 @@ export function CloudPlaybookProvidersSettings() {
                       })}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="bearer">{t('bearerToken')}</option>
-                      <option value="api_key">{t('apiKey')}</option>
+                      <option value="bearer">{t('bearerToken' as any)}</option>
+                      <option value="api_key">{t('apiKey' as any)}</option>
                     </select>
                   </div>
                   {formData.config.auth.auth_type === 'bearer' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        {t('token')} <span className="text-red-500">*</span>
+                        {t('token' as any)} <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="password"
@@ -588,7 +588,7 @@ export function CloudPlaybookProvidersSettings() {
                             auth: { ...formData.config.auth, token: e.target.value }
                           }
                         })}
-                        placeholder={t('tokenPlaceholder')}
+                        placeholder={t('tokenPlaceholder' as any)}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                       />
                     </div>
@@ -596,7 +596,7 @@ export function CloudPlaybookProvidersSettings() {
                   {formData.config.auth.auth_type === 'api_key' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        {t('apiKey')} <span className="text-red-500">*</span>
+                        {t('apiKey' as any)} <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="password"
@@ -608,7 +608,7 @@ export function CloudPlaybookProvidersSettings() {
                             auth: { ...formData.config.auth, api_key: e.target.value }
                           }
                         })}
-                        placeholder={t('apiKeyPlaceholder')}
+                        placeholder={t('apiKeyPlaceholder' as any)}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                       />
                     </div>
@@ -625,7 +625,7 @@ export function CloudPlaybookProvidersSettings() {
                   className="w-4 h-4 text-gray-600 bg-gray-100 border-gray-300 rounded focus:ring-gray-500"
                 />
                 <label htmlFor="enabled" className="text-sm text-gray-700 dark:text-gray-300">
-                  {t('enableThisProvider')}
+                  {t('enableThisProvider' as any)}
                 </label>
               </div>
 
@@ -635,7 +635,7 @@ export function CloudPlaybookProvidersSettings() {
                   onClick={resetForm}
                   className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
                 >
-                  {t('cancel')}
+                  {t('cancel' as any)}
                 </button>
                 <button
                   type="button"
@@ -643,7 +643,7 @@ export function CloudPlaybookProvidersSettings() {
                   disabled={saving || !formData.provider_id || !formData.config.api_url}
                   className="px-4 py-2 text-sm bg-gray-900 dark:bg-gray-700 text-white rounded-md hover:bg-gray-800 dark:hover:bg-gray-600 disabled:opacity-50"
                 >
-                  {saving ? t('saving') : editingProvider ? t('update') : t('create')}
+                  {saving ? t('saving' as any) : editingProvider ? t('update' as any) : t('create' as any)}
                 </button>
               </div>
             </div>
@@ -657,7 +657,7 @@ export function CloudPlaybookProvidersSettings() {
                 onClick={() => setShowAddForm(true)}
                 className="px-4 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-md hover:bg-gray-800 dark:hover:bg-gray-600 text-sm font-medium"
               >
-                {t('addProvider')}
+                {t('addProvider' as any)}
               </button>
             </div>
           )}

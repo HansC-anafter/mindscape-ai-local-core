@@ -51,7 +51,7 @@ export function VectorDBConnectionWizard({
     setSuccess(null);
     try {
       await settingsApi.put('/api/v1/vector-db/config', form);
-      setSuccess(t('configSaved'));
+      setSuccess(t('configSaved' as any));
       setTimeout(() => {
         onSuccess();
       }, 1500);
@@ -81,10 +81,10 @@ export function VectorDBConnectionWizard({
         .filter(Boolean)
         .join('\n');
 
-      setTestResult(`${t('testResults')}:\n\n${details}`);
+      setTestResult(`${t('testResults' as any)}:\n\n${details}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Test failed';
-      setError(`${t('testFailed')}: ${errorMessage}`);
+      setError(`${t('testFailed' as any)}: ${errorMessage}`);
     } finally {
       setTesting(false);
     }
@@ -94,7 +94,7 @@ export function VectorDBConnectionWizard({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('vectorDBConfig')}</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('vectorDBConfig' as any)}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             ✕
           </button>
@@ -130,7 +130,7 @@ export function VectorDBConnectionWizard({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('operationMode')}
+              {t('operationMode' as any)}
             </label>
             <div className="space-y-2">
               <label className="flex items-center">
@@ -143,8 +143,8 @@ export function VectorDBConnectionWizard({
                   className="mr-2"
                 />
                 <div>
-                  <span className="font-medium dark:text-gray-200">{t('localMode')}</span>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('localModeDescription')}</p>
+                  <span className="font-medium dark:text-gray-200">{t('localMode' as any)}</span>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('localModeDescription' as any)}</p>
                 </div>
               </label>
               <label className="flex items-center">
@@ -157,8 +157,8 @@ export function VectorDBConnectionWizard({
                   className="mr-2"
                 />
                 <div>
-                  <span className="font-medium dark:text-gray-200">{t('customPostgreSQL')}</span>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('customPostgreSQLDescription')}</p>
+                  <span className="font-medium dark:text-gray-200">{t('customPostgreSQL' as any)}</span>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('customPostgreSQLDescription' as any)}</p>
                 </div>
               </label>
             </div>
@@ -253,7 +253,7 @@ export function VectorDBConnectionWizard({
           )}
 
           <div className="border-t dark:border-gray-700 pt-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('accessMode')}</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('accessMode' as any)}</label>
             <div className="space-y-2">
               <label className="flex items-center">
                 <input
@@ -269,7 +269,7 @@ export function VectorDBConnectionWizard({
                   }
                   className="mr-2"
                 />
-                <span>{t('readWrite')}</span>
+                <span>{t('readWrite' as any)}</span>
               </label>
               <label className="flex items-center">
                 <input
@@ -285,7 +285,7 @@ export function VectorDBConnectionWizard({
                   }
                   className="mr-2"
                 />
-                <span>{t('readOnly')}</span>
+                <span>{t('readOnly' as any)}</span>
               </label>
               <label className="flex items-center">
                 <input
@@ -301,13 +301,13 @@ export function VectorDBConnectionWizard({
                   }
                   className="mr-2"
                 />
-                <span>{t('disabled')}</span>
+                <span>{t('disabled' as any)}</span>
               </label>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('dataScope')}</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('dataScope' as any)}</label>
             <div className="space-y-2">
               <label className="flex items-center">
                 <input
@@ -368,9 +368,9 @@ export function VectorDBConnectionWizard({
                 onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
                 className="mr-2"
               />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('enableVectorDB')}</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('enableVectorDB' as any)}</span>
             </label>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('enableVectorDBDescription')}</p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('enableVectorDBDescription' as any)}</p>
           </div>
         </div>
 
@@ -380,14 +380,14 @@ export function VectorDBConnectionWizard({
             disabled={testing || saving}
             className="px-4 py-2 text-gray-600 dark:text-gray-400 border border-gray-600 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {testing ? t('testing') : t('testConnection')}
+            {testing ? t('testing' as any) : t('testConnection' as any)}
           </button>
           <div className="flex space-x-3">
             <button
               onClick={onClose}
               className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
             >
-              {t('cancel')}
+              {t('cancel' as any)}
             </button>
             <button
               onClick={handleSave}
@@ -398,7 +398,7 @@ export function VectorDBConnectionWizard({
               }
               className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? t('saving') : t('save')}
+              {saving ? t('saving' as any) : t('save' as any)}
             </button>
           </div>
         </div>

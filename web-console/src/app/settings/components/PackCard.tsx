@@ -15,18 +15,18 @@ interface PackCardProps {
 
 function getPackName(packId: string): string {
   const nameMap: Record<string, string> = {
-    product_designer: t('packProductDesignerName'),
-    content_creator: t('packContentCreatorName'),
-    wordpress_webmaster: t('packWordPressWebmasterName'),
+    product_designer: t('packProductDesignerName' as any),
+    content_creator: t('packContentCreatorName' as any),
+    wordpress_webmaster: t('packWordPressWebmasterName' as any),
   };
   return nameMap[packId] || packId;
 }
 
 function getPackDescription(packId: string): string {
   const descMap: Record<string, string> = {
-    product_designer: t('packProductDesignerDescription'),
-    content_creator: t('packContentCreatorDescription'),
-    wordpress_webmaster: t('packWordPressWebmasterDescription'),
+    product_designer: t('packProductDesignerDescription' as any),
+    content_creator: t('packContentCreatorDescription' as any),
+    wordpress_webmaster: t('packWordPressWebmasterDescription' as any),
   };
   return descMap[packId] || '';
 }
@@ -69,12 +69,12 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             {pack.installed && (
               <span className="px-2 py-1 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-medium whitespace-nowrap">
-                {t('installed')}
+                {t('installed' as any)}
               </span>
             )}
             {pack.enabled_by_default && !pack.installed && (
               <span className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded font-medium whitespace-nowrap">
-                {t('default')}
+                {t('default' as any)}
               </span>
             )}
             {(pack.version || pack.installed_at) && (
@@ -82,7 +82,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                 {pack.version && <span className="whitespace-nowrap">v{pack.version}</span>}
                 {pack.installed_at && (
                   <span className="whitespace-nowrap">
-                    {t('installedAt')}: {new Date(pack.installed_at).toLocaleDateString('zh-TW')}
+                    {t('installedAt' as any)}: {new Date(pack.installed_at).toLocaleDateString('zh-TW')}
                   </span>
                 )}
               </div>
@@ -102,7 +102,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
       <div className="space-y-3 mb-4 flex-1 min-h-0">
         {pack.ai_members && pack.ai_members.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packInstallsMembers')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packInstallsMembers' as any)}:</p>
             <div className="flex flex-wrap gap-2">
               {pack.ai_members.map((member) => (
                 <span
@@ -118,7 +118,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {displayPlaybooks.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packInstallsPlaybooks')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packInstallsPlaybooks' as any)}:</p>
             <div className="flex flex-wrap gap-2">
               {displayPlaybooks.map((playbook, idx) => (
                 <span
@@ -134,7 +134,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {displayTools.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packProvidesTools')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packProvidesTools' as any)}:</p>
             <div className="flex flex-wrap gap-2">
               {displayTools.map((tool, idx) => (
                 <span
@@ -150,16 +150,16 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {pack.routes && pack.routes.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packProvidesRoutes')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('packProvidesRoutes' as any)}:</p>
             <div className="text-xs text-gray-600 dark:text-gray-400">
-              {pack.routes.length} {t('apiRoutes')}
+              {pack.routes.length} {t('apiRoutes' as any)}
             </div>
           </div>
         )}
 
         {packCapabilities.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('mainCapabilities')}:</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('mainCapabilities' as any)}:</p>
             <div className="flex flex-wrap gap-2">
               {packCapabilities.map((capability, idx) => (
                 <span
@@ -175,7 +175,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
 
         {pack.required_tools && pack.required_tools.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('requiredToolsLabel')}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('requiredToolsLabel' as any)}</p>
             <div className="space-y-2">
               {pack.required_tools.map((toolType) => {
               const status = getToolStatus(toolType);
@@ -218,7 +218,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             rel="noopener noreferrer"
                             className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
-                            {t('officialWebsite')}
+                            {t('officialWebsite' as any)}
                           </a>
                         )}
                         {toolInfo.download_url && (
@@ -228,7 +228,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             rel="noopener noreferrer"
                             className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
-                            {t('download')}
+                            {t('download' as any)}
                           </a>
                         )}
                         {toolInfo.local_setup_guide && (
@@ -238,7 +238,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             rel="noopener noreferrer"
                             className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
-                            {t('setupGuide')}
+                            {t('setupGuide' as any)}
                           </a>
                         )}
                         {toolInfo.api_docs && (
@@ -248,7 +248,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
                             rel="noopener noreferrer"
                             className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
                           >
-                            {t('apiDocs')}
+                            {t('apiDocs' as any)}
                           </a>
                         )}
                       </div>
@@ -271,7 +271,7 @@ export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCar
             : 'bg-gray-600 dark:bg-gray-700 text-white hover:bg-gray-700 dark:hover:bg-gray-600'
         } disabled:opacity-50`}
       >
-        {pack.installed ? t('installed') : installing ? t('installing') : t('installPack')}
+        {pack.installed ? t('installed' as any) : installing ? t('installing' as any) : t('installPack' as any)}
       </button>
     </Card>
   );

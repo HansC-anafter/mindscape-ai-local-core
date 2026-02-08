@@ -82,7 +82,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
       );
 
       setSuccess(
-        `${t('canvaConnectionSuccess') || 'Canva connected successfully'}! ${discoverResult.tools_count || 0} ${t('toolsCount') || 'tools'} discovered.`
+        `${t('canvaConnectionSuccess' as any) || 'Canva connected successfully'}! ${discoverResult.tools_count || 0} ${t('toolsCount' as any) || 'tools'} discovered.`
       );
       setTimeout(() => {
         onSuccess();
@@ -97,7 +97,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
   const renderStep1 = () => (
     <div>
       <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-        {t('selectCanvaAuthMethod') || 'Select Authentication Method'}
+        {t('selectCanvaAuthMethod' as any) || 'Select Authentication Method'}
       </h4>
       <div className="space-y-3">
         <button
@@ -109,7 +109,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
         >
           <div className="font-medium text-gray-900 dark:text-gray-100">OAuth 2.0 (Recommended)</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('canvaOAuthDescription') || 'Secure OAuth authentication via Canva Developer Portal'}
+            {t('canvaOAuthDescription' as any) || 'Secure OAuth authentication via Canva Developer Portal'}
           </div>
         </button>
         <button
@@ -121,7 +121,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
         >
           <div className="font-medium text-gray-900 dark:text-gray-100">API Key</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('canvaAPIKeyDescription') || 'Direct API key authentication (if available)'}
+            {t('canvaAPIKeyDescription' as any) || 'Direct API key authentication (if available)'}
           </div>
         </button>
       </div>
@@ -134,7 +134,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('connectionName') || 'Connection Name'}
+              {t('connectionName' as any) || 'Connection Name'}
             </label>
             <input
               type="text"
@@ -147,7 +147,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('canvaClientID') || 'Canva Client ID'}
+              {t('canvaClientID' as any) || 'Canva Client ID'}
             </label>
             <input
               type="text"
@@ -157,13 +157,13 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
               placeholder="From Canva Developer Portal"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {t('canvaClientIDDescription') || 'Get this from your Canva Developer Portal application'}
+              {t('canvaClientIDDescription' as any) || 'Get this from your Canva Developer Portal application'}
             </p>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('canvaClientSecret') || 'Canva Client Secret'}
+              {t('canvaClientSecret' as any) || 'Canva Client Secret'}
             </label>
             <input
               type="password"
@@ -176,23 +176,23 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('canvaRedirectURI') || 'Redirect URI (Optional)'}
+              {t('canvaRedirectURI' as any) || 'Redirect URI (Optional)'}
             </label>
             <input
               type="url"
               value={form.redirect_uri}
               onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-              placeholder={getApiBaseUrl()}/api/tools/canva/oauth/callback"
+              placeholder={`${getApiBaseUrl()}/api/tools/canva/oauth/callback`}
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {t('canvaRedirectURIDescription') || 'Must match the redirect URI configured in your Canva Developer Portal'}
+              {t('canvaRedirectURIDescription' as any) || 'Must match the redirect URI configured in your Canva Developer Portal'}
             </p>
           </div>
 
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              {t('canvaOAuthFlowNote') || 'After clicking "Connect", you will be redirected to Canva to authorize the connection.'}
+              {t('canvaOAuthFlowNote' as any) || 'After clicking "Connect", you will be redirected to Canva to authorize the connection.'}
             </p>
           </div>
         </div>
@@ -202,7 +202,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('connectionName') || 'Connection Name'}
+              {t('connectionName' as any) || 'Connection Name'}
             </label>
             <input
               type="text"
@@ -215,7 +215,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('canvaAPIKey') || 'Canva API Key'}
+              {t('canvaAPIKey' as any) || 'Canva API Key'}
             </label>
             <input
               type="password"
@@ -228,7 +228,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('canvaBaseURL') || 'Base URL'}
+              {t('canvaBaseURL' as any) || 'Base URL'}
             </label>
             <input
               type="url"
@@ -241,7 +241,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('canvaBrandID') || 'Brand ID (Optional)'}
+              {t('canvaBrandID' as any) || 'Brand ID (Optional)'}
             </label>
             <input
               type="text"
@@ -263,21 +263,21 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
           onClick={() => setStep(step - 1)}
           className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
         >
-          {t('back') || 'Back'}
+          {t('back' as any) || 'Back'}
         </button>
       )}
       <button
         onClick={onClose}
         className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
-        {t('cancel') || 'Cancel'}
+        {t('cancel' as any) || 'Cancel'}
       </button>
       {step < 2 ? (
         <button
           onClick={() => setStep(step + 1)}
           className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600"
         >
-          {t('next') || 'Next'}
+          {t('next' as any) || 'Next'}
         </button>
       ) : (
         <button
@@ -285,7 +285,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
           disabled={connecting || !form.name || (useOAuth ? (!form.client_id || !form.client_secret) : !form.api_key)}
           className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {connecting ? (t('connecting') || 'Connecting...') : (t('connect') || 'Connect')}
+          {connecting ? (t('connecting' as any) || 'Connecting...') : (t('connect' as any) || 'Connect')}
         </button>
       )}
     </>
@@ -293,7 +293,7 @@ export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWiz
 
   return (
     <WizardShell
-      title={t('connectCanva') || 'Connect Canva'}
+      title={t('connectCanva' as any) || 'Connect Canva'}
       onClose={onClose}
       error={error}
       success={success}

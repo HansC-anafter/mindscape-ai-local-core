@@ -30,14 +30,14 @@ export function MindscapePanel() {
   if (loading) {
     return (
       <Card>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">{t('loading')}</div>
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">{t('loading' as any)}</div>
       </Card>
     );
   }
 
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('mindscapeConfiguration')}</h2>
+      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('mindscapeConfiguration' as any)}</h2>
 
       {error && <InlineAlert type="error" message={error} onDismiss={clearError} />}
       {success && <InlineAlert type="success" message={success} onDismiss={clearSuccess} />}
@@ -57,7 +57,7 @@ export function MindscapePanel() {
               disabled={saving}
               className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
             >
-              {saving ? t('saving') : t('save')}
+              {saving ? t('saving' as any) : t('save' as any)}
             </button>
           </div>
         </div>

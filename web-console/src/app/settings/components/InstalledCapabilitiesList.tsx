@@ -43,20 +43,20 @@ export function InstalledCapabilitiesList({ refreshTrigger }: InstalledCapabilit
   };
 
   if (loading) {
-    return <div className="text-gray-600">{t('loading')}</div>;
+    return <div className="text-gray-600">{t('loading' as any)}</div>;
   }
 
   if (installed.length === 0) {
     return (
       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <p className="text-sm text-gray-600">{t('noCapabilityPacksInstalled')}</p>
+        <p className="text-sm text-gray-600">{t('noCapabilityPacksInstalled' as any)}</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-900">{t('installedCapabilityPacks')}</h3>
+      <h3 className="text-lg font-semibold text-gray-900">{t('installedCapabilityPacks' as any)}</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {installed.map((cap) => (
           <Card key={cap.id || cap.code} className="flex flex-col h-full">

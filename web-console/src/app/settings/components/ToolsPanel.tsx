@@ -30,95 +30,95 @@ interface ToolsPanelProps {
 }
 
 // System tools - local/system-level tools
-const getSystemTools = (t: (key: string) => string): Array<{
+const getSystemTools = (t: (...args: any[]) => string): Array<{
   toolType: string;
   name: string;
   description: string;
   icon: string;
 }> => [
-  {
-    toolType: 'local_files',
-    name: 'Local File System',
-    description: t('toolLocalFilesDescription'),
-    icon: '💾',
-  },
-  {
-    toolType: 'vector_db',
-    name: 'Vector Database (PostgreSQL / pgvector)',
-    description: t('toolVectorDBDescription'),
-    icon: '🗄️',
-  },
-  {
-    toolType: 'obsidian',
-    name: 'Obsidian',
-    description: t('toolObsidianDescription'),
-    icon: '📚',
-  },
-];
+    {
+      toolType: 'local_files',
+      name: 'Local File System',
+      description: t('toolLocalFilesDescription' as any),
+      icon: '💾',
+    },
+    {
+      toolType: 'vector_db',
+      name: 'Vector Database (PostgreSQL / pgvector)',
+      description: t('toolVectorDBDescription' as any),
+      icon: '🗄️',
+    },
+    {
+      toolType: 'obsidian',
+      name: 'Obsidian',
+      description: t('toolObsidianDescription' as any),
+      icon: '📚',
+    },
+  ];
 
 // External SaaS tools - third-party cloud services
 // Tool names are brand names and don't need i18n, only descriptions do
-const getExternalSaaSTools = (t: (key: string) => string): Array<{
+const getExternalSaaSTools = (t: (...args: any[]) => string): Array<{
   toolType: string;
   name: string;
   description: string;
   icon: string;
 }> => [
-  {
-    toolType: 'wordpress',
-    name: 'WordPress',
-    description: t('toolWordPressDescription'),
-    icon: '🌐',
-  },
-  {
-    toolType: 'notion',
-    name: 'Notion',
-    description: t('toolNotionDescription'),
-    icon: '📝',
-  },
-  {
-    toolType: 'google_drive',
-    name: 'Google Drive',
-    description: t('toolGoogleDriveDescription'),
-    icon: '📁',
-  },
-  {
-    toolType: 'canva',
-    name: 'Canva',
-    description: t('toolCanvaDescription'),
-    icon: '🎨',
-  },
-  {
-    toolType: 'slack',
-    name: 'Slack',
-    description: t('toolSlackDescription'),
-    icon: '💬',
-  },
-  {
-    toolType: 'airtable',
-    name: 'Airtable',
-    description: t('toolAirtableDescription'),
-    icon: '📊',
-  },
-  {
-    toolType: 'google_sheets',
-    name: 'Google Sheets',
-    description: t('toolGoogleSheetsDescription'),
-    icon: '📈',
-  },
-  {
-    toolType: 'github',
-    name: 'GitHub',
-    description: t('toolGitHubDescription'),
-    icon: '💻',
-  },
-  {
-    toolType: 'unsplash',
-    name: 'Unsplash',
-    description: '連接 Unsplash 以搜尋和取得高品質攝影作品，用於生成 Visual Lens',
-    icon: '📷',
-  },
-];
+    {
+      toolType: 'wordpress',
+      name: 'WordPress',
+      description: t('toolWordPressDescription' as any),
+      icon: '🌐',
+    },
+    {
+      toolType: 'notion',
+      name: 'Notion',
+      description: t('toolNotionDescription' as any),
+      icon: '📝',
+    },
+    {
+      toolType: 'google_drive',
+      name: 'Google Drive',
+      description: t('toolGoogleDriveDescription' as any),
+      icon: '📁',
+    },
+    {
+      toolType: 'canva',
+      name: 'Canva',
+      description: t('toolCanvaDescription' as any),
+      icon: '🎨',
+    },
+    {
+      toolType: 'slack',
+      name: 'Slack',
+      description: t('toolSlackDescription' as any),
+      icon: '💬',
+    },
+    {
+      toolType: 'airtable',
+      name: 'Airtable',
+      description: t('toolAirtableDescription' as any),
+      icon: '📊',
+    },
+    {
+      toolType: 'google_sheets',
+      name: 'Google Sheets',
+      description: t('toolGoogleSheetsDescription' as any),
+      icon: '📈',
+    },
+    {
+      toolType: 'github',
+      name: 'GitHub',
+      description: t('toolGitHubDescription' as any),
+      icon: '💻',
+    },
+    {
+      toolType: 'unsplash',
+      name: 'Unsplash',
+      description: '連接 Unsplash 以搜尋和取得高品質攝影作品，用於生成 Visual Lens',
+      icon: '📷',
+    },
+  ];
 
 interface ToolsPanelProps {
   activeSection?: string;
@@ -239,13 +239,13 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
     setTestSuccess(null);
     try {
       await testConnection(connectionId);
-      setTestSuccess(t('connectionTestSuccessful'));
+      setTestSuccess(t('connectionTestSuccessful' as any));
       // Refresh tool status after successful test
       loadToolsStatus();
       dispatchToolConfigUpdated();
     } catch (err) {
       setTestError(
-        `${t('testFailed')}: ${err instanceof Error ? err.message : 'Unknown error'}`
+        `${t('testFailed' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`
       );
     }
   };
@@ -255,13 +255,13 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
     setTestResult(null);
     try {
       const details = await testVectorDB();
-      setTestResult(`${t('testResults')}:\n\n${details}`);
+      setTestResult(`${t('testResults' as any)}:\n\n${details}`);
       // Refresh tool status after successful test
       loadToolsStatus();
       dispatchToolConfigUpdated('vector_db');
     } catch (err) {
       setTestError(
-        `${t('testFailed')}: ${err instanceof Error ? err.message : 'Unknown error'}`
+        `${t('testFailed' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`
       );
     }
   };
@@ -308,57 +308,57 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
 
       {!activeSection && (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          <p>{t('toolsAndIntegrations')}</p>
-          <p className="text-sm mt-2">{t('selectToolsSection')}</p>
+          <p>{t('toolsAndIntegrations' as any)}</p>
+          <p className="text-sm mt-2">{t('selectToolsSection' as any)}</p>
         </div>
       )}
 
       {activeSection === 'system-tools' && (
-      <Section
-          title={t('systemTools')}
-          description={t('systemToolsDescription')}
-      >
-        <ToolGrid>
+        <Section
+          title={t('systemTools' as any)}
+          description={t('systemToolsDescription' as any)}
+        >
+          <ToolGrid>
             {getSystemTools(t).map((tool) => {
-            const status = getToolStatus(tool.toolType);
-            const isLocal = tool.toolType === 'local_files';
-            const localStatus = isLocal
-              ? { status: 'local' as const, label: 'Local mode', icon: '🔌' }
-              : status;
+              const status = getToolStatus(tool.toolType);
+              const isLocal = tool.toolType === 'local_files';
+              const localStatus = isLocal
+                ? { status: 'local' as const, label: 'Local mode', icon: '🔌' }
+                : status;
 
-            return (
-              <ToolCard
-                key={tool.toolType}
-                toolType={tool.toolType}
-                name={tool.name}
-                description={tool.description}
-                icon={tool.icon}
-                status={localStatus}
-                onConfigure={() => setSelectedTool(tool.toolType)}
-                onTest={
-                  tool.toolType === 'vector_db'
-                    ? handleTestVectorDB
-                    : tool.toolType === 'obsidian'
-                      ? undefined
-                      : tool.toolType !== 'local_files' && status.status === 'connected'
-                        ? () => {
+              return (
+                <ToolCard
+                  key={tool.toolType}
+                  toolType={tool.toolType}
+                  name={tool.name}
+                  description={tool.description}
+                  icon={tool.icon}
+                  status={localStatus}
+                  onConfigure={() => setSelectedTool(tool.toolType)}
+                  onTest={
+                    tool.toolType === 'vector_db'
+                      ? handleTestVectorDB
+                      : tool.toolType === 'obsidian'
+                        ? undefined
+                        : tool.toolType !== 'local_files' && status.status === 'connected'
+                          ? () => {
                             const conn = connections.find((c) => c.tool_type === tool.toolType);
                             if (conn) handleTestConnection(conn.id);
                           }
-                        : undefined
-                }
-                testing={testingConnection === tool.toolType || testingConnection !== null}
-              />
-            );
-          })}
-        </ToolGrid>
-      </Section>
+                          : undefined
+                  }
+                  testing={testingConnection === tool.toolType || testingConnection !== null}
+                />
+              );
+            })}
+          </ToolGrid>
+        </Section>
       )}
 
       {activeSection === 'external-saas-tools' && (
         <Section
-          title={t('externalSAASTools')}
-          description={t('externalSAASToolsDescription')}
+          title={t('externalSAASTools' as any)}
+          description={t('externalSAASToolsDescription' as any)}
         >
           <ToolGrid>
             {getExternalSaaSTools(t).map((tool) => {
@@ -375,19 +375,19 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
                   onTest={
                     status.status === 'connected'
                       ? () => {
-                          const conn = connections.find((c) => c.tool_type === tool.toolType);
-                          if (conn) handleTestConnection(conn.id);
-                        }
+                        const conn = connections.find((c) => c.tool_type === tool.toolType);
+                        if (conn) handleTestConnection(conn.id);
+                      }
                       : undefined
                   }
                   testing={testingConnection === tool.toolType || testingConnection !== null}
                   extraInfo={
                     tool.toolType === 'unsplash' && unsplashStats
                       ? {
-                          configuredWorkspaces: unsplashStats.configuredWorkspaces,
-                          totalWorkspaces: unsplashStats.totalWorkspaces,
-                          statusText: unsplashStats.statusText,
-                        }
+                        configuredWorkspaces: unsplashStats.configuredWorkspaces,
+                        totalWorkspaces: unsplashStats.totalWorkspaces,
+                        statusText: unsplashStats.statusText,
+                      }
                       : undefined
                   }
                 />

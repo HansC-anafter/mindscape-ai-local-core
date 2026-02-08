@@ -21,19 +21,19 @@ export function LLMAPIKeySettings({
 }: LLMAPIKeySettingsProps) {
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-medium text-gray-700 mb-4">{t('llmApiKeyConfig')}</h3>
+      <h3 className="text-sm font-medium text-gray-700 mb-4">{t('llmApiKeyConfig' as any)}</h3>
 
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
-            {t('openaiApiKey')} <span className="text-gray-500">({t('apiKeyOptional')})</span>
+            {t('openaiApiKey' as any)} <span className="text-gray-500">({t('apiKeyOptional' as any)})</span>
           </label>
           {config?.openai_api_key_configured && (
             <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              {t('configured')}
+              {t('configured' as any)}
             </span>
           )}
         </div>
@@ -43,8 +43,8 @@ export function LLMAPIKeySettings({
           onChange={(e) => onOpenaiKeyChange(e.target.value)}
           placeholder={
             config?.openai_api_key_configured
-              ? t('apiKeyConfigured')
-              : t('apiKeyPlaceholder')
+              ? t('apiKeyConfigured' as any)
+              : t('apiKeyPlaceholder' as any)
           }
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
             config?.openai_api_key_configured
@@ -57,21 +57,21 @@ export function LLMAPIKeySettings({
             ? 'text-green-600 font-medium'
             : 'text-gray-500'
         }`}>
-          {config?.openai_api_key_configured ? t('apiKeyConfigured') : t('apiKeyHint')}
+          {config?.openai_api_key_configured ? t('apiKeyConfigured' as any) : t('apiKeyHint' as any)}
         </p>
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
-            {t('anthropicApiKey')} <span className="text-gray-500">({t('apiKeyOptional')})</span>
+            {t('anthropicApiKey' as any)} <span className="text-gray-500">({t('apiKeyOptional' as any)})</span>
           </label>
           {config?.anthropic_api_key_configured && (
             <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              {t('configured')}
+              {t('configured' as any)}
             </span>
           )}
         </div>
@@ -81,8 +81,8 @@ export function LLMAPIKeySettings({
           onChange={(e) => onAnthropicKeyChange(e.target.value)}
           placeholder={
             config?.anthropic_api_key_configured
-              ? t('apiKeyConfigured')
-              : t('apiKeyPlaceholder')
+              ? t('apiKeyConfigured' as any)
+              : t('apiKeyPlaceholder' as any)
           }
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
             config?.anthropic_api_key_configured
@@ -92,7 +92,7 @@ export function LLMAPIKeySettings({
         />
         {config?.anthropic_api_key_configured && (
           <p className="mt-1 text-sm text-green-600 font-medium">
-            {t('apiKeyConfigured')}
+            {t('apiKeyConfigured' as any)}
           </p>
         )}
       </div>

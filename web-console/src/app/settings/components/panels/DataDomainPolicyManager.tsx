@@ -6,10 +6,12 @@ import { t } from '../../../../lib/i18n';
 interface DataDomainPolicyManagerProps {
   dataDomainPolicies: {
     sensitive_domains: string[];
+    pii_handling_enabled: boolean;
     forbidden_domains: string[];
   };
   onChange: (policies: {
     sensitive_domains: string[];
+    pii_handling_enabled: boolean;
     forbidden_domains: string[];
   }) => void;
 }
@@ -59,17 +61,17 @@ export function DataDomainPolicyManager({
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <div className="mb-4">
         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
-          {t('dataDomainPolicies')}
+          {t('dataDomainPolicies' as any)}
         </h4>
         <p className="text-xs text-gray-600 dark:text-gray-400">
-          {t('dataDomainPoliciesDescription')}
+          {t('dataDomainPoliciesDescription' as any)}
         </p>
       </div>
 
       <div className="space-y-4">
         <div>
           <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('sensitiveDomains')}
+            {t('sensitiveDomains' as any)}
           </div>
           <div className="flex gap-2 mb-2">
             <input
@@ -77,7 +79,7 @@ export function DataDomainPolicyManager({
               value={newSensitiveDomain}
               onChange={(e) => setNewSensitiveDomain(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleAddSensitiveDomain()}
-              placeholder={t('enterDomainName')}
+              placeholder={t('enterDomainName' as any)}
               className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <button
@@ -85,7 +87,7 @@ export function DataDomainPolicyManager({
               onClick={handleAddSensitiveDomain}
               className="px-3 py-2 text-sm bg-yellow-600 dark:bg-yellow-700 text-white rounded hover:bg-yellow-700 dark:hover:bg-yellow-600 transition-colors"
             >
-              {t('add')}
+              {t('add' as any)}
             </button>
           </div>
           {dataDomainPolicies.sensitive_domains.length > 0 ? (
@@ -108,14 +110,14 @@ export function DataDomainPolicyManager({
             </div>
           ) : (
             <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-              {t('noSensitiveDomains')}
+              {t('noSensitiveDomains' as any)}
             </p>
           )}
         </div>
 
         <div>
           <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('forbiddenDomains')}
+            {t('forbiddenDomains' as any)}
           </div>
           <div className="flex gap-2 mb-2">
             <input
@@ -123,7 +125,7 @@ export function DataDomainPolicyManager({
               value={newForbiddenDomain}
               onChange={(e) => setNewForbiddenDomain(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleAddForbiddenDomain()}
-              placeholder={t('enterDomainName')}
+              placeholder={t('enterDomainName' as any)}
               className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <button
@@ -131,7 +133,7 @@ export function DataDomainPolicyManager({
               onClick={handleAddForbiddenDomain}
               className="px-3 py-2 text-sm bg-red-600 dark:bg-red-700 text-white rounded hover:bg-red-700 dark:hover:bg-red-600 transition-colors"
             >
-              {t('add')}
+              {t('add' as any)}
             </button>
           </div>
           {dataDomainPolicies.forbidden_domains.length > 0 ? (
@@ -154,7 +156,7 @@ export function DataDomainPolicyManager({
             </div>
           ) : (
             <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-              {t('noForbiddenDomains')}
+              {t('noForbiddenDomains' as any)}
             </p>
           )}
         </div>

@@ -93,8 +93,8 @@ export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPa
 
   return (
     <Section
-      title={t('thirdPartyWorkflow')}
-      description={t('thirdPartyWorkflowDescription') || 'Connect to workflow automation platforms to extend AI capabilities'}
+      title={t('thirdPartyWorkflow' as any)}
+      description={t('thirdPartyWorkflowDescription' as any) || 'Connect to workflow automation platforms to extend AI capabilities'}
     >
       {error && (
         <InlineAlert
@@ -110,18 +110,18 @@ export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPa
           onClick={() => handleAddWorkflow()}
           className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
         >
-          {t('addWorkflow') || 'Add Workflow'}
+          {t('addWorkflow' as any) || 'Add Workflow'}
         </button>
       </div>
 
       {loading ? (
         <div className="text-center py-12 text-gray-500">
-          <p>{t('loading') || 'Loading...'}</p>
+          <p>{t('loading' as any) || 'Loading...'}</p>
         </div>
       ) : connections.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
-          <p>{t('noWorkflows') || 'No workflow connections configured'}</p>
-          <p className="text-sm mt-2">{t('addWorkflowToStart') || 'Click "Add Workflow" to get started'}</p>
+          <p>{t('noWorkflows' as any) || 'No workflow connections configured'}</p>
+          <p className="text-sm mt-2">{t('addWorkflowToStart' as any) || 'Click "Add Workflow" to get started'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -141,8 +141,8 @@ export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPa
                     {connection && (
                       <p className="text-xs text-gray-400 mt-2">
                         {connection.status === 'connected'
-                          ? `✅ ${t('connected') || 'Connected'}`
-                          : `⚪ ${t('notConnected') || 'Not connected'}`}
+                          ? `✅ ${t('connected' as any) || 'Connected'}`
+                          : `⚪ ${t('notConnected' as any) || 'Not connected'}`}
                       </p>
                     )}
                   </div>

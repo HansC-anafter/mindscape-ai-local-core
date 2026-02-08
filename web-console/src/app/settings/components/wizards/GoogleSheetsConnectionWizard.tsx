@@ -55,9 +55,9 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
         }
       );
 
-      const reusedMsg = result.oauth_reused ? ` (${t('reusedGoogleDriveOAuth')})` : '';
+      const reusedMsg = result.oauth_reused ? ` (${t('reusedGoogleDriveOAuth' as any)})` : '';
       setSuccess(
-        `${t('googleSheetsConnectionSuccess')}! ${result.tools_count || 0} ${t('toolsCount')} discovered.${reusedMsg}`
+        `${t('googleSheetsConnectionSuccess' as any)}! ${result.tools_count || 0} ${t('toolsCount' as any)} discovered.${reusedMsg}`
       );
       setTimeout(() => {
         onSuccess();
@@ -81,14 +81,14 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
         onClick={onClose}
         className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
-        {t('cancel')}
+        {t('cancel' as any)}
       </button>
       {!form.api_key && !reuseGoogleDrive && (
         <button
           onClick={handleOAuth}
           className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
         >
-          {t('connectViaOAuth')}
+          {t('connectViaOAuth' as any)}
         </button>
       )}
       <button
@@ -96,14 +96,14 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
         disabled={discovering || !form.connection_id || !form.name || (!form.api_key && !reuseGoogleDrive)}
         className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {discovering ? t('discovering') : t('discoverAndRegister')}
+        {discovering ? t('discovering' as any) : t('discoverAndRegister' as any)}
       </button>
     </>
   );
 
   return (
     <WizardShell
-      title={t('connectGoogleSheets')}
+      title={t('connectGoogleSheets' as any)}
       onClose={onClose}
       error={error}
       success={success}
@@ -113,7 +113,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
     >
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('connectionName')}
+          {t('connectionName' as any)}
         </label>
         <input
           type="text"
@@ -126,7 +126,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {t('siteIdentifier')}
+          {t('siteIdentifier' as any)}
         </label>
         <input
           type="text"
@@ -152,11 +152,11 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
               className="mr-2"
             />
             <span className="text-sm text-blue-800 dark:text-blue-300">
-              {t('reuseGoogleDriveOAuth')}
+              {t('reuseGoogleDriveOAuth' as any)}
             </span>
           </label>
           <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-            {t('reuseGoogleDriveOAuthDescription')}
+            {t('reuseGoogleDriveOAuthDescription' as any)}
           </p>
         </div>
       )}
@@ -164,7 +164,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
       {!reuseGoogleDrive && (
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {t('googleSheetsAccessToken')}
+            {t('googleSheetsAccessToken' as any)}
           </label>
           <input
             type="password"
@@ -174,7 +174,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
             placeholder="ya29..."
           />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('googleSheetsTokenDescription')}
+            {t('googleSheetsTokenDescription' as any)}
           </p>
         </div>
       )}
@@ -182,7 +182,7 @@ export function GoogleSheetsConnectionWizard({ onClose, onSuccess }: GoogleSheet
       {!reuseGoogleDrive && !form.api_key && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
           <p className="text-sm text-yellow-800 dark:text-yellow-300">
-            {t('googleSheetsOAuthNote')}
+            {t('googleSheetsOAuthNote' as any)}
           </p>
         </div>
       )}

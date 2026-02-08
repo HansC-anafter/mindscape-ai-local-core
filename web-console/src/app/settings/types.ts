@@ -5,6 +5,8 @@ export interface BackendConfig {
   remote_crs_configured: boolean;
   openai_api_key_configured: boolean;
   anthropic_api_key_configured: boolean;
+  vertex_ai_configured?: boolean;
+  ollama_configured?: boolean;
   available_backends: Record<string, BackendInfo>;
 }
 
@@ -117,4 +119,4 @@ export interface PlaybookReadinessStatus {
   optional_tools: string[];
 }
 
-export type SettingsTab = 'basic' | 'mindscape' | 'social_media' | 'tools' | 'packs' | 'localization' | 'service_status' | 'governance';
+export type SettingsTab = 'basic' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'packs' | 'localization' | 'service_status' | 'governance';

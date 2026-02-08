@@ -119,8 +119,8 @@ export function MCPServerPanel({ activeProvider }: MCPServerPanelProps) {
 
   return (
     <Section
-      title={t('mcpServer')}
-      description={t('mcpServerDescription') || 'Configure Model Context Protocol servers to extend AI capabilities'}
+      title={t('mcpServer' as any)}
+      description={t('mcpServerDescription' as any) || 'Configure Model Context Protocol servers to extend AI capabilities'}
     >
       {error && (
         <InlineAlert
@@ -136,24 +136,24 @@ export function MCPServerPanel({ activeProvider }: MCPServerPanelProps) {
           onClick={handleAddServer}
           className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
         >
-          {t('addMCPServer') || 'Add MCP Server'}
+          {t('addMCPServer' as any) || 'Add MCP Server'}
         </button>
         <button
           onClick={handleImportClaude}
           className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
         >
-          {t('importClaudeConfig') || 'Import from Claude Desktop'}
+          {t('importClaudeConfig' as any) || 'Import from Claude Desktop'}
         </button>
       </div>
 
       {loading ? (
         <div className="text-center py-12 text-gray-500">
-          <p>{t('loading') || 'Loading...'}</p>
+          <p>{t('loading' as any) || 'Loading...'}</p>
         </div>
       ) : servers.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
-          <p>{t('noMCPServers') || 'No MCP servers configured'}</p>
-          <p className="text-sm mt-2">{t('addMCPServerToStart') || 'Click "Add MCP Server" to get started'}</p>
+          <p>{t('noMCPServers' as any) || 'No MCP servers configured'}</p>
+          <p className="text-sm mt-2">{t('addMCPServerToStart' as any) || 'Click "Add MCP Server" to get started'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

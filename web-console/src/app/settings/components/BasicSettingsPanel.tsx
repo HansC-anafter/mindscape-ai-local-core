@@ -77,7 +77,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         return (
           <div className="space-y-6">
             {loading ? (
-              <div className="text-center py-4 text-sm text-secondary dark:text-gray-400">{t('loading')}</div>
+              <div className="text-center py-4 text-sm text-secondary dark:text-gray-400">{t('loading' as any)}</div>
             ) : (
               <>
                 <BackendModeSettings mode={mode} onModeChange={setMode} />
@@ -85,7 +85,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
                   <div className="border-t dark:border-gray-700 pt-6 space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
-                        {t('serviceUrl')} <span className="text-red-500">*</span>
+                        {t('serviceUrl' as any)} <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -99,7 +99,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
 
                     <div>
                       <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
-                        {t('apiToken')} <span className="text-red-500">*</span>
+                        {t('apiToken' as any)} <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="password"
@@ -107,8 +107,8 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
                         onChange={(e) => setRemoteToken(e.target.value)}
                         placeholder={
                           config?.remote_crs_configured
-                            ? t('tokenPlaceholderConfigured')
-                            : t('tokenPlaceholder')
+                            ? t('tokenPlaceholderConfigured' as any)
+                            : t('tokenPlaceholder' as any)
                         }
                         className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
                         required
@@ -124,13 +124,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
       case 'api-quota':
         if (loading) {
           return (
-            <div className="text-center py-4 text-sm text-secondary">{t('loading')}</div>
+            <div className="text-center py-4 text-sm text-secondary">{t('loading' as any)}</div>
           );
         }
         if (mode !== 'local') {
           return (
             <div className="text-sm text-secondary dark:text-gray-400">
-              {t('apiAndQuota') || 'API 與配額'} {t('availableInLocalMode') || 'is only available in local mode'}
+              {t('apiAndQuota' as any) || 'API 與配額'} {t('availableInLocalMode' as any) || 'is only available in local mode'}
             </div>
           );
         }
@@ -150,7 +150,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         if (mode !== 'local') {
           return (
             <div className="text-sm text-secondary dark:text-gray-400">
-              {t('embeddingModel')} {t('availableInLocalMode') || 'is only available in local mode'}
+              {t('embeddingModel' as any)} {t('availableInLocalMode' as any) || 'is only available in local mode'}
             </div>
           );
         }
@@ -164,7 +164,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         if (mode !== 'local') {
           return (
             <div className="text-sm text-secondary dark:text-gray-400">
-              {t('llmChatModel') || 'LLM 推理與對話'} {t('availableInLocalMode') || 'is only available in local mode'}
+              {t('llmChatModel' as any) || 'LLM 推理與對話'} {t('availableInLocalMode' as any) || 'is only available in local mode'}
             </div>
           );
         }
@@ -207,7 +207,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         if (mode !== 'local') {
           return (
             <div className="text-sm text-secondary dark:text-gray-400">
-              {t('unsplashFingerprints') || 'Unsplash Fingerprints'} {t('availableInLocalMode') || 'is only available in local mode'}
+              {t('unsplashFingerprints' as any) || 'Unsplash Fingerprints'} {t('availableInLocalMode' as any) || 'is only available in local mode'}
             </div>
           );
         }
@@ -242,7 +242,7 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
               disabled={saving}
               className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
             >
-              {saving ? t('saving') : t('save')}
+              {saving ? t('saving' as any) : t('save' as any)}
             </button>
         </div>
       </form>

@@ -35,12 +35,12 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
     setInstallSuccess(null);
     try {
       await installPack(packId);
-      setInstallSuccess(t('packInstalledSuccessfully'));
+      setInstallSuccess(t('packInstalledSuccessfully' as any));
       loadPacks();
       loadSuites();
     } catch (err) {
       setInstallError(
-        `${t('installationFailed')}: ${err instanceof Error ? err.message : 'Unknown error'}`
+        `${t('installationFailed' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`
       );
     }
   };
@@ -50,12 +50,12 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
     setInstallSuccess(null);
     try {
       await installSuite(suiteId);
-      setInstallSuccess(t('packInstalledSuccessfully'));
+      setInstallSuccess(t('packInstalledSuccessfully' as any));
       loadSuites();
       loadPacks();
     } catch (err) {
       setInstallError(
-        `${t('installationFailed')}: ${err instanceof Error ? err.message : 'Unknown error'}`
+        `${t('installationFailed' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`
       );
     }
   };
@@ -64,8 +64,8 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
   if (!activeSection) {
     return (
       <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-        <p>{t('capabilityPacks')}</p>
-        <p className="text-sm mt-2">{t('selectPacksSection') || '請選擇能力套裝或能力包'}</p>
+        <p>{t('capabilityPacks' as any)}</p>
+        <p className="text-sm mt-2">{t('selectPacksSection' as any) || '請選擇能力套裝或能力包'}</p>
       </div>
     );
   }
@@ -91,7 +91,7 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
       {/* Section Content */}
       {activeSection === 'suites' && (
         <Section
-          description={t('capabilitySuitesDescription')}
+          description={t('capabilitySuitesDescription' as any)}
         >
           {suitesLoading ? (
             <div className="text-center py-12">
@@ -130,7 +130,7 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
 
       {activeSection === 'packages' && (
         <Section
-          description={t('capabilityPackagesDescription')}
+          description={t('capabilityPackagesDescription' as any)}
         >
           {packsLoading ? (
             <div className="text-center py-12">
@@ -154,7 +154,7 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
                       </button>
                       {showTooltip && (
                         <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg z-50">
-                          <p className="whitespace-normal">{t('installFromFileDescription')}</p>
+                          <p className="whitespace-normal">{t('installFromFileDescription' as any)}</p>
                           <div className="absolute -top-1 right-4 w-2 h-2 bg-gray-900 transform rotate-45"></div>
                         </div>
                       )}

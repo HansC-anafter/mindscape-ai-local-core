@@ -10,6 +10,7 @@ import { AddRuntimeModal } from './AddRuntimeModal';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { BaseModal } from '../../../../components/BaseModal';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../../lib/capability-path';
+import { getApiBaseUrl } from '../../../../lib/api-url';
 // Use require.context to load capability components (webpack feature)
 // @ts-ignore - require.context is a webpack feature, not standard TypeScript
 // Use 'sync' mode instead of 'lazy' to avoid webpack pp/src path bug
@@ -68,7 +69,7 @@ export function RuntimeEnvironmentsSettings() {
 
   const loadSettingsPanels = async () => {
     try {
-      const apiUrl = await getApiUrl();
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(
         `${apiUrl}/api/v1/settings/extensions?section=runtime-environments`
       );
@@ -146,17 +147,17 @@ export function RuntimeEnvironmentsSettings() {
 
   const getStatusInfo = (runtime: RuntimeEnvironment) => {
     if (runtime.isDefault) {
-      return { status: 'active' as const, label: t('default') || 'Default', icon: '✓' };
+      return { status: 'connected' as const, label: t('default' as any) || 'Default', icon: '✓' };
     }
     switch (runtime.status) {
       case 'active':
-        return { status: 'connected' as const, label: t('enabled') || 'Enabled', icon: '✓' };
+        return { status: 'connected' as const, label: t('enabled' as any) || 'Enabled', icon: '✓' };
       case 'configured':
-        return { status: 'connected' as const, label: t('configured') || 'Configured', icon: '⚙' };
+        return { status: 'connected' as const, label: t('configured' as any) || 'Configured', icon: '⚙' };
       case 'not_configured':
-        return { status: 'not_connected' as const, label: t('notConfigured') || 'Not Configured', icon: '⚠' };
+        return { status: 'not_configured' as const, label: t('notConfigured' as any) || 'Not Configured', icon: '⚠' };
       default:
-        return { status: 'not_connected' as const, label: t('disabled') || 'Disabled', icon: '✗' };
+        return { status: 'inactive' as const, label: t('disabled' as any) || 'Disabled', icon: '✗' };
     }
   };
 
@@ -172,8 +173,8 @@ export function RuntimeEnvironmentsSettings() {
   return (
     <div className="space-y-6">
       <Section
-        title={t('runtimeEnvironments') || 'Runtime Environments'}
-        description={t('runtimeEnvironmentsDescription') || 'Configure execution environments for running playbooks and processing tasks'}
+        title={t('runtimeEnvironments' as any) || 'Runtime Environments'}
+        description={t('runtimeEnvironmentsDescription' as any) || 'Configure execution environments for running playbooks and processing tasks'}
       >
         <ToolGrid>
           {runtimes.map((runtime) => {
@@ -188,7 +189,7 @@ export function RuntimeEnvironmentsSettings() {
                 status={statusInfo}
                 onConfigure={
                   runtime.isDefault
-                    ? undefined
+                    ? () => { } // No-op for default runtime
                     : () => setSelectedRuntime(runtime.id)
                 }
               />
@@ -198,10 +199,10 @@ export function RuntimeEnvironmentsSettings() {
           {/* Add Runtime button */}
           <ToolCard
             toolType="add-runtime"
-            name={t('addRuntime') || 'Add Runtime Environment'}
-            description={t('addRuntimeDescription') || 'Add a custom runtime execution environment'}
+            name={t('addRuntime' as any) || 'Add Runtime Environment'}
+            description={t('addRuntimeDescription' as any) || 'Add a custom runtime execution environment'}
             icon="+"
-            status={{ status: 'not_connected', label: t('add') || 'Add', icon: '+' }}
+            status={{ status: 'not_configured', label: t('add' as any) || 'Add', icon: '+' }}
             onConfigure={() => setShowAddRuntimeModal(true)}
           />
         </ToolGrid>
@@ -212,11 +213,11 @@ export function RuntimeEnvironmentsSettings() {
         <BaseModal
           isOpen={true}
           onClose={() => setSelectedRuntime(null)}
-          title={runtimes.find(r => r.id === selectedRuntime)?.name || t('runtimeConfiguration') || 'Runtime Configuration'}
+          title={runtimes.find(r => r.id === selectedRuntime)?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration'}
           maxWidth="max-w-4xl"
         >
           <ExternalSettingsEmbed
-            title={runtimes.find(r => r.id === selectedRuntime)?.name || t('runtimeConfiguration') || 'Runtime Configuration'}
+            title={runtimes.find(r => r.id === selectedRuntime)?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration'}
             description={runtimes.find(r => r.id === selectedRuntime)?.description || ''}
             embedPath={getRuntimeConfigPath(selectedRuntime)}
             height="700px"
@@ -224,7 +225,7 @@ export function RuntimeEnvironmentsSettings() {
               if (event.data.type === 'RUNTIME_CONFIG_UPDATED') {
                 setSelectedRuntime(null);
                 loadRuntimes();
-                showNotification('success', t('runtimeConfigurationUpdated') || 'Runtime configuration updated');
+                showNotification('success', t('runtimeConfigurationUpdated' as any) || 'Runtime configuration updated');
               }
             }}
           />
@@ -239,7 +240,7 @@ export function RuntimeEnvironmentsSettings() {
           onSuccess={(newRuntime) => {
             setRuntimes([...runtimes, newRuntime]);
             setShowAddRuntimeModal(false);
-            showNotification('success', t('runtimeAddedSuccessfully', { name: newRuntime.name }) || `Runtime "${newRuntime.name}" added successfully`);
+            showNotification('success', t('runtimeAddedSuccessfully' as any, { name: newRuntime.name }) || `Runtime "${newRuntime.name}" added successfully`);
             loadSettingsPanels(); // Reload panels after runtime added
           }}
         />
@@ -289,7 +290,7 @@ export function RuntimeEnvironmentsSettings() {
           >
             <Suspense fallback={
               <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
-                {t('loading') || 'Loading'} {panel.title}...
+                {t('loading' as any) || 'Loading'} {panel.title}...
               </div>
             }>
               <ExtensionComponent {...props} />

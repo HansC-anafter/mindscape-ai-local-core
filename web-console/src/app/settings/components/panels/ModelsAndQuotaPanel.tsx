@@ -200,7 +200,7 @@ export function ModelsAndQuotaPanel() {
   });
 
   if (loading) {
-    return <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading')}</div>;
+    return <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">{t('loading' as any)}</div>;
   }
 
   return (
@@ -209,10 +209,10 @@ export function ModelsAndQuotaPanel() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-              {t('modelsAndQuota')}
+              {t('modelsAndQuota' as any)}
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {t('modelsAndQuotaDescription')}
+              {t('modelsAndQuotaDescription' as any)}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -225,7 +225,7 @@ export function ModelsAndQuotaPanel() {
                   : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
               }`}
             >
-              {t('allProviders') || 'All'}
+              {t('allProviders' as any) || 'All'}
             </button>
             {providers.map((provider) => (
               <button
@@ -245,7 +245,7 @@ export function ModelsAndQuotaPanel() {
         </div>
         <input
           type="text"
-          placeholder={t('searchModels') || 'Search models'}
+          placeholder={t('searchModels' as any) || 'Search models'}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
@@ -326,8 +326,8 @@ export function ModelsAndQuotaPanel() {
           ) : (
             <div className="flex items-center justify-center flex-1 text-gray-400 dark:text-gray-500">
               {selectedModel && !selectedModel.enabled
-                ? t('enableModelToConfigure') || 'Please enable the model to view configuration'
-                : t('selectModelToConfigure') || 'Select an enabled model to view configuration'}
+                ? t('enableModelToConfigure' as any) || 'Please enable the model to view configuration'
+                : t('selectModelToConfigure' as any) || 'Select an enabled model to view configuration'}
             </div>
           )}
         </div>

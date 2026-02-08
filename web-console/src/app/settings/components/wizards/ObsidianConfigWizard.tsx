@@ -67,7 +67,7 @@ export function ObsidianConfigWizard({
     setSuccess(null);
     try {
       await settingsApi.put('/api/v1/system-settings/obsidian', form);
-      setSuccess(t('configSaved'));
+      setSuccess(t('configSaved' as any));
       setTimeout(() => {
         onSuccess();
       }, 1500);
@@ -86,13 +86,13 @@ export function ObsidianConfigWizard({
     try {
       const result = await settingsApi.post<{ valid: boolean; message: string; vaults: any[] }>('/api/v1/system-settings/obsidian/test', form);
       if (result.valid) {
-        setTestResult(`${t('testResults')}:\n\n✅ ${result.message}\n\n${result.vaults.map(v => `- ${v.path}: ${v.valid ? 'Valid' : 'Invalid'}`).join('\n')}`);
+        setTestResult(`${t('testResults' as any)}:\n\n✅ ${result.message}\n\n${result.vaults.map(v => `- ${v.path}: ${v.valid ? 'Valid' : 'Invalid'}`).join('\n')}`);
       } else {
-        setError(`${t('testFailed')}: ${result.message}`);
+        setError(`${t('testFailed' as any)}: ${result.message}`);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Test failed';
-      setError(`${t('testFailed')}: ${errorMessage}`);
+      setError(`${t('testFailed' as any)}: ${errorMessage}`);
     } finally {
       setTesting(false);
     }
@@ -101,11 +101,11 @@ export function ObsidianConfigWizard({
   const addVaultPath = () => {
     const trimmed = newVaultPath.trim();
     if (!trimmed) {
-      setError(t('pleaseEnterVaultPath'));
+      setError(t('pleaseEnterVaultPath' as any));
       return;
     }
     if (form.vault_paths.includes(trimmed)) {
-      setError(t('vaultPathAlreadyExists'));
+      setError(t('vaultPathAlreadyExists' as any));
       return;
     }
     setForm({ ...form, vault_paths: [...form.vault_paths, trimmed] });
@@ -120,11 +120,11 @@ export function ObsidianConfigWizard({
   const addIncludeFolder = () => {
     const trimmed = newIncludeFolder.trim();
     if (!trimmed) {
-      setError(t('pleaseEnterFolderName'));
+      setError(t('pleaseEnterFolderName' as any));
       return;
     }
     if (form.include_folders.includes(trimmed)) {
-      setError(t('folderAlreadyExists'));
+      setError(t('folderAlreadyExists' as any));
       return;
     }
     setForm({ ...form, include_folders: [...form.include_folders, trimmed] });
@@ -139,11 +139,11 @@ export function ObsidianConfigWizard({
   const addExcludeFolder = () => {
     const trimmed = newExcludeFolder.trim();
     if (!trimmed) {
-      setError(t('pleaseEnterFolderName'));
+      setError(t('pleaseEnterFolderName' as any));
       return;
     }
     if (form.exclude_folders.includes(trimmed)) {
-      setError(t('folderAlreadyExists'));
+      setError(t('folderAlreadyExists' as any));
       return;
     }
     setForm({ ...form, exclude_folders: [...form.exclude_folders, trimmed] });
@@ -158,11 +158,11 @@ export function ObsidianConfigWizard({
   const addTag = () => {
     const trimmed = newTag.trim();
     if (!trimmed) {
-      setError(t('pleaseEnterTag'));
+      setError(t('pleaseEnterTag' as any));
       return;
     }
     if (form.include_tags.includes(trimmed)) {
-      setError(t('tagAlreadyExists'));
+      setError(t('tagAlreadyExists' as any));
       return;
     }
     setForm({ ...form, include_tags: [...form.include_tags, trimmed] });
@@ -178,7 +178,7 @@ export function ObsidianConfigWizard({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('obsidianConfig')}</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('obsidianConfig' as any)}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             ✕
           </button>
@@ -187,10 +187,10 @@ export function ObsidianConfigWizard({
         <div className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('obsidianVaultPaths')}
+              {t('obsidianVaultPaths' as any)}
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              {t('obsidianVaultPathsDescription')}
+              {t('obsidianVaultPathsDescription' as any)}
             </p>
             <div className="flex gap-2 mb-2">
               <input
@@ -198,7 +198,7 @@ export function ObsidianConfigWizard({
                 value={newVaultPath}
                 onChange={(e) => setNewVaultPath(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && addVaultPath()}
-                placeholder={t('enterVaultPath')}
+                placeholder={t('enterVaultPath' as any)}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
               />
               <button
@@ -206,7 +206,7 @@ export function ObsidianConfigWizard({
                 onClick={addVaultPath}
                 className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
-                {t('add')}
+                {t('add' as any)}
               </button>
             </div>
             <div className="space-y-1">
@@ -218,7 +218,7 @@ export function ObsidianConfigWizard({
                     onClick={() => removeVaultPath(path)}
                     className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 text-sm"
                   >
-                    {t('delete')}
+                    {t('delete' as any)}
                   </button>
                 </div>
               ))}
@@ -227,10 +227,10 @@ export function ObsidianConfigWizard({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('obsidianIncludeFolders')}
+              {t('obsidianIncludeFolders' as any)}
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              {t('obsidianIncludeFoldersDescription')}
+              {t('obsidianIncludeFoldersDescription' as any)}
             </p>
             <div className="flex gap-2 mb-2">
               <input
@@ -246,7 +246,7 @@ export function ObsidianConfigWizard({
                 onClick={addIncludeFolder}
                 className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
-                {t('add')}
+                {t('add' as any)}
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -270,10 +270,10 @@ export function ObsidianConfigWizard({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('obsidianExcludeFolders')}
+              {t('obsidianExcludeFolders' as any)}
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              {t('obsidianExcludeFoldersDescription')}
+              {t('obsidianExcludeFoldersDescription' as any)}
             </p>
             <div className="flex gap-2 mb-2">
               <input
@@ -289,7 +289,7 @@ export function ObsidianConfigWizard({
                 onClick={addExcludeFolder}
                 className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
-                {t('add')}
+                {t('add' as any)}
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -313,10 +313,10 @@ export function ObsidianConfigWizard({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('obsidianIncludeTags')}
+              {t('obsidianIncludeTags' as any)}
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              {t('obsidianIncludeTagsDescription')}
+              {t('obsidianIncludeTagsDescription' as any)}
             </p>
             <div className="flex gap-2 mb-2">
               <input
@@ -332,7 +332,7 @@ export function ObsidianConfigWizard({
                 onClick={addTag}
                 className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
               >
-                {t('add')}
+                {t('add' as any)}
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -363,7 +363,7 @@ export function ObsidianConfigWizard({
               className="mr-2"
             />
             <label htmlFor="obsidianEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('enableObsidianIntegration')}
+              {t('enableObsidianIntegration' as any)}
             </label>
           </div>
 
@@ -382,7 +382,7 @@ export function ObsidianConfigWizard({
               disabled={testing || form.vault_paths.length === 0}
               className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {testing ? t('testing') : t('testConnection')}
+              {testing ? t('testing' as any) : t('testConnection' as any)}
             </button>
             <button
               type="button"
@@ -390,14 +390,14 @@ export function ObsidianConfigWizard({
               disabled={saving || form.vault_paths.length === 0}
               className="flex-1 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? t('saving') : t('save')}
+              {saving ? t('saving' as any) : t('save' as any)}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
             >
-              {t('cancel')}
+              {t('cancel' as any)}
             </button>
           </div>
         </div>

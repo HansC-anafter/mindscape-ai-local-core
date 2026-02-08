@@ -70,7 +70,7 @@ export function ToolCard({
   }, [toolType, status.status]);
 
   const formatPlaybookCount = (count: number) => {
-    const template = t('playbooksUsingThisTool');
+    const template = t('playbooksUsingThisTool' as any);
     if (template.includes('{count}')) {
       const plural = count !== 1 ? 's' : '';
       const verb = count !== 1 ? 'use' : 'uses';
@@ -93,7 +93,7 @@ export function ToolCard({
             {status.status === 'connected' && (
               <>
                 {loadingCount ? (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t('loading')}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t('loading' as any)}</p>
                 ) : playbookCount !== null && playbookCount > 0 ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{formatPlaybookCount(playbookCount)}</p>
                 ) : null}
@@ -130,14 +130,14 @@ export function ToolCard({
               disabled={testing}
               className="text-sm px-3 py-1 text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50 whitespace-nowrap"
             >
-              {testing ? t('testing') : t('testConnection')}
+              {testing ? t('testing' as any) : t('testConnection' as any)}
             </button>
           )}
           <button
             onClick={onConfigure}
             className="text-sm px-3 py-1 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap"
           >
-            {status.status === 'not_configured' ? t('configure') : t('manage')}
+            {status.status === 'not_configured' ? t('configure' as any) : t('manage' as any)}
           </button>
         </div>
       </div>

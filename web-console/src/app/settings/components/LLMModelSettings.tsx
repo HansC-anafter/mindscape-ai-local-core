@@ -76,7 +76,7 @@ export function LLMModelSettings() {
         setChatTestResult(`❌ ${result.message}`);
       }
     } catch (err) {
-      setChatTestResult(`❌ ${t('testFailedWithError')}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setChatTestResult(`❌ ${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setTestingChat(false);
     }
@@ -100,7 +100,7 @@ export function LLMModelSettings() {
         setEmbeddingTestResult(`❌ ${result.message}`);
       }
     } catch (err) {
-      setEmbeddingTestResult(`❌ ${t('testFailedWithError')}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setEmbeddingTestResult(`❌ ${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setTestingEmbedding(false);
     }
@@ -125,7 +125,7 @@ export function LLMModelSettings() {
   };
 
   if (loading) {
-    return <div className="text-center py-4">{t('loading')}</div>;
+    return <div className="text-center py-4">{t('loading' as any)}</div>;
   }
 
   if (!settings) {
@@ -140,12 +140,12 @@ export function LLMModelSettings() {
       <div className="border rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-medium text-gray-900">{t('chatModel')}</h3>
+            <h3 className="text-sm font-medium text-gray-900">{t('chatModel' as any)}</h3>
             <p className="text-xs text-gray-500 mt-1">
-              {t('chatModelDescription')}
+              {t('chatModelDescription' as any)}
               {settings.chat_model && (
                 <span className="ml-2">
-                  {t('currentModel')}: <strong>{settings.chat_model.model_name}</strong> ({settings.chat_model.provider})
+                  {t('currentModel' as any)}: <strong>{settings.chat_model.model_name}</strong> ({settings.chat_model.provider})
                 </span>
               )}
             </p>
@@ -155,7 +155,7 @@ export function LLMModelSettings() {
             disabled={testingChat}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {testingChat ? t('testing') : t('testConnection')}
+            {testingChat ? t('testing' as any) : t('testConnection' as any)}
           </button>
         </div>
 
@@ -177,7 +177,7 @@ export function LLMModelSettings() {
         >
           {settings.available_chat_models.map((model) => (
             <option key={model.model_name} value={model.model_name}>
-              {model.model_name} {model.is_latest && '⭐'} {model.is_recommended && '✨'} {model.is_deprecated && `(${t('deprecated')})`} - {model.description}
+              {model.model_name} {model.is_latest && '⭐'} {model.is_recommended && '✨'} {model.is_deprecated && `(${t('deprecated' as any)})`} - {model.description}
             </option>
           ))}
         </select>
@@ -187,12 +187,12 @@ export function LLMModelSettings() {
       <div className="border rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-medium text-gray-900">{t('embeddingModel')}</h3>
+            <h3 className="text-sm font-medium text-gray-900">{t('embeddingModel' as any)}</h3>
             <p className="text-xs text-gray-500 mt-1">
-              {t('embeddingModelDescription')}
+              {t('embeddingModelDescription' as any)}
               {settings.embedding_model && (
                 <span className="ml-2">
-                  {t('currentModel')}: <strong>{settings.embedding_model.model_name}</strong> ({settings.embedding_model.provider})
+                  {t('currentModel' as any)}: <strong>{settings.embedding_model.model_name}</strong> ({settings.embedding_model.provider})
                 </span>
               )}
             </p>
@@ -202,7 +202,7 @@ export function LLMModelSettings() {
             disabled={testingEmbedding}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {testingEmbedding ? t('testing') : t('testConnection')}
+            {testingEmbedding ? t('testing' as any) : t('testConnection' as any)}
           </button>
         </div>
 

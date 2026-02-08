@@ -209,7 +209,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
 
     return (
       <div>
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectMCPProvider') || 'Select MCP Provider'}</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectMCPProvider' as any) || 'Select MCP Provider'}</h4>
 
         <div className="mb-4">
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t('popularProviders' as any) || 'Popular Providers'}</p>
@@ -250,11 +250,11 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
 
         <div>
           <button
-            onClick={() => handleProviderSelect('custom')}
+            onClick={() => handleProviderSelect('custom' as any)}
             className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/20 text-left bg-white dark:bg-gray-800"
           >
-            <div className="font-medium text-gray-900 dark:text-gray-100">{t('customMCP') || 'Custom MCP'}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('customMCPDescription') || 'Configure a custom MCP server'}</div>
+            <div className="font-medium text-gray-900 dark:text-gray-100">{t('customMCP' as any) || 'Custom MCP'}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('customMCPDescription' as any) || 'Configure a custom MCP server'}</div>
           </button>
         </div>
       </div>
@@ -263,24 +263,24 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
 
   const renderStep2 = () => (
     <div>
-      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectTransportType') || 'Select Transport Type'}</h4>
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectTransportType' as any) || 'Select Transport Type'}</h4>
       <div className="space-y-3">
         <button
-          onClick={() => handleTransportSelect('stdio')}
+          onClick={() => handleTransportSelect('stdio' as any)}
           className="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/20 text-left bg-white dark:bg-gray-800"
         >
           <div className="font-medium text-gray-900 dark:text-gray-100">STDIO</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('stdioTransportDescription') || 'Local process communication (like LSP)'}
+            {t('stdioTransportDescription' as any) || 'Local process communication (like LSP)'}
           </div>
         </button>
         <button
-          onClick={() => handleTransportSelect('http')}
+          onClick={() => handleTransportSelect('http' as any)}
           className="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-md hover:border-gray-500 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/20 text-left bg-white dark:bg-gray-800"
         >
           <div className="font-medium text-gray-900 dark:text-gray-100">HTTP/SSE</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t('httpTransportDescription') || 'Remote server via HTTP with Server-Sent Events'}
+            {t('httpTransportDescription' as any) || 'Remote server via HTTP with Server-Sent Events'}
           </div>
         </button>
       </div>
@@ -306,7 +306,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('serverName') || 'Server Name'}
+              {t('serverName' as any) || 'Server Name'}
             </label>
             <input
               type="text"
@@ -318,7 +318,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('command') || 'Command'}
+              {t('command' as any) || 'Command'}
             </label>
             <input
               type="text"
@@ -330,7 +330,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('arguments') || 'Arguments (one per line)'}
+              {t('arguments' as any) || 'Arguments (one per line)'}
             </label>
             <textarea
               value={config.args?.join('\n') || ''}
@@ -346,7 +346,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('environmentVariables') || 'Environment Variables'}
+                {t('environmentVariables' as any) || 'Environment Variables'}
               </label>
               <div className="flex gap-2">
                 <button
@@ -514,7 +514,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('serverName') || 'Server Name'}
+              {t('serverName' as any) || 'Server Name'}
             </label>
             <input
               type="text"
@@ -526,7 +526,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('baseUrl') || 'Base URL'}
+              {t('baseUrl' as any) || 'Base URL'}
             </label>
             <input
               type="url"
@@ -538,7 +538,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('apiKey') || 'API Key'}
+              {t('apiKey' as any) || 'API Key'}
             </label>
             <input
               type="password"
@@ -560,14 +560,14 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           onClick={() => setStep(step - 1)}
           className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
         >
-          {t('back') || 'Back'}
+          {t('back' as any) || 'Back'}
         </button>
       )}
       <button
         onClick={onClose}
         className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
       >
-        {t('cancel') || 'Cancel'}
+        {t('cancel' as any) || 'Cancel'}
       </button>
       {step < 3 ? (
         <button
@@ -575,7 +575,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           disabled={!config.name || (step === 2 && !config.transport)}
           className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {t('next') || 'Next'}
+          {t('next' as any) || 'Next'}
         </button>
       ) : (
         <button
@@ -583,7 +583,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
           disabled={connecting || !config.name || !config.server_id}
           className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {connecting ? (t('connecting') || 'Connecting...') : (t('connect') || 'Connect')}
+          {connecting ? (t('connecting' as any) || 'Connecting...') : (t('connect' as any) || 'Connect')}
         </button>
       )}
     </>
@@ -591,7 +591,7 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
 
   return (
     <WizardShell
-      title={editingServer ? (t('editMCPServer') || 'Edit MCP Server') : (t('configureMCPServer') || 'Configure MCP Server')}
+      title={editingServer ? (t('editMCPServer' as any) || 'Edit MCP Server') : (t('configureMCPServer' as any) || 'Configure MCP Server')}
       onClose={onClose}
       error={error}
       success={success}

@@ -12,7 +12,7 @@ export function BackendModeSettings({ mode, onModeChange }: BackendModeSettingsP
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-        {t('backendMode')}
+        {t('backendMode' as any)}
       </label>
       <div className="space-y-2">
         <label className="flex items-center">
@@ -25,8 +25,8 @@ export function BackendModeSettings({ mode, onModeChange }: BackendModeSettingsP
             className="mr-2"
           />
           <div>
-            <span className="font-medium text-gray-900 dark:text-gray-100">{t('localLLM')}</span>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t('localLLMDescription')}</p>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{t('localLLM' as any)}</span>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('localLLMDescription' as any)}</p>
           </div>
         </label>
         <label className="flex items-center opacity-50">
@@ -40,8 +40,8 @@ export function BackendModeSettings({ mode, onModeChange }: BackendModeSettingsP
             disabled
           />
           <div>
-            <span className="font-medium text-gray-900 dark:text-gray-100">{t('remoteAgentService')}</span>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t('remoteAgentServiceDescription')} (Not available in local-only version)</p>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{t('remoteAgentService' as any)}</span>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('remoteAgentServiceDescription' as any)} (Not available in local-only version)</p>
           </div>
         </label>
       </div>

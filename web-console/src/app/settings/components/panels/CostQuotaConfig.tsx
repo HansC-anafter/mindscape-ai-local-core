@@ -31,13 +31,13 @@ export function CostQuotaConfig({ settings, onChange }: CostQuotaConfigProps) {
     <div className="space-y-4">
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          {t('quotaSettings')}
+          {t('quotaSettings' as any)}
         </h4>
 
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('dailyQuota')}
+              {t('dailyQuota' as any)}
             </label>
             <input
               type="number"
@@ -53,13 +53,13 @@ export function CostQuotaConfig({ settings, onChange }: CostQuotaConfigProps) {
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {t('dailyQuotaDescription')}
+              {t('dailyQuotaDescription' as any)}
             </p>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('singleExecutionLimit')}
+              {t('singleExecutionLimit' as any)}
             </label>
             <input
               type="number"
@@ -75,7 +75,7 @@ export function CostQuotaConfig({ settings, onChange }: CostQuotaConfigProps) {
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {t('singleExecutionLimitDescription')}
+              {t('singleExecutionLimitDescription' as any)}
             </p>
           </div>
         </div>
@@ -83,14 +83,14 @@ export function CostQuotaConfig({ settings, onChange }: CostQuotaConfigProps) {
 
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          {t('riskLevelQuotas')}
+          {t('riskLevelQuotas' as any)}
         </h4>
 
         <div className="space-y-3">
           {(['read', 'write', 'publish'] as const).map((level) => (
             <div key={level}>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t(`${level}RiskLevel`)}
+                {t(`${level}RiskLevel` as any)}
               </label>
               <input
                 type="number"
@@ -115,4 +115,3 @@ export function CostQuotaConfig({ settings, onChange }: CostQuotaConfigProps) {
     </div>
   );
 }
-
