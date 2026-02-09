@@ -80,64 +80,71 @@ async def proxy_image(
     if not _is_allowed_media_url(url):
         raise HTTPException(status_code=400, detail="Unsupported media URL host")
 
+    # Create client WITHOUT context manager - we must keep it alive during streaming
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(timeout_seconds),
+        follow_redirects=True,
+        headers={
+            "User-Agent": "MindscapeMediaProxy/1.0",
+            "Accept": "image/*,*/*;q=0.8",
+            "Referer": "https://www.instagram.com/",
+            "Origin": "https://www.instagram.com",
+        },
+    )
+
     try:
-        # Use a single client per request for simplicity in this microservice context,
-        # or we could use a global client. For isolation, per-request is fine
-        # as long as we close it. Using async context manager ensures cleanup.
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout_seconds),
-            follow_redirects=True,
-            headers={
-                "User-Agent": "MindscapeMediaProxy/1.0",
-                "Accept": "image/*,*/*;q=0.8",
-                "Referer": "https://www.instagram.com/",
-                "Origin": "https://www.instagram.com",
-            },
-        ) as client:
-            # Determine if we should stream. For small images, standard get is fine.
-            # But "stream" is safer for unknown sizes.
-            req = client.build_request("GET", url)
-            resp = await client.send(req, stream=True)
+        req = client.build_request("GET", url)
+        resp = await client.send(req, stream=True)
 
-            if resp.status_code >= 400:
-                await resp.aclose()
-                raise HTTPException(
-                    status_code=resp.status_code, detail="Upstream image fetch failed"
-                )
+        if resp.status_code >= 400:
+            await resp.aclose()
+            await client.aclose()
+            raise HTTPException(
+                status_code=resp.status_code, detail="Upstream image fetch failed"
+            )
 
-            content_type: Optional[str] = resp.headers.get("content-type")
-            if not content_type or not content_type.lower().startswith("image/"):
-                await resp.aclose()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid content type: {content_type}. Only images are supported.",
-                )
+        content_type: Optional[str] = resp.headers.get("content-type")
+        if not content_type or not content_type.lower().startswith("image/"):
+            await resp.aclose()
+            await client.aclose()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid content type: {content_type}. Only images are supported.",
+            )
 
-            # Forward appropriate headers
-            response_headers = {
-                "Content-Type": content_type or "application/octet-stream",
-                "Cache-Control": "public, max-age=3600",
-                "Cross-Origin-Resource-Policy": "cross-origin",
-                "Access-Control-Allow-Origin": "*",
-                "X-Content-Type-Options": "nosniff",
-            }
+        # Forward appropriate headers
+        response_headers = {
+            "Content-Type": content_type or "application/octet-stream",
+            "Cache-Control": "public, max-age=3600",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+            "Access-Control-Allow-Origin": "*",
+            "X-Content-Type-Options": "nosniff",
+        }
 
-            # We need to stream the content back to the client
-            # FastAPI supports returning an async generator
-            async def iterate_stream():
+        # Stream content - client/response cleanup happens in the generator
+        async def iterate_stream():
+            try:
                 async for chunk in resp.aiter_bytes():
                     yield chunk
+            finally:
+                # Ensure cleanup happens even if client disconnects mid-stream
                 await resp.aclose()
+                await client.aclose()
 
-            return StreamingResponse(
-                iterate_stream(),
-                headers=response_headers,
-                media_type=content_type,
-                status_code=resp.status_code,
-            )
+        return StreamingResponse(
+            iterate_stream(),
+            headers=response_headers,
+            media_type=content_type,
+            status_code=resp.status_code,
+        )
 
     except HTTPException:
         raise
     except Exception as e:
+        # Cleanup on error
+        try:
+            await client.aclose()
+        except Exception:
+            pass
         logger.error(f"proxy_image failed for {url}: {e}")
         raise HTTPException(status_code=500, detail="Failed to proxy image")
