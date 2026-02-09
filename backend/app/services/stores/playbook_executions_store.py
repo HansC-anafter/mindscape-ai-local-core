@@ -28,28 +28,37 @@ class PlaybookExecutionsStore(StoreBase):
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT INTO playbook_executions (
                     id, workspace_id, playbook_code, intent_instance_id, thread_id,
                     status, phase, last_checkpoint, progress_log_path,
                     feature_list_path, metadata, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                execution.id,
-                execution.workspace_id,
-                execution.playbook_code,
-                execution.intent_instance_id,
-                execution.thread_id,
-                execution.status,
-                execution.phase,
-                execution.last_checkpoint,
-                execution.progress_log_path,
-                execution.feature_list_path,
-                self.serialize_json(execution.metadata) if execution.metadata else None,
-                self.to_isoformat(execution.created_at),
-                self.to_isoformat(execution.updated_at)
-            ))
-            logger.info(f"Created playbook execution: {execution.id} (workspace: {execution.workspace_id}, playbook: {execution.playbook_code})")
+            """,
+                (
+                    execution.id,
+                    execution.workspace_id,
+                    execution.playbook_code,
+                    execution.intent_instance_id,
+                    execution.thread_id,
+                    execution.status,
+                    execution.phase,
+                    execution.last_checkpoint,
+                    execution.progress_log_path,
+                    execution.feature_list_path,
+                    (
+                        self.serialize_json(execution.metadata)
+                        if execution.metadata
+                        else None
+                    ),
+                    self.to_isoformat(execution.created_at),
+                    self.to_isoformat(execution.updated_at),
+                ),
+            )
+            logger.info(
+                f"Created playbook execution: {execution.id} (workspace: {execution.workspace_id}, playbook: {execution.playbook_code})"
+            )
             return execution
 
     def get_execution(self, execution_id: str) -> Optional[PlaybookExecution]:
@@ -64,13 +73,17 @@ class PlaybookExecutionsStore(StoreBase):
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM playbook_executions WHERE id = ?', (execution_id,))
+            cursor.execute(
+                "SELECT * FROM playbook_executions WHERE id = ?", (execution_id,)
+            )
             row = cursor.fetchone()
             if not row:
                 return None
             return self._row_to_execution(row)
 
-    def update_checkpoint(self, execution_id: str, checkpoint_data: str, phase: Optional[str] = None) -> bool:
+    def update_checkpoint(
+        self, execution_id: str, checkpoint_data: str, phase: Optional[str] = None
+    ) -> bool:
         """
         Update checkpoint data for an execution
 
@@ -93,11 +106,14 @@ class PlaybookExecutionsStore(StoreBase):
 
             update_values.append(execution_id)
 
-            cursor.execute(f'''
+            cursor.execute(
+                f"""
                 UPDATE playbook_executions
                 SET {", ".join(update_fields)}
                 WHERE id = ?
-            ''', update_values)
+            """,
+                update_values,
+            )
 
             if cursor.rowcount == 0:
                 return False
@@ -105,7 +121,9 @@ class PlaybookExecutionsStore(StoreBase):
             logger.info(f"Updated checkpoint for execution: {execution_id}")
             return True
 
-    def add_phase_summary(self, execution_id: str, phase: str, summary_data: Dict[str, Any]) -> bool:
+    def add_phase_summary(
+        self, execution_id: str, phase: str, summary_data: Dict[str, Any]
+    ) -> bool:
         """
         Add phase summary to execution
 
@@ -125,16 +143,23 @@ class PlaybookExecutionsStore(StoreBase):
         # This method updates the execution record timestamp
         with self.transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE playbook_executions
                 SET updated_at = ?
                 WHERE id = ?
-            ''', (self.to_isoformat(datetime.utcnow()), execution_id))
+            """,
+                (self.to_isoformat(datetime.utcnow()), execution_id),
+            )
 
-            logger.info(f"Added phase summary for execution: {execution_id}, phase: {phase}")
+            logger.info(
+                f"Added phase summary for execution: {execution_id}, phase: {phase}"
+            )
             return True
 
-    def list_executions_by_workspace(self, workspace_id: str, limit: int = 50) -> List[PlaybookExecution]:
+    def list_executions_by_workspace(
+        self, workspace_id: str, limit: int = 50
+    ) -> List[PlaybookExecution]:
         """
         List playbook executions for a workspace
 
@@ -147,19 +172,24 @@ class PlaybookExecutionsStore(StoreBase):
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT * FROM playbook_executions
                 WHERE workspace_id = ?
                 ORDER BY created_at DESC
                 LIMIT ?
-            ''', (workspace_id, limit))
+            """,
+                (workspace_id, limit),
+            )
 
             executions = []
             for row in cursor.fetchall():
                 executions.append(self._row_to_execution(row))
             return executions
 
-    def list_executions_by_intent(self, intent_instance_id: str, limit: int = 50) -> List[PlaybookExecution]:
+    def list_executions_by_intent(
+        self, intent_instance_id: str, limit: int = 50
+    ) -> List[PlaybookExecution]:
         """
         List playbook executions for an intent instance
 
@@ -172,12 +202,15 @@ class PlaybookExecutionsStore(StoreBase):
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT * FROM playbook_executions
                 WHERE intent_instance_id = ?
                 ORDER BY created_at DESC
                 LIMIT ?
-            ''', (intent_instance_id, limit))
+            """,
+                (intent_instance_id, limit),
+            )
 
             executions = []
             for row in cursor.fetchall():
@@ -185,10 +218,7 @@ class PlaybookExecutionsStore(StoreBase):
             return executions
 
     def get_by_thread(
-        self,
-        workspace_id: str,
-        thread_id: str,
-        limit: Optional[int] = 20
+        self, workspace_id: str, thread_id: str, limit: Optional[int] = 20
     ) -> List[PlaybookExecution]:
         """
         Get playbook executions for a specific conversation thread
@@ -203,18 +233,20 @@ class PlaybookExecutionsStore(StoreBase):
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            query = 'SELECT * FROM playbook_executions WHERE workspace_id = ? AND thread_id = ? ORDER BY created_at DESC'
+            query = "SELECT * FROM playbook_executions WHERE workspace_id = ? AND thread_id = ? ORDER BY created_at DESC"
             params = [workspace_id, thread_id]
 
             if limit:
-                query += ' LIMIT ?'
+                query += " LIMIT ?"
                 params.append(limit)
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
             return [self._row_to_execution(row) for row in rows]
 
-    def update_execution_status(self, execution_id: str, status: str, phase: Optional[str] = None) -> bool:
+    def update_execution_status(
+        self, execution_id: str, status: str, phase: Optional[str] = None
+    ) -> bool:
         """
         Update execution status
 
@@ -237,11 +269,14 @@ class PlaybookExecutionsStore(StoreBase):
 
             update_values.append(execution_id)
 
-            cursor.execute(f'''
+            cursor.execute(
+                f"""
                 UPDATE playbook_executions
                 SET {", ".join(update_fields)}
                 WHERE id = ?
-            ''', update_values)
+            """,
+                update_values,
+            )
 
             if cursor.rowcount == 0:
                 return False
@@ -249,7 +284,37 @@ class PlaybookExecutionsStore(StoreBase):
             logger.info(f"Updated status for execution: {execution_id} to {status}")
             return True
 
-    def update_execution_metadata(self, execution_id: str, metadata: Dict[str, Any]) -> bool:
+    def mark_stale_running_executions(self) -> int:
+        """
+        Mark all running executions as stale on startup.
+
+        This should be called during backend startup to clean up orphaned
+        executions that were interrupted by a restart.
+
+        Returns:
+            Number of executions marked as stale
+        """
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE playbook_executions
+                SET status = 'stale', updated_at = ?
+                WHERE status IN ('running', 'pending', 'initializing')
+            """,
+                (self.to_isoformat(datetime.utcnow()),),
+            )
+
+            count = cursor.rowcount
+            if count > 0:
+                logger.warning(
+                    f"Marked {count} orphaned running execution(s) as stale on startup"
+                )
+            return count
+
+    def update_execution_metadata(
+        self, execution_id: str, metadata: Dict[str, Any]
+    ) -> bool:
         """
         Update execution metadata with BYOP/BYOL fields
 
@@ -264,7 +329,9 @@ class PlaybookExecutionsStore(StoreBase):
             cursor = conn.cursor()
 
             # Get existing metadata
-            cursor.execute('SELECT metadata FROM playbook_executions WHERE id = ?', (execution_id,))
+            cursor.execute(
+                "SELECT metadata FROM playbook_executions WHERE id = ?", (execution_id,)
+            )
             row = cursor.fetchone()
             if not row:
                 return False
@@ -278,15 +345,18 @@ class PlaybookExecutionsStore(StoreBase):
                 merged_metadata = metadata
 
             # Update metadata
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE playbook_executions
                 SET metadata = ?, updated_at = ?
                 WHERE id = ?
-            ''', (
-                self.serialize_json(merged_metadata),
-                self.to_isoformat(datetime.utcnow()),
-                execution_id
-            ))
+            """,
+                (
+                    self.serialize_json(merged_metadata),
+                    self.to_isoformat(datetime.utcnow()),
+                    execution_id,
+                ),
+            )
 
             if cursor.rowcount == 0:
                 return False
@@ -323,7 +393,8 @@ class PlaybookExecutionsStore(StoreBase):
             cursor = conn.cursor()
 
             # Get all executions for this playbook
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT
                     workspace_id,
                     status,
@@ -332,7 +403,9 @@ class PlaybookExecutionsStore(StoreBase):
                 FROM playbook_executions
                 WHERE playbook_code = ?
                 ORDER BY created_at DESC
-            ''', (playbook_code,))
+            """,
+                (playbook_code,),
+            )
 
             rows = cursor.fetchall()
 
@@ -353,7 +426,7 @@ class PlaybookExecutionsStore(StoreBase):
                         "success_count": 0,
                         "failed_count": 0,
                         "running_count": 0,
-                        "last_executed_at": None
+                        "last_executed_at": None,
                     }
 
                 stats = workspace_stats_map[workspace_id]
@@ -385,7 +458,7 @@ class PlaybookExecutionsStore(StoreBase):
                 "playbook_code": playbook_code,
                 "total_executions": total_executions,
                 "total_workspaces": len(workspace_stats),
-                "workspace_stats": workspace_stats
+                "workspace_stats": workspace_stats,
             }
 
     def _row_to_execution(self, row: Dict[str, Any]) -> PlaybookExecution:
@@ -403,13 +476,21 @@ class PlaybookExecutionsStore(StoreBase):
             workspace_id=row["workspace_id"],
             playbook_code=row["playbook_code"],
             intent_instance_id=row["intent_instance_id"],
-            thread_id=str(row["thread_id"]) if "thread_id" in row.keys() and row["thread_id"] else None,
+            thread_id=(
+                str(row["thread_id"])
+                if "thread_id" in row.keys() and row["thread_id"]
+                else None
+            ),
             status=row["status"],
             phase=row["phase"],
             last_checkpoint=row["last_checkpoint"],
             progress_log_path=row["progress_log_path"],
             feature_list_path=row["feature_list_path"],
-            metadata=self.deserialize_json(row["metadata"]) if "metadata" in row.keys() and row["metadata"] else None,
+            metadata=(
+                self.deserialize_json(row["metadata"])
+                if "metadata" in row.keys() and row["metadata"]
+                else None
+            ),
             created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"])
+            updated_at=datetime.fromisoformat(row["updated_at"]),
         )
