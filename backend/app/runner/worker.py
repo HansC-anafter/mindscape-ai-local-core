@@ -375,9 +375,22 @@ async def _run_single_task(
     # Heartbeat/lock renew must keep ticking even if the main async task blocks (e.g. Playwright hanging).
     stop_event = threading.Event()
 
+    # proc reference will be set before heartbeat starts checking it
+    proc_ref = [None]  # Use list for mutable reference in closure
+
     def _heartbeat_thread() -> None:
         interval_s = max(1.0, hb_interval_ms / 1000.0)
         while not stop_event.is_set():
+            # Check if subprocess is still running - stop heartbeat if subprocess died
+            try:
+                p = proc_ref[0]
+                if p is not None and not p.is_alive():
+                    logger.warning(
+                        f"Runner heartbeat stopping: subprocess died for task {task.id}, exitcode={p.exitcode}"
+                    )
+                    break
+            except Exception:
+                pass
             try:
                 tasks_store.update_task_heartbeat(task.id, runner_id=runner_id)
             except Exception:
@@ -437,11 +450,20 @@ async def _run_single_task(
             target=_child_execute_playbook, args=(payload,), daemon=True
         )
         proc.start()
+        # Update proc reference for heartbeat thread to monitor
+        proc_ref[0] = proc
 
         async def _wait_for_proc() -> int:
             while proc.is_alive():
                 await asyncio.sleep(0.5)
-            return int(proc.exitcode or 0)
+            # Treat None exitcode as error (-1) to catch zombie/abnormal termination
+            exitcode = proc.exitcode
+            if exitcode is None:
+                logger.warning(
+                    f"Runner subprocess exitcode is None (zombie?) for task {task.id}"
+                )
+                return -1
+            return int(exitcode)
 
         async def _wait_for_timeout() -> bool:
             # Returns True if timeout fired.
@@ -579,6 +601,18 @@ async def _run_single_task(
                     pass
     finally:
         stop_event.set()
+        # Explicitly join subprocess to prevent zombie accumulation
+        try:
+            if proc:
+                proc.join(timeout=5.0)
+                if proc.is_alive():
+                    logger.warning(
+                        f"Runner subprocess still alive after join, killing task {task.id}"
+                    )
+                    proc.kill()
+                    proc.join(timeout=1.0)
+        except Exception as e:
+            logger.warning(f"Runner subprocess cleanup error for task {task.id}: {e}")
         try:
             hb_thread.join(timeout=1.0)
         except Exception:

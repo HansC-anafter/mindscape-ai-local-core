@@ -73,7 +73,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
     ) -> List[Artifact]:
         """List artifacts for a workspace."""
         with self.get_connection() as conn:
-            query_str = "SELECT * FROM artifacts WHERE workspace_id = :workspace_id ORDER BY created_at DESC"
+            query_str = "SELECT * FROM artifacts WHERE workspace_id = :workspace_id ORDER BY updated_at DESC"
             params = {"workspace_id": workspace_id}
 
             if limit:
@@ -92,7 +92,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
         """List artifacts for a specific task."""
         with self.get_connection() as conn:
             query = text(
-                "SELECT * FROM artifacts WHERE task_id = :task_id ORDER BY created_at DESC"
+                "SELECT * FROM artifacts WHERE task_id = :task_id ORDER BY updated_at DESC"
             )
             result = conn.execute(query, {"task_id": task_id})
             rows = result.fetchall()
@@ -104,7 +104,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
         """List artifacts for a specific playbook."""
         with self.get_connection() as conn:
             query = text(
-                "SELECT * FROM artifacts WHERE workspace_id = :workspace_id AND playbook_code = :playbook_code ORDER BY created_at DESC"
+                "SELECT * FROM artifacts WHERE workspace_id = :workspace_id AND playbook_code = :playbook_code ORDER BY updated_at DESC"
             )
             result = conn.execute(
                 query, {"workspace_id": workspace_id, "playbook_code": playbook_code}
@@ -191,7 +191,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
     ) -> List[Artifact]:
         """Get artifacts for a specific conversation thread."""
         with self.get_connection() as conn:
-            query_str = "SELECT * FROM artifacts WHERE workspace_id = :workspace_id AND thread_id = :thread_id ORDER BY created_at DESC"
+            query_str = "SELECT * FROM artifacts WHERE workspace_id = :workspace_id AND thread_id = :thread_id ORDER BY updated_at DESC"
             params = {"workspace_id": workspace_id, "thread_id": thread_id}
 
             if limit:

@@ -836,8 +836,41 @@ class ExecutionSession(BaseModel):
     )
 
     @classmethod
-    def from_task(cls, task: Task) -> "ExecutionSession":
-        """Create ExecutionSession from Task"""
+    def from_task(cls, task: "Task") -> "ExecutionSession":
+        """Create ExecutionSession from Task
+
+        Note: Due to Python import path issues (app.models vs backend.app.models),
+        the input task may be a different class than the Task defined in this module.
+        We handle this by converting to dict and reconstructing if needed.
+        """
+        # Handle Task from different import paths (app.models vs backend.app.models)
+        # by converting to dict and reconstructing as local Task
+        if not isinstance(task, Task):
+            if hasattr(task, "model_dump"):
+                task_dict = task.model_dump()
+            elif hasattr(task, "dict"):
+                task_dict = task.dict()
+            else:
+                task_dict = {
+                    "id": task.id,
+                    "workspace_id": task.workspace_id,
+                    "message_id": task.message_id,
+                    "execution_id": getattr(task, "execution_id", None),
+                    "project_id": getattr(task, "project_id", None),
+                    "pack_id": task.pack_id,
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "params": task.params,
+                    "result": getattr(task, "result", None),
+                    "execution_context": getattr(task, "execution_context", None),
+                    "storyline_tags": getattr(task, "storyline_tags", []),
+                    "created_at": getattr(task, "created_at", None),
+                    "started_at": getattr(task, "started_at", None),
+                    "completed_at": getattr(task, "completed_at", None),
+                    "error": getattr(task, "error", None),
+                }
+            task = Task.model_validate(task_dict)
+
         execution_context = task.execution_context or {}
         return cls(
             execution_id=task.execution_id or task.id,

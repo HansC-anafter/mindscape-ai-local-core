@@ -257,6 +257,19 @@ async def start_playbook_execution(
 
                 store = MindscapeStore()
                 tasks_store = TasksStore(db_path=store.db_path)
+
+                # Calculate total_steps from playbook for frontend progress display
+                total_steps = (
+                    len(playbook_run.playbook_json.steps)
+                    if playbook_run.playbook_json and playbook_run.playbook_json.steps
+                    else 1
+                )
+                playbook_name = (
+                    playbook_run.playbook.metadata.name
+                    if playbook_run.playbook and playbook_run.playbook.metadata
+                    else playbook_code
+                )
+
                 tasks_store.create_task(
                     Task(
                         id=execution_id,
@@ -270,6 +283,7 @@ async def start_playbook_execution(
                         status=TaskStatus.PENDING,
                         execution_context={
                             "playbook_code": playbook_code,
+                            "playbook_name": playbook_name,
                             "execution_id": execution_id,
                             "status": "queued",
                             "execution_mode": "runner",
@@ -278,6 +292,8 @@ async def start_playbook_execution(
                             "workspace_id": final_workspace_id,
                             "project_id": final_project_id,
                             "profile_id": profile_id,
+                            "total_steps": total_steps,
+                            "current_step_index": 0,
                         },
                         created_at=datetime.utcnow(),
                         started_at=None,
