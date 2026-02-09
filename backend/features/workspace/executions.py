@@ -13,7 +13,12 @@ from fastapi import APIRouter, HTTPException, Path, Depends, Query, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.app.models.workspace import ExecutionSession, PlaybookExecutionStep, Task, ExecutionChatMessage
+from backend.app.models.workspace import (
+    ExecutionSession,
+    PlaybookExecutionStep,
+    Task,
+    ExecutionChatMessage,
+)
 from backend.app.models.mindscape import MindEvent, EventType
 from backend.app.models.playbook import PlaybookMetadata
 from backend.app.services.mindscape_store import MindscapeStore
@@ -22,7 +27,9 @@ from backend.app.services.stores.tool_calls_store import ToolCallsStore
 from backend.app.services.stores.stage_results_store import StageResultsStore
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.routes.workspace_dependencies import get_identity_port_or_default
-from backend.app.services.conversation.execution_chat_service import generate_execution_chat_reply
+from backend.app.services.conversation.execution_chat_service import (
+    generate_execution_chat_reply,
+)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspace-executions"])
 logger = logging.getLogger(__name__)
@@ -31,41 +38,41 @@ logger = logging.getLogger(__name__)
 # Event type definitions matching SCHEMA_CONVERGENCE.md
 class ExecutionStreamEvent:
     """Execution stream event model"""
+
     @staticmethod
     def execution_update(execution: ExecutionSession) -> Dict[str, Any]:
         """Create execution_update event"""
-        if hasattr(execution, 'model_dump'):
-            exec_dict = execution.model_dump(mode='json')
+        if hasattr(execution, "model_dump"):
+            exec_dict = execution.model_dump(mode="json")
             # Flatten task into execution dict
-            if 'task' in exec_dict and isinstance(exec_dict['task'], dict):
-                task_dict = exec_dict.pop('task')
+            if "task" in exec_dict and isinstance(exec_dict["task"], dict):
+                task_dict = exec_dict.pop("task")
                 exec_dict.update({f"task_{k}": v for k, v in task_dict.items()})
         else:
             exec_dict = execution if isinstance(execution, dict) else {}
-        return {
-            "type": "execution_update",
-            "execution": exec_dict
-        }
+        return {"type": "execution_update", "execution": exec_dict}
 
     @staticmethod
-    def step_update(step: PlaybookExecutionStep, current_step_index: int) -> Dict[str, Any]:
+    def step_update(
+        step: PlaybookExecutionStep, current_step_index: int
+    ) -> Dict[str, Any]:
         """Create step_update event"""
-        if hasattr(step, 'model_dump'):
-            step_dict = step.model_dump(mode='json')
-        elif hasattr(step, '__dict__'):
+        if hasattr(step, "model_dump"):
+            step_dict = step.model_dump(mode="json")
+        elif hasattr(step, "__dict__"):
             step_dict = step.__dict__
         else:
             step_dict = step if isinstance(step, dict) else {}
         return {
             "type": "step_update",
             "step": step_dict,
-            "current_step_index": current_step_index
+            "current_step_index": current_step_index,
         }
 
     @staticmethod
     def tool_call_update(tool_call: Any) -> Dict[str, Any]:
         """Create tool_call_update event"""
-        if hasattr(tool_call, '__dict__'):
+        if hasattr(tool_call, "__dict__"):
             # Convert datetime objects to ISO format
             tool_dict = {}
             for k, v in tool_call.__dict__.items():
@@ -75,23 +82,17 @@ class ExecutionStreamEvent:
                     tool_dict[k] = v
         else:
             tool_dict = tool_call if isinstance(tool_call, dict) else {}
-        return {
-            "type": "tool_call_update",
-            "tool_call": tool_dict
-        }
+        return {"type": "tool_call_update", "tool_call": tool_dict}
 
     @staticmethod
     def collaboration_update(collaboration: Dict[str, Any]) -> Dict[str, Any]:
         """Create collaboration_update event"""
-        return {
-            "type": "collaboration_update",
-            "collaboration": collaboration
-        }
+        return {"type": "collaboration_update", "collaboration": collaboration}
 
     @staticmethod
     def stage_result(stage_result: Any) -> Dict[str, Any]:
         """Create stage_result event"""
-        if hasattr(stage_result, '__dict__'):
+        if hasattr(stage_result, "__dict__"):
             # Convert datetime objects to ISO format
             result_dict = {}
             for k, v in stage_result.__dict__.items():
@@ -103,10 +104,7 @@ class ExecutionStreamEvent:
                     result_dict[k] = v
         else:
             result_dict = stage_result if isinstance(stage_result, dict) else {}
-        return {
-            "type": "stage_result",
-            "stage_result": result_dict
-        }
+        return {"type": "stage_result", "stage_result": result_dict}
 
     @staticmethod
     def execution_completed(execution_id: str, final_status: str) -> Dict[str, Any]:
@@ -114,20 +112,17 @@ class ExecutionStreamEvent:
         return {
             "type": "execution_completed",
             "execution_id": execution_id,
-            "final_status": final_status
+            "final_status": final_status,
         }
 
     @staticmethod
     def execution_chat(message: ExecutionChatMessage) -> Dict[str, Any]:
         """Create execution_chat event"""
-        if hasattr(message, 'model_dump'):
-            message_dict = message.model_dump(mode='json')
+        if hasattr(message, "model_dump"):
+            message_dict = message.model_dump(mode="json")
         else:
             message_dict = message if isinstance(message, dict) else {}
-        return {
-            "type": "execution_chat",
-            "message": message_dict
-        }
+        return {"type": "execution_chat", "message": message_dict}
 
 
 @router.get("/{workspace_id}/executions/{execution_id}/stream")
@@ -141,6 +136,7 @@ async def stream_execution_updates(
     Returns real-time updates for execution status, steps, tool calls, results, and chat messages.
     Event types: execution_update, step_update, tool_call_update, collaboration_update, stage_result, execution_chat, execution_completed
     """
+
     async def generate_events() -> AsyncGenerator[str, None]:
         """Generate SSE events for execution updates"""
         store = MindscapeStore()
@@ -169,18 +165,28 @@ async def stream_execution_updates(
 
                     # Send execution_update if status changed
                     # Build execution dict with status from task
-                    execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+                    execution_dict = (
+                        execution.model_dump()
+                        if hasattr(execution, "model_dump")
+                        else execution
+                    )
                     if isinstance(execution_dict, dict):
                         execution_dict["status"] = task.status.value
                     execution_key = f"{task.status.value}-{execution.current_step_index}-{execution.paused_at}"
                     if execution_key != last_execution_update:
                         event = ExecutionStreamEvent.execution_update(execution)
-                        event["execution"]["status"] = task.status.value  # Add status to event
+                        event["execution"][
+                            "status"
+                        ] = task.status.value  # Add status to event
                         yield f"data: {json.dumps(event)}\n\n"
                         last_execution_update = execution_key
 
                     # Check for execution completion
-                    if task.status.value in ["succeeded", "failed", "cancelled_by_user"]:
+                    if task.status.value in [
+                        "succeeded",
+                        "failed",
+                        "cancelled_by_user",
+                    ]:
                         if task.status.value == "succeeded":
                             final_status = "completed"
                         elif task.status.value == "cancelled_by_user":
@@ -190,29 +196,40 @@ async def stream_execution_updates(
 
                         # For QUERY type playbooks (like execution_status_query), get output result and send to workspace chat
                         execution_context = task.execution_context or {}
-                        playbook_code = execution_context.get("playbook_code") or task.pack_id
+                        playbook_code = (
+                            execution_context.get("playbook_code") or task.pack_id
+                        )
 
-                        if playbook_code == "execution_status_query" and task.status.value == "succeeded":
+                        if (
+                            playbook_code == "execution_status_query"
+                            and task.status.value == "succeeded"
+                        ):
                             # Get playbook output result from execution_context
                             workflow_result = execution_context.get("workflow_result")
                             if workflow_result and isinstance(workflow_result, dict):
                                 # Extract report from playbook output
                                 # Try multiple possible locations for report
                                 report = (
-                                    workflow_result.get("report") or
-                                    workflow_result.get("outputs", {}).get("report") or
-                                    workflow_result.get("output", {}).get("report") or
-                                    workflow_result.get("result", {}).get("report")
+                                    workflow_result.get("report")
+                                    or workflow_result.get("outputs", {}).get("report")
+                                    or workflow_result.get("output", {}).get("report")
+                                    or workflow_result.get("result", {}).get("report")
                                 )
                                 if report:
                                     # Send query result as workspace chat message
-                                    from backend.app.models.mindscape import EventActor, MindEvent
+                                    from backend.app.models.mindscape import (
+                                        EventActor,
+                                        MindEvent,
+                                    )
                                     import uuid
 
                                     # Create MESSAGE event for workspace chat
                                     message_id = str(uuid.uuid4())
                                     # Get profile_id from execution_context or use default
-                                    profile_id = execution_context.get("profile_id") or "default-user"
+                                    profile_id = (
+                                        execution_context.get("profile_id")
+                                        or "default-user"
+                                    )
                                     message_event = MindEvent(
                                         id=message_id,
                                         timestamp=datetime.utcnow(),
@@ -223,17 +240,23 @@ async def stream_execution_updates(
                                         event_type=EventType.MESSAGE,
                                         payload={
                                             "message": report,
-                                            "is_welcome": False
+                                            "is_welcome": False,
                                         },
-                                        entity_ids=[execution_id] if execution_id else [],
-                                        metadata={}
+                                        entity_ids=(
+                                            [execution_id] if execution_id else []
+                                        ),
+                                        metadata={},
                                     )
 
                                     # Create and save MESSAGE event (this will appear in workspace chat)
                                     store.create_event(message_event)
 
                                     # Also send as execution_chat for execution panel
-                                    from backend.app.models.workspace import ExecutionChatMessage, ExecutionChatMessageType, ExecutionChatMessageRole
+                                    from backend.app.models.workspace import (
+                                        ExecutionChatMessage,
+                                        ExecutionChatMessageType,
+                                        ExecutionChatMessageRole,
+                                    )
 
                                     query_result_message = ExecutionChatMessage(
                                         id=message_id,
@@ -241,27 +264,36 @@ async def stream_execution_updates(
                                         role=ExecutionChatMessageRole.ASSISTANT,
                                         content=report,
                                         message_type=ExecutionChatMessageType.SYSTEM_HINT,
-                                        created_at=datetime.now()
+                                        created_at=datetime.now(),
                                     )
 
                                     # Send as SSE event for execution panel
-                                    sse_event = ExecutionStreamEvent.execution_chat(query_result_message)
+                                    sse_event = ExecutionStreamEvent.execution_chat(
+                                        query_result_message
+                                    )
                                     yield f"data: {json.dumps(sse_event, default=str)}\n\n"
 
-                                    logger.info(f"Sent execution_status_query result to workspace chat: {len(report)} chars")
+                                    logger.info(
+                                        f"Sent execution_status_query result to workspace chat: {len(report)} chars"
+                                    )
 
-                        event = ExecutionStreamEvent.execution_completed(execution_id, final_status)
+                        event = ExecutionStreamEvent.execution_completed(
+                            execution_id, final_status
+                        )
                         yield f"data: {json.dumps(event)}\n\n"
                         # Send final event and close connection properly
                         yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
                         break
 
                     # Get latest events (PLAYBOOK_STEP and EXECUTION_CHAT)
-                    events = store.get_events_by_workspace(workspace_id=workspace_id, limit=200)
+                    events = store.get_events_by_workspace(
+                        workspace_id=workspace_id, limit=200
+                    )
                     # Use EventType from module level import (line 17)
                     playbook_step_type = EventType.PLAYBOOK_STEP
                     playbook_step_events = [
-                        e for e in events
+                        e
+                        for e in events
                         if e.event_type == playbook_step_type
                         and isinstance(e.payload, dict)
                         and e.payload.get("execution_id") == execution_id
@@ -269,66 +301,111 @@ async def stream_execution_updates(
 
                     # Get latest execution chat messages
                     execution_chat_events = [
-                        e for e in events
+                        e
+                        for e in events
                         if e.event_type == EventType.EXECUTION_CHAT
                         and execution_id in (e.entity_ids or [])
                     ]
 
                     # Send step_update events for new steps
                     for event in playbook_step_events:
-                        event_timestamp = event.timestamp if hasattr(event.timestamp, '__gt__') else datetime.fromisoformat(str(event.timestamp)) if isinstance(event.timestamp, str) else event.timestamp
-                        if last_step_timestamp is None or (hasattr(event_timestamp, '__gt__') and event_timestamp > last_step_timestamp):
+                        event_timestamp = (
+                            event.timestamp
+                            if hasattr(event.timestamp, "__gt__")
+                            else (
+                                datetime.fromisoformat(str(event.timestamp))
+                                if isinstance(event.timestamp, str)
+                                else event.timestamp
+                            )
+                        )
+                        if last_step_timestamp is None or (
+                            hasattr(event_timestamp, "__gt__")
+                            and event_timestamp > last_step_timestamp
+                        ):
                             try:
                                 step = PlaybookExecutionStep.from_mind_event(event)
-                                step_index = event.payload.get("step_index", 0) if isinstance(event.payload, dict) else 0
-                                sse_event = ExecutionStreamEvent.step_update(step, step_index)
+                                step_index = (
+                                    event.payload.get("step_index", 0)
+                                    if isinstance(event.payload, dict)
+                                    else 0
+                                )
+                                sse_event = ExecutionStreamEvent.step_update(
+                                    step, step_index
+                                )
                                 yield f"data: {json.dumps(sse_event, default=str)}\n\n"
                                 last_step_timestamp = event_timestamp
                             except Exception as e:
-                                logger.warning(f"Failed to create step_update event: {e}")
+                                logger.warning(
+                                    f"Failed to create step_update event: {e}"
+                                )
 
                     # Send execution_chat events for new chat messages
                     for event in execution_chat_events:
-                        event_timestamp = event.timestamp if hasattr(event.timestamp, '__gt__') else datetime.fromisoformat(str(event.timestamp)) if isinstance(event.timestamp, str) else event.timestamp
-                        if last_chat_timestamp is None or (hasattr(event_timestamp, '__gt__') and event_timestamp > last_chat_timestamp):
+                        event_timestamp = (
+                            event.timestamp
+                            if hasattr(event.timestamp, "__gt__")
+                            else (
+                                datetime.fromisoformat(str(event.timestamp))
+                                if isinstance(event.timestamp, str)
+                                else event.timestamp
+                            )
+                        )
+                        if last_chat_timestamp is None or (
+                            hasattr(event_timestamp, "__gt__")
+                            and event_timestamp > last_chat_timestamp
+                        ):
                             try:
                                 message = ExecutionChatMessage.from_mind_event(event)
                                 sse_event = ExecutionStreamEvent.execution_chat(message)
                                 yield f"data: {json.dumps(sse_event, default=str)}\n\n"
                                 last_chat_timestamp = event_timestamp
                             except Exception as e:
-                                logger.warning(f"Failed to create execution_chat event: {e}")
+                                logger.warning(
+                                    f"Failed to create execution_chat event: {e}"
+                                )
 
                     # Get latest tool calls
                     tool_calls = tool_calls_store.list_tool_calls(
-                        execution_id=execution_id,
-                        limit=50
+                        execution_id=execution_id, limit=50
                     )
 
                     # Send tool_call_update events for new tool calls
                     for tool_call in tool_calls:
-                        if last_tool_call_timestamp is None or tool_call.created_at > last_tool_call_timestamp:
+                        if (
+                            last_tool_call_timestamp is None
+                            or tool_call.created_at > last_tool_call_timestamp
+                        ):
                             sse_event = ExecutionStreamEvent.tool_call_update(tool_call)
                             yield f"data: {json.dumps(sse_event, default=str)}\n\n"
-                            if last_tool_call_timestamp is None or tool_call.created_at > last_tool_call_timestamp:
+                            if (
+                                last_tool_call_timestamp is None
+                                or tool_call.created_at > last_tool_call_timestamp
+                            ):
                                 last_tool_call_timestamp = tool_call.created_at
 
                     # Get latest stage results
                     stage_results = stage_results_store.list_stage_results(
-                        execution_id=execution_id,
-                        limit=50
+                        execution_id=execution_id, limit=50
                     )
 
                     # Send stage_result events for new stage results
                     for stage_result in stage_results:
-                        if last_stage_result_timestamp is None or stage_result.created_at > last_stage_result_timestamp:
+                        if (
+                            last_stage_result_timestamp is None
+                            or stage_result.created_at > last_stage_result_timestamp
+                        ):
                             sse_event = ExecutionStreamEvent.stage_result(stage_result)
                             yield f"data: {json.dumps(sse_event, default=str)}\n\n"
-                            if last_stage_result_timestamp is None or stage_result.created_at > last_stage_result_timestamp:
+                            if (
+                                last_stage_result_timestamp is None
+                                or stage_result.created_at > last_stage_result_timestamp
+                            ):
                                 last_stage_result_timestamp = stage_result.created_at
 
                 except Exception as e:
-                    logger.error(f"Error generating execution events: {e}", exc_info=True)
+                    logger.error(
+                        f"Error generating execution events: {e}", exc_info=True
+                    )
                     yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
                 # Poll interval (1 second)
@@ -354,8 +431,8 @@ async def stream_execution_updates(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -387,7 +464,7 @@ async def confirm_step(
         # Update step confirmation status in payload
         updated_payload = event.payload.copy() if event.payload else {}
         updated_payload["confirmation_status"] = "confirmed"
-        updated_metadata = (event.metadata.copy() if event.metadata else {})
+        updated_metadata = event.metadata.copy() if event.metadata else {}
         updated_metadata["confirmed_at"] = datetime.utcnow().isoformat()
 
         # Update event in store
@@ -396,15 +473,16 @@ async def confirm_step(
         # Update execution_context to resume (clear paused_at)
         if task.execution_context:
             task.execution_context["paused_at"] = None
-            task.execution_context["current_step_index"] = event.payload.get("step_index", 0) + 1
+            task.execution_context["current_step_index"] = (
+                event.payload.get("step_index", 0) + 1
+            )
             tasks_store.update_task(task.id, execution_context=task.execution_context)
-
 
         return {
             "status": "confirmed",
             "step_id": step_id,
             "execution_id": execution_id,
-            "message": "Step confirmed, execution will continue"
+            "message": "Step confirmed, execution will continue",
         }
 
     except HTTPException:
@@ -437,7 +515,7 @@ async def reject_step(
         # Update step confirmation status in payload
         updated_payload = event.payload.copy() if event.payload else {}
         updated_payload["confirmation_status"] = "rejected"
-        updated_metadata = (event.metadata.copy() if event.metadata else {})
+        updated_metadata = event.metadata.copy() if event.metadata else {}
         updated_metadata["rejected_at"] = datetime.utcnow().isoformat()
 
         # Update event in store
@@ -447,7 +525,7 @@ async def reject_step(
             "status": "rejected",
             "step_id": step_id,
             "execution_id": execution_id,
-            "message": "Step rejected. You can retry or cancel execution."
+            "message": "Step rejected. You can retry or cancel execution.",
         }
 
     except HTTPException:
@@ -478,10 +556,11 @@ async def cancel_execution(
 
         # Update task status to CANCELLED_BY_USER
         from backend.app.models.workspace import TaskStatus
+
         tasks_store.update_task_status(
             task_id=task.id,
             status=TaskStatus.CANCELLED_BY_USER,
-            error="Cancelled by user"
+            error="Cancelled by user",
         )
 
         # Update execution_context
@@ -493,11 +572,10 @@ async def cancel_execution(
         # Reload task to get updated status
         task = tasks_store.get_task_by_execution_id(execution_id)
 
-
         return {
             "status": "cancelled",
             "execution_id": execution_id,
-            "message": "Execution cancelled successfully"
+            "message": "Execution cancelled successfully",
         }
 
     except HTTPException:
@@ -526,10 +604,14 @@ async def get_execution(
             raise HTTPException(status_code=404, detail="Execution not found")
 
         if task.workspace_id != workspace_id:
-            raise HTTPException(status_code=403, detail="Execution belongs to different workspace")
+            raise HTTPException(
+                status_code=403, detail="Execution belongs to different workspace"
+            )
 
         execution = ExecutionSession.from_task(task)
-        execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+        execution_dict = (
+            execution.model_dump() if hasattr(execution, "model_dump") else execution
+        )
 
         # Add status from task
         if isinstance(execution_dict, dict):
@@ -542,7 +624,8 @@ async def get_execution(
             # Get current step from PLAYBOOK_STEP events
             events = store.get_events_by_workspace(workspace_id=workspace_id, limit=200)
             playbook_step_events = [
-                e for e in events
+                e
+                for e in events
                 if e.event_type == EventType.PLAYBOOK_STEP
                 and isinstance(e.payload, dict)
                 and e.payload.get("execution_id") == execution_id
@@ -551,8 +634,14 @@ async def get_execution(
 
             if playbook_step_events:
                 try:
-                    current_step = PlaybookExecutionStep.from_mind_event(playbook_step_events[0])
-                    execution_dict["current_step"] = current_step.model_dump() if hasattr(current_step, 'model_dump') else current_step
+                    current_step = PlaybookExecutionStep.from_mind_event(
+                        playbook_step_events[0]
+                    )
+                    execution_dict["current_step"] = (
+                        current_step.model_dump()
+                        if hasattr(current_step, "model_dump")
+                        else current_step
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to create current_step from event: {e}")
 
@@ -581,7 +670,8 @@ async def list_execution_steps(
         # Get all PLAYBOOK_STEP events for this execution
         events = store.get_events_by_workspace(workspace_id=workspace_id, limit=1000)
         playbook_step_events = [
-            e for e in events
+            e
+            for e in events
             if e.event_type == EventType.PLAYBOOK_STEP
             and e.payload.get("execution_id") == execution_id
         ]
@@ -593,9 +683,11 @@ async def list_execution_steps(
         for event in playbook_step_events:
             try:
                 step = PlaybookExecutionStep.from_mind_event(event)
-                steps.append(step.model_dump() if hasattr(step, 'model_dump') else step)
+                steps.append(step.model_dump() if hasattr(step, "model_dump") else step)
             except Exception as e:
-                logger.warning(f"Failed to create PlaybookExecutionStep from event {event.id}: {e}")
+                logger.warning(
+                    f"Failed to create PlaybookExecutionStep from event {event.id}: {e}"
+                )
 
         return {"steps": steps, "count": len(steps)}
 
@@ -621,33 +713,43 @@ async def list_execution_tool_calls(
 
         # Get tool calls for this execution
         tool_calls = tool_calls_store.list_tool_calls(
-            execution_id=execution_id,
-            step_id=step_id,
-            limit=1000
+            execution_id=execution_id, step_id=step_id, limit=1000
         )
 
         # Convert to dict format
         tool_calls_data = []
         for tool_call in tool_calls:
-            if hasattr(tool_call, 'model_dump'):
+            if hasattr(tool_call, "model_dump"):
                 tool_calls_data.append(tool_call.model_dump())
-            elif hasattr(tool_call, '__dict__'):
+            elif hasattr(tool_call, "__dict__"):
                 # Convert ToolCall object to dict manually
                 tool_dict = {
-                    'id': tool_call.id,
-                    'execution_id': tool_call.execution_id,
-                    'step_id': tool_call.step_id,
-                    'tool_name': tool_call.tool_name,
-                    'tool_id': tool_call.tool_id,
-                    'parameters': tool_call.parameters,
-                    'response': tool_call.response,
-                    'status': tool_call.status,
-                    'error': tool_call.error,
-                    'duration_ms': tool_call.duration_ms,
-                    'factory_cluster': tool_call.factory_cluster,
-                    'started_at': tool_call.started_at.isoformat() if tool_call.started_at else None,
-                    'completed_at': tool_call.completed_at.isoformat() if tool_call.completed_at else None,
-                    'created_at': tool_call.created_at.isoformat() if tool_call.created_at else None,
+                    "id": tool_call.id,
+                    "execution_id": tool_call.execution_id,
+                    "step_id": tool_call.step_id,
+                    "tool_name": tool_call.tool_name,
+                    "tool_id": tool_call.tool_id,
+                    "parameters": tool_call.parameters,
+                    "response": tool_call.response,
+                    "status": tool_call.status,
+                    "error": tool_call.error,
+                    "duration_ms": tool_call.duration_ms,
+                    "factory_cluster": tool_call.factory_cluster,
+                    "started_at": (
+                        tool_call.started_at.isoformat()
+                        if tool_call.started_at
+                        else None
+                    ),
+                    "completed_at": (
+                        tool_call.completed_at.isoformat()
+                        if tool_call.completed_at
+                        else None
+                    ),
+                    "created_at": (
+                        tool_call.created_at.isoformat()
+                        if tool_call.created_at
+                        else None
+                    ),
                 }
                 tool_calls_data.append(tool_dict)
             else:
@@ -656,7 +758,9 @@ async def list_execution_tool_calls(
                     tool_calls_data.append(dict(tool_call))
                 except (TypeError, ValueError):
                     # Last resort: convert using vars() or empty dict
-                    tool_calls_data.append(vars(tool_call) if hasattr(tool_call, '__dict__') else {})
+                    tool_calls_data.append(
+                        vars(tool_call) if hasattr(tool_call, "__dict__") else {}
+                    )
 
         return {"tool_calls": tool_calls_data, "count": len(tool_calls_data)}
 
@@ -682,15 +786,13 @@ async def list_execution_stage_results(
 
         # Get stage results for this execution
         stage_results = stage_results_store.list_stage_results(
-            execution_id=execution_id,
-            step_id=step_id,
-            limit=1000
+            execution_id=execution_id, step_id=step_id, limit=1000
         )
 
         # Convert to dict format
         stage_results_data = []
         for stage_result in stage_results:
-            if hasattr(stage_result, 'model_dump'):
+            if hasattr(stage_result, "model_dump"):
                 stage_results_data.append(stage_result.model_dump())
             else:
                 stage_results_data.append(dict(stage_result))
@@ -720,22 +822,37 @@ async def list_executions(
         tasks_store = TasksStore(db_path=store.db_path)
 
         # Get all execution tasks (tasks with execution_context)
-        execution_tasks = tasks_store.list_executions_by_workspace(workspace_id=workspace_id, limit=limit)
+        execution_tasks = tasks_store.list_executions_by_workspace(
+            workspace_id=workspace_id, limit=limit
+        )
 
         executions = []
         for task in execution_tasks:
             try:
                 execution = ExecutionSession.from_task(task)
-                execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+                execution_dict = (
+                    execution.model_dump()
+                    if hasattr(execution, "model_dump")
+                    else execution
+                )
                 if isinstance(execution_dict, dict):
                     execution_dict["status"] = task.status.value
-                    execution_dict["created_at"] = task.created_at.isoformat() if task.created_at else None
-                    execution_dict["started_at"] = task.started_at.isoformat() if task.started_at else None
-                    execution_dict["completed_at"] = task.completed_at.isoformat() if task.completed_at else None
+                    execution_dict["created_at"] = (
+                        task.created_at.isoformat() if task.created_at else None
+                    )
+                    execution_dict["started_at"] = (
+                        task.started_at.isoformat() if task.started_at else None
+                    )
+                    execution_dict["completed_at"] = (
+                        task.completed_at.isoformat() if task.completed_at else None
+                    )
                     execution_dict["storyline_tags"] = task.storyline_tags or []
+                    execution_dict["execution_context"] = task.execution_context or {}
                 executions.append(execution_dict)
             except Exception as e:
-                logger.warning(f"Failed to create ExecutionSession from task {task.id}: {e}")
+                logger.warning(
+                    f"Failed to create ExecutionSession from task {task.id}: {e}"
+                )
 
         return {"executions": executions, "count": len(executions)}
 
@@ -748,7 +865,10 @@ async def list_executions(
 async def list_executions_with_steps(
     workspace_id: str = Path(..., description="Workspace ID"),
     limit: int = Query(50, description="Maximum number of executions to return"),
-    include_steps_for: str = Query("active", description="Include steps for: 'active' (running/paused), 'all', or 'none'"),
+    include_steps_for: str = Query(
+        "active",
+        description="Include steps for: 'active' (running/paused), 'all', or 'none'",
+    ),
 ):
     """
     List all Playbook executions for a workspace with their steps in a single request
@@ -764,15 +884,18 @@ async def list_executions_with_steps(
         tasks_store = TasksStore(db_path=store.db_path)
 
         # Get all execution tasks
-        execution_tasks = tasks_store.list_executions_by_workspace(workspace_id=workspace_id, limit=limit)
+        execution_tasks = tasks_store.list_executions_by_workspace(
+            workspace_id=workspace_id, limit=limit
+        )
 
         # Get all PLAYBOOK_STEP events for this workspace (batch query)
         all_step_events = []
         if include_steps_for != "none":
-            events = store.get_events_by_workspace(workspace_id=workspace_id, limit=2000)
+            events = store.get_events_by_workspace(
+                workspace_id=workspace_id, limit=2000
+            )
             all_step_events = [
-                e for e in events
-                if e.event_type == EventType.PLAYBOOK_STEP
+                e for e in events if e.event_type == EventType.PLAYBOOK_STEP
             ]
 
         # Group step events by execution_id
@@ -786,18 +909,30 @@ async def list_executions_with_steps(
 
         # Sort steps by step_index for each execution
         for exec_id in steps_by_execution:
-            steps_by_execution[exec_id].sort(key=lambda e: e.payload.get("step_index", 0))
+            steps_by_execution[exec_id].sort(
+                key=lambda e: e.payload.get("step_index", 0)
+            )
 
         executions = []
         for task in execution_tasks:
             try:
                 execution = ExecutionSession.from_task(task)
-                execution_dict = execution.model_dump() if hasattr(execution, 'model_dump') else execution
+                execution_dict = (
+                    execution.model_dump()
+                    if hasattr(execution, "model_dump")
+                    else execution
+                )
                 if isinstance(execution_dict, dict):
                     execution_dict["status"] = task.status.value
-                    execution_dict["created_at"] = task.created_at.isoformat() if task.created_at else None
-                    execution_dict["started_at"] = task.started_at.isoformat() if task.started_at else None
-                    execution_dict["completed_at"] = task.completed_at.isoformat() if task.completed_at else None
+                    execution_dict["created_at"] = (
+                        task.created_at.isoformat() if task.created_at else None
+                    )
+                    execution_dict["started_at"] = (
+                        task.started_at.isoformat() if task.started_at else None
+                    )
+                    execution_dict["completed_at"] = (
+                        task.completed_at.isoformat() if task.completed_at else None
+                    )
                     execution_dict["storyline_tags"] = task.storyline_tags or []
 
                     # Include steps based on include_steps_for parameter
@@ -817,7 +952,11 @@ async def list_executions_with_steps(
                         for event in steps_by_execution[exec_id]:
                             try:
                                 step = PlaybookExecutionStep.from_mind_event(event)
-                                steps.append(step.model_dump() if hasattr(step, 'model_dump') else step)
+                                steps.append(
+                                    step.model_dump()
+                                    if hasattr(step, "model_dump")
+                                    else step
+                                )
                             except Exception as e:
                                 logger.warning(f"Failed to create ExecutionStep: {e}")
                         execution_dict["steps"] = steps
@@ -826,7 +965,9 @@ async def list_executions_with_steps(
 
                 executions.append(execution_dict)
             except Exception as e:
-                logger.warning(f"Failed to create ExecutionSession from task {task.id}: {e}")
+                logger.warning(
+                    f"Failed to create ExecutionSession from task {task.id}: {e}"
+                )
 
         return {"executions": executions, "count": len(executions)}
 
@@ -847,6 +988,7 @@ async def get_execution_workflow(
     """
     try:
         from backend.app.services.stores.tasks_store import TasksStore
+
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
         task = tasks_store.get_task_by_execution_id(execution_id)
@@ -870,7 +1012,7 @@ async def get_execution_workflow(
         return {
             "workflow_result": workflow_result,
             "handoff_plan": handoff_plan,
-            "execution_id": execution_id
+            "execution_id": execution_id,
         }
 
     except HTTPException:
@@ -897,25 +1039,33 @@ async def get_execution_chat(
         # Query MindEvents with event_type=EXECUTION_CHAT and execution_id in entity_ids
         # Use get_events_by_workspace and filter
         all_events = store.get_events_by_workspace(
-            workspace_id=workspace_id,
-            limit=limit * 2  # Get more events to filter
+            workspace_id=workspace_id, limit=limit * 2  # Get more events to filter
         )
         events = [
-            e for e in all_events
+            e
+            for e in all_events
             if e.event_type == EventType.EXECUTION_CHAT
             and execution_id in (e.entity_ids or [])
-        ][:limit]  # Limit to requested number
+        ][
+            :limit
+        ]  # Limit to requested number
 
         messages = []
         for event in events:
             try:
                 message = ExecutionChatMessage.from_mind_event(event)
-                messages.append(message.model_dump(mode='json') if hasattr(message, 'model_dump') else message)
+                messages.append(
+                    message.model_dump(mode="json")
+                    if hasattr(message, "model_dump")
+                    else message
+                )
             except Exception as e:
-                logger.warning(f"Failed to create ExecutionChatMessage from event {event.id}: {e}")
+                logger.warning(
+                    f"Failed to create ExecutionChatMessage from event {event.id}: {e}"
+                )
 
         # Sort by created_at ascending
-        messages.sort(key=lambda m: m.get('created_at', ''))
+        messages.sort(key=lambda m: m.get("created_at", ""))
 
         return {"messages": messages, "count": len(messages)}
 
@@ -926,9 +1076,14 @@ async def get_execution_chat(
 
 class ExecutionChatRequest(BaseModel):
     """Request model for posting execution chat messages"""
+
     content: str = Field(..., description="Message content")
-    step_id: Optional[str] = Field(None, description="Optional: step ID this message is about")
-    message_type: str = Field("question", description="Message type: question/note/route_proposal/system_hint")
+    step_id: Optional[str] = Field(
+        None, description="Optional: step ID this message is about"
+    )
+    message_type: str = Field(
+        "question", description="Message type: question/note/route_proposal/system_hint"
+    )
 
 
 @router.post("/{workspace_id}/executions/{execution_id}/chat")
@@ -956,8 +1111,7 @@ async def post_execution_chat(
 
         # Get LocalDomainContext from identity port
         ctx = await identity_port.get_current_context(
-            workspace_id=workspace_id,
-            profile_id=profile_id
+            workspace_id=workspace_id, profile_id=profile_id
         )
 
         # Validate message_type
@@ -984,9 +1138,7 @@ async def post_execution_chat(
                 "message_type": msg_type.value,
             },
             entity_ids=[execution_id] + ([request.step_id] if request.step_id else []),
-            metadata={
-                "is_execution_chat": True
-            }
+            metadata={"is_execution_chat": True},
         )
 
         # Save user message
@@ -994,7 +1146,11 @@ async def post_execution_chat(
 
         # Create ExecutionChatMessage view model
         user_message = ExecutionChatMessage.from_mind_event(user_event)
-        user_message_dict = user_message.model_dump(mode='json') if hasattr(user_message, 'model_dump') else user_message
+        user_message_dict = (
+            user_message.model_dump(mode="json")
+            if hasattr(user_message, "model_dump")
+            else user_message
+        )
 
         # Get playbook metadata and check execution status
         playbook_metadata = None
@@ -1002,29 +1158,51 @@ async def post_execution_chat(
         try:
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.services.playbook_service import PlaybookService
+
             tasks_store = TasksStore(db_path=store.db_path)
             task = tasks_store.get_task_by_execution_id(execution_id)
 
             if task:
                 # Check if execution needs to continue
-                task_status = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                task_status = (
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                )
                 execution_context = task.execution_context or {}
                 paused_at = execution_context.get("paused_at")
                 current_step = execution_context.get("current_step", {})
-                step_status = current_step.get("status") if isinstance(current_step, dict) else None
-                step_requires_confirmation = current_step.get("requires_confirmation", False) if isinstance(current_step, dict) else False
-                step_confirmation_status = current_step.get("confirmation_status") if isinstance(current_step, dict) else None
+                step_status = (
+                    current_step.get("status")
+                    if isinstance(current_step, dict)
+                    else None
+                )
+                step_requires_confirmation = (
+                    current_step.get("requires_confirmation", False)
+                    if isinstance(current_step, dict)
+                    else False
+                )
+                step_confirmation_status = (
+                    current_step.get("confirmation_status")
+                    if isinstance(current_step, dict)
+                    else None
+                )
 
                 # Determine if we should continue execution
                 should_continue_execution = (
-                    task_status == "waiting_confirmation" or
-                    task_status == "paused" or
-                    paused_at is not None or
-                    step_status == "waiting_confirmation" or
-                    (step_requires_confirmation and step_confirmation_status == "pending")
+                    task_status == "waiting_confirmation"
+                    or task_status == "paused"
+                    or paused_at is not None
+                    or step_status == "waiting_confirmation"
+                    or (
+                        step_requires_confirmation
+                        and step_confirmation_status == "pending"
+                    )
                 )
 
-                logger.info(f"Execution {execution_id} status check: task_status={task_status}, paused_at={paused_at}, step_status={step_status}, step_requires_confirmation={step_requires_confirmation}, step_confirmation_status={step_confirmation_status}, should_continue={should_continue_execution}")
+                logger.info(
+                    f"Execution {execution_id} status check: task_status={task_status}, paused_at={paused_at}, step_status={step_status}, step_requires_confirmation={step_requires_confirmation}, step_confirmation_status={step_confirmation_status}, should_continue={should_continue_execution}"
+                )
 
                 # Get playbook metadata
                 if task.execution_context:
@@ -1033,13 +1211,19 @@ async def post_execution_chat(
                         playbook_service = PlaybookService(store=store)
                         playbook = await playbook_service.get_playbook(
                             playbook_code=playbook_code,
-                            locale=ctx.workspace.default_locale if hasattr(ctx, 'workspace') and ctx.workspace else "zh-TW",
-                            workspace_id=ctx.workspace_id
+                            locale=(
+                                ctx.workspace.default_locale
+                                if hasattr(ctx, "workspace") and ctx.workspace
+                                else "zh-TW"
+                            ),
+                            workspace_id=ctx.workspace_id,
                         )
                         if playbook:
                             playbook_metadata = playbook.metadata
         except Exception as e:
-            logger.warning(f"Failed to load playbook metadata or check execution status: {e}")
+            logger.warning(
+                f"Failed to load playbook metadata or check execution status: {e}"
+            )
 
         # Handle execution continuation or chat reply
         async def handle_execution_response():
@@ -1047,52 +1231,58 @@ async def post_execution_chat(
             try:
                 if should_continue_execution:
                     # Scenario A: Continue execution
-                    logger.info(f"Auto-continuing execution {execution_id} via execution chat")
+                    logger.info(
+                        f"Auto-continuing execution {execution_id} via execution chat"
+                    )
                     from backend.app.services.playbook_runner import PlaybookRunner
+
                     playbook_runner = PlaybookRunner()
 
                     try:
                         result = await playbook_runner.continue_playbook_execution(
                             execution_id=execution_id,
                             user_message=request.content,
-                            profile_id=profile_id
+                            profile_id=profile_id,
                         )
                         logger.info(f"Successfully continued execution {execution_id}")
                     except Exception as e:
-                        logger.error(f"Failed to continue execution {execution_id}: {e}", exc_info=True)
+                        logger.error(
+                            f"Failed to continue execution {execution_id}: {e}",
+                            exc_info=True,
+                        )
                         # Fallback to chat reply if continue fails
                         await generate_execution_chat_reply(
                             execution_id=execution_id,
                             ctx=ctx,
                             user_message=request.content,
                             user_message_id=user_event.id,
-                            playbook_metadata=playbook_metadata
+                            playbook_metadata=playbook_metadata,
                         )
                 else:
                     # Scenario B: Generate chat reply (discussion mode)
-                    logger.info(f"Generating chat reply for execution {execution_id} (discussion mode)")
+                    logger.info(
+                        f"Generating chat reply for execution {execution_id} (discussion mode)"
+                    )
                     result = await generate_execution_chat_reply(
                         execution_id=execution_id,
                         ctx=ctx,
                         user_message=request.content,
                         user_message_id=user_event.id,
-                        playbook_metadata=playbook_metadata
+                        playbook_metadata=playbook_metadata,
                     )
                     # Assistant message is already saved in generate_execution_chat_reply
                     # SSE stream will automatically detect and push it
-                    logger.info(f"Generated assistant reply for execution {execution_id}")
+                    logger.info(
+                        f"Generated assistant reply for execution {execution_id}"
+                    )
             except Exception as e:
                 logger.error(f"Failed to handle execution response: {e}", exc_info=True)
 
         # Start async task (non-blocking)
         asyncio.create_task(handle_execution_response())
 
-        return {
-            "message": user_message_dict,
-            "status": "sent"
-        }
+        return {"message": user_message_dict, "status": "sent"}
 
     except Exception as e:
         logger.error(f"Failed to post execution chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
