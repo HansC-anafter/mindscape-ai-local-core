@@ -16,6 +16,10 @@ class ExecutionStreamManager {
   private streamUrls: Map<string, string> = new Map();
   private reconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
+  private connectionCallbacks: Map<string, Set<(connected: boolean) => void>> = new Map();
+  private watchdogTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private watchdogFiredKeys: Set<string> = new Set();
+  private static WATCHDOG_TIMEOUT_MS = 45_000;
 
   connect(executionId: string, streamUrl: string): () => void {
     const key = executionId;
@@ -44,8 +48,11 @@ class ExecutionStreamManager {
     this.streams.set(key, eventSource);
 
     eventSource.onopen = () => {
-      // Connection established
+      // Connection established — clear watchdog fired flag
+      this.watchdogFiredKeys.delete(key);
       this.reconnectAttempts.set(key, 0);
+      this.notifyConnectionChange(key, true);
+      this.resetWatchdog(key);
     };
 
     eventSource.onmessage = (event) => {
@@ -72,12 +79,16 @@ class ExecutionStreamManager {
       } catch (err) {
         console.error(`[ExecutionStreamManager] Failed to parse SSE message for ${executionId}:`, err);
       }
+      // Reset watchdog on any message (including heartbeats)
+      this.resetWatchdog(key);
     };
 
     eventSource.onerror = (error) => {
       const target = error.target as EventSource;
       if (target?.readyState === EventSource.CLOSED) {
         console.warn(`[ExecutionStreamManager] SSE connection closed for execution ${executionId}`);
+        this.notifyConnectionChange(key, false);
+        this.clearWatchdog(key);
         // Treat as transient: close current stream but keep handlers/refCounts and try to reconnect.
         this.closeStreamOnly(key);
         this.scheduleReconnect(key);
@@ -139,6 +150,8 @@ class ExecutionStreamManager {
     this.closeStreamOnly(key);
     this.handlers.delete(key);
     this.refCounts.delete(key);
+    this.connectionCallbacks.delete(key);
+    this.clearWatchdog(key);
   }
 
   private createEventSource(executionId: string): EventSource {
@@ -184,7 +197,10 @@ class ExecutionStreamManager {
         this.streams.set(key, es);
 
         es.onopen = () => {
+          this.watchdogFiredKeys.delete(key);
           this.reconnectAttempts.set(key, 0);
+          this.notifyConnectionChange(key, true);
+          this.resetWatchdog(key);
         };
 
         es.onmessage = (event) => {
@@ -207,12 +223,15 @@ class ExecutionStreamManager {
           } catch (err) {
             console.error(`[ExecutionStreamManager] Failed to parse SSE message for ${executionId}:`, err);
           }
+          this.resetWatchdog(key);
         };
 
         es.onerror = (error) => {
           const target = error.target as EventSource;
           if (target?.readyState === EventSource.CLOSED) {
             console.warn(`[ExecutionStreamManager] SSE connection closed for execution ${executionId}`);
+            this.notifyConnectionChange(key, false);
+            this.clearWatchdog(key);
             this.closeStreamOnly(key);
             this.scheduleReconnect(key);
           }
@@ -230,9 +249,47 @@ class ExecutionStreamManager {
     const stream = this.streams.get(key);
     return stream !== undefined && stream.readyState === EventSource.OPEN;
   }
+
+  onConnectionChange(executionId: string, cb: (connected: boolean) => void): () => void {
+    if (!this.connectionCallbacks.has(executionId)) {
+      this.connectionCallbacks.set(executionId, new Set());
+    }
+    this.connectionCallbacks.get(executionId)!.add(cb);
+    return () => { this.connectionCallbacks.get(executionId)?.delete(cb); };
+  }
+
+  private notifyConnectionChange(executionId: string, connected: boolean): void {
+    this.connectionCallbacks.get(executionId)?.forEach(cb => {
+      try { cb(connected); } catch (e) { /* ignore */ }
+    });
+  }
+
+  private resetWatchdog(key: string): void {
+    this.clearWatchdog(key);
+    const timer = setTimeout(() => {
+      // No message received within timeout — treat as stale connection
+      // Only log on first timeout to avoid spam
+      if (!this.watchdogFiredKeys.has(key)) {
+        console.warn(`[ExecutionStreamManager] Watchdog timeout for ${key}, treating as disconnected`);
+        this.watchdogFiredKeys.add(key);
+      }
+      this.notifyConnectionChange(key, false);
+      this.closeStreamOnly(key);
+      this.scheduleReconnect(key);
+    }, ExecutionStreamManager.WATCHDOG_TIMEOUT_MS);
+    this.watchdogTimers.set(key, timer);
+  }
+
+  private clearWatchdog(key: string): void {
+    const timer = this.watchdogTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      this.watchdogTimers.delete(key);
+    }
+  }
 }
 
-const streamManager = new ExecutionStreamManager();
+export const streamManager = new ExecutionStreamManager();
 
 export function useExecutionStream(
   executionId: string | null | undefined,
