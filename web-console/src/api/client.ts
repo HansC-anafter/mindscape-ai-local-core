@@ -1,19 +1,35 @@
 /**
  * MindscapeAPIClient - Unified API client for Local and Cloud environments
  *
- * This client automatically handles differences between Local and Cloud:
- * - API endpoint URLs
+ * Features:
+ * - Automatic Local/Cloud URL resolution
  * - Authentication headers (JWT tokens, tenant/group IDs)
- * - Request/response handling
+ * - GET request deduplication (same URL → single inflight request)
+ * - Retry with exponential backoff for 429/503
  *
  * Playbook components should use this client instead of directly calling fetch.
  */
 
 import { ExecutionContext } from '@/types/execution-context';
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_RETRIES = 3;
+const BACKOFF_BASE_MS = 1_000;
+const BACKOFF_CAP_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// MindscapeAPIClient
+// ---------------------------------------------------------------------------
+
 export class MindscapeAPIClient {
   private baseUrl: string;
   private context: ExecutionContext;
+
+  /** GET dedup: key → inflight promise */
+  private inflightGets: Map<string, Promise<Response>> = new Map();
 
   constructor(context: ExecutionContext) {
     this.context = context;
@@ -22,159 +38,189 @@ export class MindscapeAPIClient {
       this.baseUrl =
         process.env.NEXT_PUBLIC_CLOUD_API_URL ||
         process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8500';  // 新默认 Cloud API 端口
+        'http://localhost:8500';
     } else {
       this.baseUrl =
         process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8200';  // 新默认后端 API 端口
+        'http://localhost:8200';
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Auth
+  // -------------------------------------------------------------------------
+
   /**
-   * Get authentication token for Cloud mode
-   * Returns null if no token is available or in Local mode
+   * Get authentication token for Cloud mode.
+   * Returns null if no token is available or in Local mode.
    */
   private getAuthToken(): string | null {
-    if (this.context.tags?.mode === 'cloud') {
-      return null;
-    }
-    return null;
+    return this.context.authToken || null;
   }
 
-  /**
-   * Build headers for API requests
-   */
+  // -------------------------------------------------------------------------
+  // Headers
+  // -------------------------------------------------------------------------
+
   private buildHeaders(customHeaders?: HeadersInit): HeadersInit {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...customHeaders
     };
 
+    // Merge custom headers
+    if (customHeaders) {
+      this.mergeHeaders(headers, customHeaders);
+    }
+
+    // Cloud-specific headers
     if (this.context.tags?.mode === 'cloud') {
       const token = this.getAuthToken();
-      const headersRecord = headers as Record<string, string>;
-
-      if (token) {
-        headersRecord['Authorization'] = `Bearer ${token}`;
-      }
-
-      if (this.context.tags.tenant_id) {
-        headersRecord['X-Tenant-ID'] = this.context.tags.tenant_id;
-      }
-
-      if (this.context.tags.group_id) {
-        headersRecord['X-Group-ID'] = this.context.tags.group_id;
-      }
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (this.context.tags.tenant_id) headers['X-Tenant-ID'] = this.context.tags.tenant_id;
+      if (this.context.tags.group_id) headers['X-Group-ID'] = this.context.tags.group_id;
     }
 
     return headers;
   }
 
   /**
-   * Make a GET request
+   * Build headers without Content-Type (for FormData — browser sets boundary)
+   */
+  private buildHeadersWithoutContentType(customHeaders?: HeadersInit): HeadersInit {
+    const headers: Record<string, string> = {};
+
+    if (customHeaders) {
+      this.mergeHeaders(headers, customHeaders, /* skipContentType */ true);
+    }
+
+    if (this.context.tags?.mode === 'cloud') {
+      const token = this.getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (this.context.tags.tenant_id) headers['X-Tenant-ID'] = this.context.tags.tenant_id;
+      if (this.context.tags.group_id) headers['X-Group-ID'] = this.context.tags.group_id;
+    }
+
+    return headers;
+  }
+
+  private mergeHeaders(
+    target: Record<string, string>,
+    source: HeadersInit,
+    skipContentType = false
+  ): void {
+    if (source instanceof Headers) {
+      source.forEach((value, key) => {
+        if (!skipContentType || key.toLowerCase() !== 'content-type') {
+          target[key] = value;
+        }
+      });
+    } else if (Array.isArray(source)) {
+      source.forEach(([key, value]) => {
+        if (!skipContentType || key.toLowerCase() !== 'content-type') {
+          target[key] = value;
+        }
+      });
+    } else {
+      Object.entries(source).forEach(([key, value]) => {
+        if (!skipContentType || key.toLowerCase() !== 'content-type') {
+          target[key] = value as string;
+        }
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Retry with Exponential Backoff
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetch with automatic retry on 429 (Too Many Requests) and 503 (Service Unavailable).
+   * Uses exponential backoff: 1s → 2s → 4s, capped at 30s.
+   */
+  private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, init);
+      if ((res.status === 429 || res.status === 503) && attempt < MAX_RETRIES) {
+        const delay = Math.min(BACKOFF_BASE_MS * Math.pow(2, attempt), BACKOFF_CAP_MS);
+        await new Promise(r => setTimeout(r, delay));
+        attempt++;
+        continue;
+      }
+      return res;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // GET Dedup
+  // -------------------------------------------------------------------------
+
+  private buildDedupKey(endpoint: string): string {
+    const tenantId = this.context.tags?.tenant_id || 'local';
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+    return `GET:${tenantId}:${url}`;
+  }
+
+  // -------------------------------------------------------------------------
+  // HTTP Methods
+  // -------------------------------------------------------------------------
+
+  /**
+   * Make a GET request (deduplicated — concurrent identical GETs share one inflight request)
    */
   async get(endpoint: string, options?: RequestInit): Promise<Response> {
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : `${this.baseUrl}${endpoint}`;
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+    const key = this.buildDedupKey(endpoint);
 
-    return fetch(url, {
+    // Dedup: if an identical GET is already inflight, return a clone of the same response
+    const existing = this.inflightGets.get(key);
+    if (existing) {
+      return existing.then(r => r.clone());
+    }
+
+    const promise = this.fetchWithRetry(url, {
       ...options,
       method: 'GET',
-      headers: this.buildHeaders(options?.headers)
+      headers: this.buildHeaders(options?.headers),
+    }).finally(() => {
+      this.inflightGets.delete(key);
     });
+
+    this.inflightGets.set(key, promise);
+    return promise;
   }
 
   /**
    * Make a POST request
    */
   async post(endpoint: string, data?: any, options?: RequestInit): Promise<Response> {
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : `${this.baseUrl}${endpoint}`;
-
-    // Check if data is FormData
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
     const isFormData = data instanceof FormData;
 
-    // Build headers - exclude Content-Type for FormData (browser will set it with boundary)
     const headers = isFormData
       ? this.buildHeadersWithoutContentType(options?.headers)
       : this.buildHeaders(options?.headers);
 
-    // Use FormData directly or stringify JSON
     const body = isFormData ? data : (data ? JSON.stringify(data) : undefined);
 
-    return fetch(url, {
+    return this.fetchWithRetry(url, {
       ...options,
       method: 'POST',
       headers,
-      body
+      body,
     });
-  }
-
-  /**
-   * Build headers without Content-Type (for FormData)
-   * Preserves all custom headers except Content-Type
-   */
-  private buildHeadersWithoutContentType(customHeaders?: HeadersInit): HeadersInit {
-    // Start with custom headers, excluding Content-Type
-    const headers: Record<string, string> = {};
-
-    if (customHeaders) {
-      if (customHeaders instanceof Headers) {
-        customHeaders.forEach((value, key) => {
-          if (key.toLowerCase() !== 'content-type') {
-            headers[key] = value;
-          }
-        });
-      } else if (Array.isArray(customHeaders)) {
-        customHeaders.forEach(([key, value]) => {
-          if (key.toLowerCase() !== 'content-type') {
-            headers[key] = value;
-          }
-        });
-      } else {
-        Object.entries(customHeaders).forEach(([key, value]) => {
-          if (key.toLowerCase() !== 'content-type') {
-            headers[key] = value as string;
-          }
-        });
-      }
-    }
-
-    // Add context-specific headers
-    if (this.context.tags?.mode === 'cloud') {
-      const token = this.getAuthToken();
-
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      if (this.context.tags.tenant_id) {
-        headers['X-Tenant-ID'] = this.context.tags.tenant_id;
-      }
-
-      if (this.context.tags.group_id) {
-        headers['X-Group-ID'] = this.context.tags.group_id;
-      }
-    }
-
-    return headers;
   }
 
   /**
    * Make a PUT request
    */
   async put(endpoint: string, data?: any, options?: RequestInit): Promise<Response> {
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : `${this.baseUrl}${endpoint}`;
-
-    return fetch(url, {
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+    return this.fetchWithRetry(url, {
       ...options,
       method: 'PUT',
       headers: this.buildHeaders(options?.headers),
-      body: data ? JSON.stringify(data) : undefined
+      body: data ? JSON.stringify(data) : undefined,
     });
   }
 
@@ -182,15 +228,12 @@ export class MindscapeAPIClient {
    * Make a PATCH request
    */
   async patch(endpoint: string, data?: any, options?: RequestInit): Promise<Response> {
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : `${this.baseUrl}${endpoint}`;
-
-    return fetch(url, {
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+    return this.fetchWithRetry(url, {
       ...options,
       method: 'PATCH',
       headers: this.buildHeaders(options?.headers),
-      body: data ? JSON.stringify(data) : undefined
+      body: data ? JSON.stringify(data) : undefined,
     });
   }
 
@@ -198,15 +241,11 @@ export class MindscapeAPIClient {
    * Make a DELETE request
    */
   async delete(endpoint: string, options?: RequestInit): Promise<Response> {
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : `${this.baseUrl}${endpoint}`;
-
-    return fetch(url, {
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+    return this.fetchWithRetry(url, {
       ...options,
       method: 'DELETE',
-      headers: this.buildHeaders(options?.headers)
+      headers: this.buildHeaders(options?.headers),
     });
   }
 }
-

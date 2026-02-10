@@ -28,6 +28,13 @@ export interface ExecutionContext {
    * Adapters and external services can read/write tags as needed.
    */
   tags?: Record<string, string>;
+
+  /**
+   * Auth token for API calls (Cloud mode only).
+   * Populated by ExecutionContextProvider from session/cookie.
+   * Local mode: always undefined.
+   */
+  authToken?: string;
 }
 
 /**
