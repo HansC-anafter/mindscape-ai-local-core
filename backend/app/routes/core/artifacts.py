@@ -6,10 +6,18 @@ Artifacts represent tangible outputs from playbook execution,
 such as illustrations, documents, configurations, etc.
 """
 
+import asyncio
 import logging
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from pathlib import Path as PathLib
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
@@ -175,12 +183,12 @@ def artifact_to_response(
         created_at=(
             artifact.created_at.isoformat()
             if artifact.created_at
-            else datetime.utcnow().isoformat()
+            else _utc_now().isoformat()
         ),
         updated_at=(
             artifact.updated_at.isoformat()
             if artifact.updated_at
-            else datetime.utcnow().isoformat()
+            else _utc_now().isoformat()
         ),
         execution_id=artifact.execution_id,
         playbook_code=artifact.playbook_code,
@@ -281,8 +289,8 @@ def create_artifact_from_request(
         sync_state=None,
         primary_action_type=primary_action_type,
         metadata=metadata,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=_utc_now(),
+        updated_at=_utc_now(),
     )
 
 
@@ -345,9 +353,22 @@ async def list_artifacts(
 
     **Performance**: Response time typically < 200ms for up to 1000 artifacts.
     """
+    import asyncio
+
     try:
-        # Get artifacts from store
-        artifacts = store.artifacts.list_artifacts_by_workspace(workspace_id)
+        # Use asyncio.to_thread to avoid blocking the event loop with
+        # synchronous DB calls.  This prevents the backend from hanging
+        # when the frontend polls this endpoint frequently.
+        if playbook_code:
+            artifacts = await asyncio.to_thread(
+                store.artifacts.list_artifacts_by_playbook,
+                workspace_id,
+                playbook_code,
+            )
+        else:
+            artifacts = await asyncio.to_thread(
+                store.artifacts.list_artifacts_by_workspace, workspace_id
+            )
 
         # Apply filters
         filtered_artifacts = artifacts
@@ -389,10 +410,9 @@ async def list_artifacts(
                 if a.metadata and a.metadata.get("kind") == kind
             ]
 
-        if playbook_code:
-            filtered_artifacts = [
-                a for a in filtered_artifacts if a.playbook_code == playbook_code
-            ]
+        # playbook_code filter already applied at DB level when provided
+        if playbook_code and not artifacts:
+            pass  # Already filtered
 
         if platform:
             filtered_artifacts = [
@@ -444,7 +464,7 @@ async def get_artifact(
     Get a single artifact by ID
     """
     try:
-        artifact = store.artifacts.get_artifact(artifact_id)
+        artifact = await asyncio.to_thread(store.artifacts.get_artifact, artifact_id)
         if not artifact:
             raise HTTPException(
                 status_code=404, detail=f"Artifact {artifact_id} not found"
@@ -476,7 +496,7 @@ async def create_artifact(request: CreateArtifactRequest = Body(...)):
 
         # Validate intent exists if provided
         if request.intent_id:
-            intent = store.get_intent(request.intent_id)
+            intent = await asyncio.to_thread(store.get_intent, request.intent_id)
             if not intent:
                 raise HTTPException(
                     status_code=404, detail=f"Intent {request.intent_id} not found"
@@ -489,7 +509,9 @@ async def create_artifact(request: CreateArtifactRequest = Body(...)):
         artifact = create_artifact_from_request(request, artifact_id)
 
         # Save to database
-        created_artifact = store.artifacts.create_artifact(artifact)
+        created_artifact = await asyncio.to_thread(
+            store.artifacts.create_artifact, artifact
+        )
 
         return artifact_to_response(created_artifact)
 
@@ -514,7 +536,7 @@ async def get_artifact_file(
     Supports both local file paths and external URLs.
     """
     try:
-        artifact = store.artifacts.get_artifact(artifact_id)
+        artifact = await asyncio.to_thread(store.artifacts.get_artifact, artifact_id)
         if not artifact:
             raise HTTPException(
                 status_code=404, detail=f"Artifact {artifact_id} not found"

@@ -1,6 +1,14 @@
+import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from typing import Optional
 
 from fastapi import (
@@ -41,8 +49,11 @@ async def get_candidate_intent_tags(
         intent_tags_store = IntentTagsStore(db_path=store.db_path)
 
         # Get candidate intent tags for this workspace
-        candidate_tags = intent_tags_store.list_intent_tags(
-            workspace_id=workspace_id, status=IntentTagStatus.CANDIDATE, limit=limit
+        candidate_tags = await asyncio.to_thread(
+            intent_tags_store.list_intent_tags,
+            workspace_id=workspace_id,
+            status=IntentTagStatus.CANDIDATE,
+            limit=limit,
         )
 
         # Filter by message_id if provided
@@ -90,7 +101,9 @@ async def confirm_intent_tag(
         intent_tags_store = IntentTagsStore(db_path=store.db_path)
 
         # Get the intent tag to verify it belongs to this workspace
-        intent_tag = intent_tags_store.get_intent_tag(intent_tag_id)
+        intent_tag = await asyncio.to_thread(
+            intent_tags_store.get_intent_tag, intent_tag_id
+        )
         if not intent_tag:
             raise HTTPException(status_code=404, detail="Intent tag not found")
 
@@ -100,7 +113,9 @@ async def confirm_intent_tag(
             )
 
         # Confirm the intent
-        success = intent_tags_store.confirm_intent(intent_tag_id)
+        success = await asyncio.to_thread(
+            intent_tags_store.confirm_intent, intent_tag_id
+        )
         if not success:
             raise HTTPException(status_code=500, detail="Failed to confirm intent tag")
 
@@ -116,8 +131,11 @@ async def confirm_intent_tag(
                 profile_id = workspace_obj.owner_user_id
 
                 # Check if IntentCard with same title already exists
-                existing_intents = store.list_intents(
-                    profile_id=profile_id, status=None, priority=None
+                existing_intents = await asyncio.to_thread(
+                    store.list_intents,
+                    profile_id=profile_id,
+                    status=None,
+                    priority=None,
                 )
                 intent_exists = any(
                     intent.title == intent_tag.label or intent_tag.label in intent.title
@@ -140,8 +158,8 @@ async def confirm_intent_tag(
                         tags=[],
                         category="confirmed_intent_tag",
                         progress_percentage=0.0,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
+                        created_at=_utc_now(),
+                        updated_at=_utc_now(),
                         started_at=None,
                         completed_at=None,
                         due_date=None,
@@ -155,7 +173,7 @@ async def confirm_intent_tag(
                             "confidence": intent_tag.confidence,
                         },
                     )
-                    store.create_intent(new_intent)
+                    await asyncio.to_thread(store.create_intent, new_intent)
                     logger.info(
                         f"Created IntentCard {new_intent.id} from confirmed IntentTag {intent_tag_id}"
                     )
@@ -195,7 +213,9 @@ async def update_intent_tag_label(
         intent_tags_store = IntentTagsStore(db_path=store.db_path)
 
         # Get the intent tag to verify it belongs to this workspace
-        intent_tag = intent_tags_store.get_intent_tag(intent_tag_id)
+        intent_tag = await asyncio.to_thread(
+            intent_tags_store.get_intent_tag, intent_tag_id
+        )
         if not intent_tag:
             raise HTTPException(status_code=404, detail="Intent tag not found")
 
@@ -213,8 +233,8 @@ async def update_intent_tag_label(
             )
 
         # Update the label
-        success = intent_tags_store.update_intent_tag_label(
-            intent_tag_id, label.strip()
+        success = await asyncio.to_thread(
+            intent_tags_store.update_intent_tag_label, intent_tag_id, label.strip()
         )
         if not success:
             raise HTTPException(

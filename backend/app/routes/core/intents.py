@@ -8,9 +8,17 @@ Provides endpoints for:
 - Building intent tree structures
 """
 
+import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
 from pydantic import BaseModel, Field
@@ -124,12 +132,12 @@ def intent_card_to_response(
         created_at=(
             intent_card.created_at.isoformat()
             if intent_card.created_at
-            else datetime.utcnow().isoformat()
+            else _utc_now().isoformat()
         ),
         updated_at=(
             intent_card.updated_at.isoformat()
             if intent_card.updated_at
-            else datetime.utcnow().isoformat()
+            else _utc_now().isoformat()
         ),
     )
 
@@ -210,12 +218,15 @@ async def list_intents(
             intent_status = status_map.get(status.upper())
 
         # Get intents
-        intents = store.list_intents(
-            profile_id=profile_id, status=intent_status, priority=None
+        intents = await asyncio.to_thread(
+            store.list_intents,
+            profile_id=profile_id,
+            status=intent_status,
+            priority=None,
         )
 
-        owner_workspaces = store.workspaces.list_workspaces(
-            owner_user_id=profile_id, limit=5
+        owner_workspaces = await asyncio.to_thread(
+            store.workspaces.list_workspaces, owner_user_id=profile_id, limit=5
         )
         is_single_workspace_owner = (
             len(owner_workspaces) == 1 and owner_workspaces[0].id == workspace_id
@@ -234,9 +245,11 @@ async def list_intents(
                 if not intent.metadata:
                     intent.metadata = {}
                 intent.metadata["workspace_id"] = workspace_id
-                intent.updated_at = datetime.utcnow()
+                intent.updated_at = _utc_now()
                 try:
-                    updated = store.intents.update_intent(intent)
+                    updated = await asyncio.to_thread(
+                        store.intents.update_intent, intent
+                    )
                     filtered_intents.append(updated or intent)
                 except Exception as e:
                     logger.warning(
@@ -270,7 +283,7 @@ async def get_intent(intent_id: str = Path(..., description="Intent ID")):
     Get a single intent by ID
     """
     try:
-        intent_card = store.get_intent(intent_id)
+        intent_card = await asyncio.to_thread(store.get_intent, intent_id)
         if not intent_card:
             raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
 
@@ -281,7 +294,9 @@ async def get_intent(intent_id: str = Path(..., description="Intent ID")):
 
         if not workspace_id:
             # Try to find workspace by profile_id
-            workspaces = store.list_workspaces(owner_user_id=intent_card.profile_id)
+            workspaces = await asyncio.to_thread(
+                store.list_workspaces, owner_user_id=intent_card.profile_id
+            )
             if workspaces:
                 workspace_id = workspaces[0].id
             else:
@@ -338,8 +353,8 @@ async def create_intent(request: CreateIntentRequest = Body(...)):
             storyline_tags=request.storyline_tags or [],
             category=None,
             progress_percentage=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
             parent_intent_id=request.parent_id,
             child_intent_ids=[],
             metadata=metadata,
@@ -347,15 +362,15 @@ async def create_intent(request: CreateIntentRequest = Body(...)):
 
         # Handle parent-child relationship
         if request.parent_id:
-            parent_intent = store.get_intent(request.parent_id)
+            parent_intent = await asyncio.to_thread(store.get_intent, request.parent_id)
             if parent_intent:
                 if intent_card.id not in parent_intent.child_intent_ids:
                     parent_intent.child_intent_ids.append(intent_card.id)
-                    parent_intent.updated_at = datetime.utcnow()
-                    store.intents.update_intent(parent_intent)
+                    parent_intent.updated_at = _utc_now()
+                    await asyncio.to_thread(store.intents.update_intent, parent_intent)
 
         # Create intent
-        created_intent = store.create_intent(intent_card)
+        created_intent = await asyncio.to_thread(store.create_intent, intent_card)
 
         return intent_card_to_response(created_intent, request.workspace_id)
 
@@ -378,7 +393,7 @@ async def update_intent(
     """
     try:
         # Get existing intent
-        intent_card = store.get_intent(intent_id)
+        intent_card = await asyncio.to_thread(store.get_intent, intent_id)
         if not intent_card:
             raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
 
@@ -424,19 +439,25 @@ async def update_intent(
 
             if old_parent_id != request.parent_id:
                 if old_parent_id:
-                    old_parent = store.get_intent(old_parent_id)
+                    old_parent = await asyncio.to_thread(
+                        store.get_intent, old_parent_id
+                    )
                     if old_parent and intent_id in old_parent.child_intent_ids:
                         old_parent.child_intent_ids.remove(intent_id)
-                        old_parent.updated_at = datetime.utcnow()
-                        store.intents.update_intent(old_parent)
+                        old_parent.updated_at = _utc_now()
+                        await asyncio.to_thread(store.intents.update_intent, old_parent)
 
                 if request.parent_id:
-                    new_parent = store.get_intent(request.parent_id)
+                    new_parent = await asyncio.to_thread(
+                        store.get_intent, request.parent_id
+                    )
                     if new_parent:
                         if intent_id not in new_parent.child_intent_ids:
                             new_parent.child_intent_ids.append(intent_id)
-                            new_parent.updated_at = datetime.utcnow()
-                            store.intents.update_intent(new_parent)
+                            new_parent.updated_at = _utc_now()
+                            await asyncio.to_thread(
+                                store.intents.update_intent, new_parent
+                            )
 
                 intent_card.parent_intent_id = request.parent_id
 
@@ -450,9 +471,11 @@ async def update_intent(
             elif existing_workspace_id:
                 intent_card.metadata["workspace_id"] = existing_workspace_id
 
-        intent_card.updated_at = datetime.utcnow()
+        intent_card.updated_at = _utc_now()
 
-        updated_intent = store.intents.update_intent(intent_card)
+        updated_intent = await asyncio.to_thread(
+            store.intents.update_intent, intent_card
+        )
         if not updated_intent:
             raise HTTPException(status_code=500, detail="Failed to update intent")
 
@@ -486,7 +509,7 @@ async def delete_intent(
     """
     try:
         # Get intent
-        intent_card = store.get_intent(intent_id)
+        intent_card = await asyncio.to_thread(store.get_intent, intent_id)
         if not intent_card:
             raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
 
@@ -499,22 +522,24 @@ async def delete_intent(
             else:
                 # Remove parent reference from children
                 for child_id in intent_card.child_intent_ids:
-                    child = store.get_intent(child_id)
+                    child = await asyncio.to_thread(store.get_intent, child_id)
                     if child:
                         child.parent_intent_id = None
-                        child.updated_at = datetime.utcnow()
-                        store.intents.update_intent(child)
+                        child.updated_at = _utc_now()
+                        await asyncio.to_thread(store.intents.update_intent, child)
 
         # Remove from parent's children list
         if intent_card.parent_intent_id:
-            parent = store.get_intent(intent_card.parent_intent_id)
+            parent = await asyncio.to_thread(
+                store.get_intent, intent_card.parent_intent_id
+            )
             if parent and intent_id in parent.child_intent_ids:
                 parent.child_intent_ids.remove(intent_id)
-                parent.updated_at = datetime.utcnow()
-                store.intents.update_intent(parent)
+                parent.updated_at = _utc_now()
+                await asyncio.to_thread(store.intents.update_intent, parent)
 
         # Delete intent from database
-        success = store.intents.delete_intent(intent_id)
+        success = await asyncio.to_thread(store.intents.delete_intent, intent_id)
         if not success:
             raise HTTPException(
                 status_code=500, detail="Failed to delete intent from database"

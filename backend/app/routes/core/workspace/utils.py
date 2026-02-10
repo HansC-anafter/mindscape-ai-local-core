@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from ....services.mindscape_store import MindscapeStore
 from ....services.stores.tasks_store import TasksStore
@@ -35,7 +36,9 @@ async def ensure_workspace_launch_status(workspace_id: str, workspace) -> str:
     # Check for execution records
     try:
         tasks_store = TasksStore(store.db_path)
-        executions = tasks_store.list_executions_by_workspace(workspace_id, limit=1)
+        executions = await asyncio.to_thread(
+            tasks_store.list_executions_by_workspace, workspace_id, limit=1
+        )
         has_executions = len(executions) > 0
     except Exception as e:
         logger.warning(f"Failed to check executions for workspace {workspace_id}: {e}")
@@ -43,7 +46,9 @@ async def ensure_workspace_launch_status(workspace_id: str, workspace) -> str:
     # Check for event records (if no executions found)
     if not has_executions:
         try:
-            events = store.get_events_by_workspace(workspace_id, limit=1)
+            events = await asyncio.to_thread(
+                store.get_events_by_workspace, workspace_id, limit=1
+            )
             has_usage_records = len(events) > 0
         except Exception as e:
             logger.warning(f"Failed to check events for workspace {workspace_id}: {e}")

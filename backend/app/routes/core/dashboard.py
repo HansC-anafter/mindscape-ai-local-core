@@ -7,6 +7,7 @@ Hard rules:
 - R3: Response format fully aligned with site-hub
 """
 
+import asyncio
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, Query, Body, HTTPException, Depends, Request
@@ -45,6 +46,7 @@ def get_saved_views_store() -> SavedViewsStore:
 
 # ==================== Summary ====================
 
+
 @router.get("/summary", response_model=DashboardSummaryDTO)
 @router.post("/summary", response_model=DashboardSummaryDTO)
 async def get_dashboard_summary(
@@ -67,11 +69,13 @@ async def get_dashboard_summary(
         if not validation.is_valid:
             raise HTTPException(
                 status_code=validation.error_code or 403,
-                detail=validation.error_message
+                detail=validation.error_message,
             )
 
         aggregator = get_aggregator()
-        return await aggregator.get_summary(auth, dashboard_query, validation.effective_scope)
+        return await aggregator.get_summary(
+            auth, dashboard_query, validation.effective_scope
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -80,6 +84,7 @@ async def get_dashboard_summary(
 
 
 # ==================== Inbox ====================
+
 
 @router.get("/inbox", response_model=PaginatedResponse[InboxItemDTO])
 @router.post("/inbox", response_model=PaginatedResponse[InboxItemDTO])
@@ -108,11 +113,13 @@ async def list_inbox_items(
         if not validation.is_valid:
             raise HTTPException(
                 status_code=validation.error_code or 403,
-                detail=validation.error_message
+                detail=validation.error_message,
             )
 
         aggregator = get_aggregator()
-        return await aggregator.get_inbox(auth, dashboard_query, validation.effective_scope)
+        return await aggregator.get_inbox(
+            auth, dashboard_query, validation.effective_scope
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -121,6 +128,7 @@ async def list_inbox_items(
 
 
 # ==================== Cases ====================
+
 
 @router.get("/cases", response_model=PaginatedResponse[CaseCardDTO])
 async def list_case_cards(
@@ -148,11 +156,13 @@ async def list_case_cards(
         if not validation.is_valid:
             raise HTTPException(
                 status_code=validation.error_code or 403,
-                detail=validation.error_message
+                detail=validation.error_message,
             )
 
         aggregator = get_aggregator()
-        return await aggregator.get_cases(auth, dashboard_query, validation.effective_scope)
+        return await aggregator.get_cases(
+            auth, dashboard_query, validation.effective_scope
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -161,6 +171,7 @@ async def list_case_cards(
 
 
 # ==================== Assignments ====================
+
 
 @router.get("/assignments", response_model=PaginatedResponse[AssignmentCardDTO])
 async def list_assignment_cards(
@@ -190,11 +201,13 @@ async def list_assignment_cards(
         if not validation.is_valid:
             raise HTTPException(
                 status_code=validation.error_code or 403,
-                detail=validation.error_message
+                detail=validation.error_message,
             )
 
         aggregator = get_aggregator()
-        return await aggregator.get_assignments(auth, dashboard_query, validation.effective_scope)
+        return await aggregator.get_assignments(
+            auth, dashboard_query, validation.effective_scope
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -203,6 +216,7 @@ async def list_assignment_cards(
 
 
 # ==================== Workspaces ====================
+
 
 @router.get("/workspaces", response_model=PaginatedResponse[WorkspaceCardDTO])
 async def list_workspace_cards(
@@ -243,6 +257,7 @@ async def list_workspace_cards(
 
 # ==================== Saved Views ====================
 
+
 @router.get("/saved-views", response_model=List[SavedViewDTO])
 async def list_saved_views(
     request: Request,
@@ -251,7 +266,7 @@ async def list_saved_views(
     """Get saved view list"""
     try:
         store = get_saved_views_store()
-        views = store.list_by_user(auth.user_id)
+        views = await asyncio.to_thread(store.list_by_user, auth.user_id)
         return [SavedViewDTO(**v) for v in views]
     except Exception as e:
         logger.error(f"Failed to list saved views: {e}")
@@ -267,7 +282,7 @@ async def create_saved_view(
     """Create saved view"""
     try:
         store = get_saved_views_store()
-        view = store.create(auth.user_id, view_data.dict())
+        view = await asyncio.to_thread(store.create, auth.user_id, view_data.dict())
         return SavedViewDTO(**view)
     except Exception as e:
         logger.error(f"Failed to create saved view: {e}")
@@ -283,7 +298,7 @@ async def delete_saved_view(
     """Delete saved view"""
     try:
         store = get_saved_views_store()
-        deleted = store.delete(view_id, auth.user_id)
+        deleted = await asyncio.to_thread(store.delete, view_id, auth.user_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Saved view not found")
     except HTTPException:

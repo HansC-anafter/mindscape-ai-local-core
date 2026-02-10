@@ -9,6 +9,8 @@ Handles workspace-level governance queries:
 Note: These endpoints rely on PostgreSQL as the primary governance store.
 If governance tables are unavailable, endpoints return empty results or zero values.
 """
+
+import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Path as PathParam, Query
 from typing import Dict, Any, List, Optional
@@ -20,11 +22,14 @@ from backend.app.services.governance.governance_store import GovernanceStore
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/governance", tags=["workspace-governance"])
+router = APIRouter(
+    prefix="/api/v1/workspaces/{workspace_id}/governance", tags=["workspace-governance"]
+)
 
 
 class GovernanceDecision(BaseModel):
     """Governance decision model"""
+
     decision_id: str
     timestamp: str
     layer: str  # 'cost' | 'node' | 'policy' | 'preflight'
@@ -36,6 +41,7 @@ class GovernanceDecision(BaseModel):
 
 class GovernanceDecisionsResponse(BaseModel):
     """Response model for governance decisions list"""
+
     decisions: List[GovernanceDecision]
     total: int
     page: int
@@ -45,6 +51,7 @@ class GovernanceDecisionsResponse(BaseModel):
 
 class CostMonitoringData(BaseModel):
     """Cost monitoring data model"""
+
     current_usage: float
     quota: float
     usage_percentage: float
@@ -55,6 +62,7 @@ class CostMonitoringData(BaseModel):
 
 class GovernanceMetricsData(BaseModel):
     """Governance metrics data model"""
+
     period: str  # 'day' | 'month'
     rejection_rate: Dict[str, float]
     cost_trend: List[Dict[str, Any]] = Field(default_factory=list)
@@ -66,31 +74,21 @@ def _get_store() -> GovernanceStore:
     return GovernanceStore()
 
 
-def _query_governance_decisions_from_db(
+async def _query_governance_decisions_from_db(
     workspace_id: str,
     layer: Optional[str],
     start_date: Optional[str],
     end_date: Optional[str],
     page: int,
-    limit: int
+    limit: int,
 ) -> tuple[List[Dict[str, Any]], int]:
     """
     Query governance decisions from PostgreSQL store
-
-    Args:
-        workspace_id: Workspace ID
-        layer: Filter by governance layer
-        start_date: Start date filter
-        end_date: End date filter
-        page: Page number
-        limit: Items per page
-
-    Returns:
-        Tuple of (decisions list, total count)
     """
     try:
         store = _get_store()
-        return store.list_decisions(
+        return await asyncio.to_thread(
+            store.list_decisions,
             workspace_id=workspace_id,
             layer=layer,
             start_date=start_date,
@@ -100,7 +98,9 @@ def _query_governance_decisions_from_db(
         )
 
     except Exception as e:
-        logger.error(f"Failed to query governance decisions from database: {e}", exc_info=True)
+        logger.error(
+            f"Failed to query governance decisions from database: {e}", exc_info=True
+        )
         return [], 0
 
 
@@ -119,7 +119,7 @@ async def get_governance_decisions(
     Uses PostgreSQL governance tables. If unavailable, returns empty results.
     """
     try:
-        decisions_data, total = _query_governance_decisions_from_db(
+        decisions_data, total = await _query_governance_decisions_from_db(
             workspace_id, layer, start_date, end_date, page, limit
         )
         decisions = [
@@ -135,26 +135,22 @@ async def get_governance_decisions(
         )
     except Exception as e:
         logger.error(f"Failed to get governance decisions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get governance decisions: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get governance decisions: {str(e)}"
+        )
 
 
-def _query_cost_usage_from_db(
-    workspace_id: str,
-    period: str
+async def _query_cost_usage_from_db(
+    workspace_id: str, period: str
 ) -> tuple[float, List[Dict[str, Any]], Dict[str, Any]]:
     """
     Query cost usage from PostgreSQL store
-
-    Args:
-        workspace_id: Workspace ID
-        period: Period ('day' or 'month')
-
-    Returns:
-        Tuple of (current_usage, trend, breakdown)
     """
     try:
         store = _get_store()
-        return store.get_cost_usage_summary(workspace_id, period)
+        return await asyncio.to_thread(
+            store.get_cost_usage_summary, workspace_id, period
+        )
 
     except Exception as e:
         logger.error(f"Failed to query cost usage from database: {e}", exc_info=True)
@@ -176,11 +172,15 @@ async def get_cost_monitoring(
 
         # Get quota from settings
         if period == "day":
-            quota = settings_store.get("governance.cost.quota.daily", 10.0)
+            quota = await asyncio.to_thread(
+                settings_store.get, "governance.cost.quota.daily", 10.0
+            )
         else:
-            quota = settings_store.get("governance.cost.quota.monthly", 100.0)
+            quota = await asyncio.to_thread(
+                settings_store.get, "governance.cost.quota.monthly", 100.0
+            )
 
-        current_usage, trend, breakdown = _query_cost_usage_from_db(
+        current_usage, trend, breakdown = await _query_cost_usage_from_db(
             workspace_id, period
         )
 
@@ -194,29 +194,29 @@ async def get_cost_monitoring(
         )
     except Exception as e:
         logger.error(f"Failed to get cost monitoring data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get cost monitoring data: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get cost monitoring data: {str(e)}"
+        )
 
 
-def _query_governance_metrics_from_db(
-    workspace_id: str,
-    period: str
-) -> tuple[Dict[str, float], List[Dict[str, Any]], Dict[str, Any], Optional[Dict[str, int]]]:
+async def _query_governance_metrics_from_db(
+    workspace_id: str, period: str
+) -> tuple[
+    Dict[str, float], List[Dict[str, Any]], Dict[str, Any], Optional[Dict[str, int]]
+]:
     """
     Query governance metrics from PostgreSQL store
-
-    Args:
-        workspace_id: Workspace ID
-        period: Period ('day' or 'month')
-
-    Returns:
-        Tuple of (rejection_rate, cost_trend, violation_frequency, preflight_failure_reasons)
     """
     try:
         store = _get_store()
-        return store.get_governance_metrics(workspace_id, period)
+        return await asyncio.to_thread(
+            store.get_governance_metrics, workspace_id, period
+        )
 
     except Exception as e:
-        logger.error(f"Failed to query governance metrics from database: {e}", exc_info=True)
+        logger.error(
+            f"Failed to query governance metrics from database: {e}", exc_info=True
+        )
         return (
             {
                 "cost": 0.0,
@@ -258,7 +258,7 @@ async def get_governance_metrics(
     """
     try:
         rejection_rate, cost_trend, violation_frequency, preflight_failure_reasons = (
-            _query_governance_metrics_from_db(workspace_id, period)
+            await _query_governance_metrics_from_db(workspace_id, period)
         )
 
         return GovernanceMetricsData(
@@ -270,4 +270,6 @@ async def get_governance_metrics(
         )
     except Exception as e:
         logger.error(f"Failed to get governance metrics: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get governance metrics: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get governance metrics: {str(e)}"
+        )

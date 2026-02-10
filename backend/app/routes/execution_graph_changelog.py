@@ -4,6 +4,7 @@ Mindscape Graph Changelog API
 REST endpoints for managing graph changelog and pending changes.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -219,7 +220,8 @@ async def get_pending_changes(
         )
 
         store = GraphChangelogStore()
-        pending = store.get_pending_changes(
+        pending = await asyncio.to_thread(
+            store.get_pending_changes,
             workspace_id=workspace_id,
             actor=actor_filter,
         )
@@ -281,9 +283,11 @@ async def approve_pending_changes(
 
         for change_id in request.change_ids:
             if request.action == "approve":
-                result = store.apply_change(change_id, applied_by=profile_id)
+                result = await asyncio.to_thread(
+                    store.apply_change, change_id, applied_by=profile_id
+                )
             else:
-                result = store.reject_change(change_id)
+                result = await asyncio.to_thread(store.reject_change, change_id)
 
             results.append(
                 {
@@ -331,12 +335,15 @@ async def get_changelog_history(
         )
 
         store = GraphChangelogStore()
-        history = store.get_history(
+        history = await asyncio.to_thread(
+            store.get_history,
             workspace_id=workspace_id,
             limit=limit,
             include_pending=include_pending,
         )
-        current_version = store.get_current_version(workspace_id)
+        current_version = await asyncio.to_thread(
+            store.get_current_version, workspace_id
+        )
 
         return HistoryResponse(
             success=True,
@@ -381,7 +388,7 @@ async def undo_change(
         )
 
         store = GraphChangelogStore()
-        result = store.undo_change(request.change_id)
+        result = await asyncio.to_thread(store.undo_change, request.change_id)
 
         if result.get("success"):
             return UndoResponse(
@@ -413,7 +420,7 @@ async def get_current_version(
         )
 
         store = GraphChangelogStore()
-        version = store.get_current_version(workspace_id)
+        version = await asyncio.to_thread(store.get_current_version, workspace_id)
 
         return {
             "success": True,

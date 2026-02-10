@@ -3,6 +3,7 @@ Graph API routes
 RESTful API for managing Mind-Lens Graph nodes, edges, and lens profiles
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Path, Query, Depends, Body
@@ -91,7 +92,8 @@ async def list_nodes(
                 status_code=400, detail=f"Invalid node_type: {node_type}"
             )
 
-    nodes = store.list_nodes(
+    nodes = await asyncio.to_thread(
+        store.list_nodes,
         profile_id=profile_id,
         category=category_enum,
         node_type=node_type_enum,
@@ -104,7 +106,9 @@ async def list_nodes(
     for node in nodes:
         node_dict = node.dict()
         node_dict["linked_entity_ids"] = []
-        node_dict["linked_playbook_codes"] = store.get_node_linked_playbooks(node.id)
+        node_dict["linked_playbook_codes"] = await asyncio.to_thread(
+            store.get_node_linked_playbooks, node.id
+        )
         node_dict["linked_intent_ids"] = []
         result.append(GraphNodeResponse(**node_dict))
 
@@ -118,7 +122,7 @@ async def get_node(
 ):
     """Get a single graph node"""
     store = get_graph_store()
-    node = store.get_node(node_id)
+    node = await asyncio.to_thread(store.get_node, node_id)
 
     if not node:
         raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
@@ -128,7 +132,9 @@ async def get_node(
 
     node_dict = node.dict()
     node_dict["linked_entity_ids"] = []
-    node_dict["linked_playbook_codes"] = store.get_node_linked_playbooks(node_id)
+    node_dict["linked_playbook_codes"] = await asyncio.to_thread(
+        store.get_node_linked_playbooks, node_id
+    )
     node_dict["linked_intent_ids"] = []
     return GraphNodeResponse(**node_dict)
 
@@ -141,7 +147,7 @@ async def create_node(
     """Create a new graph node"""
     store = get_graph_store()
     try:
-        created = store.create_node(node, profile_id)
+        created = await asyncio.to_thread(store.create_node, node, profile_id)
         return created
     except Exception as e:
         logger.error(f"Failed to create node: {e}")
@@ -156,7 +162,7 @@ async def update_node(
 ):
     """Update a graph node"""
     store = get_graph_store()
-    updated = store.update_node(node_id, profile_id, updates)
+    updated = await asyncio.to_thread(store.update_node, node_id, profile_id, updates)
 
     if not updated:
         raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
@@ -172,7 +178,7 @@ async def delete_node(
 ):
     """Delete a graph node"""
     store = get_graph_store()
-    deleted = store.delete_node(node_id, profile_id, cascade=cascade)
+    deleted = await asyncio.to_thread(store.delete_node, node_id, profile_id, cascade)
 
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
@@ -202,7 +208,8 @@ async def list_edges(
                 status_code=400, detail=f"Invalid relation_type: {relation_type}"
             )
 
-    edges = store.list_edges(
+    edges = await asyncio.to_thread(
+        store.list_edges,
         profile_id=profile_id,
         source_node_id=source_node_id,
         target_node_id=target_node_id,
@@ -220,7 +227,7 @@ async def create_edge(
     """Create a new graph edge"""
     store = get_graph_store()
     try:
-        created = store.create_edge(edge, profile_id)
+        created = await asyncio.to_thread(store.create_edge, edge, profile_id)
         return created
     except Exception as e:
         logger.error(f"Failed to create edge: {e}")
@@ -236,7 +243,7 @@ async def delete_edge(
 ):
     """Delete a graph edge"""
     store = get_graph_store()
-    deleted = store.delete_edge(edge_id, profile_id)
+    deleted = await asyncio.to_thread(store.delete_edge, edge_id, profile_id)
 
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Edge {edge_id} not found")
@@ -260,10 +267,14 @@ async def get_full_graph(
     # Get active lens if workspace_id provided
     active_lens = None
     if workspace_id:
-        active_lens = store.get_active_lens(profile_id, workspace_id)
+        active_lens = await asyncio.to_thread(
+            store.get_active_lens, profile_id, workspace_id
+        )
 
     # Get all nodes
-    nodes = store.list_nodes(profile_id=profile_id, is_active=True, limit=1000)
+    nodes = await asyncio.to_thread(
+        store.list_nodes, profile_id=profile_id, is_active=True, limit=1000
+    )
 
     # Filter by active lens if applicable
     if active_lens and active_lens.active_node_ids:
@@ -272,7 +283,7 @@ async def get_full_graph(
 
     # Get all edges for these nodes
     node_ids = {n.id for n in nodes}
-    all_edges = store.list_edges(profile_id=profile_id)
+    all_edges = await asyncio.to_thread(store.list_edges, profile_id=profile_id)
     edges = [
         e
         for e in all_edges
@@ -284,7 +295,9 @@ async def get_full_graph(
     for node in nodes:
         node_dict = node.dict()
         node_dict["linked_entity_ids"] = []
-        node_dict["linked_playbook_codes"] = store.get_node_linked_playbooks(node.id)
+        node_dict["linked_playbook_codes"] = await asyncio.to_thread(
+            store.get_node_linked_playbooks, node.id
+        )
         node_dict["linked_intent_ids"] = []
         result_nodes.append(GraphNodeResponse(**node_dict))
 
@@ -302,7 +315,7 @@ async def list_lens_profiles(
 ):
     """List all lens profiles for a profile"""
     store = get_graph_store()
-    return store.list_lens_profiles(profile_id)
+    return await asyncio.to_thread(store.list_lens_profiles, profile_id)
 
 
 @router.get("/lens/profiles/{lens_id}", response_model=MindLensProfile)
@@ -312,7 +325,7 @@ async def get_lens_profile(
 ):
     """Get a lens profile"""
     store = get_graph_store()
-    lens = store.get_lens_profile(lens_id)
+    lens = await asyncio.to_thread(store.get_lens_profile, lens_id)
 
     if not lens:
         raise HTTPException(status_code=404, detail=f"Lens {lens_id} not found")
@@ -330,7 +343,7 @@ async def get_active_lens(
 ):
     """Get active lens for profile/workspace"""
     store = get_graph_store()
-    return store.get_active_lens(profile_id, workspace_id)
+    return await asyncio.to_thread(store.get_active_lens, profile_id, workspace_id)
 
 
 @router.post("/lens/profiles", response_model=MindLensProfile, status_code=201)
@@ -341,7 +354,7 @@ async def create_lens_profile(
     """Create a new lens profile"""
     store = get_graph_store()
     try:
-        created = store.create_lens_profile(lens, profile_id)
+        created = await asyncio.to_thread(store.create_lens_profile, lens, profile_id)
         return created
     except Exception as e:
         logger.error(f"Failed to create lens profile: {e}")
@@ -361,7 +374,9 @@ async def get_profile_summary(
     store = get_graph_store()
 
     # Get all active nodes
-    nodes = store.list_nodes(profile_id=profile_id, is_active=True, limit=1000)
+    nodes = await asyncio.to_thread(
+        store.list_nodes, profile_id=profile_id, is_active=True, limit=1000
+    )
 
     # Group by category and type
     direction = {
@@ -434,7 +449,9 @@ async def link_node_to_playbook(
     """Link node to playbook"""
     store = get_graph_store()
     try:
-        store.link_node_to_playbook(node_id, playbook_code, profile_id, link_type)
+        await asyncio.to_thread(
+            store.link_node_to_playbook, node_id, playbook_code, profile_id, link_type
+        )
         return {"success": True, "message": "Playbook linked successfully"}
     except Exception as e:
         logger.error(f"Failed to link playbook: {e}")
@@ -449,7 +466,9 @@ async def unlink_node_from_playbook(
 ):
     """Unlink node from playbook"""
     store = get_graph_store()
-    deleted = store.unlink_node_from_playbook(node_id, playbook_code, profile_id)
+    deleted = await asyncio.to_thread(
+        store.unlink_node_from_playbook, node_id, playbook_code, profile_id
+    )
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Link not found")
@@ -469,7 +488,9 @@ async def bind_lens_to_workspace(
     """Bind lens to workspace"""
     store = get_graph_store()
     try:
-        store.bind_lens_to_workspace(lens_id, workspace_id, profile_id)
+        await asyncio.to_thread(
+            store.bind_lens_to_workspace, lens_id, workspace_id, profile_id
+        )
         return {"success": True, "message": "Lens bound to workspace successfully"}
     except Exception as e:
         logger.error(f"Failed to bind lens to workspace: {e}")
@@ -483,7 +504,9 @@ async def unbind_lens_from_workspace(
 ):
     """Unbind lens from workspace"""
     store = get_graph_store()
-    deleted = store.unbind_lens_from_workspace(workspace_id, profile_id)
+    deleted = await asyncio.to_thread(
+        store.unbind_lens_from_workspace, workspace_id, profile_id
+    )
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Binding not found")
@@ -505,11 +528,14 @@ async def initialize_graph(
     store = get_graph_store()
 
     # Check if user already has nodes
-    existing_nodes = store.list_nodes(profile_id=profile_id, limit=1)
+    existing_nodes = await asyncio.to_thread(
+        store.list_nodes, profile_id=profile_id, limit=1
+    )
     if existing_nodes:
+        all_nodes = await asyncio.to_thread(store.list_nodes, profile_id=profile_id)
         return {
             "message": "Graph already initialized",
-            "node_count": len(store.list_nodes(profile_id=profile_id)),
+            "node_count": len(all_nodes),
         }
 
     # Sample nodes based on mock data structure
@@ -597,7 +623,7 @@ async def initialize_graph(
     created_nodes = []
     for node_data in sample_nodes:
         try:
-            node = store.create_node(node_data, profile_id)
+            node = await asyncio.to_thread(store.create_node, node_data, profile_id)
             created_nodes.append(node)
         except Exception as e:
             logger.error(f"Failed to create sample node: {e}")

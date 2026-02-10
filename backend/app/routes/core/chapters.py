@@ -6,6 +6,7 @@ Chapters are derived from Intent metadata (chapter field),
 grouping related intents by chapter identifier.
 """
 
+import asyncio
 import logging
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
@@ -188,7 +189,9 @@ async def list_chapters(workspace_id: str = Path(..., description="Workspace ID"
         profile_id = workspace.owner_user_id
 
         # Get all intents for this profile
-        intents = store.list_intents(profile_id=profile_id, status=None, priority=None)
+        intents = await asyncio.to_thread(
+            store.list_intents, profile_id=profile_id, status=None, priority=None
+        )
 
         # Filter intents that belong to this workspace
         workspace_intents = []
@@ -234,7 +237,9 @@ async def get_chapter_illustration_needs(
         profile_id = workspace.owner_user_id
 
         # Get all intents for this profile
-        intents = store.list_intents(profile_id=profile_id, status=None, priority=None)
+        intents = await asyncio.to_thread(
+            store.list_intents, profile_id=profile_id, status=None, priority=None
+        )
 
         # Filter intents that belong to this workspace and chapter
         workspace_intents = []

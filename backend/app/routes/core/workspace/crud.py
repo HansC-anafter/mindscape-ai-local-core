@@ -1,8 +1,16 @@
+import asyncio
 import logging
 import uuid
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 
@@ -57,7 +65,8 @@ async def list_workspaces(
     Note: group_id parameter is accepted for Cloud compatibility but ignored in local-core.
     """
     try:
-        workspaces = store.list_workspaces(
+        workspaces = await asyncio.to_thread(
+            store.list_workspaces,
             owner_user_id=owner_user_id,
             primary_project_id=primary_project_id,
             limit=limit,
@@ -200,7 +209,9 @@ async def create_workspace(
             from ....services.system_settings_store import SystemSettingsStore
 
             settings_store = SystemSettingsStore(db_path=store.db_path)
-            language_setting = settings_store.get_setting("default_language")
+            language_setting = await asyncio.to_thread(
+                settings_store.get_setting, "default_language"
+            )
             default_locale = (
                 language_setting.value
                 if language_setting and language_setting.value
@@ -228,11 +239,11 @@ async def create_workspace(
                 "bucket_strategy": "playbook_code",
                 "naming_rule": "slug-v{version}-{timestamp}.{ext}",
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
         )
 
-        created = store.create_workspace(workspace)
+        created = await asyncio.to_thread(store.create_workspace, workspace)
 
         # Auto-register background routine for state sync (skip for system workspaces)
         # System workspaces are for validation/testing and should not have background routines
@@ -246,8 +257,10 @@ async def create_workspace(
                 routines_store = BackgroundRoutinesStore(db_path=store.db_path)
 
                 # Check if state sync routine already exists for this workspace
-                existing = routines_store.get_background_routine_by_playbook(
-                    workspace_id=created.id, playbook_code="system_mindscape_state_sync"
+                existing = await asyncio.to_thread(
+                    routines_store.get_background_routine_by_playbook,
+                    workspace_id=created.id,
+                    playbook_code="system_mindscape_state_sync",
                 )
 
                 if not existing:
@@ -258,10 +271,12 @@ async def create_workspace(
                         playbook_code="system_mindscape_state_sync",
                         schedule="0 2 * * *",  # Daily at 2 AM
                         enabled=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
+                        created_at=_utc_now(),
+                        updated_at=_utc_now(),
                     )
-                    routines_store.create_background_routine(routine)
+                    await asyncio.to_thread(
+                        routines_store.create_background_routine, routine
+                    )
                     logger.info(
                         f"Auto-registered state sync background routine for workspace {created.id}"
                     )
@@ -274,7 +289,7 @@ async def create_workspace(
 
         event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="api",
             profile_id=owner_user_id,
@@ -285,7 +300,7 @@ async def create_workspace(
             entity_ids=[],
             metadata={},
         )
-        store.create_event(event)
+        await asyncio.to_thread(store.create_event, event)
 
         locale = (
             created.default_locale
@@ -307,7 +322,7 @@ async def create_workspace(
 
             welcome_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.ASSISTANT,
                 channel="local_workspace",
                 profile_id=owner_user_id,
@@ -323,17 +338,20 @@ async def create_workspace(
                 entity_ids=[],
                 metadata={"is_cold_start": True},
             )
-            store.create_event(welcome_event)
+            await asyncio.to_thread(store.create_event, welcome_event)
 
             # 🆕 Update thread statistics
             try:
                 # Use COUNT query to accurately calculate message count
-                message_count = store.events.count_messages_by_thread(
-                    workspace_id=created.id, thread_id=default_thread_id
-                )
-                store.conversation_threads.update_thread(
+                message_count = await asyncio.to_thread(
+                    store.events.count_messages_by_thread,
+                    workspace_id=created.id,
                     thread_id=default_thread_id,
-                    last_message_at=datetime.utcnow(),
+                )
+                await asyncio.to_thread(
+                    store.conversation_threads.update_thread,
+                    thread_id=default_thread_id,
+                    last_message_at=_utc_now(),
                     message_count=message_count,
                 )
             except Exception as e:
@@ -363,7 +381,6 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
     Returns workspace details including configuration, metadata, and associated intent.
     Includes workspace_blueprint for Launchpad display.
     """
-    import asyncio
     import time
 
     request_id = f"req-{int(time.time() * 1000)}-{id(asyncio.current_task())}"
@@ -388,7 +405,9 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
                 from ....services.stores.intents_store import IntentsStore
 
                 intents_store = IntentsStore(store.db_path)
-                intent = intents_store.get_intent(workspace.primary_project_id)
+                intent = await asyncio.to_thread(
+                    intents_store.get_intent, workspace.primary_project_id
+                )
                 if intent:
                     associated_intent = {
                         "id": intent.id,
@@ -624,7 +643,7 @@ async def update_workspace(
         if storage_path_changed:
             warning_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.SYSTEM,
                 channel="api",
                 profile_id=workspace.owner_user_id,
@@ -643,7 +662,7 @@ async def update_workspace(
                 entity_ids=[workspace_id],
                 metadata={"is_storage_path_change": True},
             )
-            store.create_event(warning_event)
+            await asyncio.to_thread(store.create_event, warning_event)
 
         updated = await store.update_workspace(workspace)
         logger.info(
@@ -652,7 +671,7 @@ async def update_workspace(
 
         event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="api",
             profile_id=workspace.owner_user_id,
@@ -666,7 +685,7 @@ async def update_workspace(
             entity_ids=[],
             metadata={},
         )
-        store.create_event(event)
+        await asyncio.to_thread(store.create_event, event)
 
         return updated
     except HTTPException:
@@ -693,7 +712,7 @@ async def delete_workspace(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        store.delete_workspace(workspace_id)
+        await asyncio.to_thread(store.delete_workspace, workspace_id)
         return None
     except HTTPException:
         raise

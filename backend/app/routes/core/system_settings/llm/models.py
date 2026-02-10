@@ -4,6 +4,8 @@ LLM Model CRUD Endpoints
 Handles model listing, enabling/disabling, configuration, testing, and pulling.
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Dict, Any, List, Optional
 import logging
@@ -38,17 +40,20 @@ async def get_models(
 
         store = ModelConfigStore()
 
-        models = store.get_all_models()
+        models = await asyncio.to_thread(store.get_all_models)
         if not models:
-            store.initialize_default_models()
-            models = store.get_all_models()
+            await asyncio.to_thread(store.initialize_default_models)
+            models = await asyncio.to_thread(store.get_all_models)
 
         model_type_enum = None
         if model_type:
             model_type_enum = ModelType(model_type)
 
-        filtered_models = store.get_all_models(
-            model_type=model_type_enum, enabled=enabled, provider=provider
+        filtered_models = await asyncio.to_thread(
+            store.get_all_models,
+            model_type=model_type_enum,
+            enabled=enabled,
+            provider=provider,
         )
 
         return [
@@ -93,7 +98,7 @@ async def toggle_model_enabled(model_id: int, request: Dict[str, bool] = Body(..
         store = ModelConfigStore()
         enabled = request.get("enabled", False)
 
-        model = store.toggle_model_enabled(model_id, enabled)
+        model = await asyncio.to_thread(store.toggle_model_enabled, model_id, enabled)
 
         if not model:
             raise HTTPException(
@@ -143,20 +148,22 @@ async def get_model_config(model_id: int):
         model_store = ModelConfigStore()
         settings_store = SystemSettingsStore()
 
-        model = model_store.get_model_by_id(model_id)
+        model = await asyncio.to_thread(model_store.get_model_by_id, model_id)
         if not model:
             raise HTTPException(
                 status_code=404, detail=f"Model with id {model_id} not found"
             )
 
         api_key_setting_key = f"{model.provider_name}_api_key"
-        api_key_setting = settings_store.get_setting(api_key_setting_key)
+        api_key_setting = await asyncio.to_thread(
+            settings_store.get_setting, api_key_setting_key
+        )
         api_key_configured = api_key_setting is not None and bool(api_key_setting.value)
         provider_api_key = api_key_setting.value if api_key_setting else None
 
         if model.provider_name == "vertex-ai":
-            service_account_setting = settings_store.get_setting(
-                "vertex_ai_service_account_json"
+            service_account_setting = await asyncio.to_thread(
+                settings_store.get_setting, "vertex_ai_service_account_json"
             )
             if service_account_setting and service_account_setting.value:
                 api_key_configured = True
@@ -166,7 +173,9 @@ async def get_model_config(model_id: int):
         provider_base_url = None
         if model.provider_name == "ollama":
             base_url = "http://localhost:11434"
-            ollama_base_url_setting = settings_store.get_setting("ollama_base_url")
+            ollama_base_url_setting = await asyncio.to_thread(
+                settings_store.get_setting, "ollama_base_url"
+            )
             provider_base_url = (
                 ollama_base_url_setting.value if ollama_base_url_setting else base_url
             )
@@ -176,8 +185,12 @@ async def get_model_config(model_id: int):
         provider_project_id = None
         provider_location = None
         if model.provider_name == "vertex-ai":
-            project_id_setting = settings_store.get_setting("vertex_ai_project_id")
-            location_setting = settings_store.get_setting("vertex_ai_location")
+            project_id_setting = await asyncio.to_thread(
+                settings_store.get_setting, "vertex_ai_project_id"
+            )
+            location_setting = await asyncio.to_thread(
+                settings_store.get_setting, "vertex_ai_location"
+            )
             provider_project_id = (
                 project_id_setting.value if project_id_setting else None
             )
@@ -243,7 +256,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
         model_store = ModelConfigStore()
         settings_store = SystemSettingsStore()
 
-        model = model_store.get_model_by_id(model_id)
+        model = await asyncio.to_thread(model_store.get_model_by_id, model_id)
         if not model:
             raise HTTPException(
                 status_code=404, detail=f"Model with id {model_id} not found"
@@ -261,7 +274,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                 description=f"API key for {model.provider_name}",
                 is_sensitive=True,
             )
-            settings_store.save_setting(setting)
+            await asyncio.to_thread(settings_store.save_setting, setting)
 
         if model.provider_name == "ollama" and "base_url" in config:
             setting = SystemSetting(
@@ -271,7 +284,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                 category="models",
                 description="Ollama base URL",
             )
-            settings_store.save_setting(setting)
+            await asyncio.to_thread(settings_store.save_setting, setting)
 
         if model.provider_name == "vertex-ai":
             if "project_id" in config and config["project_id"]:
@@ -282,7 +295,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                     category="models",
                     description="GCP Project ID for Vertex AI",
                 )
-                settings_store.save_setting(setting)
+                await asyncio.to_thread(settings_store.save_setting, setting)
             if "location" in config and config["location"]:
                 setting = SystemSetting(
                     key="vertex_ai_location",
@@ -291,7 +304,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                     category="models",
                     description="GCP Location/Region for Vertex AI",
                 )
-                settings_store.save_setting(setting)
+                await asyncio.to_thread(settings_store.save_setting, setting)
             if "api_key" in config and config["api_key"]:
                 import json
 
@@ -313,7 +326,7 @@ async def update_model_config(model_id: int, config: Dict[str, Any] = Body(...))
                             description="GCP Service Account JSON for Vertex AI",
                             is_sensitive=True,
                         )
-                        settings_store.save_setting(setting)
+                        await asyncio.to_thread(settings_store.save_setting, setting)
                 except (json.JSONDecodeError, TypeError):
                     logger.warning("Invalid service account JSON format for Vertex AI")
 
@@ -345,7 +358,7 @@ async def test_model_connection(model_id: int):
         model_store = ModelConfigStore()
         settings_store = SystemSettingsStore()
 
-        model = model_store.get_model_by_id(model_id)
+        model = await asyncio.to_thread(model_store.get_model_by_id, model_id)
         if not model:
             raise HTTPException(
                 status_code=404, detail=f"Model with id {model_id} not found"
@@ -357,7 +370,9 @@ async def test_model_connection(model_id: int):
 
         # Get API key or configuration
         config_store = ConfigStore()
-        config = config_store.get_or_create_config("default-user")
+        config = await asyncio.to_thread(
+            config_store.get_or_create_config, "default-user"
+        )
 
         # Test based on provider and model type
         if provider == "openai":
@@ -425,11 +440,15 @@ async def test_model_connection(model_id: int):
                     }
 
         elif provider == "vertex-ai":
-            service_account_setting = settings_store.get_setting(
-                "vertex_ai_service_account_json"
+            service_account_setting = await asyncio.to_thread(
+                settings_store.get_setting, "vertex_ai_service_account_json"
             )
-            project_id_setting = settings_store.get_setting("vertex_ai_project_id")
-            location_setting = settings_store.get_setting("vertex_ai_location")
+            project_id_setting = await asyncio.to_thread(
+                settings_store.get_setting, "vertex_ai_project_id"
+            )
+            location_setting = await asyncio.to_thread(
+                settings_store.get_setting, "vertex_ai_location"
+            )
 
             if not service_account_setting:
                 return {
@@ -489,7 +508,9 @@ async def test_model_connection(model_id: int):
                 }
 
         elif provider == "ollama":
-            base_url_setting = settings_store.get_setting("ollama_base_url")
+            base_url_setting = await asyncio.to_thread(
+                settings_store.get_setting, "ollama_base_url"
+            )
             base_url = (
                 base_url_setting.value if base_url_setting else "http://localhost:11434"
             )
@@ -546,7 +567,9 @@ async def pull_model(
             }
 
         settings_store = SystemSettingsStore()
-        base_url_setting = settings_store.get_setting("ollama_base_url")
+        base_url_setting = await asyncio.to_thread(
+            settings_store.get_setting, "ollama_base_url"
+        )
         base_url = (
             base_url_setting.value if base_url_setting else "http://localhost:11434"
         )

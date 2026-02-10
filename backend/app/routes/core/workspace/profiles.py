@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 
@@ -106,11 +107,15 @@ async def get_runtime_profile(
     """
     try:
         profile_store = get_runtime_profile_store()
-        profile = profile_store.get_runtime_profile(workspace_id)
+        profile = await asyncio.to_thread(
+            profile_store.get_runtime_profile, workspace_id
+        )
 
         if not profile:
             # Return default profile if not found
-            profile = profile_store.create_default_profile(workspace_id)
+            profile = await asyncio.to_thread(
+                profile_store.create_default_profile, workspace_id
+            )
 
         return profile
     except ValueError as e:
@@ -210,7 +215,8 @@ async def update_runtime_profile(
             raise HTTPException(status_code=404, detail="Workspace not found")
 
         profile_store = get_runtime_profile_store()
-        updated_profile = profile_store.save_runtime_profile(
+        updated_profile = await asyncio.to_thread(
+            profile_store.save_runtime_profile,
             workspace_id=workspace_id,
             profile=profile,
             updated_by=updated_by,
@@ -257,7 +263,9 @@ async def delete_runtime_profile(
     """
     try:
         profile_store = get_runtime_profile_store()
-        deleted = profile_store.delete_runtime_profile(workspace_id)
+        deleted = await asyncio.to_thread(
+            profile_store.delete_runtime_profile, workspace_id
+        )
 
         if not deleted:
             raise HTTPException(status_code=404, detail="Runtime profile not found")
@@ -428,7 +436,8 @@ async def apply_runtime_profile_preset(
 
         # Save profile
         profile_store = get_runtime_profile_store()
-        updated_profile = profile_store.save_runtime_profile(
+        updated_profile = await asyncio.to_thread(
+            profile_store.save_runtime_profile,
             workspace_id=workspace_id,
             profile=profile,
             updated_by=updated_by,
@@ -479,7 +488,9 @@ async def get_control_profile(
             raise HTTPException(status_code=404, detail="Workspace not found")
 
         profile_store = get_control_profile_store()
-        profile = profile_store.get_or_create_default_profile(workspace_id)
+        profile = await asyncio.to_thread(
+            profile_store.get_or_create_default_profile, workspace_id
+        )
 
         return profile
     except HTTPException:
@@ -539,8 +550,11 @@ async def update_control_profile(
             raise HTTPException(status_code=404, detail="Workspace not found")
 
         profile_store = get_control_profile_store()
-        updated_profile = profile_store.save_control_profile(
-            workspace_id=workspace_id, profile=profile, updated_by=updated_by
+        updated_profile = await asyncio.to_thread(
+            profile_store.save_control_profile,
+            workspace_id=workspace_id,
+            profile=profile,
+            updated_by=updated_by,
         )
 
         return updated_profile
@@ -635,12 +649,12 @@ async def compare_preview(
         # Note: This is a simplified preview - full implementation would call LLM
         try:
             runtime_profile_store = WorkspaceRuntimeProfileStore(db_path=store.db_path)
-            base_runtime_profile = runtime_profile_store.get_runtime_profile(
-                workspace_id
+            base_runtime_profile = await asyncio.to_thread(
+                runtime_profile_store.get_runtime_profile, workspace_id
             )
             if not base_runtime_profile:
-                base_runtime_profile = runtime_profile_store.create_default_profile(
-                    workspace_id
+                base_runtime_profile = await asyncio.to_thread(
+                    runtime_profile_store.create_default_profile, workspace_id
                 )
 
             compiler = KnobEffectCompiler(knobs=left_profile.knobs)

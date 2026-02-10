@@ -5,10 +5,18 @@ Provides APIs for managing decision cards (from unified decision system).
 Decision cards are projected from DECISION_REQUIRED events to the right panel.
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from fastapi import APIRouter, HTTPException, Path, Body, Query
 from pydantic import BaseModel, Field
 
@@ -71,7 +79,8 @@ async def list_decision_cards(
 
         # Query IntentLogs with unified_decision_coordinator
         # Use workspace_id filter directly for better performance
-        filtered_logs = store.intent_logs.list_intent_logs(
+        filtered_logs = await asyncio.to_thread(
+            store.intent_logs.list_intent_logs,
             profile_id=None,
             workspace_id=workspace_id,
             project_id=project_id,
@@ -91,7 +100,8 @@ async def list_decision_cards(
         # If no logs found with None profile_id, try querying with empty string
         if not filtered_logs:
             try:
-                all_logs = store.intent_logs.list_intent_logs(
+                all_logs = await asyncio.to_thread(
+                    store.intent_logs.list_intent_logs,
                     profile_id="",
                     start_time=None,
                     end_time=None,
@@ -244,7 +254,7 @@ async def confirm_decision(
             )
 
         # Get IntentLog
-        intent_log = store.get_intent_log(card_id)
+        intent_log = await asyncio.to_thread(store.get_intent_log, card_id)
         if not intent_log:
             raise HTTPException(
                 status_code=404, detail=f"Decision card {card_id} not found"
@@ -264,7 +274,7 @@ async def confirm_decision(
 
         if request.action == "confirm":
             user_override["confirmed"] = True
-            user_override["confirmed_at"] = datetime.utcnow().isoformat()
+            user_override["confirmed_at"] = _utc_now().isoformat()
             if request.comment:
                 user_override["comment"] = request.comment
 
@@ -323,7 +333,7 @@ async def confirm_decision(
 
         elif request.action == "reject":
             user_override["rejected"] = True
-            user_override["rejected_at"] = datetime.utcnow().isoformat()
+            user_override["rejected_at"] = _utc_now().isoformat()
             if request.comment:
                 user_override["rejection_reason"] = request.comment
 
@@ -332,7 +342,7 @@ async def confirm_decision(
                 user_override["clarification_answers"] = request.clarificationAnswers
             if request.providedInputs:
                 user_override["provided_inputs"] = request.providedInputs
-            user_override["clarified_at"] = datetime.utcnow().isoformat()
+            user_override["clarified_at"] = _utc_now().isoformat()
 
             # Re-evaluate decision with new inputs
             # Note: This requires re-running the decision coordinator, which may be expensive
@@ -350,7 +360,7 @@ async def confirm_decision(
 
             user_override["override_playbook_code"] = request.overridePlaybookCode
             user_override["override_reason"] = request.overrideReason or "User override"
-            user_override["overridden_at"] = datetime.utcnow().isoformat()
+            user_override["overridden_at"] = _utc_now().isoformat()
 
             # If user wants to execute the overridden playbook immediately
             # (This is optional - user can also just update the decision and let next message trigger execution)
@@ -401,7 +411,9 @@ async def confirm_decision(
             )
 
         # Update IntentLog with user_override
-        updated_log = store.update_intent_log_override(card_id, user_override)
+        updated_log = await asyncio.to_thread(
+            store.update_intent_log_override, card_id, user_override
+        )
         if not updated_log:
             raise HTTPException(status_code=500, detail="Failed to update decision")
 
@@ -411,7 +423,7 @@ async def confirm_decision(
 
             event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.USER,
                 channel="api",
                 profile_id=intent_log.profile_id,
@@ -433,7 +445,7 @@ async def confirm_decision(
                     "intent_log_id": card_id,
                 },
             )
-            store.create_event(event)
+            await asyncio.to_thread(store.create_event, event)
         except Exception as e:
             logger.warning(f"Failed to emit decision update event: {e}")
 
@@ -477,7 +489,7 @@ async def assign_decision_card(
             )
 
         # Get IntentLog
-        intent_log = store.get_intent_log(card_id)
+        intent_log = await asyncio.to_thread(store.get_intent_log, card_id)
         if not intent_log:
             raise HTTPException(
                 status_code=404, detail=f"Decision card {card_id} not found"
@@ -498,10 +510,12 @@ async def assign_decision_card(
         user_override["assignment"] = {
             "assignee": assignee,
             "watchers": watchers,
-            "assigned_at": datetime.utcnow().isoformat(),
+            "assigned_at": _utc_now().isoformat(),
         }
 
-        updated_log = store.update_intent_log_override(card_id, user_override)
+        updated_log = await asyncio.to_thread(
+            store.update_intent_log_override, card_id, user_override
+        )
         if not updated_log:
             raise HTTPException(status_code=500, detail="Failed to assign decision")
 
@@ -577,7 +591,8 @@ async def request_break_glass(
             )
 
         service = get_break_glass_service()
-        permission = service.request_permission(
+        permission = await asyncio.to_thread(
+            service.request_permission,
             BreakGlassRequest(
                 workspace_id=workspace_id,
                 agent_id=agent_id,
@@ -586,7 +601,7 @@ async def request_break_glass(
                 reason=request.reason,
                 task_description=request.task_description,
                 duration_minutes=request.duration_minutes,
-            )
+            ),
         )
 
         return {
@@ -622,7 +637,8 @@ async def approve_break_glass(
 
         service = get_break_glass_service()
 
-        permission = service.approve_permission(
+        permission = await asyncio.to_thread(
+            service.approve_permission,
             BreakGlassApproval(
                 permission_id=permission_id,
                 approved=request.approved,
@@ -630,7 +646,7 @@ async def approve_break_glass(
                 comment=request.comment,
                 modified_operations=request.modified_operations,
                 modified_duration=request.modified_duration,
-            )
+            ),
         )
 
         if not permission:
@@ -678,7 +694,9 @@ async def list_break_glass_permissions(
             except ValueError:
                 pass
 
-        permissions = service.list_permissions(workspace_id, status_filter)
+        permissions = await asyncio.to_thread(
+            service.list_permissions, workspace_id, status_filter
+        )
 
         return {
             "permissions": [
@@ -719,7 +737,9 @@ async def revoke_break_glass(
         )
 
         service = get_break_glass_service()
-        permission = service.revoke_permission(permission_id, revoked_by, reason)
+        permission = await asyncio.to_thread(
+            service.revoke_permission, permission_id, revoked_by, reason
+        )
 
         if not permission:
             raise HTTPException(status_code=404, detail="Permission not found")

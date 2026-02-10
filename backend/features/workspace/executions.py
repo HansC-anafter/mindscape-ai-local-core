@@ -150,11 +150,15 @@ async def stream_execution_updates(
         last_stage_result_timestamp = None
         last_execution_update = None
         last_chat_timestamp = None
+        heartbeat_counter = 0
 
         try:
             while True:
                 # Get current execution state
-                task = tasks_store.get_task_by_execution_id(execution_id)
+                # Use asyncio.to_thread to avoid blocking the event loop
+                task = await asyncio.to_thread(
+                    tasks_store.get_task_by_execution_id, execution_id
+                )
                 if not task:
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Execution not found'})}\n\n"
                     break
@@ -249,7 +253,9 @@ async def stream_execution_updates(
                                     )
 
                                     # Create and save MESSAGE event (this will appear in workspace chat)
-                                    store.create_event(message_event)
+                                    await asyncio.to_thread(
+                                        store.create_event, message_event
+                                    )
 
                                     # Also send as execution_chat for execution panel
                                     from backend.app.models.workspace import (
@@ -286,8 +292,10 @@ async def stream_execution_updates(
                         break
 
                     # Get latest events (PLAYBOOK_STEP and EXECUTION_CHAT)
-                    events = store.get_events_by_workspace(
-                        workspace_id=workspace_id, limit=200
+                    events = await asyncio.to_thread(
+                        store.get_events_by_workspace,
+                        workspace_id=workspace_id,
+                        limit=200,
                     )
                     # Use EventType from module level import (line 17)
                     playbook_step_type = EventType.PLAYBOOK_STEP
@@ -365,8 +373,10 @@ async def stream_execution_updates(
                                 )
 
                     # Get latest tool calls
-                    tool_calls = tool_calls_store.list_tool_calls(
-                        execution_id=execution_id, limit=50
+                    tool_calls = await asyncio.to_thread(
+                        tool_calls_store.list_tool_calls,
+                        execution_id=execution_id,
+                        limit=50,
                     )
 
                     # Send tool_call_update events for new tool calls
@@ -384,8 +394,10 @@ async def stream_execution_updates(
                                 last_tool_call_timestamp = tool_call.created_at
 
                     # Get latest stage results
-                    stage_results = stage_results_store.list_stage_results(
-                        execution_id=execution_id, limit=50
+                    stage_results = await asyncio.to_thread(
+                        stage_results_store.list_stage_results,
+                        execution_id=execution_id,
+                        limit=50,
                     )
 
                     # Send stage_result events for new stage results
@@ -407,6 +419,12 @@ async def stream_execution_updates(
                         f"Error generating execution events: {e}", exc_info=True
                     )
                     yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+                # Heartbeat to keep connection alive and allow frontend health detection
+                heartbeat_counter += 1
+                if heartbeat_counter >= 30:
+                    yield ": heartbeat\n\n"
+                    heartbeat_counter = 0
 
                 # Poll interval (1 second)
                 await asyncio.sleep(1)

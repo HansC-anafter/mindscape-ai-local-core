@@ -4,6 +4,8 @@ Model Utility Configuration Endpoints
 Handles model utility configurations (cost, success rate, latency, etc.).
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Dict, Any
 import logging
@@ -36,9 +38,9 @@ async def get_model_utility_configs(
         store = ModelUtilityConfigStore()
 
         if auto_assign:
-            store.auto_assign_configs_for_enabled_models()
+            await asyncio.to_thread(store.auto_assign_configs_for_enabled_models)
 
-        all_configs = store.get_all_configs()
+        all_configs = await asyncio.to_thread(store.get_all_configs)
 
         return {
             "configs": {
@@ -71,7 +73,7 @@ async def get_model_utility_config(model_name: str):
         )
 
         store = ModelUtilityConfigStore()
-        config = store.get_model_config(model_name)
+        config = await asyncio.to_thread(store.get_model_config, model_name)
 
         if not config:
             raise HTTPException(
@@ -111,7 +113,7 @@ async def update_model_utility_config(
 
         store = ModelUtilityConfigStore()
 
-        existing_config = store.get_model_config(model_name)
+        existing_config = await asyncio.to_thread(store.get_model_config, model_name)
         if existing_config:
             updated_config = ModelUtilityConfig(
                 model_name=model_name,
@@ -137,7 +139,7 @@ async def update_model_utility_config(
                 }
             )
 
-        store.save_model_config(updated_config)
+        await asyncio.to_thread(store.save_model_config, updated_config)
 
         return {"status": "success", "config": updated_config.to_dict()}
     except Exception as e:
@@ -161,7 +163,9 @@ async def auto_assign_model_utility_configs():
         )
 
         store = ModelUtilityConfigStore()
-        assigned_configs = store.auto_assign_configs_for_enabled_models()
+        assigned_configs = await asyncio.to_thread(
+            store.auto_assign_configs_for_enabled_models
+        )
 
         return {
             "status": "success",

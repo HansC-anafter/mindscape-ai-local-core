@@ -3,10 +3,18 @@ Playbook Execution API routes
 Handles real-time Playbook execution with LLM conversations and structured workflows
 """
 
+import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import FileResponse
@@ -210,12 +218,13 @@ async def start_playbook_execution(
             from ...services.mindscape_store import MindscapeStore
 
             store = MindscapeStore()
-            store.update_user_meta(
+            await asyncio.to_thread(
+                store.update_user_meta,
                 profile_id,
                 playbook_code,
                 {
                     "increment_use_count": True,
-                    "last_used_at": datetime.utcnow().isoformat(),
+                    "last_used_at": _utc_now().isoformat(),
                 },
             )
         except Exception as e:
@@ -270,7 +279,8 @@ async def start_playbook_execution(
                     else playbook_code
                 )
 
-                tasks_store.create_task(
+                await asyncio.to_thread(
+                    tasks_store.create_task,
                     Task(
                         id=execution_id,
                         workspace_id=final_workspace_id,
@@ -295,9 +305,9 @@ async def start_playbook_execution(
                             "total_steps": total_steps,
                             "current_step_index": 0,
                         },
-                        created_at=datetime.utcnow(),
+                        created_at=_utc_now(),
                         started_at=None,
-                    )
+                    ),
                 )
 
                 return {
@@ -382,7 +392,9 @@ async def get_playbook_result(execution_id: str):
 
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-        task = tasks_store.get_task_by_execution_id(execution_id)
+        task = await asyncio.to_thread(
+            tasks_store.get_task_by_execution_id, execution_id
+        )
 
         if task:
             logger.info(
@@ -493,7 +505,9 @@ async def get_playbook_status(execution_id: str):
 
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-        task = tasks_store.get_task_by_execution_id(execution_id)
+        task = await asyncio.to_thread(
+            tasks_store.get_task_by_execution_id, execution_id
+        )
         if not task:
             raise HTTPException(status_code=404, detail="Execution not found")
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
@@ -527,7 +541,9 @@ async def resume_playbook_execution(
 
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-        task = tasks_store.get_task_by_execution_id(execution_id)
+        task = await asyncio.to_thread(
+            tasks_store.get_task_by_execution_id, execution_id
+        )
         if not task:
             raise HTTPException(status_code=404, detail="Execution not found")
 
@@ -553,11 +569,12 @@ async def resume_playbook_execution(
             ctx = dict(ctx)
             ctx["status"] = "failed"
             ctx["error"] = request.comment or "Gate rejected"
-            tasks_store.update_task(
+            await asyncio.to_thread(
+                tasks_store.update_task,
                 task.id,
                 execution_context=ctx,
                 status=TaskStatus.FAILED,
-                completed_at=datetime.utcnow(),
+                completed_at=_utc_now(),
                 error=ctx["error"],
             )
             return {
@@ -585,7 +602,7 @@ async def resume_playbook_execution(
         gate_decisions[paused_step_id] = {
             "action": "approved",
             "comment": request.comment,
-            "decided_at": datetime.utcnow().isoformat(),
+            "decided_at": _utc_now().isoformat(),
         }
         inputs["gate_decisions"] = gate_decisions
 
@@ -595,7 +612,8 @@ async def resume_playbook_execution(
         ctx2["error"] = None
         ctx2["checkpoint"] = checkpoint
         ctx2["inputs"] = inputs
-        tasks_store.update_task(
+        await asyncio.to_thread(
+            tasks_store.update_task,
             task.id,
             execution_context=ctx2,
             status=TaskStatus.RUNNING,
@@ -629,7 +647,7 @@ async def cancel_playbook_execution(
     execution_id: str, request: Optional[CancelExecutionRequest] = Body(None)
 ):
     try:
-        from datetime import datetime
+        from datetime import datetime, timezone
         from backend.app.services.stores.tasks_store import TasksStore
         from backend.app.services.mindscape_store import MindscapeStore
         from backend.app.models.workspace import TaskStatus
@@ -640,7 +658,9 @@ async def cancel_playbook_execution(
 
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-        task = tasks_store.get_task_by_execution_id(execution_id)
+        task = await asyncio.to_thread(
+            tasks_store.get_task_by_execution_id, execution_id
+        )
         if not task:
             raise HTTPException(status_code=404, detail="Execution not found")
 
@@ -651,14 +671,16 @@ async def cancel_playbook_execution(
         ctx["error"] = (
             request.reason if request and request.reason else "Cancelled by user"
         )
-        ctx["cancelled_at"] = datetime.utcnow().isoformat()
+        ctx["cancelled_at"] = _utc_now().isoformat()
 
         # Reject pending graph node if exists (P2: cancellation sync)
         pending_graph_node_id = ctx.get("pending_graph_node_id")
         if pending_graph_node_id:
             try:
                 graph_store = GraphChangelogStore()
-                result = graph_store.reject_change(pending_graph_node_id)
+                result = await asyncio.to_thread(
+                    graph_store.reject_change, pending_graph_node_id
+                )
                 if result.get("success"):
                     logger.info(
                         f"Rejected graph node {pending_graph_node_id} for cancelled task {execution_id}"
@@ -670,11 +692,12 @@ async def cancel_playbook_execution(
             except Exception as e:
                 logger.warning(f"Error rejecting graph node on cancellation: {e}")
 
-        tasks_store.update_task(
+        await asyncio.to_thread(
+            tasks_store.update_task,
             task.id,
             execution_context=ctx,
             status=TaskStatus.CANCELLED_BY_USER,
-            completed_at=datetime.utcnow(),
+            completed_at=_utc_now(),
             error=ctx["error"],
         )
 
@@ -703,7 +726,9 @@ async def rerun_playbook_execution(
 
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-        task = tasks_store.get_task_by_execution_id(execution_id)
+        task = await asyncio.to_thread(
+            tasks_store.get_task_by_execution_id, execution_id
+        )
         if not task:
             raise HTTPException(status_code=404, detail="Execution not found")
 
@@ -829,7 +854,8 @@ async def rerun_playbook_execution(
 
                 from backend.app.models.workspace import Task, TaskStatus
 
-                tasks_store.create_task(
+                await asyncio.to_thread(
+                    tasks_store.create_task,
                     Task(
                         id=new_execution_id,
                         workspace_id=workspace_id,
@@ -851,9 +877,9 @@ async def rerun_playbook_execution(
                             "project_id": project_id,
                             "profile_id": profile_id,
                         },
-                        created_at=datetime.utcnow(),
+                        created_at=_utc_now(),
                         started_at=None,
-                    )
+                    ),
                 )
 
                 return {
