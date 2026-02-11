@@ -17,6 +17,9 @@ import { toolAccessPolicy } from "./policy/tool_access_policy.js";
 import { wrapToolSchema, formatResult } from "./utils/schema.js";
 import { lensTools, isLensTool, LENS_TOOL_NAMES } from "./tools/lens_tools.js";
 import { confirmTools, isConfirmTool, CONFIRM_TOOL_NAMES } from "./tools/confirm_tools.js";
+import { intentTools, isIntentTool, INTENT_TOOL_NAMES } from "./tools/intent_tools.js";
+import { chatSyncTools, isChatSyncTool, CHAT_SYNC_TOOL_NAMES } from "./tools/chat_sync_tools.js";
+import { projectTools, isProjectTool, PROJECT_TOOL_NAMES } from "./tools/project_tools.js";
 import { ContextHandler } from "./context_handler.js";
 import { ConfirmGuard } from "./confirm_guard.js";
 import { config } from "./config.js";
@@ -28,7 +31,10 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {}
+      tools: {},
+      experimental: {
+        sampling: {}  // Phase 3: Enable server-initiated LLM calls via createMessage
+      }
     }
   }
 );
@@ -87,6 +93,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     // ============================================
     for (const confirmTool of confirmTools) {
       mcpTools.push(confirmTool);
+    }
+
+    // ============================================
+    // MCP Bridge Tools (Intent, Chat Sync, Project)
+    // ============================================
+    for (const tool of [...intentTools, ...chatSyncTools, ...projectTools]) {
+      const decision = toolAccessPolicy.getAccessLevel(tool.name);
+      if (decision.allowed) {
+        mcpTools.push(tool);
+      }
     }
 
     // ============================================
@@ -396,6 +412,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }]
         };
       }
+    }
+
+    // ============================================
+    // MCP Bridge: Intent Tools
+    // ============================================
+    if (isIntentTool(name)) {
+      if (name === INTENT_TOOL_NAMES.SUBMIT) {
+        const result = await mindscapeClient.submitIntents({
+          workspace_id: workspaceId,
+          message: String((inputs as any).message || ""),
+          message_id: (inputs as any).message_id,
+          profile_id: (inputs as any).profile_id,
+          extracted_intents: (inputs as any).extracted_intents || [],
+          extracted_themes: (inputs as any).extracted_themes
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
+        };
+      } else if (name === INTENT_TOOL_NAMES.LAYOUT_EXECUTE) {
+        const result = await mindscapeClient.executeIntentLayout({
+          workspace_id: workspaceId,
+          profile_id: (inputs as any).profile_id,
+          layout_plan: (inputs as any).layout_plan
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
+        };
+      }
+    }
+
+    // ============================================
+    // MCP Bridge: Chat Sync Tools
+    // ============================================
+    if (isChatSyncTool(name)) {
+      const result = await mindscapeClient.chatSync({
+        workspace_id: workspaceId,
+        conversation_id: String((inputs as any).conversation_id || ""),
+        surface_type: (inputs as any).surface_type,
+        trace_id: (inputs as any).trace_id,
+        profile_id: (inputs as any).profile_id,
+        messages: (inputs as any).messages || [],
+        playbook_executed: (inputs as any).playbook_executed,
+        ide_receipts: (inputs as any).ide_receipts
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
+      };
+    }
+
+    // ============================================
+    // MCP Bridge: Project Tools
+    // ============================================
+    if (isProjectTool(name)) {
+      const result = await mindscapeClient.detectAndCreateProject({
+        workspace_id: workspaceId,
+        message: String((inputs as any).message || ""),
+        profile_id: (inputs as any).profile_id,
+        detected_project: (inputs as any).detected_project
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
+      };
     }
 
     throw new Error(`Unknown tool: ${name}`);

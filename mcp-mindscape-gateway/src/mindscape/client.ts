@@ -325,7 +325,13 @@ export class MindscapeClient {
     conversation_id?: string;
     intent_hint?: string;
     timestamp: string;
-  }): Promise<{ intent_id?: string; seed_id?: string }> {
+    ide_receipts?: Array<{
+      action: string;
+      trace_id: string;
+      output_hash?: string;
+      timestamp?: string;
+    }>;
+  }): Promise<{ intent_id?: string; seed_id?: string; ide_receipt_used?: boolean }> {
     try {
       const { data } = await this.client.post(
         "/api/v1/surfaces/external-context",
@@ -337,17 +343,85 @@ export class MindscapeClient {
           tool_called: params.tool_called,
           conversation_id: params.conversation_id,
           intent_hint: params.intent_hint,
-          timestamp: params.timestamp
+          timestamp: params.timestamp,
+          ide_receipts: params.ide_receipts
         }
       );
       return {
         intent_id: data.intent_id,
-        seed_id: data.seed_id
+        seed_id: data.seed_id,
+        ide_receipt_used: data.ide_receipt_used
       };
     } catch (error: any) {
       // Re-throw to let caller handle
       throw error;
     }
+  }
+
+  // ============================================
+  // MCP Bridge Methods
+  // ============================================
+
+  async submitIntents(params: {
+    workspace_id: string;
+    message: string;
+    message_id?: string;
+    profile_id?: string;
+    extracted_intents: Array<{ label: string; confidence?: number; source?: string; metadata?: any }>;
+    extracted_themes?: string[];
+  }): Promise<{ intent_tags_created: number; themes_recorded: number; tags: any[] }> {
+    const { data } = await this.client.post("/api/v1/mcp/intent/submit", params);
+    return data;
+  }
+
+  async executeIntentLayout(params: {
+    workspace_id: string;
+    profile_id?: string;
+    layout_plan: {
+      long_term_intents: Array<{
+        operation_type: string;
+        intent_id?: string;
+        intent_data: Record<string, any>;
+        relation_signals?: string[];
+        confidence?: number;
+        reasoning?: string;
+      }>;
+      ephemeral_tasks?: Array<Record<string, any>>;
+    };
+  }): Promise<{ success: boolean; executed: number; operations: any[]; turn_id: string }> {
+    const { data } = await this.client.post("/api/v1/mcp/intent/layout/execute", params);
+    return data;
+  }
+
+  async chatSync(params: {
+    workspace_id: string;
+    conversation_id: string;
+    surface_type?: string;
+    trace_id?: string;
+    profile_id?: string;
+    messages: Array<{ role: string; content: string; timestamp?: string; message_id?: string }>;
+    playbook_executed?: string;
+    ide_receipts?: Array<{ step: string; trace_id: string; output_hash: string; output_summary?: any; completed_at?: string }>;
+  }): Promise<{ synced: boolean; trace_id: string; thread_id: string; events_emitted: string[]; hooks_triggered: string[]; ide_receipts_applied: string[] }> {
+    const { data } = await this.client.post("/api/v1/mcp/chat/sync", params);
+    return data;
+  }
+
+  async detectAndCreateProject(params: {
+    workspace_id: string;
+    message: string;
+    profile_id?: string;
+    detected_project: {
+      mode?: string;
+      project_type?: string;
+      project_title: string;
+      playbook_sequence?: string[];
+      initial_spec_md?: string;
+      confidence?: number;
+    };
+  }): Promise<{ project_id?: string; created: boolean; reason?: string }> {
+    const { data } = await this.client.post("/api/v1/mcp/project/detect", params);
+    return data;
   }
 
   // ============================================

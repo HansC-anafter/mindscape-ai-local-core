@@ -71,6 +71,12 @@ export class ContextHandler {
         surface_user_id?: string;
         conversation_id?: string;
         intent_hint?: string;
+        ide_receipts?: Array<{
+            action: string;
+            trace_id: string;
+            output_hash?: string;
+            timestamp?: string;
+        }>;
     }): Promise<{ intent_id?: string; seed_id?: string }> {
         // Call backend API to record external interaction
         // This endpoint should parse intent, extract seed, and record to timeline
@@ -83,7 +89,8 @@ export class ContextHandler {
                 tool_called: params.tool_called,
                 conversation_id: params.conversation_id,
                 intent_hint: params.intent_hint,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                ide_receipts: params.ide_receipts
             });
 
             return {

@@ -115,6 +115,21 @@ export class ToolAccessPolicy {
       },
 
       // ============================================
+      // MCP Bridge tools
+      // ============================================
+      {
+        pattern: /^mindscape_(intent_submit|chat_sync)$/,
+        level: "primitive",
+        reason: "Low-risk sync operations from IDE (auto-approved)"
+      },
+      {
+        pattern: /^mindscape_(intent_layout_execute|project_detect_and_create)$/,
+        level: "governed",
+        reason: "Mutations require confirmation",
+        requiresConfirmation: true
+      },
+
+      // ============================================
       // Default rule (fallback)
       // ============================================
       {

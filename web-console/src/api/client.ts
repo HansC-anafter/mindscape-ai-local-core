@@ -46,6 +46,26 @@ export class MindscapeAPIClient {
     }
   }
 
+  /**
+   * Create a client from a base URL string.
+   * Use this in pack components that receive `apiUrl` as a prop.
+   *
+   * @example
+   * ```tsx
+   * const client = MindscapeAPIClient.fromBaseUrl(apiUrl);
+   * const res = await client.get('/api/v1/workspaces/...');
+   * ```
+   */
+  static fromBaseUrl(baseUrl: string): MindscapeAPIClient {
+    const ctx: ExecutionContext = {
+      actor_id: 'local-user',
+      workspace_id: '',
+    };
+    const instance = new MindscapeAPIClient(ctx);
+    instance.baseUrl = baseUrl;
+    return instance;
+  }
+
   // -------------------------------------------------------------------------
   // Auth
   // -------------------------------------------------------------------------
