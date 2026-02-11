@@ -30,7 +30,12 @@ All new features must be implemented in appropriate modules and delegated here.
 
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -476,7 +481,7 @@ class ConversationOrchestrator:
 
             user_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.USER,
                 channel="local_workspace",
                 profile_id=profile_id,
@@ -506,7 +511,7 @@ class ConversationOrchestrator:
                     )
                     self.store.conversation_threads.update_thread(
                         thread_id=thread_id,
-                        last_message_at=datetime.utcnow(),
+                        last_message_at=_utc_now(),
                         message_count=message_count,
                     )
                 except Exception as e:
@@ -656,7 +661,7 @@ Project ID: {project.id}
 
                         assistant_event = MindEvent(
                             id=str(uuid.uuid4()),
-                            timestamp=datetime.utcnow(),
+                            timestamp=_utc_now(),
                             actor=EventActor.ASSISTANT,
                             channel="local_workspace",
                             profile_id=profile_id,
@@ -689,7 +694,7 @@ Project ID: {project.id}
                                 )
                                 self.store.conversation_threads.update_thread(
                                     thread_id=thread_id,
-                                    last_message_at=datetime.utcnow(),
+                                    last_message_at=_utc_now(),
                                     message_count=message_count,
                                 )
                             except Exception as e:
@@ -825,7 +830,7 @@ Project ID: {project.id}
                     # Create assistant event with the response
                     assistant_event = MindEvent(
                         id=str(uuid.uuid4()),
-                        timestamp=datetime.utcnow(),
+                        timestamp=_utc_now(),
                         actor=EventActor.ASSISTANT,
                         channel="local_workspace",
                         profile_id=profile_id,

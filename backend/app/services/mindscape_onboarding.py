@@ -3,7 +3,12 @@ Mindscape Onboarding Service
 Handles the cold-start onboarding flow for new users
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 from backend.app.models.mindscape import MindscapeProfile
 from backend.app.services.mindscape_store import MindscapeStore
@@ -126,8 +131,8 @@ class MindscapeOnboardingService:
                 email=None,
                 roles=[],
                 domains=[],
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=_utc_now(),
+                updated_at=_utc_now()
             )
             profile = self.store.create_profile(profile)
 
@@ -136,7 +141,7 @@ class MindscapeOnboardingService:
             "identity": identity,
             "solving": solving,
             "thinking": thinking,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": _utc_now().isoformat()
         }
 
         # Initialize or update onboarding state
@@ -151,7 +156,7 @@ class MindscapeOnboardingService:
             }
 
         profile.onboarding_state["task1_completed"] = True
-        profile.onboarding_state["task1_completed_at"] = datetime.utcnow().isoformat()
+        profile.onboarding_state["task1_completed_at"] = _utc_now().isoformat()
 
         # Save to database
         updated_profile = self.store.update_profile(
@@ -207,7 +212,7 @@ class MindscapeOnboardingService:
             }
 
         profile.onboarding_state["task2_completed"] = True
-        profile.onboarding_state["task2_completed_at"] = datetime.utcnow().isoformat()
+        profile.onboarding_state["task2_completed_at"] = _utc_now().isoformat()
 
         if execution_id:
             profile.onboarding_state["task2_execution_id"] = execution_id
@@ -260,7 +265,7 @@ class MindscapeOnboardingService:
             }
 
         profile.onboarding_state["task3_completed"] = True
-        profile.onboarding_state["task3_completed_at"] = datetime.utcnow().isoformat()
+        profile.onboarding_state["task3_completed_at"] = _utc_now().isoformat()
 
         if execution_id:
             profile.onboarding_state["task3_execution_id"] = execution_id

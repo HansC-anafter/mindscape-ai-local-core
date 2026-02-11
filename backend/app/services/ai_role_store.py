@@ -5,7 +5,12 @@ Manages persistent storage for AI role configurations.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 
 from sqlalchemy import text
@@ -53,7 +58,7 @@ class AIRoleStore(PostgresStoreBase):
 
     def save_role_config(self, role: AIRoleConfig) -> AIRoleConfig:
         """Save or update an AI role configuration."""
-        role.updated_at = datetime.utcnow()
+        role.updated_at = _utc_now()
 
         with self.transaction() as conn:
             conn.execute(
@@ -183,7 +188,7 @@ class AIRoleStore(PostgresStoreBase):
                 """
                 ),
                 {
-                    "last_used_at": datetime.utcnow(),
+                    "last_used_at": _utc_now(),
                     "id": role_id,
                     "profile_id": profile_id,
                 },
@@ -204,7 +209,7 @@ class AIRoleStore(PostgresStoreBase):
                     "profile_id": profile_id,
                     "execution_id": execution_id,
                     "task": task,
-                    "used_at": datetime.utcnow(),
+                    "used_at": _utc_now(),
                 },
             )
 
@@ -248,7 +253,7 @@ class AIRoleStore(PostgresStoreBase):
             last_used_at=_coerce_datetime(row.last_used_at),
             is_enabled=bool(row.is_enabled) if row.is_enabled is not None else True,
             is_custom=bool(row.is_custom) if row.is_custom is not None else False,
-            created_at=_coerce_datetime(row.created_at) or datetime.utcnow(),
-            updated_at=_coerce_datetime(row.updated_at) or datetime.utcnow(),
+            created_at=_coerce_datetime(row.created_at) or _utc_now(),
+            updated_at=_coerce_datetime(row.updated_at) or _utc_now(),
             x_platform=self.deserialize_json(row.x_platform, None),
         )

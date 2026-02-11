@@ -5,7 +5,12 @@ Responsible for aggregating data from Local-Core tables to Dashboard DTOs
 
 import logging
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ..models.dashboard import (
     DashboardSummaryDTO,
@@ -82,7 +87,7 @@ class DashboardAggregator:
                 else effective_scope.type
             ),
             counts=counts,
-            recent_activity_at=datetime.utcnow(),
+            recent_activity_at=_utc_now(),
             needs_setup=needs_setup,
             not_supported=self.NOT_SUPPORTED_COUNTS,
             warnings=warnings,
@@ -448,12 +453,12 @@ class DashboardAggregator:
                 created_at=(
                     workspace.created_at
                     if hasattr(workspace, "created_at")
-                    else datetime.utcnow()
+                    else _utc_now()
                 ),
                 updated_at=(
                     workspace.updated_at
                     if hasattr(workspace, "updated_at")
-                    else datetime.utcnow()
+                    else _utc_now()
                 ),
             )
 

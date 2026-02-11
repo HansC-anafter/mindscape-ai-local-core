@@ -9,7 +9,12 @@ for interoperability between Davinci, PR, and AE, Task IR enables interoperabili
 between different AI execution engines.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -250,7 +255,7 @@ class TaskIR(BaseModel):
     def add_artifact(self, artifact: ArtifactReference) -> None:
         """Add an artifact to the task"""
         self.artifacts.append(artifact)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
     def update_phase_status(self, phase_id: str, status: str, **kwargs) -> bool:
         """Update phase status and optional fields"""
@@ -263,7 +268,7 @@ class TaskIR(BaseModel):
             if hasattr(phase, key):
                 setattr(phase, key, value)
 
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
         return True
 
     def get_completed_phases(self) -> List[PhaseIR]:

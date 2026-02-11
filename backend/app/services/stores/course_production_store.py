@@ -6,7 +6,12 @@ Database operations for voice profiles, training jobs, and video segments
 
 import logging
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from psycopg2.extras import RealDictCursor, Json
 from psycopg2.pool import ThreadedConnectionPool
@@ -164,7 +169,7 @@ class CourseProductionStore:
                         values.append(value)
 
                 set_clauses.append("updated_at = %s")
-                values.append(datetime.utcnow())
+                values.append(_utc_now())
                 values.append(profile_id)
 
                 cursor.execute(f'''
@@ -196,7 +201,7 @@ class CourseProductionStore:
                     UPDATE voice_profiles
                     SET status = 'deprecated', updated_at = %s
                     WHERE id = %s
-                ''', (datetime.utcnow(), profile_id))
+                ''', (_utc_now(), profile_id))
                 conn.commit()
                 return cursor.rowcount > 0
         except Exception as e:
@@ -318,7 +323,7 @@ class CourseProductionStore:
                         values.append(value)
 
                 set_clauses.append("updated_at = %s")
-                values.append(datetime.utcnow())
+                values.append(_utc_now())
                 values.append(job_id)
 
                 cursor.execute(f'''
@@ -474,7 +479,7 @@ class CourseProductionStore:
                         values.append(value)
 
                 set_clauses.append("updated_at = %s")
-                values.append(datetime.utcnow())
+                values.append(_utc_now())
                 values.append(segment_id)
 
                 cursor.execute(f'''

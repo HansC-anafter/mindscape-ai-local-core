@@ -9,7 +9,12 @@ See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 
 from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
@@ -97,7 +102,7 @@ IMPORTANT: This is a generic drafting flow. The output may need refinement with 
             "type": target_format,
             "content": content,
             "title": f"Draft: {user_request[:50]}..." if len(user_request) > 50 else f"Draft: {user_request}",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _utc_now().isoformat(),
             "workspace_id": workspace_id,
             "profile_id": profile_id,
             "is_fallback": True,
@@ -160,7 +165,7 @@ async def _store_artifact_as_event(
         store = MindscapeStore()
         event = MindEvent(
             id=artifact["id"],
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.ASSISTANT,
             channel="local_workspace",
             profile_id=profile_id,

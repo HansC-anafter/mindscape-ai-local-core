@@ -7,7 +7,12 @@ Used to pass change information between stages in the ChangeSet pipeline.
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 
 
@@ -123,7 +128,7 @@ class ChangeSetIR:
     def __post_init__(self):
         """Initialize default values"""
         if self.created_at is None:
-            self.created_at = datetime.utcnow()
+            self.created_at = _utc_now()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""

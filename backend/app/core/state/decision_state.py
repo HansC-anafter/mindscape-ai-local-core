@@ -7,7 +7,12 @@ DecisionState can only be written by policy, not by LLM or tools.
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 
 
@@ -101,7 +106,7 @@ class DecisionState:
         self.reasoning = reasoning
         if policy_version:
             self.policy_version = policy_version
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
     def resolve_decision(
         self,
@@ -120,8 +125,8 @@ class DecisionState:
         self.status = status
         self.resolved_by = resolved_by
         self.resolution_notes = resolution_notes
-        self.resolved_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.resolved_at = _utc_now()
+        self.updated_at = _utc_now()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
@@ -158,8 +163,8 @@ class DecisionState:
         decision_type = DecisionType(data["decision_type"])
         status = DecisionStatus(data.get("status", "pending"))
 
-        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.utcnow())
-        updated_at = datetime.fromisoformat(data["updated_at"]) if isinstance(data.get("updated_at"), str) else data.get("updated_at", datetime.utcnow())
+        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", _utc_now())
+        updated_at = datetime.fromisoformat(data["updated_at"]) if isinstance(data.get("updated_at"), str) else data.get("updated_at", _utc_now())
 
         resolved_at = None
         if data.get("resolved_at"):

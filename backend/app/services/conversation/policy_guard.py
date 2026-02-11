@@ -7,7 +7,12 @@ This is a mandatory part of MVP.
 
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 from backend.app.models.workspace_runtime_profile import WorkspaceRuntimeProfile
 from backend.app.services.tool_registry import ToolRegistryService
@@ -392,7 +397,7 @@ class PolicyGuard:
         try:
             event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.SYSTEM,
                 channel="runtime_profile",
                 profile_id=profile_id or "system",

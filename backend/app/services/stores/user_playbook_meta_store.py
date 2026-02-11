@@ -4,7 +4,12 @@ UserPlaybookMeta store for managing user-specific playbook metadata
 
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase
 import uuid
@@ -77,7 +82,7 @@ class UserPlaybookMetaStore(StoreBase):
             ''', (profile_id, playbook_code))
 
             existing = cursor.fetchone()
-            now = self.to_isoformat(datetime.utcnow())
+            now = self.to_isoformat(_utc_now())
 
             if existing:
                 # Update existing record

@@ -7,7 +7,12 @@ playbook-specific data structures.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional, Union
 
 from backend.app.models.task_ir import (
@@ -173,7 +178,7 @@ class PlaybookIRAdapter:
                 "executed_by": f"playbook:{execution_id}",
                 "execution_id": execution_id,
                 "output_artifacts": [a.id for a in new_artifacts],
-                "completed_at": datetime.utcnow().isoformat()
+                "completed_at": _utc_now().isoformat()
             }
         }
 

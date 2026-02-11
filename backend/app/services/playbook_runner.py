@@ -5,7 +5,12 @@ Handles Playbook execution with real LLM-powered conversations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, List, Optional, Any
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -254,7 +259,7 @@ class PlaybookRunner:
 
                 ready_event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.AGENT,
                     channel="playbook",
                     profile_id=profile_id,
@@ -414,7 +419,7 @@ class PlaybookRunner:
 
                 running_event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.AGENT,
                     channel="playbook",
                     profile_id=profile_id,
@@ -523,7 +528,7 @@ class PlaybookRunner:
 
                     done_event = MindEvent(
                         id=str(uuid.uuid4()),
-                        timestamp=datetime.utcnow(),
+                        timestamp=_utc_now(),
                         actor=EventActor.AGENT,
                         channel="playbook",
                         profile_id=profile_id,
@@ -664,7 +669,7 @@ class PlaybookRunner:
                 )
                 event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.USER,
                     channel="playbook",
                     profile_id=profile_id,

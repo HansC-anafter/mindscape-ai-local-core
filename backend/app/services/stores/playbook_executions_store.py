@@ -5,7 +5,12 @@ Provides persistent storage for playbook executions with checkpoint/resume suppo
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from backend.app.models.workspace import PlaybookExecution
@@ -98,7 +103,7 @@ class PlaybookExecutionsStore(StoreBase):
         with self.transaction() as conn:
             cursor = conn.cursor()
             update_fields = ["last_checkpoint = ?", "updated_at = ?"]
-            update_values = [checkpoint_data, self.to_isoformat(datetime.utcnow())]
+            update_values = [checkpoint_data, self.to_isoformat(_utc_now())]
 
             if phase is not None:
                 update_fields.append("phase = ?")
@@ -149,7 +154,7 @@ class PlaybookExecutionsStore(StoreBase):
                 SET updated_at = ?
                 WHERE id = ?
             """,
-                (self.to_isoformat(datetime.utcnow()), execution_id),
+                (self.to_isoformat(_utc_now()), execution_id),
             )
 
             logger.info(
@@ -261,7 +266,7 @@ class PlaybookExecutionsStore(StoreBase):
         with self.transaction() as conn:
             cursor = conn.cursor()
             update_fields = ["status = ?", "updated_at = ?"]
-            update_values = [status, self.to_isoformat(datetime.utcnow())]
+            update_values = [status, self.to_isoformat(_utc_now())]
 
             if phase is not None:
                 update_fields.append("phase = ?")
@@ -302,7 +307,7 @@ class PlaybookExecutionsStore(StoreBase):
                 SET status = 'stale', updated_at = ?
                 WHERE status IN ('running', 'pending', 'initializing')
             """,
-                (self.to_isoformat(datetime.utcnow()),),
+                (self.to_isoformat(_utc_now()),),
             )
 
             count = cursor.rowcount
@@ -353,7 +358,7 @@ class PlaybookExecutionsStore(StoreBase):
             """,
                 (
                     self.serialize_json(merged_metadata),
-                    self.to_isoformat(datetime.utcnow()),
+                    self.to_isoformat(_utc_now()),
                     execution_id,
                 ),
             )

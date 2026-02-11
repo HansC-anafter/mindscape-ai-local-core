@@ -8,7 +8,12 @@ such as illustrations, documents, configurations, etc.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
@@ -77,12 +82,12 @@ class ArtifactResourceHandler(ResourceHandler):
             "created_at": (
                 artifact.created_at.isoformat()
                 if artifact.created_at
-                else datetime.utcnow().isoformat()
+                else _utc_now().isoformat()
             ),
             "updated_at": (
                 artifact.updated_at.isoformat()
                 if artifact.updated_at
-                else datetime.utcnow().isoformat()
+                else _utc_now().isoformat()
             ),
         }
 
@@ -141,8 +146,8 @@ class ArtifactResourceHandler(ResourceHandler):
             sync_state=None,
             primary_action_type=primary_action_type,
             metadata=metadata,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
         )
 
     async def list(
@@ -275,7 +280,7 @@ class ArtifactResourceHandler(ResourceHandler):
                 artifact.metadata = {}
             artifact.metadata.update(data["metadata"])
 
-        artifact.updated_at = datetime.utcnow()
+        artifact.updated_at = _utc_now()
 
         # Save updated artifact
         updated_artifact = self.store.artifacts.update_artifact(artifact)

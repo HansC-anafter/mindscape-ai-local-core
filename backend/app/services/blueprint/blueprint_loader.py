@@ -11,7 +11,12 @@ Loads and applies workspace blueprints that include:
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
@@ -198,8 +203,8 @@ class BlueprintLoader:
             expected_artifacts=workspace_config.get("expected_artifacts"),
             execution_priority=workspace_config.get("execution_priority", "medium"),
             metadata=workspace_config.get("metadata", {}),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
         )
 
         created_workspace = self.store.workspaces.create_workspace(workspace)
@@ -275,8 +280,8 @@ class BlueprintLoader:
                     content={"markdown": content},
                     primary_action_type=PrimaryActionType.EDIT,
                     metadata={"kind": kind, **metadata},
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
+                    created_at=_utc_now(),
+                    updated_at=_utc_now(),
                 )
 
                 self.store.artifacts.create_artifact(artifact)

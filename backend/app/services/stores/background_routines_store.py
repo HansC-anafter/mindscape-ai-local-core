@@ -6,7 +6,12 @@ like cron jobs or daemons. Once enabled, they run automatically.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any, Tuple
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import BackgroundRoutine
@@ -221,7 +226,7 @@ class BackgroundRoutinesStore(StoreBase):
                 return self._row_to_background_routine(row)
 
             updates.append('updated_at = ?')
-            params.append(self.to_isoformat(datetime.utcnow()))
+            params.append(self.to_isoformat(_utc_now()))
             params.append(routine_id)
 
             query = f'UPDATE background_routines SET {", ".join(updates)} WHERE id = ?'

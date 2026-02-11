@@ -7,7 +7,12 @@ instead of fragile JSON parsing from text responses.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -268,7 +273,7 @@ Always verify your actions completed successfully.""",
         Returns:
             AgentResult with execution details
         """
-        start_time = datetime.utcnow()
+        start_time = _utc_now()
 
         try:
             # Add context to input if provided
@@ -307,7 +312,7 @@ Always verify your actions completed successfully.""",
                 steps=steps,
                 total_iterations=len(steps),
                 total_duration_ms=int(
-                    (datetime.utcnow() - start_time).total_seconds() * 1000
+                    (_utc_now() - start_time).total_seconds() * 1000
                 ),
             )
 
@@ -317,7 +322,7 @@ Always verify your actions completed successfully.""",
                 status=AgentStatus.FAILED,
                 error=str(e),
                 total_duration_ms=int(
-                    (datetime.utcnow() - start_time).total_seconds() * 1000
+                    (_utc_now() - start_time).total_seconds() * 1000
                 ),
             )
 

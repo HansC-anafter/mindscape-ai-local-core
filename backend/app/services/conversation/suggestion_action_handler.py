@@ -6,7 +6,12 @@ Handles actions from dynamic suggestions (execute_playbook, use_tool, etc.)
 
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from ...models.workspace import ExecutionPlan, TaskPlan
@@ -308,8 +313,8 @@ class SuggestionActionHandler:
                 status=TaskStatus.PENDING if task_plan.requires_cta else TaskStatus.RUNNING,
                 params=task_plan.params,
                 result=None,
-                created_at=datetime.utcnow(),
-                started_at=datetime.utcnow() if not task_plan.requires_cta else None,
+                created_at=_utc_now(),
+                started_at=_utc_now() if not task_plan.requires_cta else None,
                 completed_at=None,
                 error=None
             )
@@ -357,7 +362,7 @@ class SuggestionActionHandler:
                 raise ValueError("No intents provided in action_params")
 
             from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
-            from datetime import datetime
+            from datetime import datetime, timezone
             import uuid
 
             intents_added = []
@@ -396,8 +401,8 @@ class SuggestionActionHandler:
                         tags=[],
                         category="suggestion_action",
                         progress_percentage=0,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
+                        created_at=_utc_now(),
+                        updated_at=_utc_now(),
                         started_at=None,
                         completed_at=None,
                         due_date=None,
@@ -433,7 +438,7 @@ class SuggestionActionHandler:
                     "themes": themes
                 },
                 cta=None,
-                created_at=datetime.utcnow()
+                created_at=_utc_now()
             )
             timeline_items_store.create_timeline_item(timeline_item)
 
@@ -443,7 +448,7 @@ class SuggestionActionHandler:
                 f"INTENT_METRICS: manual_confirmation, action=add_to_mindscape, "
                 f"workspace_id={ctx.workspace_id}, profile_id={ctx.actor_id}, "
                 f"intents_added={len(intents_added)}, message_id={message_id}, "
-                f"timestamp={datetime.utcnow().isoformat()}"
+                f"timestamp={_utc_now().isoformat()}"
             )
 
             # Create success response
@@ -476,7 +481,7 @@ class SuggestionActionHandler:
     ) -> Dict[str, Any]:
         """Handle create_intent action"""
         from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
-        from datetime import datetime
+        from datetime import datetime, timezone
         import uuid
 
         title = action_params.get("title") or action_params.get("intent_title")
@@ -502,8 +507,8 @@ class SuggestionActionHandler:
             tags=action_params.get("tags", []),
             category=action_params.get("category"),
             progress_percentage=0.0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
             started_at=None,
             completed_at=None,
             due_date=None,
@@ -520,7 +525,7 @@ class SuggestionActionHandler:
             is_high_priority = created_intent.priority in [PriorityLevel.HIGH, PriorityLevel.CRITICAL]
             intent_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.USER,
                 channel="local_workspace",
                 profile_id=ctx.actor_id,
@@ -556,7 +561,7 @@ class SuggestionActionHandler:
                 "display_events": [{
                     "type": "message",
                     "content": success_message,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_now().isoformat()
                 }],
                 "triggered_playbook": None,
                 "pending_tasks": [],
@@ -580,7 +585,7 @@ class SuggestionActionHandler:
                 "display_events": [{
                     "type": "error",
                     "content": error_message,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_now().isoformat()
                 }],
                 "triggered_playbook": None,
                 "pending_tasks": []
@@ -641,7 +646,7 @@ class SuggestionActionHandler:
                         task_id=task.id,
                         status=TaskStatus.SUCCEEDED,
                         result={"action": "executed", "pack_id": pack_id},
-                        completed_at=datetime.utcnow()
+                        completed_at=_utc_now()
                     )
                 except Exception as e:
                     logger.warning(f"Failed to update suggestion task status: {e}")
@@ -740,7 +745,7 @@ class SuggestionActionHandler:
                         task_id=task.id,
                         status=TaskStatus.SUCCEEDED,
                         error=None,
-                        completed_at=datetime.utcnow()
+                        completed_at=_utc_now()
                     )
 
                     # Clear execution_id if set
@@ -1039,7 +1044,7 @@ class SuggestionActionHandler:
                             "error_type": error_type,
                             "pack_id": pack_id
                         },
-                        completed_at=datetime.utcnow()
+                        completed_at=_utc_now()
                     )
                     logger.info(f"Updated task {task.id} status to FAILED with error: {error_message}")
                 except Exception as update_error:
@@ -1063,7 +1068,7 @@ class SuggestionActionHandler:
 
         error_event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="local_workspace",
             profile_id=profile_id,
@@ -1139,7 +1144,7 @@ class SuggestionActionHandler:
         """Create user message event for action"""
         user_event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.USER,
             channel="local_workspace",
             profile_id=profile_id,

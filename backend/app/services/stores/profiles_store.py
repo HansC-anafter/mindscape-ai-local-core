@@ -74,8 +74,8 @@ class ProfilesStore(StoreBase):
             if hasattr(profile, key):
                 setattr(profile, key, value)
 
-        from datetime import datetime
-        profile.updated_at = datetime.utcnow()
+        from datetime import datetime, timezone
+        profile.updated_at = _utc_now()
         profile.version += 1
 
         with self.get_connection() as conn:

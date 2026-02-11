@@ -11,7 +11,12 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 try:
     import httpx
@@ -206,8 +211,8 @@ class CloudPlaybookClient:
 
         cache_data = {
             "playbook": playbook,
-            "cached_at": datetime.utcnow().isoformat(),
-            "expires_at": (datetime.utcnow() + timedelta(days=self.cache_ttl_days)).isoformat()
+            "cached_at": _utc_now().isoformat(),
+            "expires_at": (_utc_now() + timedelta(days=self.cache_ttl_days)).isoformat()
         }
 
         try:
@@ -235,7 +240,7 @@ class CloudPlaybookClient:
                 return True
 
             expires_at = datetime.fromisoformat(expires_at_str)
-            return datetime.utcnow() > expires_at
+            return _utc_now() > expires_at
         except Exception as e:
             logger.warning(f"Error checking cache expiration: {e}")
             return True

@@ -1,7 +1,12 @@
 """Mind Lens service for CRUD operations."""
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ...models.mind_lens import MindLensSchema, MindLensInstance, RuntimeMindLens
 from ...services.stores.postgres.mind_lens_store import PostgresMindLensStore
@@ -155,7 +160,7 @@ class MindLensService:
             role=instance.role,
             source_lenses=[instance.mind_lens_id],
             values=instance.values,
-            created_at=datetime.utcnow()
+            created_at=_utc_now()
         )
 
 

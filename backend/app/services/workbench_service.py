@@ -9,7 +9,12 @@ Provides workbench data for workspace including:
 
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.system_health_checker import SystemHealthChecker
@@ -90,7 +95,7 @@ class WorkbenchService:
 
                 current_round = {
                     "round_id": str(uuid.uuid4()),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": _utc_now().isoformat(),
                     "suggestions": suggested_next_steps,
                     "context_fingerprint": context_fingerprint,
                 }
@@ -292,7 +297,7 @@ class WorkbenchService:
                                             event_timestamp = (
                                                 event.timestamp
                                                 if hasattr(event, "timestamp")
-                                                else datetime.utcnow()
+                                                else _utc_now()
                                             )
                                             file_candidates.append(
                                                 {

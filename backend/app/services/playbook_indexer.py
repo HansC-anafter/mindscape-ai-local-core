@@ -8,7 +8,12 @@ import uuid
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -267,8 +272,8 @@ class PlaybookIndexer:
                 content,
                 str(embedding),
                 json.dumps(metadata),
-                datetime.utcnow(),
-                datetime.utcnow()
+                _utc_now(),
+                _utc_now()
             ))
 
             conn.commit()

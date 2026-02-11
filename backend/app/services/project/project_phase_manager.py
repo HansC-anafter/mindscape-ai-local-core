@@ -9,7 +9,12 @@ Manages Project Phase lifecycle:
 
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 from backend.app.models.project import ProjectPhase
 from backend.app.services.mindscape_store import MindscapeStore
@@ -55,7 +60,7 @@ class ProjectPhaseManager:
         phase = ProjectPhase(
             id=str(uuid.uuid4()),
             project_id=project_id,
-            created_at=datetime.utcnow(),
+            created_at=_utc_now(),
             created_by_message_id=message_id,
             kind=kind,
             summary=summary,

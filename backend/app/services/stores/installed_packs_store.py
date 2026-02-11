@@ -3,7 +3,12 @@ Installed Packs Store
 Manages installed capability pack metadata.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -94,7 +99,7 @@ class InstalledPacksStore(PostgresStoreBase):
                 ),
                 {
                     "pack_id": pack_id,
-                    "installed_at": installed_at or datetime.utcnow(),
+                    "installed_at": installed_at or _utc_now(),
                     "enabled": enabled,
                     "metadata": self.serialize_json(metadata or {}),
                 },

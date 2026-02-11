@@ -11,7 +11,12 @@ Design principles:
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
 
@@ -97,7 +102,7 @@ class EvidenceProfileStore:
             existing.error_count = error_count
 
             existing.update_success()  # Recalculate is_success
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = _utc_now()
 
             await self.db.commit()
             await self.db.refresh(existing)
@@ -192,7 +197,7 @@ class EvidenceProfileStore:
             run_index.outcome = outcome
 
         run_index.update_success()  # ⚠️ P0-2/P0-10：重新計算 is_success（考慮 outcome）
-        run_index.updated_at = datetime.utcnow()
+        run_index.updated_at = _utc_now()
 
         await self.db.commit()
         await self.db.refresh(run_index)
@@ -306,11 +311,11 @@ class EvidenceProfileStore:
         if avg_latency_ms is not None:
             profile.avg_latency_ms = avg_latency_ms
 
-        profile.last_run_at = datetime.utcnow()
-        profile.updated_at = datetime.utcnow()
+        profile.last_run_at = _utc_now()
+        profile.updated_at = _utc_now()
 
         if profile.first_run_at is None:
-            profile.first_run_at = datetime.utcnow()
+            profile.first_run_at = _utc_now()
 
         await self.db.commit()
         await self.db.refresh(profile)
@@ -389,7 +394,7 @@ class EvidenceProfileStore:
         mapping.status = status
         if callback_received_at:
             mapping.callback_received_at = callback_received_at
-        mapping.updated_at = datetime.utcnow()
+        mapping.updated_at = _utc_now()
 
         await self.db.commit()
         await self.db.refresh(mapping)

@@ -12,7 +12,12 @@ import secrets
 import logging
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -347,7 +352,7 @@ async def oauth_callback(
         connection.oauth_token = token_data["access_token"]
         connection.oauth_refresh_token = token_data.get("refresh_token")
         connection.is_validated = True
-        connection.last_validated_at = datetime.utcnow()
+        connection.last_validated_at = _utc_now()
         registry.update_connection(connection)
     else:
         # Create new connection
@@ -362,7 +367,7 @@ async def oauth_callback(
             oauth_refresh_token=token_data.get("refresh_token"),
             is_active=True,
             is_validated=True,
-            last_validated_at=datetime.utcnow(),
+            last_validated_at=_utc_now(),
         )
         registry.create_connection(connection)
 
@@ -548,7 +553,7 @@ async def refresh_token(
             connection.oauth_token = new_access_token
             if new_refresh_token:
                 connection.oauth_refresh_token = new_refresh_token
-            connection.last_validated_at = datetime.utcnow()
+            connection.last_validated_at = _utc_now()
             registry.update_connection(connection)
 
             return {

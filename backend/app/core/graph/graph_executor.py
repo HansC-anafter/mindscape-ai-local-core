@@ -7,7 +7,12 @@ Executes graph-based workflows with state management.
 import logging
 import uuid
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.core.ir.graph_ir import GraphIR, GraphNode, GraphEdge, NodeType, EdgeType, StateType
 from backend.app.core.state.state_manager import StateManager, WriteRule
@@ -39,7 +44,7 @@ class GraphExecutionState:
 
     def add_history(self, entry: Dict[str, Any]) -> None:
         """Add execution history entry"""
-        entry["timestamp"] = datetime.utcnow().isoformat()
+        entry["timestamp"] = _utc_now().isoformat()
         self.execution_history.append(entry)
 
 

@@ -4,7 +4,12 @@ Handles backup and portable configuration export for local use
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -70,7 +75,7 @@ class CoreExportService:
         # Create backup (including credentials if requested)
         backup = BackupConfiguration(
             backup_version="1.0.0",
-            backup_timestamp=datetime.utcnow(),
+            backup_timestamp=_utc_now(),
             source="my-agent-mindscape",
             mindscape_profile=profile.dict(),
             intent_cards=[intent.dict() for intent in intents],
@@ -82,7 +87,7 @@ class CoreExportService:
             ],
             agent_backend_config=self._get_backend_config(),
             metadata={
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": _utc_now().isoformat(),
                 "profile_id": profile_id,
                 "include_credentials": request.include_credentials,
             }
@@ -139,7 +144,7 @@ class CoreExportService:
         # Create portable configuration
         portable = PortableConfiguration(
             portable_version="1.0.0",
-            created_at=datetime.utcnow(),
+            created_at=_utc_now(),
             source="my-agent-mindscape",
             config_name=request.config_name,
             config_description=request.config_description,
@@ -155,7 +160,7 @@ class CoreExportService:
             ] if request.include_intent_cards else [],
             confirmed_habits=confirmed_habits,
             metadata={
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": _utc_now().isoformat(),
                 "source_profile_id": profile_id,
             }
         )
@@ -208,7 +213,7 @@ class CoreExportService:
         """Save configuration to JSON file"""
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = _utc_now().strftime("%Y%m%d_%H%M%S")
 
         if isinstance(config, BackupConfiguration):
             filename = f"backup_{timestamp}.json"

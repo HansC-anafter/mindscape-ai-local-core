@@ -6,7 +6,12 @@ Handles storage and retrieval of IntentTag records for candidate/confirmed inten
 
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from sqlalchemy import text
 
@@ -130,7 +135,7 @@ class IntentTagsStore(PostgresStoreBase):
         """Update IntentTag status"""
         try:
             with self.transaction() as conn:
-                update_time = updated_at or datetime.utcnow()
+                update_time = updated_at or _utc_now()
 
                 confirmed_at = None
                 rejected_at = None
@@ -202,7 +207,7 @@ class IntentTagsStore(PostgresStoreBase):
                     ),
                     {
                         "label": new_label,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": _utc_now(),
                         "id": intent_tag_id,
                     },
                 )

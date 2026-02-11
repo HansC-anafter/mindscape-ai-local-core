@@ -12,7 +12,12 @@ Langfuse → TraceGraph 正規化層。
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -278,7 +283,7 @@ class TraceNormalizer:
                 node_type=node_type,
                 name=name,
                 status=status,
-                start_time=start_time or datetime.utcnow(),
+                start_time=start_time or _utc_now(),
                 end_time=end_time,
                 metadata=node_metadata,
                 input_data=input_data,
@@ -338,7 +343,7 @@ class TraceNormalizer:
 
             # 設置狀態和時間
             node.status = status
-            node.start_time = start_time or datetime.utcnow()
+            node.start_time = start_time or _utc_now()
             if end_time:
                 node.end_time = end_time
             node.output_fingerprint = output_fingerprint

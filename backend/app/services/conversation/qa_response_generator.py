@@ -6,7 +6,12 @@ Generates QA responses with context injection for workspace interactions.
 
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from ...models.mindscape import MindEvent, EventType, EventActor
@@ -195,7 +200,7 @@ class QAResponseGenerator:
 
             assistant_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.ASSISTANT,
                 channel="local_workspace",
                 profile_id=profile_id,
@@ -224,7 +229,7 @@ class QAResponseGenerator:
             try:
                 error_event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.ASSISTANT,
                     channel="local_workspace",
                     profile_id=profile_id,

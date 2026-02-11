@@ -8,7 +8,12 @@ GovernanceTuner（治理調參器）
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from dataclasses import dataclass
 import uuid
 
@@ -117,8 +122,8 @@ class GovernanceTuner:
             intent_id=drift_report.intent_id,
             run_id=drift_report.run_id,
             workspace_id=drift_report.workspace_id,
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(hours=24),
+            created_at=_utc_now(),
+            expires_at=_utc_now() + timedelta(hours=24),
         )
 
         # 根據漂移類型生成建議
@@ -207,7 +212,7 @@ class GovernanceTuner:
 
         # 更新處方狀態
         prescription.status = "applied" if success else "partially_applied"
-        prescription.applied_at = datetime.utcnow()
+        prescription.applied_at = _utc_now()
         prescription.applied_by = user_id
 
         return ApplyResult(
@@ -258,7 +263,7 @@ class GovernanceTuner:
             },
             rationale=self._generate_rationale(prescription),
             decided_by=user_id,
-            decided_at=datetime.utcnow(),
+            decided_at=_utc_now(),
             status="executed" if applied else "failed",
         )
 

@@ -8,7 +8,12 @@ Provides DataSource abstraction as a view/service interface.
 
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ..models.data_source import DataSource, CreateDataSourceRequest, UpdateDataSourceRequest
 from ..models.tool_connection import ToolConnection
@@ -171,7 +176,7 @@ class DataSourceService:
         if request.owner_profile_id is not None:
             connection.owner_profile_id = request.owner_profile_id
 
-        connection.updated_at = datetime.utcnow()
+        connection.updated_at = _utc_now()
 
         # Save updated connection
         saved_connection = self.store.save_connection(connection)

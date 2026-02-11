@@ -224,7 +224,7 @@ async def get_playbook(
         active_executions = []
         recent_executions = []
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
             import sys
 
             try:
@@ -240,7 +240,7 @@ async def get_playbook(
                     if conv_manager and conv_manager.playbook.metadata.playbook_code == playbook_code:
                         started_at = None
                         if conv_manager.conversation_history:
-                            started_at = datetime.utcnow().isoformat()
+                            started_at = _utc_now().isoformat()
                         active_executions.append({
                             "execution_id": exec_id,
                             "status": "running",

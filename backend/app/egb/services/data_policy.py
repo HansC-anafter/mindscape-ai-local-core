@@ -15,7 +15,14 @@ import logging
 import re
 from typing import Optional, List, Dict, Any, Set
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -23,24 +30,27 @@ logger = logging.getLogger(__name__)
 
 class DataClassification(str, Enum):
     """資料分類"""
-    PUBLIC = "public"           # 可公開
-    INTERNAL = "internal"       # 內部使用
-    SENSITIVE = "sensitive"     # 敏感資料
-    PII = "pii"                 # 個人識別資訊
+
+    PUBLIC = "public"  # 可公開
+    INTERNAL = "internal"  # 內部使用
+    SENSITIVE = "sensitive"  # 敏感資料
+    PII = "pii"  # 個人識別資訊
 
 
 class RetentionPolicy(str, Enum):
     """資料保留策略"""
-    PERMANENT = "permanent"     # 永久保留
-    LONG_TERM = "long_term"     # 長期（90天）
-    SHORT_TERM = "short_term"   # 短期（7天）
-    EPHEMERAL = "ephemeral"     # 臨時（24小時）
-    NO_STORE = "no_store"       # 不存儲
+
+    PERMANENT = "permanent"  # 永久保留
+    LONG_TERM = "long_term"  # 長期（90天）
+    SHORT_TERM = "short_term"  # 短期（7天）
+    EPHEMERAL = "ephemeral"  # 臨時（24小時）
+    NO_STORE = "no_store"  # 不存儲
 
 
 @dataclass
 class RedactionRule:
     """脫敏規則"""
+
     name: str
     pattern: str
     replacement: str = "[REDACTED]"
@@ -57,15 +67,15 @@ class DataPolicyConfig:
     llm_explanation_retention: RetentionPolicy = RetentionPolicy.LONG_TERM
 
     # 存儲策略
-    store_raw_output: bool = False       # 是否存儲原始輸出
-    store_raw_input: bool = False        # 是否存儲原始輸入
+    store_raw_output: bool = False  # 是否存儲原始輸出
+    store_raw_input: bool = False  # 是否存儲原始輸入
     store_llm_explanations: bool = True  # 是否存儲 LLM 解釋
 
     # 脫敏配置
     redact_emails: bool = True
     redact_phones: bool = True
     redact_tokens: bool = True
-    redact_urls: bool = False            # URL 通常不敏感
+    redact_urls: bool = False  # URL 通常不敏感
     redact_ips: bool = True
     redact_credit_cards: bool = True
 
@@ -84,49 +94,49 @@ class PIIRedactor:
     DEFAULT_RULES = [
         RedactionRule(
             name="email",
-            pattern=r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            pattern=r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
             replacement="[EMAIL]",
             classification=DataClassification.PII,
         ),
         RedactionRule(
             name="phone",
-            pattern=r'\b(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)|[0-9]{3})[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b',
+            pattern=r"\b(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)|[0-9]{3})[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b",
             replacement="[PHONE]",
             classification=DataClassification.PII,
         ),
         RedactionRule(
             name="taiwan_phone",
-            pattern=r'\b09[0-9]{8}\b',
+            pattern=r"\b09[0-9]{8}\b",
             replacement="[PHONE]",
             classification=DataClassification.PII,
         ),
         RedactionRule(
             name="ip_address",
-            pattern=r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
+            pattern=r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b",
             replacement="[IP]",
             classification=DataClassification.SENSITIVE,
         ),
         RedactionRule(
             name="credit_card",
-            pattern=r'\b(?:[0-9]{4}[-\s]?){3}[0-9]{4}\b',
+            pattern=r"\b(?:[0-9]{4}[-\s]?){3}[0-9]{4}\b",
             replacement="[CARD]",
             classification=DataClassification.PII,
         ),
         RedactionRule(
             name="api_key",
-            pattern=r'\b(sk-|pk-|api[-_]?key[-_]?)[A-Za-z0-9]{20,}\b',
+            pattern=r"\b(sk-|pk-|api[-_]?key[-_]?)[A-Za-z0-9]{20,}\b",
             replacement="[API_KEY]",
             classification=DataClassification.SENSITIVE,
         ),
         RedactionRule(
             name="jwt_token",
-            pattern=r'\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b',
+            pattern=r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
             replacement="[JWT]",
             classification=DataClassification.SENSITIVE,
         ),
         RedactionRule(
             name="bearer_token",
-            pattern=r'\bBearer\s+[A-Za-z0-9_-]+\b',
+            pattern=r"\bBearer\s+[A-Za-z0-9_-]+\b",
             replacement="Bearer [TOKEN]",
             classification=DataClassification.SENSITIVE,
         ),
@@ -157,7 +167,10 @@ class PIIRedactor:
                 rules.append(rule)
             elif rule.name == "credit_card" and self.config.redact_credit_cards:
                 rules.append(rule)
-            elif rule.name in ["api_key", "jwt_token", "bearer_token"] and self.config.redact_tokens:
+            elif (
+                rule.name in ["api_key", "jwt_token", "bearer_token"]
+                and self.config.redact_tokens
+            ):
                 rules.append(rule)
 
         # 添加自定義規則
@@ -173,7 +186,9 @@ class PIIRedactor:
                     rule.pattern, re.IGNORECASE
                 )
             except re.error as e:
-                logger.warning(f"DataPolicy: Invalid regex pattern for {rule.name}: {e}")
+                logger.warning(
+                    f"DataPolicy: Invalid regex pattern for {rule.name}: {e}"
+                )
 
     def redact(self, text: str) -> str:
         """
@@ -223,8 +238,7 @@ class PIIRedactor:
                 result[key] = self.redact_dict(value, safe_keys)
             elif isinstance(value, list):
                 result[key] = [
-                    self.redact(v) if isinstance(v, str) else v
-                    for v in value
+                    self.redact(v) if isinstance(v, str) else v for v in value
                 ]
             else:
                 result[key] = value
@@ -259,33 +273,53 @@ class DataPolicy:
     # EGB Store 允許存儲的欄位（白名單）
     SAFE_FIELDS = {
         # IDs
-        "evidence_id", "run_id", "trace_id", "span_id", "intent_id",
-        "decision_id", "playbook_id", "workspace_id",
+        "evidence_id",
+        "run_id",
+        "trace_id",
+        "span_id",
+        "intent_id",
+        "decision_id",
+        "playbook_id",
+        "workspace_id",
         # ⚠️ P0-9 新增：外部 job IDs
-        "external_job_id", "external_run_id", "tool_name",
-
+        "external_job_id",
+        "external_run_id",
+        "tool_name",
         # Hashes
-        "content_hash", "output_hash", "tool_args_hash",
+        "content_hash",
+        "output_hash",
+        "tool_args_hash",
         # ⚠️ P0-9 新增：外部 job 指紋
-        "output_fingerprint", "key_fields_hash_map",
-
+        "output_fingerprint",
+        "key_fields_hash_map",
         # 統計指標
-        "total_tokens", "total_cost_usd", "total_latency_ms",
-        "llm_calls", "tool_calls", "retrieval_calls",
-        "error_count", "retry_count",
-
+        "total_tokens",
+        "total_cost_usd",
+        "total_latency_ms",
+        "llm_calls",
+        "tool_calls",
+        "retrieval_calls",
+        "error_count",
+        "retry_count",
         # 序列（只存名稱，不存內容）
-        "tool_names", "source_names", "policy_names",
-
+        "tool_names",
+        "source_names",
+        "policy_names",
         # 狀態
-        "status", "success", "passed", "strictness_level",
-        "drift_level", "stability_score",
-
+        "status",
+        "success",
+        "passed",
+        "strictness_level",
+        "drift_level",
+        "stability_score",
         # 時間戳
-        "created_at", "updated_at", "started_at", "ended_at",
-
+        "created_at",
+        "updated_at",
+        "started_at",
+        "ended_at",
         # ⚠️ P0-9 新增：外部 job 相關
-        "deep_link_to_external_log", "callback_received_at",
+        "deep_link_to_external_log",
+        "callback_received_at",
     }
 
     # ⚠️ P0-9：外部工具 payload 策略
@@ -295,9 +329,17 @@ class DataPolicy:
 
     # 永不落盤的欄位（即使進 Langfuse 也要 redact）
     EXTERNAL_JOB_SENSITIVE_FIELDS = [
-        "password", "token", "api_key", "secret",
-        "email", "phone", "ssn", "credit_card",
-        "authorization", "bearer", "x-api-key",
+        "password",
+        "token",
+        "api_key",
+        "secret",
+        "email",
+        "phone",
+        "ssn",
+        "credit_card",
+        "authorization",
+        "bearer",
+        "x-api-key",
     ]
 
     # 只存 deep-link 的情況
@@ -383,8 +425,8 @@ class DataPolicy:
         if days is None:
             return None
         if days == 0:
-            return datetime.utcnow()  # 立即過期
-        return datetime.utcnow() + timedelta(days=days)
+            return _utc_now()  # expire immediately
+        return _utc_now() + timedelta(days=days)
 
     def process_external_job_payload(
         self,
@@ -420,9 +462,9 @@ class DataPolicy:
 
         # 判斷是否只存 deep-link
         should_store_deep_link_only = (
-            payload_size_mb > self.EXTERNAL_JOB_PAYLOAD_MAX_SIZE_MB or
-            contains_sensitive_data or
-            deep_link is not None
+            payload_size_mb > self.EXTERNAL_JOB_PAYLOAD_MAX_SIZE_MB
+            or contains_sensitive_data
+            or deep_link is not None
         )
 
         result = {
@@ -450,7 +492,11 @@ class DataPolicy:
             if self.EXTERNAL_JOB_PAYLOAD_PII_REDACTION:
                 redacted_payload = self.redact_dict(
                     payload,
-                    safe_keys={"tool_name", "status", "timestamp"}  # 這些欄位不需要 redact
+                    safe_keys={
+                        "tool_name",
+                        "status",
+                        "timestamp",
+                    },  # 這些欄位不需要 redact
                 )
                 result["redacted_payload"] = redacted_payload
             else:
@@ -461,10 +507,7 @@ class DataPolicy:
         return result
 
     def should_store_external_payload_raw(
-        self,
-        payload_size_mb: float,
-        contains_sensitive_data: bool,
-        has_deep_link: bool
+        self, payload_size_mb: float, contains_sensitive_data: bool, has_deep_link: bool
     ) -> bool:
         """
         判斷是否應該存儲外部 payload 的原始內容
@@ -504,4 +547,3 @@ def get_data_policy() -> DataPolicy:
     if _global_policy is None:
         _global_policy = DataPolicy()
     return _global_policy
-

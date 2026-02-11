@@ -6,7 +6,12 @@ automatically adjust suggestion strategies based on feedback.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import (
@@ -185,8 +190,8 @@ class TaskPreferenceStore(StoreBase):
                 last_feedback=None,
                 reject_count_30d=0,
                 accept_count_30d=0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=_utc_now(),
+                updated_at=_utc_now()
             )
 
         # Update counters
@@ -196,7 +201,7 @@ class TaskPreferenceStore(StoreBase):
             preference.accept_count_30d += 1
 
         preference.last_feedback = feedback_action
-        preference.updated_at = datetime.utcnow()
+        preference.updated_at = _utc_now()
 
         # Auto-adjust auto_suggest based on rejection rate
         total_feedback = preference.reject_count_30d + preference.accept_count_30d
@@ -284,7 +289,7 @@ class TaskPreferenceStore(StoreBase):
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
-            threshold = datetime.utcnow() - timedelta(days=days)
+            threshold = _utc_now() - timedelta(days=days)
 
             cursor.execute('''
                 DELETE FROM task_preference

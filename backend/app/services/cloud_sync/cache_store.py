@@ -7,7 +7,12 @@ import json
 import logging
 import hashlib
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
@@ -195,7 +200,7 @@ class CacheStore:
             "uri": asset_uri,
             "checksum": checksum,
             "size_bytes": len(content),
-            "cached_at": datetime.utcnow().isoformat(),
+            "cached_at": _utc_now().isoformat(),
             "expires_at": self._get_expires_at(asset_uri).isoformat(),
             "status": CacheLifecycle.VALID.value,
             **(metadata or {}),
@@ -272,7 +277,7 @@ class CacheStore:
         """Get expiration time for asset based on type"""
         asset_type = asset_uri.split("/")[0].replace("mindscape://", "")
         ttl = CacheTTL.DEFAULT_TTL.get(asset_type, timedelta(days=7))
-        return datetime.utcnow() + ttl
+        return _utc_now() + ttl
 
     def clear_asset(self, asset_uri: str):
         """Remove asset from cache"""
@@ -305,7 +310,7 @@ class CacheStore:
 
             try:
                 expires_at = datetime.fromisoformat(expires_at_str)
-                if datetime.utcnow() > expires_at:
+                if _utc_now() > expires_at:
                     assets_to_remove.append(asset_uri)
             except Exception as e:
                 logger.warning(f"Failed to parse expiration for {asset_uri}: {e}")
@@ -350,7 +355,7 @@ class CacheLifecycleManager:
 
         try:
             expires_at = datetime.fromisoformat(expires_at_str)
-            now = datetime.utcnow()
+            now = _utc_now()
 
             if now > expires_at + CacheTTL.STALE_WHILE_REVALIDATE:
                 return CacheLifecycle.EXPIRED
@@ -377,6 +382,6 @@ class CacheLifecycleManager:
         cleared = self.cache_store.clear_expired_assets()
         return {
             "cleared": cleared,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now().isoformat(),
         }
 

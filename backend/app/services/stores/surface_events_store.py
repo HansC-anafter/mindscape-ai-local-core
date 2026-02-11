@@ -1,6 +1,11 @@
 """Surface Events store for data persistence (Postgres)."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 
 from sqlalchemy import text
@@ -53,8 +58,8 @@ class SurfaceEventsStore(PostgresStoreBase):
                     "card_id": event.card_id,
                     "scope": event.scope,
                     "playbook_version": event.playbook_version,
-                    "timestamp": event.timestamp or datetime.utcnow(),
-                    "created_at": event.created_at or datetime.utcnow(),
+                    "timestamp": event.timestamp or _utc_now(),
+                    "created_at": event.created_at or _utc_now(),
                 },
             )
             logger.info(f"Created Surface Event: {event.event_id}")

@@ -125,13 +125,13 @@ async def detect_and_create_project_if_needed(
 
         # Evidence Logging (Outside Loop)
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
             import os
 
             # Use absolute path for reliable logging
             log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n==== DETECT EVIDENCE (Helper) {datetime.utcnow()} ====\n")
+                f.write(f"\n==== DETECT EVIDENCE (Helper) {_utc_now()} ====\n")
                 f.write(f"Workspace: {workspace.id}\n")
                 f.write(
                     f"Available Playbooks: {len(available_playbooks) if available_playbooks else 0}\n"

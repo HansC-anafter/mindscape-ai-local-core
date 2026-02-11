@@ -6,7 +6,12 @@ Core data structures for intent analysis pipeline.
 
 from enum import Enum
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 
 class InteractionType(str, Enum):
@@ -61,4 +66,4 @@ class IntentAnalysisResult:
         self.project_id: Optional[str] = None
         self.workspace_id: Optional[str] = None
         self.pipeline_steps: Dict[str, Any] = {}
-        self.timestamp: datetime = datetime.utcnow()
+        self.timestamp: datetime = _utc_now()

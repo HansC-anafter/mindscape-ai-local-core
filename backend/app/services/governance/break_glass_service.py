@@ -7,7 +7,12 @@ Break-glass permissions are granted via Decision Cards and expire after a config
 
 import logging
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
@@ -75,7 +80,7 @@ class BreakGlassPermission:
         """Check if permission is still valid for use"""
         if self.status not in [BreakGlassStatus.APPROVED, BreakGlassStatus.ACTIVE]:
             return False
-        if self.expires_at and datetime.utcnow() > self.expires_at:
+        if self.expires_at and _utc_now() > self.expires_at:
             self.status = BreakGlassStatus.EXPIRED
             return False
         return True
@@ -98,7 +103,7 @@ class BreakGlassPermission:
         # Mark as active on first use
         if self.status == BreakGlassStatus.APPROVED:
             self.status = BreakGlassStatus.ACTIVE
-            self.used_at = datetime.utcnow()
+            self.used_at = _utc_now()
 
         self._audit(f"Allowed: {operation} on {resource}")
         return True
@@ -116,7 +121,7 @@ class BreakGlassPermission:
         """Add audit log entry"""
         self.audit_log.append(
             {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_now().isoformat(),
                 "message": message,
             }
         )
@@ -270,7 +275,7 @@ class BreakGlassService:
                 )
 
             # Set expiration
-            permission.expires_at = datetime.utcnow() + timedelta(
+            permission.expires_at = _utc_now() + timedelta(
                 minutes=permission.duration_minutes
             )
 
@@ -372,7 +377,7 @@ class BreakGlassService:
 
         if permission.status in [BreakGlassStatus.APPROVED, BreakGlassStatus.ACTIVE]:
             permission.status = BreakGlassStatus.COMPLETED
-            permission.completed_at = datetime.utcnow()
+            permission.completed_at = _utc_now()
             permission._audit("Completed successfully")
 
             logger.info(f"Break-glass completed: {permission_id}")
@@ -382,7 +387,7 @@ class BreakGlassService:
     def cleanup_expired(self) -> int:
         """Clean up expired permissions"""
         count = 0
-        now = datetime.utcnow()
+        now = _utc_now()
 
         for permission in self._permissions.values():
             if permission.status in [
@@ -406,7 +411,7 @@ class BreakGlassService:
         reason: str,
     ) -> str:
         """Generate unique permission ID"""
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = _utc_now().isoformat()
         data = f"{workspace_id}:{agent_id}:{reason}:{timestamp}"
         return f"bg_{hashlib.sha256(data.encode()).hexdigest()[:16]}"
 
@@ -422,7 +427,7 @@ class BreakGlassService:
             # Create IntentLog for the decision
             intent_log = IntentLog(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 profile_id="",
                 workspace_id=permission.workspace_id,
                 raw_input=f"Break-glass request: {permission.reason}",

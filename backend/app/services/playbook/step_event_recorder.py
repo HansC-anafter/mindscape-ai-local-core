@@ -5,7 +5,12 @@ Handles recording and updating playbook step events
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, List, Optional, Any
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -106,7 +111,7 @@ class StepEventRecorder:
             import uuid
             message_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.ASSISTANT,
                 channel="playbook",
                 profile_id=profile_id,
@@ -154,7 +159,7 @@ class StepEventRecorder:
                 # Update previous step status to completed
                 updated_payload = previous_step_event.payload.copy()
                 updated_payload['status'] = 'completed'
-                updated_payload['completed_at'] = datetime.utcnow().isoformat()
+                updated_payload['completed_at'] = _utc_now().isoformat()
                 # Update the event in the store
                 self.store.update_event(
                     event_id=previous_step_event.id,
@@ -253,7 +258,7 @@ class StepEventRecorder:
 
             # Update step event with completed_at timestamp and total_steps
             if step_event and isinstance(step_event.payload, dict):
-                step_event.payload["completed_at"] = datetime.utcnow().isoformat()
+                step_event.payload["completed_at"] = _utc_now().isoformat()
                 step_event.payload["total_steps"] = total_steps
                 self.store.update_event(
                     event_id=step_event.id,

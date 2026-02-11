@@ -6,7 +6,12 @@ This happens when PlaybookRunExecutor didn't properly update task status.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Dict, Any, Optional
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
@@ -151,7 +156,7 @@ class TaskStatusFixService:
                     "summary": error_msg
                 }
 
-            completed_at = datetime.utcnow()
+            completed_at = _utc_now()
             if task.completed_at:
                 completed_at = task.completed_at
             elif exec_context.get("completed_at"):

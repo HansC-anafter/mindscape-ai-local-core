@@ -6,7 +6,12 @@ Applies change sets to sandbox and generates preview URLs.
 
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.core.ir.changeset import ChangeSetIR, ChangeSetStatus, ChangePatch, ChangeType
 from backend.app.services.sandbox.sandbox_manager import SandboxManager
@@ -82,7 +87,7 @@ class SandboxApplier:
 
             # Update changeset
             changeset.preview_url = preview_url
-            changeset.applied_to_sandbox_at = datetime.utcnow()
+            changeset.applied_to_sandbox_at = _utc_now()
             changeset.status = ChangeSetStatus.APPLIED_TO_SANDBOX
 
             logger.info(f"SandboxApplier: Applied changeset {changeset.changeset_id} to sandbox {sandbox_id}, preview_url={preview_url}")

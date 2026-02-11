@@ -9,7 +9,12 @@ import logging
 import uuid
 import re
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ...core.domain_context import LocalDomainContext
 from ...models.workspace import ExecutionSession, PlaybookExecutionStep, ExecutionChatMessage
@@ -291,7 +296,7 @@ async def generate_execution_chat_reply(
         # Create assistant message MindEvent (add profile_id)
         assistant_event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="workspace",
             profile_id=ctx.actor_id,  # ⭐ Add profile_id (required by MindEvent)

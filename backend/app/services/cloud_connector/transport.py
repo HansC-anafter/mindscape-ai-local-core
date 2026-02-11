@@ -8,7 +8,12 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 
 from websockets.client import WebSocketClientProtocol
@@ -69,7 +74,7 @@ class TransportHandler:
         Args:
             request: Execution request
         """
-        execution_start = datetime.utcnow()
+        execution_start = _utc_now()
         event_id = f"event_{uuid.uuid4().hex[:16]}"
 
         try:
@@ -82,7 +87,7 @@ class TransportHandler:
 
             result = await self._execute_job(request)
 
-            execution_end = datetime.utcnow()
+            execution_end = _utc_now()
             duration_ms = int((execution_end - execution_start).total_seconds() * 1000)
 
             await self._report_event(
@@ -244,7 +249,7 @@ class TransportHandler:
                 request_id=request_id,
                 event_type=event_type,
                 data=data,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=_utc_now().isoformat(),
             )
 
             message = {

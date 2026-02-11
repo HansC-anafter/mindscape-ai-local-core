@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, date, timedelta, time
+from datetime import datetime, date, timedelta, time, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -32,7 +37,7 @@ class GovernanceStore(PostgresStoreBase):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         decision_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = _utc_now()
         metadata_payload = self.serialize_json(metadata) if metadata else None
 
         with self.transaction() as conn:
@@ -78,7 +83,7 @@ class GovernanceStore(PostgresStoreBase):
     ) -> str:
         usage_id = str(uuid.uuid4())
         today = date.today()
-        now = datetime.utcnow()
+        now = _utc_now()
 
         with self.transaction() as conn:
             conn.execute(

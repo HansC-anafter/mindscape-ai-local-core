@@ -10,7 +10,12 @@ Event Trace Linker（事件與 trace 的鏈接器）
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from dataclasses import dataclass
 
 from backend.app.egb.schemas.correlation_ids import CorrelationIds
@@ -84,7 +89,7 @@ class EventTraceLinker:
         if isinstance(event_timestamp, str):
             event_timestamp = datetime.fromisoformat(event_timestamp)
         elif event_timestamp is None:
-            event_timestamp = datetime.utcnow()
+            event_timestamp = _utc_now()
 
         trace_timestamp = event.get("trace_timestamp")
         if isinstance(trace_timestamp, str):
@@ -179,7 +184,7 @@ class EventTraceLinker:
 
         # 按時間排序
         related_events.sort(
-            key=lambda x: x.get("event_timestamp") or x.get("timestamp") or datetime.utcnow()
+            key=lambda x: x.get("event_timestamp") or x.get("timestamp") or _utc_now()
         )
 
         # 補全 trace 的缺失節點
@@ -226,7 +231,7 @@ class EventTraceLinker:
             if isinstance(event_timestamp, str):
                 event_timestamp = datetime.fromisoformat(event_timestamp)
             elif event_timestamp is None:
-                event_timestamp = datetime.utcnow()
+                event_timestamp = _utc_now()
 
             # 創建 ExternalJobNode
             node = ExternalJobNode.create(

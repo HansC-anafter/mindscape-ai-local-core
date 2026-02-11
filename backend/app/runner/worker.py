@@ -5,10 +5,17 @@ import os
 import socket
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now() -> datetime:
+    """Return timezone-aware UTC now. Fixes Postgres timestamptz offset bug."""
+    return datetime.now(timezone.utc)
+
+
 from typing import Any, Dict, Optional
 
-from backend.app.models.workspace import TaskStatus
+from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 from backend.app.services.stores.tasks_store import TasksStore
@@ -55,8 +62,12 @@ def _parse_utc_iso(value: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
     try:
-        # Stored timestamps are utcnow().isoformat() without timezone.
-        return datetime.fromisoformat(s)
+        dt = datetime.fromisoformat(s)
+        # Ensure timezone-aware: old code stored naive UTC timestamps.
+        # If naive, assume UTC so reaper comparisons don't raise TypeError.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
 
@@ -83,7 +94,7 @@ def _initialize_capability_packages_for_runner() -> None:
 
 def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
-    threshold = datetime.utcnow() - timedelta(seconds=stale_seconds)
+    threshold = _utc_now() - timedelta(seconds=stale_seconds)
 
     try:
         running = tasks_store.list_running_playbook_execution_tasks(
@@ -127,7 +138,7 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
                 ctx2.pop("heartbeat_at", None)
                 ctx2["status"] = "queued"
                 ctx2["runner_reaper"]["action"] = "requeue"
-                ctx2["runner_reaper"]["requeued_at"] = datetime.utcnow().isoformat()
+                ctx2["runner_reaper"]["requeued_at"] = _utc_now().isoformat()
                 tasks_store.update_task(
                     t.id,
                     execution_context=ctx2,
@@ -138,18 +149,24 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
             else:
                 # If the task is running but heartbeat is stale, mark failed to avoid indefinite UI hang.
                 # This also covers cases where the runner process restarted but kept the same runner_id.
-                ctx2["status"] = "failed"
-                ctx2["error"] = msg
-                ctx2["failed_at"] = datetime.utcnow().isoformat()
-                ctx2["runner_reaper"]["action"] = "fail"
-                tasks_store.update_task(
-                    t.id,
-                    execution_context=ctx2,
-                    status=TaskStatus.FAILED,
-                    completed_at=datetime.utcnow(),
-                    error=msg,
-                )
-                logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
+                if _try_auto_resume_ig_task(tasks_store, t, ctx2, msg):
+                    ctx2["runner_reaper"]["action"] = "auto_resume"
+                    logger.warning(
+                        f"Reaped + auto-resumed stale IG task task_id={t.id} ({msg})"
+                    )
+                else:
+                    ctx2["status"] = "failed"
+                    ctx2["error"] = msg
+                    ctx2["failed_at"] = _utc_now().isoformat()
+                    ctx2["runner_reaper"]["action"] = "fail"
+                    tasks_store.update_task(
+                        t.id,
+                        execution_context=ctx2,
+                        status=TaskStatus.FAILED,
+                        completed_at=_utc_now(),
+                        error=msg,
+                    )
+                    logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
             logger.info(
                 f"Reaper checked task_id={t.id} - status={t.status} - heartbeat_at={ctx.get('heartbeat_at')} - Threshold={threshold.isoformat()}"
             )
@@ -161,7 +178,7 @@ def _reap_stale_runner_locks(
     tasks_store: TasksStore, locks_store: RunnerLocksStore, runner_id: str
 ) -> None:
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_LOCK_SECONDS", 300)
-    now = datetime.utcnow()
+    now = _utc_now()
     threshold = now - timedelta(seconds=stale_seconds)
 
     active_runner_ids = set()
@@ -261,6 +278,89 @@ async def _heartbeat_loop(
 def _is_ig_playbook(playbook_code: str) -> bool:
     code = (playbook_code or "").strip().lower()
     return code.startswith("ig_") or code.startswith("ig.")
+
+
+def _try_auto_resume_ig_task(
+    tasks_store: TasksStore,
+    task,
+    current_ctx: Dict[str, Any],
+    failure_reason: str,
+) -> bool:
+    """Auto-resume IG analyze_following by creating a new visit-only task.
+
+    When an IG task fails due to timeout or runner crash, instead of just
+    marking it failed, we create a follow-up task with run_mode=visit that
+    picks up from the persisted list and visits only unfinished targets.
+
+    Returns True if auto-resume was triggered, False otherwise.
+    """
+    if not _is_ig_playbook(getattr(task, "pack_id", "") or ""):
+        return False
+
+    retry_count = current_ctx.get("auto_resume_count", 0)
+    max_retries = int(os.environ.get("IG_AUTO_RESUME_MAX_RETRIES", "3"))
+    if retry_count >= max_retries:
+        logger.info(
+            f"Auto-resume skipped for task {task.id}: retry_count={retry_count} >= max={max_retries}"
+        )
+        return False
+
+    # Mark CURRENT task as failed with resume note
+    current_ctx["auto_resumed"] = True
+    resume_error = f"{failure_reason} (auto-resume #{retry_count + 1} queued)"
+    tasks_store.update_task(
+        task.id,
+        execution_context=current_ctx,
+        status=TaskStatus.FAILED,
+        completed_at=_utc_now(),
+        error=resume_error,
+    )
+
+    # Build params for the follow-up visit-only task
+    original_params = task.params if isinstance(task.params, dict) else {}
+    new_params = dict(original_params)
+    new_params["run_mode"] = "visit"
+    new_params["allow_partial_resume"] = True
+
+    new_ctx = dict(current_ctx)
+    new_ctx["auto_resume_count"] = retry_count + 1
+    new_ctx["resumed_from_task_id"] = task.id
+    new_ctx["status"] = "queued"
+    new_ctx.pop("auto_resumed", None)
+    new_ctx.pop("runner_id", None)
+    new_ctx.pop("heartbeat_at", None)
+    new_ctx.pop("failed_at", None)
+    new_ctx.pop("error", None)
+
+    # CRITICAL: _build_inputs reads from execution_context.inputs,
+    # so we must inject run_mode and allow_partial_resume there.
+    ctx_inputs = new_ctx.get("inputs", {})
+    if not isinstance(ctx_inputs, dict):
+        ctx_inputs = {}
+    ctx_inputs = dict(ctx_inputs)
+    ctx_inputs["run_mode"] = "visit"
+    ctx_inputs["allow_partial_resume"] = True
+    new_ctx["inputs"] = ctx_inputs
+
+    # Create NEW follow-up task
+    new_task = Task(
+        id=str(uuid.uuid4()),
+        workspace_id=task.workspace_id,
+        message_id=getattr(task, "message_id", "") or "",
+        execution_id=getattr(task, "execution_id", None),
+        project_id=getattr(task, "project_id", None),
+        pack_id=task.pack_id,
+        task_type=getattr(task, "task_type", "playbook_execution"),
+        status=TaskStatus.PENDING,
+        params=new_params,
+        execution_context=new_ctx,
+        created_at=_utc_now(),
+    )
+    tasks_store.create_task(new_task)
+    logger.info(
+        f"Auto-resume #{retry_count + 1} queued for IG task {task.id} → new task {new_task.id}"
+    )
+    return True
 
 
 def _extract_user_data_dir(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -467,9 +567,9 @@ async def _run_single_task(
 
         async def _wait_for_timeout() -> bool:
             # Returns True if timeout fired.
-            deadline = datetime.utcnow() + timedelta(seconds=task_timeout_seconds)
+            deadline = _utc_now() + timedelta(seconds=task_timeout_seconds)
             while True:
-                if datetime.utcnow() >= deadline:
+                if _utc_now() >= deadline:
                     return True
                 await asyncio.sleep(1.0)
 
@@ -506,13 +606,13 @@ async def _run_single_task(
                     )
                     ctxc = dict(ctxc)
                     ctxc["status"] = "cancelled"
-                    ctxc["cancelled_at"] = datetime.utcnow().isoformat()
+                    ctxc["cancelled_at"] = _utc_now().isoformat()
                     ctxc["runner_id"] = runner_id
                     tasks_store.update_task(
                         latest.id,
                         execution_context=ctxc,
                         status=TaskStatus.CANCELLED_BY_USER,
-                        completed_at=datetime.utcnow(),
+                        completed_at=_utc_now(),
                         error=latest.error or "Cancelled by user",
                     )
             except Exception:
@@ -549,14 +649,15 @@ async def _run_single_task(
                     ctxf["status"] = "failed"
                     ctxf["error"] = msg
                     ctxf["runner_id"] = runner_id
-                    ctxf["failed_at"] = datetime.utcnow().isoformat()
-                    tasks_store.update_task(
-                        latest.id,
-                        execution_context=ctxf,
-                        status=TaskStatus.FAILED,
-                        completed_at=datetime.utcnow(),
-                        error=msg,
-                    )
+                    ctxf["failed_at"] = _utc_now().isoformat()
+                    if not _try_auto_resume_ig_task(tasks_store, latest, ctxf, msg):
+                        tasks_store.update_task(
+                            latest.id,
+                            execution_context=ctxf,
+                            status=TaskStatus.FAILED,
+                            completed_at=_utc_now(),
+                            error=msg,
+                        )
             except Exception:
                 pass
         else:
@@ -589,12 +690,12 @@ async def _run_single_task(
                         ctxf["status"] = "failed"
                         ctxf["error"] = msg
                         ctxf["runner_id"] = runner_id
-                        ctxf["failed_at"] = datetime.utcnow().isoformat()
+                        ctxf["failed_at"] = _utc_now().isoformat()
                         tasks_store.update_task(
                             latest.id,
                             execution_context=ctxf,
                             status=TaskStatus.FAILED,
-                            completed_at=datetime.utcnow(),
+                            completed_at=_utc_now(),
                             error=msg,
                         )
                 except Exception:
@@ -653,7 +754,7 @@ async def run_forever() -> None:
     while True:
         # Periodic reaping for runner restarts / orphaned tasks.
         try:
-            now = datetime.utcnow()
+            now = _utc_now()
             if (last_reap_at is None) or (
                 (now - last_reap_at).total_seconds() >= reap_interval_seconds
             ):
@@ -745,12 +846,12 @@ async def run_forever() -> None:
                     ctx["status"] = "failed"
                     ctx["error"] = str(e)
                     ctx["runner_id"] = runner_id
-                    ctx["failed_at"] = datetime.utcnow().isoformat()
+                    ctx["failed_at"] = _utc_now().isoformat()
                     tasks_store.update_task(
                         t.id,
                         execution_context=ctx,
                         status=TaskStatus.FAILED,
-                        completed_at=datetime.utcnow(),
+                        completed_at=_utc_now(),
                         error=str(e),
                     )
                 except Exception:

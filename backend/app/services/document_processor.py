@@ -12,7 +12,12 @@ These are generic utilities that can be used by any capability.
 
 from typing import Dict, Any, List, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -456,7 +461,7 @@ def track_document_version(
         "document_id": document_id,
         "content_hash": content_hash,
         "content_length": len(content),
-        "version_timestamp": datetime.utcnow().isoformat(),
+        "version_timestamp": _utc_now().isoformat(),
         "metadata": metadata or {}
     }
 
@@ -478,7 +483,7 @@ def track_document_version(
                 history = {"document_id": document_id, "versions": []}
 
             history["versions"].append(version_info)
-            history["last_updated"] = datetime.utcnow().isoformat()
+            history["last_updated"] = _utc_now().isoformat()
 
             if len(history["versions"]) > 50:
                 history["versions"] = history["versions"][-50:]

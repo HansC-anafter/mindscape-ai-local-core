@@ -6,7 +6,12 @@ enabling Claude-style persistent execution across sessions.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
 from backend.app.models.workspace import ExecutionSession
@@ -61,7 +66,7 @@ class PlaybookCheckpointManager:
             "failure_reason": execution_session.failure_reason,
             "default_cluster": execution_session.default_cluster,
             "supports_resume": execution_session.supports_resume,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": _utc_now().isoformat()
         }
 
         import json
@@ -77,7 +82,7 @@ class PlaybookCheckpointManager:
         if not success:
             raise ValueError(f"Failed to update checkpoint for execution {execution_session.execution_id}")
 
-        checkpoint_id = f"checkpoint_{execution_session.execution_id}_{int(datetime.utcnow().timestamp())}"
+        checkpoint_id = f"checkpoint_{execution_session.execution_id}_{int(_utc_now().timestamp())}"
         logger.info(f"Created checkpoint: {checkpoint_id} for execution: {execution_session.execution_id}")
 
         return checkpoint_id
@@ -136,8 +141,8 @@ class PlaybookCheckpointManager:
                 "phase_summaries": checkpoint_data.get("phase_summaries", []),
                 "supports_resume": checkpoint_data.get("supports_resume", True)
             },
-            created_at=datetime.utcnow(),  # Will be overridden by actual creation time
-            started_at=datetime.utcnow(),
+            created_at=_utc_now(),  # Will be overridden by actual creation time
+            started_at=_utc_now(),
             completed_at=None,
             error=None,
             notification_sent_at=None,

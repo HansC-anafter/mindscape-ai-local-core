@@ -7,7 +7,12 @@ Manages rollback points for change sets.
 import logging
 import uuid
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.core.ir.changeset import ChangeSetIR, ChangeSetStatus
 from backend.app.services.sandbox.sandbox_manager import SandboxManager
@@ -33,7 +38,7 @@ class RollbackPoint:
         self.workspace_id = workspace_id
         self.sandbox_id = sandbox_id
         self.snapshot_data = snapshot_data
-        self.created_at = created_at or datetime.utcnow()
+        self.created_at = created_at or _utc_now()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -49,7 +54,7 @@ class RollbackPoint:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RollbackPoint":
         """Create RollbackPoint from dictionary"""
-        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.utcnow())
+        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", _utc_now())
         return cls(
             rollback_point_id=data["rollback_point_id"],
             changeset_id=data["changeset_id"],

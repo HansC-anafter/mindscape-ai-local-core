@@ -7,7 +7,12 @@ Supports key-value pairs with type information and categories.
 
 import json
 from typing import Optional, Dict, Any, List, Union
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from sqlalchemy import text
@@ -283,8 +288,8 @@ class SystemSettingsStore(PostgresStoreBase):
             try:
                 return datetime.fromisoformat(value)
             except ValueError:
-                return datetime.utcnow()
-        return datetime.utcnow()
+                return _utc_now()
+        return _utc_now()
 
     def get(self, key: str, default: Any = None) -> Any:
         setting = self.get_setting(key)
@@ -459,7 +464,7 @@ class SystemSettingsStore(PostgresStoreBase):
                     "is_user_editable": setting.is_user_editable,
                     "default_value": default_value_str,
                     "metadata": metadata_str,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": _utc_now(),
                 },
             )
 

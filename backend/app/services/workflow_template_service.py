@@ -9,7 +9,12 @@ import logging
 import uuid
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.workflow_template import (
     WorkflowTemplate,
@@ -344,7 +349,7 @@ class WorkflowTemplateService:
             if hasattr(workflow, key):
                 setattr(workflow, key, value)
 
-        workflow.updated_at = datetime.utcnow()
+        workflow.updated_at = _utc_now()
         workflow.version = self._increment_version(workflow.version)
 
         self._save_user_workflow(workflow)
@@ -408,7 +413,7 @@ class WorkflowTemplateService:
         workflow.steps = target_version.steps
         workflow.context = target_version.context
         workflow.version = target_version.version
-        workflow.updated_at = datetime.utcnow()
+        workflow.updated_at = _utc_now()
 
         self._save_user_workflow(workflow)
         self._create_workflow_version(

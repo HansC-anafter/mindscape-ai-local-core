@@ -7,7 +7,12 @@ Used to pass tool execution information between stages.
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 
 
@@ -71,7 +76,7 @@ class ToolSlotCallIR:
         if self.parameters is None:
             self.parameters = {}
         if self.requested_at is None:
-            self.requested_at = datetime.utcnow()
+            self.requested_at = _utc_now()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""

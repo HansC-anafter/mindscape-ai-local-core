@@ -6,7 +6,12 @@ Handles chat/embedding model configuration and testing.
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from ..shared import settings_store
@@ -340,7 +345,7 @@ async def test_chat_model_connection(
                 "model_name": model_name,
                 "provider": provider,
                 "message": message,
-                "tested_at": datetime.utcnow().isoformat(),
+                "tested_at": _utc_now().isoformat(),
             }
         except Exception as api_error:
             return {
@@ -349,7 +354,7 @@ async def test_chat_model_connection(
                 "provider": provider,
                 "message": f"Connection failed: {str(api_error)}",
                 "error": str(api_error),
-                "tested_at": datetime.utcnow().isoformat(),
+                "tested_at": _utc_now().isoformat(),
             }
 
     except HTTPException:

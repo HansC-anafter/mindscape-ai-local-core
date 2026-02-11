@@ -5,7 +5,12 @@ Manages PlaybookFlow persistence and retrieval.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, List
 
 from sqlalchemy import text
@@ -88,7 +93,7 @@ class PlaybookFlowsStore(PostgresStoreBase):
 
     def update_flow(self, flow: PlaybookFlow) -> PlaybookFlow:
         """Update an existing PlaybookFlow"""
-        flow.updated_at = datetime.utcnow()
+        flow.updated_at = _utc_now()
         with self.transaction() as conn:
             conn.execute(
                 text(

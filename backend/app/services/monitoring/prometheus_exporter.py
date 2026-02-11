@@ -9,7 +9,12 @@ All data is read from local SQLite database (no GCP dependencies).
 
 import logging
 from typing import Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from fastapi import FastAPI, Response
 from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
@@ -76,7 +81,7 @@ class PrometheusExporter:
             hours: Time range in hours to query events
         """
         try:
-            end_time = datetime.utcnow()
+            end_time = _utc_now()
             start_time = end_time - timedelta(hours=hours)
 
             # Get all workspaces if not specified
@@ -99,11 +104,11 @@ class PrometheusExporter:
                 # Check if we need to update (throttle updates)
                 cache_key = f"{ws_id}_{hours}"
                 last_update = self.last_update_time.get(cache_key)
-                if last_update and (datetime.utcnow() - last_update).total_seconds() < self.update_interval_seconds:
+                if last_update and (_utc_now() - last_update).total_seconds() < self.update_interval_seconds:
                     continue
 
                 self._update_workspace_metrics(ws_id, start_time, end_time)
-                self.last_update_time[cache_key] = datetime.utcnow()
+                self.last_update_time[cache_key] = _utc_now()
 
         except Exception as e:
             logger.error(f"Failed to update Prometheus metrics: {e}", exc_info=True)

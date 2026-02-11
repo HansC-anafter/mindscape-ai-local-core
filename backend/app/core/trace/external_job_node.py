@@ -5,7 +5,12 @@ P0-8: External workflow node (minimal observable model for external workflows no
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any
 import uuid
 
@@ -119,7 +124,7 @@ class ExternalJobNode(TraceNode):
             node_type=TraceNodeType.EXTERNAL_JOB,
             name=name or tool_name,
             status=TraceStatus.PENDING,
-            start_time=datetime.utcnow(),
+            start_time=_utc_now(),
             tool_name=tool_name,
             external_job_id=external_job_id,
             external_run_id=external_run_id,

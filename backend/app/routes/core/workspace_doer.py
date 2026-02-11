@@ -11,7 +11,12 @@ Note: This was previously named "Doer Workspace" but the concept was simplified.
 
 import logging
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from fastapi import APIRouter, HTTPException, Path, Body, Query
 from pydantic import BaseModel, Field
@@ -180,7 +185,7 @@ async def configure_agent(
                 ).items():
                     setattr(sandbox_config, field, value)
 
-            sandbox_config.updated_at = datetime.utcnow()
+            sandbox_config.updated_at = _utc_now()
 
         # Update workspace
         await store.update_workspace(
@@ -190,7 +195,7 @@ async def configure_agent(
                 "sandbox_config": (
                     sandbox_config.model_dump() if sandbox_config else None
                 ),
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
             },
         )
 
@@ -240,14 +245,14 @@ async def update_agent_config(
         for field, value in request.model_dump(exclude_none=True).items():
             setattr(current_config, field, value)
 
-        current_config.updated_at = datetime.utcnow()
+        current_config.updated_at = _utc_now()
 
         # Save
         await store.update_workspace(
             workspace_id,
             {
                 "sandbox_config": current_config.model_dump(),
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
             },
         )
 
@@ -283,7 +288,7 @@ async def clear_agent_config(
             {
                 "preferred_agent": None,
                 "sandbox_config": None,
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
             },
         )
 
@@ -392,7 +397,7 @@ async def set_preferred_agent(
         # Prepare update
         update_data = {
             "preferred_agent": agent_id,
-            "updated_at": datetime.utcnow(),
+            "updated_at": _utc_now(),
         }
 
         # Auto-set sandbox config when selecting an agent

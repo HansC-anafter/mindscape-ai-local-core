@@ -1,6 +1,11 @@
 """Mind Lens store for data persistence."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 
 from .base import StoreBase, StoreNotFoundError
@@ -34,8 +39,8 @@ class MindLensStore(StoreBase):
                 schema.label,
                 self.serialize_json([d.dict() for d in schema.dimensions]),
                 schema.version,
-                self.to_isoformat(schema.created_at or datetime.utcnow()),
-                self.to_isoformat(schema.updated_at or datetime.utcnow())
+                self.to_isoformat(schema.created_at or _utc_now()),
+                self.to_isoformat(schema.updated_at or _utc_now())
             ))
             logger.info(f"Created Mind Lens schema: {schema.schema_id}")
             return schema
@@ -103,8 +108,8 @@ class MindLensStore(StoreBase):
                 self.serialize_json(instance.values),
                 self.serialize_json(instance.source),
                 instance.version,
-                self.to_isoformat(instance.created_at or datetime.utcnow()),
-                self.to_isoformat(instance.updated_at or datetime.utcnow())
+                self.to_isoformat(instance.created_at or _utc_now()),
+                self.to_isoformat(instance.updated_at or _utc_now())
             ))
             logger.info(f"Created Mind Lens instance: {instance.mind_lens_id}")
             return instance
@@ -205,7 +210,7 @@ class MindLensStore(StoreBase):
                 return self.get_instance(instance_id)
 
             set_clauses.append('updated_at = ?')
-            params.append(self.to_isoformat(datetime.utcnow()))
+            params.append(self.to_isoformat(_utc_now()))
             params.append(instance_id)
 
             cursor.execute(
@@ -277,8 +282,8 @@ class MindLensStore(StoreBase):
                 self.serialize_json(lens_spec.inject),
                 self.serialize_json(lens_spec.params_schema),
                 self.serialize_json(lens_spec.transformers) if lens_spec.transformers else None,
-                self.to_isoformat(lens_spec.created_at or datetime.utcnow()),
-                self.to_isoformat(lens_spec.updated_at or datetime.utcnow())
+                self.to_isoformat(lens_spec.created_at or _utc_now()),
+                self.to_isoformat(lens_spec.updated_at or _utc_now())
             ))
             logger.info(f"Created LensSpec: {lens_spec.lens_id}")
             return lens_spec

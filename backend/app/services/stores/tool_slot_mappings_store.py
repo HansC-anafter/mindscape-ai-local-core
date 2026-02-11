@@ -6,7 +6,12 @@ Manages tool slot to tool ID mappings at workspace and project levels.
 
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import json
 
 from sqlalchemy import text
@@ -39,8 +44,8 @@ class ToolSlotMapping:
         self.tool_id = tool_id
         self.priority = priority
         self.enabled = enabled
-        self.created_at = created_at or datetime.utcnow()
-        self.updated_at = updated_at or datetime.utcnow()
+        self.created_at = created_at or _utc_now()
+        self.updated_at = updated_at or _utc_now()
         self.metadata = metadata or {}
 
     def to_dict(self) -> Dict[str, Any]:
@@ -225,7 +230,7 @@ class ToolSlotMappingsStore(PostgresStoreBase):
             params["metadata"] = json.dumps(updates["metadata"]) if updates["metadata"] else None
 
         update_fields.append("updated_at = :updated_at")
-        params["updated_at"] = datetime.utcnow()
+        params["updated_at"] = _utc_now()
 
         with self.transaction() as conn:
             result = conn.execute(

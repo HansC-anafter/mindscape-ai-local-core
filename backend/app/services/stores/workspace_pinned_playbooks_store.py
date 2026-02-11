@@ -3,7 +3,12 @@ WorkspacePinnedPlaybooks store for managing workspace pinned playbooks
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 import uuid
 
@@ -38,7 +43,7 @@ class WorkspacePinnedPlaybooksStore(PostgresStoreBase):
         Returns:
             Pinned playbook record
         """
-        pinned_at = datetime.utcnow()
+        pinned_at = _utc_now()
         with self.transaction() as conn:
             existing = conn.execute(
                 text(

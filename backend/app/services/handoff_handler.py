@@ -10,7 +10,12 @@ work from one tool to another and ensures smooth transitions.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional
 
 from backend.app.models.task_ir import (
@@ -127,7 +132,7 @@ class HandoffHandler:
         # Create handoff event to starting engine
         handoff_event = HandoffEvent(
             event_type=f"handoff.to_{starting_engine.split(':')[0]}",
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             from_engine="system",
             from_execution_id="",
             from_phase_id="",
@@ -238,7 +243,7 @@ class HandoffHandler:
             # Convert skill output back to Task IR updates
             ir_update = await self.skill_adapter.skill_output_to_task_ir(
                 skill_result,
-                f"skill_exec_{skill_id}_{int(datetime.utcnow().timestamp())}",
+                f"skill_exec_{skill_id}_{int(_utc_now().timestamp())}",
                 current_phase,
                 task_ir
             )
@@ -372,7 +377,7 @@ class HandoffHandler:
         """
         return HandoffEvent(
             event_type=f"handoff.to_{to_engine.split(':')[0]}",
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             from_engine=from_engine,
             from_execution_id="",  # Would be filled by caller
             from_phase_id=phase_id,

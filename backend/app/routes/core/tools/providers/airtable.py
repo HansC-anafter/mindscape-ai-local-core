@@ -4,7 +4,12 @@ Airtable tool provider routes
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from backend.app.models.tool_registry import ToolConnectionModel
@@ -92,8 +97,8 @@ async def create_airtable_connection(
             description=f"Airtable connection: {request.name}",
             api_key=request.api_key,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         # Create connection in registry

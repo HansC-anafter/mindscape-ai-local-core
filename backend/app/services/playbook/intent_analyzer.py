@@ -12,7 +12,12 @@ Two-phase design:
 import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import json
 import re
 
@@ -694,7 +699,7 @@ Return JSON format:
                 # In the future, this should be passed from the caller
                 trace_id = trace_recorder.create_trace(
                     workspace_id="",  # Will be updated if available
-                    execution_id=f"intent_{profile_id}_{int(datetime.utcnow().timestamp())}",
+                    execution_id=f"intent_{profile_id}_{int(_utc_now().timestamp())}",
                     user_id=profile_id,
                 )
                 trace_node_id = trace_recorder.start_node(
@@ -715,7 +720,7 @@ Return JSON format:
             except Exception as e:
                 logger.warning(f"Failed to start trace node for LLM intent analysis: {e}")
 
-            llm_start_time = datetime.utcnow()
+            llm_start_time = _utc_now()
             try:
                 # Call LLM
                 messages = [
@@ -730,7 +735,7 @@ Return JSON format:
                     # Provider might not support model parameter, try without it
                     response = await provider.chat_completion(messages, max_tokens=2000)
 
-                llm_end_time = datetime.utcnow()
+                llm_end_time = _utc_now()
                 latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
 
                 # Parse JSON response
@@ -761,7 +766,7 @@ Return JSON format:
 
                 return result
             except Exception as e:
-                llm_end_time = datetime.utcnow()
+                llm_end_time = _utc_now()
                 latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
 
                 # End trace node for failed LLM call

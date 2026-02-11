@@ -130,14 +130,14 @@ async def create_resource(
     """
     try:
         import uuid
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         if 'id' not in resource:
             resource['id'] = str(uuid.uuid4())
 
         resource_id = resource['id']
-        resource['created_at'] = resource.get('created_at', datetime.utcnow().isoformat())
-        resource['updated_at'] = resource.get('updated_at', datetime.utcnow().isoformat())
+        resource['created_at'] = resource.get('created_at', _utc_now().isoformat())
+        resource['updated_at'] = resource.get('updated_at', _utc_now().isoformat())
 
         # Check if resource already exists
         existing = await overlay_service.get_resource(
@@ -182,7 +182,7 @@ async def update_resource(
     Always writes to workspace overlay path (new path).
     """
     try:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         # Check if resource exists
         existing = await overlay_service.get_resource(
@@ -197,8 +197,8 @@ async def update_resource(
 
         # Preserve created_at
         resource['id'] = resource_id
-        resource['created_at'] = resource.get('created_at', existing.get('created_at', datetime.utcnow().isoformat()))
-        resource['updated_at'] = datetime.utcnow().isoformat()
+        resource['created_at'] = resource.get('created_at', existing.get('created_at', _utc_now().isoformat()))
+        resource['updated_at'] = _utc_now().isoformat()
 
         # Save to overlay path
         updated_resource = await overlay_service.save_resource(

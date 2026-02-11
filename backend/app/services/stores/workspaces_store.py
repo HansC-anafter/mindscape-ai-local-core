@@ -3,7 +3,12 @@ Workspaces store for Mindscape data persistence
 Handles workspace CRUD operations
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 from backend.app.services.stores.base import StoreBase
 from ...models.workspace import Workspace, LaunchStatus
@@ -166,7 +171,7 @@ class WorkspacesStore(StoreBase):
         """Update an existing workspace"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            workspace.updated_at = datetime.utcnow()
+            workspace.updated_at = _utc_now()
             cursor.execute(
                 """
                 UPDATE workspaces SET

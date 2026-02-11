@@ -5,7 +5,12 @@ Manages WorkspaceRuntimeProfile persistence using workspace.metadata field.
 MVP implementation: no DB migration, stores in metadata JSON.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional
 import logging
 
@@ -70,7 +75,7 @@ class WorkspaceRuntimeProfileStore:
             profile.updated_by = updated_by
         if updated_reason:
             profile.updated_reason = updated_reason
-        profile.updated_at = datetime.utcnow()
+        profile.updated_at = _utc_now()
 
         if workspace.metadata is None:
             workspace.metadata = {}

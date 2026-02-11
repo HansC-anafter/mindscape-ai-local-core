@@ -6,7 +6,12 @@ Handles context injection, governance checks, and execution tracing.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
@@ -90,7 +95,7 @@ class WorkspaceAgentExecutor:
         Returns:
             AgentExecutionResponse with results
         """
-        start_time = datetime.utcnow()
+        start_time = _utc_now()
         agent_id = agent_id or self.workspace.preferred_agent
 
         if not agent_id:
@@ -171,7 +176,7 @@ class WorkspaceAgentExecutor:
             )
 
             # 8. Complete trace
-            execution_time = (datetime.utcnow() - start_time).total_seconds()
+            execution_time = (_utc_now() - start_time).total_seconds()
             trace.complete(
                 success=result.success,
                 output=result.output,
@@ -188,7 +193,7 @@ class WorkspaceAgentExecutor:
 
         except Exception as e:
             logger.error(f"Agent execution failed: {e}", exc_info=True)
-            execution_time = (datetime.utcnow() - start_time).total_seconds()
+            execution_time = (_utc_now() - start_time).total_seconds()
             trace.fail(str(e))
 
             return AgentExecutionResponse(

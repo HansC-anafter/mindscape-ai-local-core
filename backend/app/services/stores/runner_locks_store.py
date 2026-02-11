@@ -1,5 +1,10 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional
 
 from backend.app.services.stores.base import StoreBase
@@ -28,7 +33,7 @@ class RunnerLocksStore(StoreBase):
             return False
         ttl_seconds = max(1, int(ttl_seconds))
 
-        now = datetime.utcnow()
+        now = _utc_now()
         now_iso = self.to_isoformat(now)
         expires_iso = self.to_isoformat(now + timedelta(seconds=ttl_seconds))
 
@@ -63,7 +68,7 @@ class RunnerLocksStore(StoreBase):
             return
         ttl_seconds = max(1, int(ttl_seconds))
 
-        now = datetime.utcnow()
+        now = _utc_now()
         now_iso = self.to_isoformat(now)
         expires_iso = self.to_isoformat(now + timedelta(seconds=ttl_seconds))
 
@@ -93,7 +98,7 @@ class RunnerLocksStore(StoreBase):
     def get_owner(self, lock_key: str) -> Optional[str]:
         if not lock_key:
             return None
-        now_iso = self.to_isoformat(datetime.utcnow())
+        now_iso = self.to_isoformat(_utc_now())
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:

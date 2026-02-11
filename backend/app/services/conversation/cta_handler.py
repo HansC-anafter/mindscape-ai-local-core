@@ -6,7 +6,12 @@ Handles CTA actions from timeline items, including soft_write and external_write
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 import uuid
 
@@ -102,7 +107,7 @@ class CTAHandler:
             # Create user message event for CTA action
             user_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.USER,
                 channel="local_workspace",
                 profile_id=profile_id,
@@ -217,7 +222,7 @@ class CTAHandler:
             if assistant_response:
                 assistant_event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.ASSISTANT,
                     channel="local_workspace",
                     profile_id=profile_id,
@@ -344,8 +349,8 @@ class CTAHandler:
                                     tags=[],
                                     category="timeline_cta",
                                     progress_percentage=0.0,
-                                    created_at=datetime.utcnow(),
-                                    updated_at=datetime.utcnow(),
+                                    created_at=_utc_now(),
+                                    updated_at=_utc_now(),
                                     started_at=None,
                                     completed_at=None,
                                     due_date=None,
@@ -377,9 +382,9 @@ class CTAHandler:
                         "intents_added": len(intents)
                     },
                     result={"action": action, "intents_added": len(intents)},
-                    created_at=datetime.utcnow(),
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
+                    created_at=_utc_now(),
+                    started_at=_utc_now(),
+                    completed_at=_utc_now(),
                     error=None
                 )
                 self.tasks_store.create_task(action_task)
@@ -399,7 +404,7 @@ class CTAHandler:
                         "original_timeline_item_id": timeline_item.id
                     },
                     cta=None,
-                    created_at=datetime.utcnow()
+                    created_at=_utc_now()
                 )
                 self.timeline_items_store.create_timeline_item(action_timeline_item)
 
@@ -446,9 +451,9 @@ class CTAHandler:
                         "tasks_added": len(tasks_added)
                     },
                     result={"action": action, "tasks_added": tasks_added},
-                    created_at=datetime.utcnow(),
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
+                    created_at=_utc_now(),
+                    started_at=_utc_now(),
+                    completed_at=_utc_now(),
                     error=None
                 )
                 self.tasks_store.create_task(action_task)
@@ -468,7 +473,7 @@ class CTAHandler:
                         "original_timeline_item_id": timeline_item.id
                     },
                     cta=None,
-                    created_at=datetime.utcnow()
+                    created_at=_utc_now()
                 )
                 self.timeline_items_store.create_timeline_item(action_timeline_item)
 
@@ -545,8 +550,8 @@ class CTAHandler:
                             tags=[],
                             category="timeline_cta",
                             progress_percentage=0.0,
-                            created_at=datetime.utcnow(),
-                            updated_at=datetime.utcnow(),
+                            created_at=_utc_now(),
+                            updated_at=_utc_now(),
                             started_at=None,
                             completed_at=None,
                             due_date=None,
@@ -579,9 +584,9 @@ class CTAHandler:
                 "intents_added": intents_added
             },
             result={"action": "add_to_intents", "intents_added": intents_added},
-            created_at=datetime.utcnow(),
-            started_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            started_at=_utc_now(),
+            completed_at=_utc_now(),
             error=None
         )
         self.tasks_store.create_task(action_task)
@@ -611,7 +616,7 @@ class CTAHandler:
                 "original_timeline_item_id": timeline_item.id
             },
             cta=None,
-            created_at=datetime.utcnow()
+            created_at=_utc_now()
         )
         self.timeline_items_store.create_timeline_item(action_timeline_item)
 
@@ -687,9 +692,9 @@ class CTAHandler:
                         "action": action
                     },
                     result=publish_result,
-                    created_at=datetime.utcnow(),
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
+                    created_at=_utc_now(),
+                    started_at=_utc_now(),
+                    completed_at=_utc_now(),
                     error=publish_result.get("error")
                 )
                 self.tasks_store.create_task(publish_task)
@@ -709,7 +714,7 @@ class CTAHandler:
                         "original_timeline_item_id": timeline_item.id
                     },
                     cta=None,
-                    created_at=datetime.utcnow()
+                    created_at=_utc_now()
                 )
                 self.timeline_items_store.create_timeline_item(result_timeline_item)
 
@@ -742,9 +747,9 @@ class CTAHandler:
                     status=TaskStatus.FAILED,
                     params={"title": timeline_item.title, "action": action},
                     result={"error": str(e)},
-                    created_at=datetime.utcnow(),
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
+                    created_at=_utc_now(),
+                    started_at=_utc_now(),
+                    completed_at=_utc_now(),
                     error=str(e)
                 )
                 self.tasks_store.create_task(error_task)
@@ -763,7 +768,7 @@ class CTAHandler:
                         "original_timeline_item_id": timeline_item.id
                     },
                     cta=None,
-                    created_at=datetime.utcnow()
+                    created_at=_utc_now()
                 )
                 self.timeline_items_store.create_timeline_item(error_timeline_item)
 
@@ -828,9 +833,9 @@ class CTAHandler:
                     "timeline_item_id": timeline_item.id
                 },
                 result=action_result if action_success else {"error": action_error},
-                created_at=datetime.utcnow(),
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                started_at=_utc_now(),
+                completed_at=_utc_now(),
                 error=action_error
             )
             self.tasks_store.create_task(action_task)
@@ -851,7 +856,7 @@ class CTAHandler:
                     "original_timeline_item_id": timeline_item.id
                 },
                 cta=None,
-                created_at=datetime.utcnow()
+                created_at=_utc_now()
             )
             self.timeline_items_store.create_timeline_item(action_timeline_item)
 

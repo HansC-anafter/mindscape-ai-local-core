@@ -11,7 +11,12 @@ Supports multiple storage backends: filesystem, S3, weaviate, etc.
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional, Union, Callable
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -538,7 +543,7 @@ class ArtifactRegistry:
         Returns:
             Number of artifacts cleaned up
         """
-        cutoff_date = datetime.utcnow()
+        cutoff_date = _utc_now()
         cutoff_date = cutoff_date.replace(day=cutoff_date.day - days_old)
 
         old_artifacts = [

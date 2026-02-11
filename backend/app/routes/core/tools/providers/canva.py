@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import RedirectResponse
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from backend.app.models.tool_registry import ToolConnectionModel
@@ -128,8 +133,8 @@ async def create_canva_connection(
                 "redirect_uri": request.redirect_uri
             } if (request.client_id or request.brand_id or request.redirect_uri) else {},
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         # Create connection in registry
@@ -302,7 +307,7 @@ async def canva_oauth_callback(
         connection_model.oauth_token = access_token
         if refresh_token:
             connection_model.oauth_refresh_token = refresh_token
-        connection_model.updated_at = datetime.utcnow()
+        connection_model.updated_at = _utc_now()
         registry.update_connection(connection_model)
 
         # Register tools after OAuth completion

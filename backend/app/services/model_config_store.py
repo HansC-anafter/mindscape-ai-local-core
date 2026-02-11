@@ -6,7 +6,12 @@ Manages model provider and model configuration storage in PostgreSQL.
 
 import json
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from sqlalchemy import text
@@ -157,7 +162,7 @@ class ModelConfigStore(PostgresStoreBase):
                         "context_window": model.context_window,
                         "icon": model.icon,
                         "metadata": metadata_json,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": _utc_now(),
                     },
                 )
                 model_id = model.id
@@ -210,7 +215,7 @@ class ModelConfigStore(PostgresStoreBase):
                 ),
                 {
                     "enabled": enabled,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": _utc_now(),
                     "id": model_id,
                 },
             )

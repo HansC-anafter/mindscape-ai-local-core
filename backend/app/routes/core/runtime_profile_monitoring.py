@@ -13,7 +13,12 @@ import logging
 from fastapi import APIRouter, HTTPException, Path as PathParam, Query
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.mindscape import EventType
 from backend.app.services.stores.events_store import EventsStore
@@ -77,7 +82,7 @@ async def get_monitoring_overview(
         db_path = settings_store.get_database_path()
         events_store = EventsStore(db_path)
 
-        end_time = datetime.utcnow()
+        end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
 
         # Get PolicyGuard events
@@ -202,7 +207,7 @@ async def get_policy_checks(
         db_path = settings_store.get_database_path()
         events_store = EventsStore(db_path)
 
-        end_time = datetime.utcnow()
+        end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
 
         events = events_store.get_events_by_workspace(
@@ -250,7 +255,7 @@ async def get_budget_usage(
         db_path = settings_store.get_database_path()
         events_store = EventsStore(db_path)
 
-        end_time = datetime.utcnow()
+        end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
 
         events = events_store.get_events_by_workspace(
@@ -298,7 +303,7 @@ async def get_quality_gates(
         db_path = settings_store.get_database_path()
         events_store = EventsStore(db_path)
 
-        end_time = datetime.utcnow()
+        end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
 
         events = events_store.get_events_by_workspace(

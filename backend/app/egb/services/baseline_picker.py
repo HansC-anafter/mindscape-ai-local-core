@@ -13,7 +13,12 @@ Baseline Picker（基準選擇器）
 import logging
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 
 from backend.app.egb.schemas.correlation_ids import CorrelationIds
@@ -405,7 +410,7 @@ class BaselinePicker:
             intent_id=intent_id,
             baseline_run_id=baseline_run_id,
             pinned_by=pinned_by,
-            pinned_at=datetime.utcnow(),
+            pinned_at=_utc_now(),
             reason=reason,
         )
 

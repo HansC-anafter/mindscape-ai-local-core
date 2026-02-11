@@ -2,7 +2,12 @@
 import logging
 import json
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ...models.surface import SurfaceEvent
 from ...services.stores.surface_events_store import SurfaceEventsStore
@@ -79,8 +84,8 @@ class EventStreamService:
             card_id=byop_data.get("card_id"),
             scope=byop_data.get("scope"),
             playbook_version=byop_data.get("playbook_version"),
-            timestamp=datetime.utcnow(),
-            created_at=datetime.utcnow()
+            timestamp=_utc_now(),
+            created_at=_utc_now()
         )
 
         self.store.create_event(event)

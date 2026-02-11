@@ -219,7 +219,7 @@ class PlaybookRunExecutor:
             )
 
             import uuid
-            from datetime import datetime
+            from datetime import datetime, timezone
 
             existing_execution_id = None
             try:
@@ -342,7 +342,7 @@ class PlaybookRunExecutor:
                         existing.id,
                         execution_context=ctx,
                         status=TaskStatus.RUNNING,
-                        started_at=existing.started_at or datetime.utcnow(),
+                        started_at=existing.started_at or _utc_now(),
                         error=None,
                     )
                 else:
@@ -367,9 +367,9 @@ class PlaybookRunExecutor:
                                 "project_id": project_id,
                                 "profile_id": profile_id,
                             },
-                            created_at=datetime.utcnow(),
-                            started_at=datetime.utcnow(),
-                            updated_at=datetime.utcnow(),
+                            created_at=_utc_now(),
+                            started_at=_utc_now(),
+                            updated_at=_utc_now(),
                         )
                     )
             except Exception as e:
@@ -578,7 +578,7 @@ class PlaybookRunExecutor:
                                 execution_context=merged_ctx,
                                 status=task_status,
                                 completed_at=(
-                                    datetime.utcnow()
+                                    _utc_now()
                                     if task_status == TaskStatus.SUCCEEDED
                                     else None
                                 ),
@@ -625,7 +625,7 @@ class PlaybookRunExecutor:
                                 existing_task.id,
                                 execution_context=ctx,
                                 status=TaskStatus.FAILED,
-                                completed_at=datetime.utcnow(),
+                                completed_at=_utc_now(),
                                 error=str(e),
                             )
                     except Exception:
@@ -1005,7 +1005,7 @@ class PlaybookRunExecutor:
             raise ValueError(error_msg)
 
         import uuid
-        from datetime import datetime
+        from datetime import datetime, timezone
         from backend.app.services.stores.tasks_store import TasksStore
         from backend.app.services.mindscape_store import MindscapeStore
         from backend.app.models.workspace import Task, TaskStatus
@@ -1033,8 +1033,8 @@ class PlaybookRunExecutor:
                 last_checkpoint=None,
                 progress_log_path=None,
                 feature_list_path=None,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
             )
             self.executions_store.create_execution(execution_record)
 
@@ -1097,9 +1097,9 @@ class PlaybookRunExecutor:
             task_type="playbook_execution",
             status=TaskStatus.RUNNING,
             execution_context=execution_context,
-            created_at=datetime.utcnow(),
-            started_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            started_at=_utc_now(),
+            updated_at=_utc_now(),
         )
 
         existing_task = tasks_store.get_task_by_execution_id(execution_id)
@@ -1115,7 +1115,7 @@ class PlaybookRunExecutor:
                 existing_task.id,
                 execution_context=ctx,
                 status=TaskStatus.RUNNING,
-                started_at=existing_task.started_at or datetime.utcnow(),
+                started_at=existing_task.started_at or _utc_now(),
                 error=None,
             )
         else:
@@ -1200,7 +1200,7 @@ class PlaybookRunExecutor:
                 execution_context["step_outputs"] = result.get("step_outputs", {})
                 execution_context["outputs"] = result.get("outputs", {})
                 execution_context["result"] = result
-                completed_at = datetime.utcnow()
+                completed_at = _utc_now()
                 existing = tasks_store.get_task(task.id)
                 merged_ctx = (
                     dict(existing.execution_context)
@@ -1224,7 +1224,7 @@ class PlaybookRunExecutor:
                 execution_context["status"] = "failed"
                 execution_context["error"] = error_info.user_message
                 execution_context["error_details"] = error_info.to_dict()
-                completed_at = datetime.utcnow()
+                completed_at = _utc_now()
                 existing = tasks_store.get_task(task.id)
                 merged_ctx = (
                     dict(existing.execution_context)

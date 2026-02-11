@@ -6,7 +6,12 @@ enabling context compression and external memory storage.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional
 from backend.app.services.stores.playbook_executions_store import PlaybookExecutionsStore
 from backend.app.services.stores.events_store import EventsStore
@@ -66,12 +71,12 @@ class PlaybookPhaseManager:
             "summary": summary,
             "artifacts": artifacts,
             "intent_instance_id": intent_instance_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now().isoformat()
         }
 
         event = MindEvent(
-            id=f"phase_summary_{execution_id}_{phase_id}_{int(datetime.utcnow().timestamp())}",
-            timestamp=datetime.utcnow(),
+            id=f"phase_summary_{execution_id}_{phase_id}_{int(_utc_now().timestamp())}",
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="playbook",
             profile_id="",  # Will be set by caller
@@ -101,7 +106,7 @@ class PlaybookPhaseManager:
                 "summary": summary,
                 "artifacts": artifacts,
                 "event_id": created_event.id,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_now().isoformat()
             }
         )
 

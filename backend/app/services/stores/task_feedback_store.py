@@ -6,7 +6,12 @@ task recommendation strategies and personalize preferences.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import TaskFeedback, TaskFeedbackAction, TaskFeedbackReasonCode
@@ -150,11 +155,11 @@ class TaskFeedbackStore(StoreBase):
         Returns:
             Count of rejections
         """
-        from datetime import timedelta
+        from datetime import timedelta, timezone
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            time_threshold = datetime.utcnow() - timedelta(days=days)
+            time_threshold = _utc_now() - timedelta(days=days)
 
             query = '''
                 SELECT COUNT(*) FROM task_feedback tf
@@ -192,11 +197,11 @@ class TaskFeedbackStore(StoreBase):
         Returns:
             Rejection rate (0.0 to 1.0), or 0.0 if no feedback
         """
-        from datetime import timedelta
+        from datetime import timedelta, timezone
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            time_threshold = datetime.utcnow() - timedelta(days=days)
+            time_threshold = _utc_now() - timedelta(days=days)
 
             query = '''
                 SELECT

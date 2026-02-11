@@ -4,7 +4,12 @@ Manages user configuration settings (backend preferences, etc.)
 """
 
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from sqlalchemy import text
@@ -132,7 +137,7 @@ class ConfigStore(PostgresStoreBase):
                     "vertex_project_id": config.agent_backend.vertex_project_id,
                     "vertex_location": config.agent_backend.vertex_location,
                     "metadata": self.serialize_json(metadata),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": _utc_now(),
                 },
             )
 

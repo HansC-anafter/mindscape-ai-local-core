@@ -18,7 +18,12 @@ The `intent_extraction` pack is an entry point to this service, not a playbook.
 import logging
 import uuid
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
 from backend.app.models.workspace import TaskStatus, TimelineItem, TimelineItemType
@@ -183,8 +188,8 @@ class IntentInfraService:
                         tags=[],
                         category="intent_extraction",
                         progress_percentage=0.0,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
+                        created_at=_utc_now(),
+                        updated_at=_utc_now(),
                         started_at=None,
                         completed_at=None,
                         due_date=None,
@@ -271,7 +276,7 @@ class IntentInfraService:
                     "intents_added": intents_added,
                 },
                 cta=None,
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
             )
             self.timeline_items_store.create_timeline_item(timeline_item)
             logger.info(
@@ -477,8 +482,8 @@ class IntentInfraService:
                             "edges": [],
                             "playbook_sequence": validated_playbook_sequence,
                         },
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
+                        created_at=_utc_now(),
+                        updated_at=_utc_now(),
                     )
                     flows_store.create_flow(flow)
                     logger.info(
@@ -634,8 +639,8 @@ class IntentInfraService:
                 tags=payload.get("tags", []),
                 category=payload.get("category"),
                 progress_percentage=0.0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
                 started_at=None,
                 completed_at=None,
                 due_date=None,

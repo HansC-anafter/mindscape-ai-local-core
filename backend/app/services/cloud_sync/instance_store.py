@@ -8,7 +8,12 @@ import logging
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +78,8 @@ class InstanceStore:
         instance_data = data or {}
         instance_data["_id"] = instance_id
         instance_data["_type"] = instance_type
-        instance_data["_created_at"] = datetime.utcnow().isoformat()
-        instance_data["_updated_at"] = datetime.utcnow().isoformat()
+        instance_data["_created_at"] = _utc_now().isoformat()
+        instance_data["_updated_at"] = _utc_now().isoformat()
 
         metadata = {
             "instance_id": instance_id,
@@ -83,8 +88,8 @@ class InstanceStore:
             "cloud_version": 0,
             "last_sync": None,
             "has_local_changes": False,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": _utc_now().isoformat(),
+            "updated_at": _utc_now().isoformat(),
         }
 
         with open(data_file, "w", encoding="utf-8") as f:
@@ -181,10 +186,10 @@ class InstanceStore:
 
             data["_id"] = instance_id
             data["_type"] = instance_type
-            data["_updated_at"] = datetime.utcnow().isoformat()
+            data["_updated_at"] = _utc_now().isoformat()
 
             if "_created_at" not in data:
-                data["_created_at"] = old_data.get("_created_at", datetime.utcnow().isoformat())
+                data["_created_at"] = old_data.get("_created_at", _utc_now().isoformat())
 
             with open(data_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -193,7 +198,7 @@ class InstanceStore:
             if metadata:
                 metadata["local_version"] = metadata.get("local_version", 0) + 1
                 metadata["has_local_changes"] = True
-                metadata["updated_at"] = datetime.utcnow().isoformat()
+                metadata["updated_at"] = _utc_now().isoformat()
 
                 with open(metadata_file, "w", encoding="utf-8") as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -297,7 +302,7 @@ class InstanceStore:
 
         change_data = {
             "change_id": change_id,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _utc_now().isoformat(),
             "type": "update",
             "old_data": old_data,
             "new_data": new_data,
@@ -358,7 +363,7 @@ class InstanceStore:
                     change_data = json.load(f)
 
                 change_data["synced"] = True
-                change_data["synced_at"] = datetime.utcnow().isoformat()
+                change_data["synced_at"] = _utc_now().isoformat()
 
                 with open(change_file, "w", encoding="utf-8") as f:
                     json.dump(change_data, f, indent=2, ensure_ascii=False)

@@ -11,7 +11,12 @@ import uuid
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.workspace_runtime_profile import QualityGates
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -161,7 +166,7 @@ class QualityGateChecker:
         try:
             event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.SYSTEM,
                 channel="runtime_profile",
                 profile_id=self.profile_id or "system",

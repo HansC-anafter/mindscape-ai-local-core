@@ -6,7 +6,12 @@ Each trace node represents a single step (LLM call, tool execution, policy decis
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 from typing import Dict, List, Optional, Any
 import json
@@ -222,7 +227,7 @@ class TraceGraph:
             root_node_id=data.get("root_node_id"),
             nodes=[TraceNode.from_dict(n) for n in data.get("nodes", [])],
             edges=[TraceEdge.from_dict(e) for e in data.get("edges", [])],
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.utcnow(),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else _utc_now(),
             version=data.get("version", "1.0"),
         )
 

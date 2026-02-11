@@ -8,7 +8,12 @@ Supports multiple playbook types with different output formats.
 import logging
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -278,7 +283,7 @@ class ArtifactExtractor:
             # If file write fails, still create artifact but record error
 
         metadata = {
-            "extracted_at": datetime.utcnow().isoformat(),
+            "extracted_at": _utc_now().isoformat(),
             "source": "daily_planning"
         }
         if write_failed:
@@ -304,8 +309,8 @@ class ArtifactExtractor:
             sync_state=None,
             primary_action_type=PrimaryActionType.COPY,
             metadata=metadata,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
     def _extract_content_drafting_artifact(
@@ -413,7 +418,7 @@ class ArtifactExtractor:
                 logger.warning(f"Failed to write draft artifact to workspace path: {e}. Artifact will be created without file storage.")
 
             metadata = {
-                "extracted_at": datetime.utcnow().isoformat(),
+                "extracted_at": _utc_now().isoformat(),
                 "source": "content_drafting",
                 "output_type": "draft"
             }
@@ -441,8 +446,8 @@ class ArtifactExtractor:
                 sync_state=None,
                 primary_action_type=PrimaryActionType.COPY,
                 metadata=metadata,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=_utc_now(),
+                updated_at=_utc_now()
             )
         else:
             # This is a summary - also create artifact but as draft type
@@ -499,12 +504,12 @@ class ArtifactExtractor:
                 sync_state=None,
                 primary_action_type=PrimaryActionType.COPY,
                 metadata={
-                    "extracted_at": datetime.utcnow().isoformat(),
+                    "extracted_at": _utc_now().isoformat(),
                     "source": "content_drafting",
                     "output_type": "summary"
                 },
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=_utc_now(),
+                updated_at=_utc_now()
             )
 
     def _extract_major_proposal_artifact(
@@ -623,11 +628,11 @@ class ArtifactExtractor:
             sync_state=None,
             primary_action_type=PrimaryActionType.DOWNLOAD,
             metadata={
-                "extracted_at": datetime.utcnow().isoformat(),
+                "extracted_at": _utc_now().isoformat(),
                 "source": "major_proposal_writing"
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
     def _extract_campaign_asset_artifact(
@@ -683,11 +688,11 @@ class ArtifactExtractor:
             sync_state=None,
             primary_action_type=PrimaryActionType.OPEN_EXTERNAL,
             metadata={
-                "extracted_at": datetime.utcnow().isoformat(),
+                "extracted_at": _utc_now().isoformat(),
                 "source": "campaign_asset_playbook"
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
     def _extract_audio_artifact(
@@ -809,11 +814,11 @@ class ArtifactExtractor:
             sync_state=None,
             primary_action_type=PrimaryActionType.DOWNLOAD,
             metadata={
-                "extracted_at": datetime.utcnow().isoformat(),
+                "extracted_at": _utc_now().isoformat(),
                 "source": "ai_guided_recording"
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
     def _extract_generic_artifact(
@@ -933,7 +938,7 @@ class ArtifactExtractor:
                 logger.warning(f"Failed to write generic artifact to workspace path: {e}. Artifact will be created without file storage.")
 
         metadata = {
-            "extracted_at": datetime.utcnow().isoformat(),
+            "extracted_at": _utc_now().isoformat(),
             "source": "generic_extraction",
             "playbook_code": playbook_code
         }
@@ -956,8 +961,8 @@ class ArtifactExtractor:
             sync_state=None,
             primary_action_type=primary_action,
             metadata=metadata,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
     def _get_artifact_storage_path(

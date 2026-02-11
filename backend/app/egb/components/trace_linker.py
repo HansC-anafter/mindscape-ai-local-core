@@ -8,7 +8,12 @@ TraceLinker（證據關聯器）
 import logging
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from backend.app.egb.schemas.correlation_ids import CorrelationIds
@@ -99,7 +104,7 @@ class TraceLinker:
                 link_id=str(uuid.uuid4()),
                 correlation_ids=correlation_ids,
                 trace_id=run_id,  # ⚠️ P0-1：trace_id = run_id
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
             )
 
             # ⚠️ 優先保存到 store（如果可用）

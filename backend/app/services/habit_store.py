@@ -5,6 +5,11 @@ Handles habit observations, candidates, and audit records persistence.
 
 import logging
 from datetime import datetime
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
@@ -206,7 +211,7 @@ class HabitStore(PostgresStoreBase):
 
     def update_candidate(self, candidate: HabitCandidate) -> HabitCandidate:
         """Update habit candidate."""
-        candidate.updated_at = datetime.utcnow()
+        candidate.updated_at = _utc_now()
         with self.transaction() as conn:
             conn.execute(
                 text(
@@ -367,8 +372,8 @@ class HabitStore(PostgresStoreBase):
             if row.has_insight_signal is not None
             else False,
             insight_score=row.insight_score or 0.0,
-            observed_at=_coerce_datetime(row.observed_at) or datetime.utcnow(),
-            created_at=_coerce_datetime(row.created_at) or datetime.utcnow(),
+            observed_at=_coerce_datetime(row.observed_at) or _utc_now(),
+            created_at=_coerce_datetime(row.created_at) or _utc_now(),
         )
 
     def _row_to_candidate(self, row) -> HabitCandidate:
@@ -392,8 +397,8 @@ class HabitStore(PostgresStoreBase):
             last_seen_at=_coerce_datetime(row.last_seen_at),
             evidence_refs=self.deserialize_json(row.evidence_refs, []),
             status=HabitCandidateStatus(row.status),
-            created_at=_coerce_datetime(row.created_at) or datetime.utcnow(),
-            updated_at=_coerce_datetime(row.updated_at) or datetime.utcnow(),
+            created_at=_coerce_datetime(row.created_at) or _utc_now(),
+            updated_at=_coerce_datetime(row.updated_at) or _utc_now(),
         )
 
     def _row_to_audit_log(self, row) -> HabitAuditLog:
@@ -418,5 +423,5 @@ class HabitStore(PostgresStoreBase):
             actor_id=row.actor_id,
             reason=row.reason,
             metadata=self.deserialize_json(row.metadata, None),
-            created_at=_coerce_datetime(row.created_at) or datetime.utcnow(),
+            created_at=_coerce_datetime(row.created_at) or _utc_now(),
         )

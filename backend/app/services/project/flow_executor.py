@@ -7,7 +7,12 @@ Manages node dependencies, checkpoint/resume, and artifact preservation.
 
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, List, Optional, Set, Any
 from collections import deque
 
@@ -520,7 +525,7 @@ class FlowExecutor:
             "execution_results": execution_results,
             "failed_node": failed_node,
             "failure_error": failure_error,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now().isoformat()
         }
 
         # Try to get profile_id from execution results if not provided

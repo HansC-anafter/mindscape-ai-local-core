@@ -5,7 +5,12 @@ Saved Views storage service
 import uuid
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 
 from .stores.base import StoreBase
@@ -88,7 +93,7 @@ class SavedViewsStore(StoreBase):
     def create(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create Saved View"""
         view_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = _utc_now().isoformat()
 
         with self.transaction() as conn:
             cursor = conn.cursor()

@@ -587,6 +587,7 @@ class IntentSource(str, Enum):
     LLM = "llm"
     USER = "user"
     SYSTEM = "system"
+    IDE = "ide"  # IDE LLM extraction source (MCP bridge)
 
 
 class IntentTagStatus(str, Enum):
@@ -660,6 +661,137 @@ class IntentTag(BaseModel):
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+# ==================== IntentSteward Models ====================
+
+
+class IntentSignal(BaseModel):
+    """
+    IntentSignal - represents a candidate intent signal for steward analysis.
+
+    Collected from IntentTags with CANDIDATE status and fed into
+    IntentStewardService for filtering and layout plan generation.
+    """
+
+    id: str = Field(..., description="Unique signal identifier")
+    workspace_id: str = Field(..., description="Associated workspace ID")
+    profile_id: str = Field(..., description="Associated profile ID")
+    label: str = Field(..., description="Signal label text")
+    confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Confidence score"
+    )
+    status: str = Field(default="candidate", description="Signal status")
+    source: str = Field(
+        default="llm", description="Signal source (llm, user, system, ide)"
+    )
+    signal_type: str = Field(default="intent", description="Signal type")
+    message_id: Optional[str] = Field(None, description="Source message/event ID")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+
+    class Config:
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class IntentOperation(BaseModel):
+    """
+    IntentOperation - a planned create/update operation on an IntentCard.
+
+    Part of IntentLayoutPlan.long_term_intents.
+    """
+
+    operation_type: str = Field(
+        ..., description="Operation type: CREATE_INTENT_CARD | UPDATE_INTENT_CARD"
+    )
+    intent_id: Optional[str] = Field(
+        None, description="Existing IntentCard ID (required for UPDATE)"
+    )
+    intent_data: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Intent data (title, description, priority, status)",
+    )
+    relation_signals: List[str] = Field(
+        default_factory=list, description="Related signal IDs"
+    )
+    confidence: float = Field(
+        default=0.7, ge=0.0, le=1.0, description="Operation confidence"
+    )
+    reasoning: str = Field(default="", description="Reasoning for this operation")
+
+
+class EphemeralTask(BaseModel):
+    """
+    EphemeralTask - a short-lived task that doesn't warrant an IntentCard.
+
+    Part of IntentLayoutPlan.ephemeral_tasks.
+    """
+
+    signal_id: str = Field(..., description="Source signal ID")
+    title: str = Field(..., description="Task title")
+    description: Optional[str] = Field(None, description="Task description")
+    reasoning: str = Field(
+        default="", description="Reasoning for ephemeral classification"
+    )
+
+
+class SignalMapping(BaseModel):
+    """
+    SignalMapping - tracks how a signal was processed.
+
+    Part of IntentLayoutPlan.signal_mapping.
+    """
+
+    signal_id: str = Field(..., description="Signal ID")
+    action: str = Field(..., description="Action taken: mapped_to_intent_id | ignored")
+    target_intent_id: Optional[str] = Field(
+        None, description="Target IntentCard ID (if mapped)"
+    )
+    reasoning: str = Field(default="", description="Reasoning for mapping decision")
+
+
+class IntentLayoutPlan(BaseModel):
+    """
+    IntentLayoutPlan - the output of IntentSteward analysis.
+
+    Contains planned IntentCard operations, ephemeral tasks,
+    and signal-to-intent mappings.
+    """
+
+    long_term_intents: List[IntentOperation] = Field(
+        default_factory=list, description="Planned IntentCard create/update operations"
+    )
+    ephemeral_tasks: List[EphemeralTask] = Field(
+        default_factory=list, description="Short-lived tasks"
+    )
+    signal_mapping: List[SignalMapping] = Field(
+        default_factory=list, description="Signal processing mappings"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Analysis metadata"
+    )
+
+
+class IntentStewardInput(BaseModel):
+    """
+    IntentStewardInput - collected input data for steward analysis.
+
+    Aggregates recent messages, candidate signals, and current IntentCards.
+    """
+
+    recent_messages: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Recent conversation messages"
+    )
+    recent_signals: List[IntentSignal] = Field(
+        default_factory=list, description="Recent candidate IntentSignals"
+    )
+    current_intent_cards: List[IntentCard] = Field(
+        default_factory=list, description="Currently visible IntentCards"
+    )
 
 
 class IntentLog(BaseModel):

@@ -89,7 +89,7 @@ async def create_slack_connection(
         if not access_token:
             raise ValueError("Slack access token is required (oauth_token or access_token)")
 
-        from datetime import datetime
+        from datetime import datetime, timezone
         from backend.app.models.tool_registry import ToolConnectionModel
 
         # Create ToolConnectionModel instance
@@ -103,8 +103,8 @@ async def create_slack_connection(
             api_key=access_token,
             oauth_token=request.oauth_token if request.oauth_token else None,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         # Create connection in registry
@@ -201,7 +201,7 @@ async def slack_oauth_callback(
         # Create connection using registry
         from backend.app.services.tool_registry import ToolRegistryService
         from backend.app.models.tool_registry import ToolConnectionModel
-        from datetime import datetime
+        from datetime import datetime, timezone
         import os
         data_dir = os.getenv("DATA_DIR", "./data")
         registry = ToolRegistryService(data_dir=data_dir)
@@ -216,8 +216,8 @@ async def slack_oauth_callback(
             api_key=access_token,
             oauth_token=access_token,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         connection = registry.create_connection(connection_model)

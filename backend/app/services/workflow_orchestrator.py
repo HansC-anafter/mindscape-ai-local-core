@@ -9,7 +9,12 @@ import json
 import logging
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 from collections import defaultdict
@@ -626,7 +631,7 @@ class WorkflowOrchestrator:
                                 "gate": gate.dict() if hasattr(gate, "dict") else gate,
                                 "completed_steps": list(completed_steps),
                                 "step_outputs": step_outputs,
-                                "created_at": datetime.utcnow().isoformat(),
+                                "created_at": _utc_now().isoformat(),
                             }
                             result = {
                                 "status": "paused",
@@ -870,7 +875,7 @@ class WorkflowOrchestrator:
         Returns:
             Step output dict
         """
-        step_started_at = datetime.utcnow()
+        step_started_at = _utc_now()
 
         if execution_id and workspace_id and self.store:
             self._create_step_event(
@@ -1002,7 +1007,7 @@ class WorkflowOrchestrator:
                 else:
                     step_output[output_name] = tool_result
 
-            step_completed_at = datetime.utcnow()
+            step_completed_at = _utc_now()
 
             if execution_id and workspace_id and self.store:
                 self._create_step_event(
@@ -1019,7 +1024,7 @@ class WorkflowOrchestrator:
 
             return step_output
         except Exception as e:
-            step_completed_at = datetime.utcnow()
+            step_completed_at = _utc_now()
             if execution_id and workspace_id and self.store:
                 self._create_step_event(
                     execution_id=execution_id,
@@ -1083,7 +1088,7 @@ class WorkflowOrchestrator:
 
             event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.SYSTEM,
                 channel="workflow_orchestrator",
                 profile_id=profile_id or "default-user",

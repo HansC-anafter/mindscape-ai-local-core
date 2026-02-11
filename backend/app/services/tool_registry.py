@@ -13,7 +13,12 @@ Design Principles:
 import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from sqlalchemy import text
@@ -154,9 +159,9 @@ class ToolRegistryService(PostgresStoreBase):
                             "capability_code": row.capability_code or "",
                             "risk_class": row.risk_class or "readonly",
                             "created_at": _coerce_datetime(row.created_at)
-                            or datetime.utcnow(),
+                            or _utc_now(),
                             "updated_at": _coerce_datetime(row.updated_at)
-                            or datetime.utcnow(),
+                            or _utc_now(),
                             "scope": row.scope or "profile",
                             "tenant_id": row.tenant_id,
                             "owner_profile_id": row.owner_profile_id,
@@ -220,9 +225,9 @@ class ToolRegistryService(PostgresStoreBase):
                                 getattr(row, "x_platform", None), None
                             ),
                             "created_at": _coerce_datetime(row.created_at)
-                            or datetime.utcnow(),
+                            or _utc_now(),
                             "updated_at": _coerce_datetime(row.updated_at)
-                            or datetime.utcnow(),
+                            or _utc_now(),
                         }
                         connection = ToolConnectionModel(**conn_data)
                         self._connections[(row.profile_id, row.id)] = connection
@@ -819,8 +824,8 @@ class ToolRegistryService(PostgresStoreBase):
             # Update config with new configuration
             if config.custom_config:
                 conn.config.update(config.custom_config)
-            conn.last_discovery = datetime.utcnow()
-            conn.updated_at = datetime.utcnow()
+            conn.last_discovery = _utc_now()
+            conn.updated_at = _utc_now()
             self._save_registry()
         else:
             conn = ToolConnectionModel(
@@ -839,7 +844,7 @@ class ToolRegistryService(PostgresStoreBase):
                     config.api_secret if config.tool_type == "wordpress" else None
                 ),
                 config=config.custom_config.copy() if config.custom_config else {},
-                last_discovery=datetime.utcnow(),
+                last_discovery=_utc_now(),
                 discovery_method=provider_name,
             )
             self._connections[key] = conn
@@ -1037,9 +1042,9 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             Created connection
         """
-        connection.updated_at = datetime.utcnow()
+        connection.updated_at = _utc_now()
         if not connection.created_at:
-            connection.created_at = datetime.utcnow()
+            connection.created_at = _utc_now()
 
         # Store with (profile_id, connection_id) as key
         self._connections[(connection.profile_id, connection.id)] = connection
@@ -1213,7 +1218,7 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             Updated connection
         """
-        connection.updated_at = datetime.utcnow()
+        connection.updated_at = _utc_now()
         self._connections[(connection.profile_id, connection.id)] = connection
         self._save_registry()
         return connection
@@ -1230,8 +1235,8 @@ class ToolRegistryService(PostgresStoreBase):
         if key in self._connections:
             conn = self._connections[key]
             conn.usage_count += 1
-            conn.last_used_at = datetime.utcnow()
-            conn.updated_at = datetime.utcnow()
+            conn.last_used_at = _utc_now()
+            conn.updated_at = _utc_now()
             self._save_registry()
 
     def update_validation_status(
@@ -1254,9 +1259,9 @@ class ToolRegistryService(PostgresStoreBase):
         if key in self._connections:
             conn = self._connections[key]
             conn.is_validated = is_valid
-            conn.last_validated_at = datetime.utcnow()
+            conn.last_validated_at = _utc_now()
             conn.validation_error = error_message
-            conn.updated_at = datetime.utcnow()
+            conn.updated_at = _utc_now()
             self._save_registry()
 
     def export_as_templates(self, profile_id: str) -> List[Dict[str, Any]]:

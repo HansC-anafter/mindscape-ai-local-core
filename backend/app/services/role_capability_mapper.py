@@ -10,7 +10,12 @@ import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.ai_role import AIRoleConfig
 from backend.app.services.ai_role_store import AIRoleStore
@@ -285,7 +290,7 @@ def save_role_capability_mappings(
     """
     try:
         store = PostgresStoreBase()
-        now = datetime.utcnow()
+        now = _utc_now()
 
         saved_count = 0
         has_fallback = False

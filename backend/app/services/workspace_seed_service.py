@@ -20,7 +20,12 @@ from backend.app.models.workspace import Workspace, LaunchStatus
 from backend.app.models.workspace_blueprint import WorkspaceBlueprint
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -332,8 +337,8 @@ Please generate a structured digest according to the schema description.
                 storyline_tags=[],
                 category=None,
                 progress_percentage=0.0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
                 started_at=None,
                 completed_at=None,
                 due_date=None,
@@ -358,7 +363,7 @@ Please generate a structured digest according to the schema description.
                 "digest": digest,
                 "source": "workspace_seed_service",
             },
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             metadata={"source": "workspace_seed_service", "action": "seed_applied"},
         )
         self.events_store.create_event(event, generate_embedding=False)

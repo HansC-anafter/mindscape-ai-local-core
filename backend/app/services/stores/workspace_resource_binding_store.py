@@ -3,7 +3,12 @@ Workspace Resource Binding Store
 Manages persistent storage for workspace resource bindings
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
@@ -29,7 +34,7 @@ class WorkspaceResourceBindingStore(PostgresStoreBase):
 
     def save_binding(self, binding: WorkspaceResourceBinding) -> WorkspaceResourceBinding:
         """Save or update a workspace resource binding"""
-        binding.updated_at = datetime.utcnow()
+        binding.updated_at = _utc_now()
 
         with self.transaction() as conn:
             conn.execute(

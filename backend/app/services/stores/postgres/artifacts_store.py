@@ -1,7 +1,12 @@
 """Postgres adaptation of ArtifactsStore."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 from sqlalchemy import text
 
@@ -150,7 +155,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
                     params["updated_at"] = kwargs["updated_at"]
                 elif set_clauses:  # Auto-update updated_at if any field is updated
                     set_clauses.append("updated_at = :updated_at")
-                    params["updated_at"] = datetime.utcnow()
+                    params["updated_at"] = _utc_now()
 
                 # Handle other fields
                 for key, value in kwargs.items():

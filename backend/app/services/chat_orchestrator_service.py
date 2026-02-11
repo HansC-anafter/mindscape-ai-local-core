@@ -12,6 +12,11 @@ import asyncio
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.models.workspace import Workspace, WorkspaceChatRequest
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
@@ -89,7 +94,7 @@ class ChatOrchestratorService:
             event_id = user_event_id or str(uuid.uuid4())
             user_event = MindEvent(
                 id=event_id,
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.USER,
                 channel="local_workspace",
                 profile_id=profile_id,
@@ -218,7 +223,7 @@ class ChatOrchestratorService:
                 if agent_response.success:
                     assistant_event = MindEvent(
                         id=str(uuid.uuid4()),
-                        timestamp=datetime.utcnow(),
+                        timestamp=_utc_now(),
                         actor=EventActor.ASSISTANT,
                         channel="local_workspace",
                         profile_id=profile_id,
@@ -385,7 +390,7 @@ class ChatOrchestratorService:
         """Create a persisted pipeline stage event"""
         event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="local_workspace",
             profile_id=profile_id,
@@ -417,7 +422,7 @@ class ChatOrchestratorService:
     async def _create_error_event(self, workspace_id, profile_id, thread_id, error_msg):
         event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.SYSTEM,
             channel="local_workspace",
             profile_id=profile_id,

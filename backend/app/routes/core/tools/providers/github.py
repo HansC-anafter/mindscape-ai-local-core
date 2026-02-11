@@ -4,7 +4,12 @@ GitHub tool provider routes with OAuth support
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 import os
 
@@ -102,8 +107,8 @@ async def create_github_connection(
             api_key=access_token,
             oauth_token=request.oauth_token if request.oauth_token else None,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         # Create connection in registry
@@ -213,8 +218,8 @@ async def github_oauth_callback(
             api_key=access_token,
             oauth_token=access_token,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         connection = registry.create_connection(connection_model)

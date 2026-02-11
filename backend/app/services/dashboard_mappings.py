@@ -4,7 +4,12 @@ Defines complete field mapping from Local-Core tables to Dashboard DTOs
 """
 
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 
 # ==================== Status Mappings ====================
@@ -109,8 +114,8 @@ def map_execution_to_case(
         "tags": [execution.get("playbook_code", "")] if execution.get("playbook_code") else [],
 
         # Timestamps
-        "created_at": _parse_datetime(execution.get("created_at")) or datetime.utcnow(),
-        "updated_at": _parse_datetime(execution.get("updated_at")) or datetime.utcnow(),
+        "created_at": _parse_datetime(execution.get("created_at")) or _utc_now(),
+        "updated_at": _parse_datetime(execution.get("updated_at")) or _utc_now(),
     }
 
 

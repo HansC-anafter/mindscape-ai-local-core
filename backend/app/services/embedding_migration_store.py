@@ -6,7 +6,12 @@ Manages embedding migration tasks storage in PostgreSQL database.
 
 import json
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from uuid import UUID
 import logging
 
@@ -114,7 +119,7 @@ class EmbeddingMigrationStore(PostgresStoreBase):
     def update_migration(self, migration: EmbeddingMigration) -> EmbeddingMigration:
         """Update migration task"""
         with self.transaction() as conn:
-            migration.updated_at = datetime.utcnow()
+            migration.updated_at = _utc_now()
 
             conn.execute(
                 text(
@@ -220,7 +225,7 @@ class EmbeddingMigrationStore(PostgresStoreBase):
     def update_migration_item(self, item: EmbeddingMigrationItem) -> EmbeddingMigrationItem:
         """Update migration item"""
         with self.transaction() as conn:
-            item.updated_at = datetime.utcnow()
+            item.updated_at = _utc_now()
 
             conn.execute(
                 text(

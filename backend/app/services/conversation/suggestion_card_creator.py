@@ -7,7 +7,12 @@ Creates suggestion cards for soft_write and external_write tasks.
 import logging
 import sys
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from ...models.workspace import Task, TaskStatus, TimelineItemType
@@ -148,7 +153,7 @@ class SuggestionCardCreator:
                     "requires_cta": True,
                     "llm_analysis": llm_analysis,
                 },
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
                 started_at=None,
                 completed_at=None,
                 error=None,
@@ -244,7 +249,7 @@ class SuggestionCardCreator:
                     "requires_cta": True,
                     "llm_analysis": llm_analysis,
                 },
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
                 started_at=None,
                 completed_at=None,
                 error=None,

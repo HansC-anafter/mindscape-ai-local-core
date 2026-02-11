@@ -10,7 +10,12 @@ import logging
 import uuid
 import numpy as np
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ...models.mindscape import IntentCard, IntentCluster
 from ...services.mindscape_store import MindscapeStore
@@ -166,10 +171,10 @@ class IntentClusterService:
                     metadata={
                         "cluster_index": cluster_idx,
                         "intent_count": len(cluster_intent_ids),
-                        "created_at": datetime.utcnow().isoformat()
+                        "created_at": _utc_now().isoformat()
                     },
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=_utc_now(),
+                    updated_at=_utc_now()
                 )
 
                 intent_clusters.append(cluster)
@@ -184,7 +189,7 @@ class IntentClusterService:
                     existing.embedding = cluster.embedding
                     existing.intent_card_ids = cluster.intent_card_ids
                     existing.metadata = cluster.metadata
-                    existing.updated_at = datetime.utcnow()
+                    existing.updated_at = _utc_now()
                     self.clusters_store.update_cluster(existing)
                 else:
                     # Create new cluster
@@ -377,7 +382,7 @@ Cluster label (2-4 words, in English, no quotes):"""
                             "cluster_id": cluster.id,
                             "cluster_label": cluster.label
                         })
-                        intent.updated_at = datetime.utcnow()
+                        intent.updated_at = _utc_now()
                         self.store.intents.update_intent(intent)
 
             logger.info(f"Updated {sum(len(c.intent_card_ids) for c in clusters)} IntentCards with cluster information")

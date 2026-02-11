@@ -18,7 +18,12 @@ import logging
 import sys
 import uuid
 from typing import Dict, Any, Optional, List, Callable
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.workspace import ExecutionPlan, ExecutionStep, TaskPlan
 
@@ -148,7 +153,7 @@ async def generate_execution_plan(
     try:
         log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
         with open(log_path, "a") as f:
-            f.write(f"\n==== EXECUTION PLAN GENERATOR TRACE {datetime.utcnow()} ====\n")
+            f.write(f"\n==== EXECUTION PLAN GENERATOR TRACE {_utc_now()} ====\n")
             f.write(f"Workspace: {workspace_id}\n")
             f.write(f"Message: {user_request}\n")
             f.write(
@@ -291,12 +296,12 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
 
         # Evidence Logging
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
             import os
 
             log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n==== PLAN EVIDENCE {datetime.utcnow()} ====\n")
+                f.write(f"\n==== PLAN EVIDENCE {_utc_now()} ====\n")
                 f.write(f"Workspace: {workspace_id}\n")
                 f.write(
                     f"Playbooks to use: {len(playbooks_to_use) if playbooks_to_use else 0}\n"
@@ -343,11 +348,11 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
 
         # Evidence Logging
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
 
             log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n==== PLAN RESPONSE {datetime.utcnow()} ====\n")
+                f.write(f"\n==== PLAN RESPONSE {_utc_now()} ====\n")
                 f.write(f"Response:\n{response}\n")
                 f.write("==========================================\n")
         except Exception:
@@ -398,11 +403,11 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
         )
         # Evidence Logging
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
 
             log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n==== PLAN EXCEPTION {datetime.utcnow()} ====\n")
+                f.write(f"\n==== PLAN EXCEPTION {_utc_now()} ====\n")
                 f.write(f"Error: {str(e)}\n")
                 f.write("==========================================\n")
         except Exception:
@@ -805,7 +810,7 @@ def _create_execution_plan(
         tasks=tasks,  # Now includes tasks for execution
         execution_mode=execution_mode,
         confidence=plan_data.get("confidence", 0.7),
-        created_at=datetime.utcnow(),
+        created_at=_utc_now(),
         project_id=None,  # Will be set by caller if needed
         project_assignment_decision=None,  # Will be set by caller if needed
     )
@@ -844,7 +849,7 @@ def _create_minimal_plan(
         tasks=tasks,  # Now includes tasks for execution
         execution_mode=execution_mode,
         confidence=0.5,
-        created_at=datetime.utcnow(),
+        created_at=_utc_now(),
     )
 
 

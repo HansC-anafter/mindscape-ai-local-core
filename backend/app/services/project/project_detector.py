@@ -126,7 +126,7 @@ Respond in JSON format:
             try:
                 log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
                 with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n==== DETECT EVIDENCE {datetime.utcnow()} ====\n")
+                    f.write(f"\n==== DETECT EVIDENCE {_utc_now()} ====\n")
                     f.write(f"Workspace: {workspace.id}\n")
                     f.write(
                         f"Available Playbooks: {len(available_playbooks) if available_playbooks else 0}\n"
@@ -150,11 +150,11 @@ Respond in JSON format:
 
             # Evidence Logging
             try:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
                 log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
                 with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n==== DETECT LLM CALL START {datetime.utcnow()} ====\n")
+                    f.write(f"\n==== DETECT LLM CALL START {_utc_now()} ====\n")
                     f.write(f"Model: {model_name}\n")
                     f.write("==========================================\n")
             except Exception:
@@ -166,12 +166,12 @@ Respond in JSON format:
 
             # Evidence Logging
             try:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
                 log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(
-                        f"\n==== DETECT LLM CALL SUCCESS {datetime.utcnow()} ====\n"
+                        f"\n==== DETECT LLM CALL SUCCESS {_utc_now()} ====\n"
                     )
                     f.write("==========================================\n")
             except Exception:
@@ -186,11 +186,11 @@ Respond in JSON format:
 
             # Evidence Logging
             try:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
                 log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
                 with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n==== DETECT RESPONSE {datetime.utcnow()} ====\n")
+                    f.write(f"\n==== DETECT RESPONSE {_utc_now()} ====\n")
                     f.write(f"Response:\n{result_text}\n")
                     f.write(
                         f"Parsed Mode: {suggestion.mode if suggestion else 'None'}\n"
@@ -208,11 +208,11 @@ Respond in JSON format:
             logger.error(f"Project detection failed: {e}", exc_info=True)
             # Evidence Logging
             try:
-                from datetime import datetime
+                from datetime import datetime, timezone
 
                 log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
                 with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n==== DETECT EXCEPTION {datetime.utcnow()} ====\n")
+                    f.write(f"\n==== DETECT EXCEPTION {_utc_now()} ====\n")
                     f.write(f"Error: {str(e)}\n")
                     f.write("==========================================\n")
             except Exception:

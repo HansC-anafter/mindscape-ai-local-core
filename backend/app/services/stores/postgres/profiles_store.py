@@ -1,7 +1,12 @@
 """Postgres adaptation of ProfilesStore."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
 from sqlalchemy import text
 
@@ -112,7 +117,7 @@ class PostgresProfilesStore(PostgresStoreBase):
             if hasattr(current, key):
                 setattr(current, key, value)
 
-        current.updated_at = datetime.utcnow()
+        current.updated_at = _utc_now()
         current.version += 1
 
         with self.transaction() as conn:

@@ -292,12 +292,16 @@ async def record_external_context(
     conversation_id: Optional[str] = Body(None),
     intent_hint: Optional[str] = Body(None),
     timestamp: Optional[str] = Body(None),
+    ide_receipts: Optional[List[Dict[str, Any]]] = Body(None),
 ) -> Dict[str, Any]:
     """
     Record external context from MCP Gateway.
 
     When external AI tools call Mindscape tools via MCP Gateway,
     this endpoint records the context for Intent/Seed tracking.
+
+    If ide_receipts contains a valid 'intent_extract' receipt,
+    the WS-side IntentExtractor LLM call is skipped (IDE already did it).
 
     Returns intent_id and seed_id if extraction was successful.
     """
@@ -316,6 +320,7 @@ async def record_external_context(
                 "surface_user_id": surface_user_id,
                 "conversation_id": conversation_id,
                 "intent_hint": intent_hint,
+                "ide_receipts": ide_receipts,
             },
             actor_id=surface_user_id,
         )
@@ -323,8 +328,19 @@ async def record_external_context(
         intent_id = None
         seed_id = None
 
-        # Attempt intent extraction if we have a message
-        if original_message:
+        # Check if IDE already performed intent extraction
+        has_ide_intent_receipt = False
+        if ide_receipts:
+            has_ide_intent_receipt = any(
+                r.get("action") == "intent_extract"
+                and r.get("trace_id")
+                and r.get("output_hash")
+                for r in ide_receipts
+            )
+
+        # Attempt intent extraction only if we have a message AND
+        # no valid IDE receipt for intent extraction
+        if original_message and not has_ide_intent_receipt:
             try:
                 from ...services.conversation.intent_extractor import IntentExtractor
                 from ...services.stores.mindscape_store import MindscapeStore
@@ -372,12 +388,21 @@ async def record_external_context(
                 logging.getLogger(__name__).warning(
                     f"Intent extraction failed: {extract_error}"
                 )
+        elif has_ide_intent_receipt:
+            # IDE already extracted intents — record receipt but skip LLM
+            import logging
+
+            logging.getLogger(__name__).info(
+                f"Skipping WS IntentExtractor: IDE receipt present for "
+                f"workspace={workspace_id}, tool={tool_called}"
+            )
 
         return {
             "success": True,
             "event_id": event.event_id,
             "intent_id": intent_id,
             "seed_id": seed_id,
+            "ide_receipt_used": has_ide_intent_receipt,
             "message": "External context recorded successfully",
         }
 

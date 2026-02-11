@@ -1,7 +1,12 @@
 """Postgres adaptation of ProjectsStore."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 from sqlalchemy import text
 
@@ -92,7 +97,7 @@ class PostgresProjectsStore(PostgresStoreBase):
 
     def update_project(self, project: Project) -> Project:
         """Update an existing project."""
-        project.updated_at = datetime.utcnow()
+        project.updated_at = _utc_now()
         with self.transaction() as conn:
             query = text(
                 """

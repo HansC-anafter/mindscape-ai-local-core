@@ -6,7 +6,12 @@ Used for flow orchestration and artifact dependency management.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, List
 import logging
 
@@ -171,8 +176,8 @@ class ArtifactRegistryService:
             type=artifact_type,
             created_by=created_by,
             dependencies=dependencies or [],
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         self.registry_store.create_registry_entry(entry)

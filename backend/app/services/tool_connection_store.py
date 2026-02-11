@@ -9,7 +9,12 @@ Migration: Use backend/scripts/migrate_tool_connections.py to migrate data.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
@@ -34,7 +39,7 @@ class ToolConnectionStore(PostgresStoreBase):
 
     def save_connection(self, connection: ToolConnection) -> ToolConnection:
         """Save or update a tool connection"""
-        connection.updated_at = datetime.utcnow()
+        connection.updated_at = _utc_now()
 
         with self.transaction() as conn:
             conn.execute(
@@ -196,7 +201,7 @@ class ToolConnectionStore(PostgresStoreBase):
                 """
                 ),
                 {
-                    "last_used_at": datetime.utcnow(),
+                    "last_used_at": _utc_now(),
                     "id": connection_id,
                     "profile_id": profile_id,
                 },
@@ -223,7 +228,7 @@ class ToolConnectionStore(PostgresStoreBase):
                 ),
                 {
                     "is_validated": is_valid,
-                    "last_validated_at": datetime.utcnow(),
+                    "last_validated_at": _utc_now(),
                     "validation_error": error_message,
                     "id": connection_id,
                     "profile_id": profile_id,
@@ -335,8 +340,8 @@ class ToolConnectionStore(PostgresStoreBase):
             validation_error=row.validation_error,
             usage_count=row.usage_count or 0,
             last_used_at=self._coerce_datetime(row.last_used_at),
-            created_at=self._coerce_datetime(row.created_at) or datetime.utcnow(),
-            updated_at=self._coerce_datetime(row.updated_at) or datetime.utcnow(),
+            created_at=self._coerce_datetime(row.created_at) or _utc_now(),
+            updated_at=self._coerce_datetime(row.updated_at) or _utc_now(),
             x_platform=self.deserialize_json(row.x_platform) if row.x_platform else None,
             data_source_type=getattr(row, "data_source_type", None),
             tenant_id=getattr(row, "tenant_id", None),

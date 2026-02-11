@@ -8,7 +8,12 @@ Handles execution of special pack executors that require custom logic
 import logging
 import sys
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from ...models.workspace import Task, TaskStatus, TimelineItemType
@@ -89,8 +94,8 @@ class SpecialPackExecutors:
                 status=TaskStatus.RUNNING,
                 params={"files": files, "message": message},
                 result=None,
-                created_at=datetime.utcnow(),
-                started_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                started_at=_utc_now(),
                 completed_at=None,
                 error=None,
             )
@@ -151,7 +156,7 @@ class SpecialPackExecutors:
                 task_id=task.id,
                 status=TaskStatus.SUCCEEDED,
                 result=execution_result,
-                completed_at=datetime.utcnow(),
+                completed_at=_utc_now(),
             )
             logger.info(
                 f"SpecialPackExecutors: Updated task {task.id} to SUCCEEDED"

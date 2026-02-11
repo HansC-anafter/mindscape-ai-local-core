@@ -14,7 +14,12 @@ without duplicating the view model logic (which is in workspace.py).
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional, List
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -90,7 +95,7 @@ class WorkflowTracker:
             Created MindEvent
         """
         step_event_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = _utc_now()
 
         payload = {
             "execution_id": execution_id,
@@ -173,7 +178,7 @@ class WorkflowTracker:
                 payload["status"] = "failed"
             if completed:
                 payload["status"] = "completed"
-                payload["completed_at"] = datetime.utcnow().isoformat()
+                payload["completed_at"] = _utc_now().isoformat()
 
             event.payload = payload
             self.store.update_event(event)
@@ -204,7 +209,7 @@ class WorkflowTracker:
             Created ToolCall record
         """
         tool_call_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = _utc_now()
 
         # Determine factory_cluster if not provided
         if not factory_cluster:
@@ -306,7 +311,7 @@ class WorkflowTracker:
                 tool_call_id=tool_call_id,
                 status="completed",
                 response=response,
-                completed_at=datetime.utcnow()
+                completed_at=_utc_now()
             )
         except Exception as e:
             logger.warning(f"Failed to update ToolCall: {e}")
@@ -335,7 +340,7 @@ class WorkflowTracker:
                 tool_call_id=tool_call_id,
                 status="failed",
                 error=error,
-                completed_at=datetime.utcnow()
+                completed_at=_utc_now()
             )
         except Exception as e:
             logger.warning(f"Failed to update ToolCall: {e}")
@@ -381,7 +386,7 @@ class WorkflowTracker:
             requires_review=requires_review,
             review_status="pending" if requires_review else None,
             artifact_id=artifact_id,
-            created_at=datetime.utcnow()
+            created_at=_utc_now()
         )
 
         try:
@@ -420,7 +425,7 @@ class WorkflowTracker:
             Created MindEvent
         """
         collaboration_event_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = _utc_now()
 
         payload = {
             "execution_id": execution_id,
@@ -490,7 +495,7 @@ class WorkflowTracker:
             if result:
                 payload["result"] = result
             if status == "completed":
-                payload["completed_at"] = datetime.utcnow().isoformat()
+                payload["completed_at"] = _utc_now().isoformat()
 
             event.payload = payload
             self.store.update_event(event)

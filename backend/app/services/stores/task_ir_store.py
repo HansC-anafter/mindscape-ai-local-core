@@ -7,7 +7,12 @@ sharing and long-running task resumption.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from backend.app.models.task_ir import TaskIR, TaskIRUpdate, PhaseIR, ArtifactReference
@@ -155,9 +160,9 @@ class TaskIRStore(StoreBase):
             task_ir.current_phase = updates.current_phase_update
 
         # Update timestamp
-        task_ir.updated_at = datetime.utcnow()
+        task_ir.updated_at = _utc_now()
         if updates.phase_updates or updates.new_artifacts:
-            task_ir.last_checkpoint_at = datetime.utcnow()
+            task_ir.last_checkpoint_at = _utc_now()
 
         # Save to database
         with self.transaction() as conn:

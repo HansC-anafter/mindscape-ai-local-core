@@ -197,9 +197,9 @@ def register_core_routes(app: FastAPI) -> None:
 
         allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
         allowlist = allowlist_env.split(",") if allowlist_env else None
-        capability_routers = load_capability_apis(allowlist=allowlist, enable_all=False)
-        for router in capability_routers:
-            app.include_router(router)
+        capability_routers = load_capability_apis(
+            app=app, allowlist=allowlist, enable_all=False
+        )
         if allowlist:
             logger.info(
                 f"Loaded {len(capability_routers)} cloud capability API routers (allowlist={allowlist})"
@@ -270,6 +270,15 @@ def register_core_routes(app: FastAPI) -> None:
     from backend.app.routes.core import decision_cards as decision_cards_router
 
     app.include_router(decision_cards_router.router, tags=["decision-cards"])
+
+    # MCP Bridge routes (optional - requires mcp_bridge module)
+    try:
+        from .routes.mcp_bridge import router as mcp_bridge_router
+
+        app.include_router(mcp_bridge_router, tags=["mcp-bridge"])
+        logger.info("MCP Bridge routes registered")
+    except Exception as e:
+        logger.debug(f"MCP Bridge routes not registered: {e}")
 
 
 def register_core_primitives(app: FastAPI) -> None:
@@ -477,85 +486,9 @@ async def shutdown_event():
                 logger.warning(f"Error disconnecting Cloud Connector: {e}")
 
 
-def register_core_routes(app: FastAPI) -> None:
-    """Register kernel routes"""
-    app.include_router(workspace.router, tags=["workspace"])
-    app.include_router(playbook.router, tags=["playbook"])
-    app.include_router(playbook_execution.router, tags=["playbook"])
-    app.include_router(config.router, tags=["config"])
-    app.include_router(system_settings_router, tags=["system"])
-    app.include_router(settings_extensions_router)
-    app.include_router(tools.router, tags=["tools"])
-    app.include_router(sandbox.router, tags=["sandboxes"])
-    app.include_router(deployment.router, tags=["deployment"])
-    app.include_router(data_sources_router, tags=["data-sources"])
-    app.include_router(lens.router, tags=["lenses"])
-    app.include_router(composition.router, tags=["compositions"])
-    app.include_router(surface.router, tags=["surface"])
-
-    # Dashboard routes
-    from .routes.core.dashboard import router as dashboard_router
-
-    app.include_router(dashboard_router, tags=["dashboard"])
-
-    try:
-        from backend.app.capabilities.api_loader import load_capability_apis
-        import os
-
-        allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
-        if allowlist_env:
-            allowlist = [cap.strip() for cap in allowlist_env.split(",")]
-        else:
-            allowlist = None
-
-        load_capability_apis(app, allowlist=allowlist)
-        logger.info("Capability APIs loaded")
-    except Exception as e:
-        logger.warning(f"Failed to load capability APIs: {e}", exc_info=True)
-
-    app.include_router(cloud_providers_router, tags=["cloud-providers"])
-    app.include_router(cloud_sync.router, tags=["cloud-sync"])
-    app.include_router(graph_router, tags=["graph"])
-    app.include_router(lens_unified_router, tags=["lens-unified"])
-
-    # Story Thread proxy routes (optional - requires Cloud API configuration)
-    try:
-        from .routes.core.story_thread import router as story_thread_router
-
-        app.include_router(story_thread_router, tags=["story-threads"])
-        logger.info("Story Thread proxy routes registered")
-    except Exception as e:
-        logger.debug(f"Story Thread proxy routes not registered: {e}")
-
-    # Cloud navigation proxy routes (optional - requires Cloud frontend configuration)
-    try:
-        from .routes.core.cloud_navigation import router as cloud_navigation_router
-
-        app.include_router(cloud_navigation_router, tags=["cloud-navigation"])
-        logger.info("Cloud navigation proxy routes registered")
-    except Exception as e:
-        logger.debug(f"Cloud navigation proxy routes not registered: {e}")
-
-    app.include_router(blueprint.router, tags=["blueprints"])
-    app.include_router(unsplash_fingerprints_router)
-
-    # Generic resource routes (neutral interface)
-    app.include_router(resources_router, tags=["resources"])
-
-    # Legacy specific routes (kept for backward compatibility, will be deprecated)
-    app.include_router(intents_router, tags=["intents"])
-    app.include_router(chapters_router, tags=["chapters"])
-    app.include_router(artifacts_router, tags=["artifacts"])
-
-    # Content Vault indexing routes
-    from .routes.core.content_vault_index import router as content_vault_index_router
-
-    app.include_router(content_vault_index_router, tags=["content-vault"])
-
-    # Decision cards routes
-    from backend.app.routes.core import decision_cards as decision_cards_router
-
-    app.include_router(decision_cards_router.router, tags=["decision-cards"])
+# NOTE: Duplicate register_core_routes definition was removed from here.
+# The active definition is at L164, called at L292. This duplicate was
+# never executed because it was defined after the call site.
 
 
 def register_core_primitives(app: FastAPI) -> None:

@@ -20,7 +20,12 @@ import logging
 import asyncio
 import aiohttp
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +233,7 @@ class ModelWeightsInstaller:
                     key: {"status": info.status.value}
                     for key, info in self._models.items()
                 },
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": _utc_now().isoformat(),
             }
             with open(state_file, "w") as f:
                 json.dump(state, f, indent=2)
@@ -521,7 +526,7 @@ class ModelWeightsInstaller:
 
         model_info.local_path = view_dir
         model_info.status = ModelStatus.DOWNLOADED
-        model_info.downloaded_at = datetime.utcnow()
+        model_info.downloaded_at = _utc_now()
 
     def _get_download_url(self, model_info: ModelInfo, filename: str) -> Optional[str]:
         """Get download URL for a file."""

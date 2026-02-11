@@ -9,7 +9,12 @@ Provides unified tool execution interface supporting three tool types:
 
 from typing import Dict, Any, Optional, List
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from pathlib import Path
 import importlib
 import inspect
@@ -62,7 +67,7 @@ class ToolExecutionResult:
         self.error = error
         self.execution_time = execution_time
         self.metadata = metadata or {}
-        self.timestamp = datetime.utcnow()
+        self.timestamp = _utc_now()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -132,7 +137,7 @@ class UnifiedToolExecutor:
         Returns:
             ToolExecutionResult: Execution result
         """
-        start_time = datetime.utcnow()
+        start_time = _utc_now()
 
         try:
             tool_type, actual_tool_name = self._parse_tool_name(tool_name)
@@ -149,7 +154,7 @@ class UnifiedToolExecutor:
             logger.info(f"Executing tool: {tool_name}, arguments: {arguments}")
             tool_result = await tool.safe_execute(**arguments)
 
-            execution_time = (datetime.utcnow() - start_time).total_seconds()
+            execution_time = (_utc_now() - start_time).total_seconds()
 
             execution_result = ToolExecutionResult(
                 success=tool_result.success,
@@ -175,7 +180,7 @@ class UnifiedToolExecutor:
             return execution_result
 
         except Exception as e:
-            execution_time = (datetime.utcnow() - start_time).total_seconds()
+            execution_time = (_utc_now() - start_time).total_seconds()
 
             error_msg = f"Tool execution failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -402,11 +407,11 @@ class UnifiedToolExecutor:
         if check_result["available"] and check_result["tool"]:
             tool = check_result["tool"]
 
-            start_time = datetime.utcnow()
+            start_time = _utc_now()
 
             try:
                 tool_result = await tool.safe_execute(**arguments)
-                execution_time = (datetime.utcnow() - start_time).total_seconds()
+                execution_time = (_utc_now() - start_time).total_seconds()
 
                 return ToolExecutionResult(
                     success=tool_result.success,
@@ -418,7 +423,7 @@ class UnifiedToolExecutor:
                 )
 
             except Exception as e:
-                execution_time = (datetime.utcnow() - start_time).total_seconds()
+                execution_time = (_utc_now() - start_time).total_seconds()
 
                 return ToolExecutionResult(
                     success=False,

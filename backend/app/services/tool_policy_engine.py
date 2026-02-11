@@ -7,7 +7,12 @@ Validates tool execution against policy constraints.
 import logging
 import re
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.playbook import ToolPolicy
 from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
@@ -108,7 +113,7 @@ class ToolPolicyEngine:
                     state_adapter = StateIntegrationAdapter()
                     decision_state = state_adapter.policy_decision_to_decision_state(
                         workspace_id=workspace_id or "",
-                        decision_id=f"policy_check_{tool_id}_{datetime.utcnow().isoformat()}",
+                        decision_id=f"policy_check_{tool_id}_{_utc_now().isoformat()}",
                         decision_type=DecisionType.POLICY_OVERRIDE,
                         decision_data={
                             "tool_id": tool_id,
@@ -156,11 +161,11 @@ class ToolPolicyEngine:
         try:
             from backend.app.core.state.state_integration import StateIntegrationAdapter
             from backend.app.core.state.decision_state import DecisionType
-            from datetime import datetime
+            from datetime import datetime, timezone
             state_adapter = StateIntegrationAdapter()
             decision_state = state_adapter.policy_decision_to_decision_state(
                 workspace_id=workspace_id or "",
-                decision_id=f"policy_check_{tool_id}_{datetime.utcnow().isoformat()}",
+                decision_id=f"policy_check_{tool_id}_{_utc_now().isoformat()}",
                 decision_type=DecisionType.POLICY_OVERRIDE,
                 decision_data={
                     "tool_id": tool_id,

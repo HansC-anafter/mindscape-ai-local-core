@@ -7,7 +7,12 @@ Claude's pattern of establishing context before main execution begins.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
@@ -92,7 +97,7 @@ class PlaybookInitializer:
                 "execution_id": execution_id,
                 "artifacts": artifacts,
                 "workspace": str(execution_dir),
-                "initialized_at": datetime.utcnow().isoformat()
+                "initialized_at": _utc_now().isoformat()
             }
 
         except Exception as e:
@@ -101,7 +106,7 @@ class PlaybookInitializer:
                 "success": False,
                 "execution_id": execution_id,
                 "error": str(e),
-                "initialized_at": datetime.utcnow().isoformat()
+                "initialized_at": _utc_now().isoformat()
             }
 
     async def get_bearings(self, execution_id: str) -> Dict[str, Any]:
@@ -197,7 +202,7 @@ class PlaybookInitializer:
                     "estimated_complexity": "medium"
                 }
             ],
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _utc_now().isoformat(),
             "version": "1.0"
         }
 
@@ -215,7 +220,7 @@ class PlaybookInitializer:
         Returns:
             Initial progress log content as formatted string
         """
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = _utc_now().isoformat()
         return f"""# Playbook Execution Progress Log
 # Playbook: {playbook_code}
 # Execution: {execution_id}

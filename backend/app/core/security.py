@@ -5,7 +5,12 @@ Implements local-first security with encryption and authentication
 
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any
 from jose import jwt
 from jose.exceptions import JWTError
@@ -27,9 +32,9 @@ class LocalAuthManager:
         """Create JWT access token"""
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = _utc_now() + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=self.access_token_expire_minutes)
+            expire = _utc_now() + timedelta(minutes=self.access_token_expire_minutes)
 
         to_encode.update({"exp": expire, "type": "access"})
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
@@ -70,7 +75,7 @@ class SecurityMonitor:
         if ip_address.startswith("172.") or ip_address.startswith("10."):
             return False
 
-        current_time = datetime.utcnow()
+        current_time = _utc_now()
         window_start = current_time - timedelta(minutes=self.rate_limit_window)
 
         if ip_address not in self.rate_limits:
@@ -97,7 +102,7 @@ class SecurityMonitor:
 
     def check_auth_failure(self, ip_address: str) -> bool:
         """Check if IP should be blocked due to failed auth attempts"""
-        current_time = datetime.utcnow()
+        current_time = _utc_now()
         attempts = self.failed_attempts.get(ip_address, [])
 
         # Clean old attempts
@@ -111,7 +116,7 @@ class SecurityMonitor:
 
     def record_auth_failure(self, ip_address: str):
         """Record failed authentication attempt"""
-        current_time = datetime.utcnow()
+        current_time = _utc_now()
         if ip_address not in self.failed_attempts:
             self.failed_attempts[ip_address] = []
         self.failed_attempts[ip_address].append(current_time)

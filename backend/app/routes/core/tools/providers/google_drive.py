@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import RedirectResponse
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import os
 import logging
 
@@ -97,8 +102,8 @@ async def create_google_drive_connection(
             oauth_token=request.api_key,
             oauth_refresh_token=request.api_secret,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
         conn = registry.create_connection(connection)
         return conn

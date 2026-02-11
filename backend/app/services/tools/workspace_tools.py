@@ -6,7 +6,12 @@ Used by execution_status_query playbook.
 """
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.tasks_store import TasksStore
@@ -281,7 +286,7 @@ class WorkspacePickRelevantExecutionTool(MindscapeTool):
             if len(filtered_candidates) > 1:
                 candidates = filtered_candidates
 
-        now = datetime.utcnow()
+        now = _utc_now()
         recent_threshold = now - timedelta(minutes=5)
 
         recent_candidates = []

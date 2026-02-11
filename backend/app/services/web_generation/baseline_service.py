@@ -6,7 +6,12 @@ Implements baseline management (CRUD) and stale detection based on SemVer.
 import logging
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List, Literal
 
 from sqlalchemy import text
@@ -86,7 +91,7 @@ class BaselineService(PostgresStoreBase):
     ) -> Dict[str, Any]:
         """Create or update baseline."""
         baseline_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = _utc_now()
 
         with self.transaction() as conn:
             # Check if baseline exists
@@ -280,7 +285,7 @@ class BaselineService(PostgresStoreBase):
     ) -> str:
         """Record baseline change event for audit trail."""
         event_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = _utc_now()
 
         previous_state_json = json.dumps(previous_state) if previous_state else None
         new_state_json = json.dumps(new_state)

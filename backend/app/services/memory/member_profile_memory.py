@@ -9,7 +9,12 @@ Manages member-specific memory including:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
@@ -120,7 +125,7 @@ class MemberProfileMemoryService:
             project_experiences=project_experiences,
             learnings=workspace_memory.get("learnings"),
             updated_at=datetime.fromisoformat(
-                workspace_memory.get("updated_at", datetime.utcnow().isoformat())
+                workspace_memory.get("updated_at", _utc_now().isoformat())
             )
         )
 
@@ -157,7 +162,7 @@ class MemberProfileMemoryService:
             existing_learnings = memory.learnings or []
             memory.learnings = existing_learnings + learnings
 
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = _utc_now()
 
         profile = self.store.get_profile(user_id)
         if not profile:
@@ -227,7 +232,7 @@ class MemberProfileMemoryService:
         )
 
         memory.project_experiences.append(experience)
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = _utc_now()
 
         profile = self.store.get_profile(user_id)
         if profile:

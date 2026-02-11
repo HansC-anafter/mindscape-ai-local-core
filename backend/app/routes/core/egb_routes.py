@@ -8,7 +8,12 @@ Provides EGB-related API endpoints:
 
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -305,7 +310,7 @@ async def handle_external_job_callback(
         mapping = await store.update_external_job_status(
             external_job_id=external_job_id,
             status=callback_status,
-            callback_received_at=datetime.utcnow(),
+            callback_received_at=_utc_now(),
         )
 
     # P0-7: Record span status (note: Langfuse SDK does not support updating existing observation)

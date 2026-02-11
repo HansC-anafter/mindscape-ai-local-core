@@ -12,6 +12,11 @@ import os
 import json
 import uuid
 from datetime import datetime
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import logging
@@ -255,8 +260,8 @@ class MindscapeStore:
                 },
                 onboarding_state=None,
                 self_description=None,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
                 version=1,
             )
             self.create_profile(default_profile)

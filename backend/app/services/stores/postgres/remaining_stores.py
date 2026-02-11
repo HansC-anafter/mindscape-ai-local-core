@@ -6,6 +6,11 @@ This module consolidates the migration of legacy SQLite stores to Postgres.
 import logging
 import json
 from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 
@@ -54,8 +59,8 @@ class PostgresCommandsStore(PostgresStoreBase):
                 "correlation_id": command.correlation_id,
                 "parent_command_id": command.parent_command_id,
                 "metadata": self.serialize_json(command.metadata),
-                "created_at": command.created_at or datetime.utcnow(),
-                "updated_at": command.updated_at or datetime.utcnow(),
+                "created_at": command.created_at or _utc_now(),
+                "updated_at": command.updated_at or _utc_now(),
             }
             conn.execute(query, params)
             logger.info(f"Created Command: {command.command_id}")
@@ -94,7 +99,7 @@ class PostgresCommandsStore(PostgresStoreBase):
             return self.get_command(command_id)
 
         set_clauses.append("updated_at = :updated_at")
-        params["updated_at"] = datetime.utcnow()
+        params["updated_at"] = _utc_now()
 
         with self.transaction() as conn:
             query = text(
@@ -350,7 +355,7 @@ class PostgresPlaybookExecutionsStore(PostgresStoreBase):
             ]
             params = {
                 "last_checkpoint": checkpoint_data,
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
                 "id": execution_id,
             }
             if phase is not None:
@@ -372,7 +377,7 @@ class PostgresPlaybookExecutionsStore(PostgresStoreBase):
                 "UPDATE playbook_executions SET updated_at = :updated_at WHERE id = :id"
             )
             result = conn.execute(
-                query, {"updated_at": datetime.utcnow(), "id": execution_id}
+                query, {"updated_at": _utc_now(), "id": execution_id}
             )
             return result.rowcount > 0
 
@@ -429,7 +434,7 @@ class PostgresPlaybookExecutionsStore(PostgresStoreBase):
             update_fields = ["status = :status", "updated_at = :updated_at"]
             params = {
                 "status": status,
-                "updated_at": datetime.utcnow(),
+                "updated_at": _utc_now(),
                 "id": execution_id,
             }
             if phase is not None:
@@ -460,7 +465,7 @@ class PostgresPlaybookExecutionsStore(PostgresStoreBase):
                 query,
                 {
                     "metadata": self.serialize_json(merged_metadata),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": _utc_now(),
                     "id": execution_id,
                 },
             )
@@ -570,8 +575,8 @@ class PostgresLensCompositionStore(PostgresStoreBase):
                 ),
                 "fusion_strategy": composition.fusion_strategy,
                 "metadata": self.serialize_json(composition.metadata),
-                "created_at": composition.created_at or datetime.utcnow(),
-                "updated_at": composition.updated_at or datetime.utcnow(),
+                "created_at": composition.created_at or _utc_now(),
+                "updated_at": composition.updated_at or _utc_now(),
             }
             conn.execute(query, params)
             return composition
@@ -664,8 +669,8 @@ class PostgresSurfaceEventsStore(PostgresStoreBase):
                 "card_id": event.card_id,
                 "scope": event.scope,
                 "playbook_version": event.playbook_version,
-                "timestamp": event.timestamp or datetime.utcnow(),
-                "created_at": event.created_at or datetime.utcnow(),
+                "timestamp": event.timestamp or _utc_now(),
+                "created_at": event.created_at or _utc_now(),
             }
             conn.execute(query, params)
             return event
@@ -789,7 +794,7 @@ class PostgresUserPlaybookMetaStore(PostgresStoreBase):
                 ),
                 {"p": profile_id, "c": playbook_code},
             ).fetchone()
-            now = datetime.utcnow()
+            now = _utc_now()
 
             if check:
                 # Update

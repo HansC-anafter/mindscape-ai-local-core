@@ -7,7 +7,12 @@ Handles overlay versioning for cache invalidation.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from sqlalchemy import text
@@ -83,7 +88,7 @@ class MindscapeOverlayStore(PostgresStoreBase):
         Returns:
             Updated GraphOverlay with new version
         """
-        now = datetime.utcnow()
+        now = _utc_now()
         data = self._serialize_overlay(overlay)
 
         with self.transaction() as conn:

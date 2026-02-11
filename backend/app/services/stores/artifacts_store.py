@@ -6,7 +6,12 @@ All artifact writes go through the /chat flow, ensuring single source of truth.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
@@ -201,7 +206,7 @@ class ArtifactsStore(StoreBase):
                     params.append(self.to_isoformat(kwargs["updated_at"]))
                 elif updates:  # Auto-update updated_at if any field is updated
                     updates.append("updated_at = ?")
-                    params.append(self.to_isoformat(datetime.utcnow()))
+                    params.append(self.to_isoformat(_utc_now()))
 
                 # Handle other fields
                 for key, value in kwargs.items():

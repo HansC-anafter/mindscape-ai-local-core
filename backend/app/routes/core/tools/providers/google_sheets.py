@@ -6,7 +6,12 @@ Reuses Google Drive OAuth configuration for authentication.
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 import os
 
@@ -131,8 +136,8 @@ async def create_google_sheets_connection(
             api_key=access_token,
             oauth_token=access_token,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         # Create connection in registry
@@ -244,8 +249,8 @@ async def google_sheets_oauth_callback(
             oauth_token=access_token,
             oauth_refresh_token=refresh_token,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         connection = registry.create_connection(connection_model)

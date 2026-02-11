@@ -1,6 +1,11 @@
 """Commands store for data persistence."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 
 from .base import StoreBase
@@ -45,8 +50,8 @@ class CommandsStore(StoreBase):
                 command.correlation_id,
                 command.parent_command_id,
                 self.serialize_json(command.metadata),
-                self.to_isoformat(command.created_at or datetime.utcnow()),
-                self.to_isoformat(command.updated_at or datetime.utcnow())
+                self.to_isoformat(command.created_at or _utc_now()),
+                self.to_isoformat(command.updated_at or _utc_now())
             ))
             logger.info(f"Created Command: {command.command_id}")
             return command
@@ -111,7 +116,7 @@ class CommandsStore(StoreBase):
                 return self.get_command(command_id)
 
             set_clauses.append('updated_at = ?')
-            params.append(self.to_isoformat(datetime.utcnow()))
+            params.append(self.to_isoformat(_utc_now()))
             params.append(command_id)
 
             cursor.execute(

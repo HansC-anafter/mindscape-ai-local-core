@@ -4,7 +4,12 @@ Handles exporting user configuration as templates for external extensions
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -102,7 +107,7 @@ class ExportService:
         # Create final exported configuration with all collected data
         exported = ExportedConfiguration(
             export_version="1.0.0",
-            export_timestamp=datetime.utcnow(),
+            export_timestamp=_utc_now(),
             source="my-agent-mindscape",
             template_name=request.template_name,
             template_description=request.template_description,
@@ -267,7 +272,7 @@ class ExportService:
         """Build metadata about the template"""
         metadata = {
             "created_from_profile_version": profile.version,
-            "export_date": datetime.utcnow().isoformat(),
+            "export_date": _utc_now().isoformat(),
             "ai_roles_count": len(ai_roles),
             "playbooks_count": len(playbooks),
         }
@@ -311,7 +316,7 @@ class ExportService:
         """
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = _utc_now().strftime("%Y%m%d_%H%M%S")
         filename = f"{exported.template_name.replace(' ', '_')}_{timestamp}.json"
         filepath = Path(output_dir) / filename
 

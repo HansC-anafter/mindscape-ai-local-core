@@ -9,7 +9,12 @@ Manages project-specific memory including:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
@@ -142,7 +147,7 @@ class ProjectMemoryService:
             version_evolution=version_evolution,
             artifact_index=memory_data.get("artifact_index", []),
             key_conversations=memory_data.get("key_conversations", []),
-            updated_at=datetime.fromisoformat(memory_data.get("updated_at", datetime.utcnow().isoformat()))
+            updated_at=datetime.fromisoformat(memory_data.get("updated_at", _utc_now().isoformat()))
         )
 
     async def add_decision(
@@ -180,7 +185,7 @@ class ProjectMemoryService:
         )
 
         memory.decision_history.append(decision_record)
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = _utc_now()
 
         await self._save_project_memory(project_id, workspace_id, memory)
 
@@ -220,7 +225,7 @@ class ProjectMemoryService:
         )
 
         memory.version_evolution.append(version_record)
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = _utc_now()
 
         await self._save_project_memory(project_id, workspace_id, memory)
 
@@ -246,7 +251,7 @@ class ProjectMemoryService:
         """
         memory = await self.get_project_memory(project_id, workspace_id)
         memory.key_conversations.append(conversation_summary)
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = _utc_now()
 
         await self._save_project_memory(project_id, workspace_id, memory)
 

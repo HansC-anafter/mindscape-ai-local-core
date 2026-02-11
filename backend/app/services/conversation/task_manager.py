@@ -6,10 +6,16 @@ Manages Task and TimelineItem lifecycle: creation, status updates, and polling.
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import uuid
+
+
+def _utc_now():
+    """Return timezone-aware UTC now. Fixes Postgres timestamptz offset bug."""
+    return datetime.now(timezone.utc)
+
 
 from ...models.workspace import (
     Task,
@@ -207,7 +213,7 @@ class TaskManager:
                 summary=summary,
                 data=execution_result,
                 cta=cta,
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
             )
 
             self.timeline_items_store.create_timeline_item(timeline_item)
@@ -435,7 +441,7 @@ class TaskManager:
                 task_id=task.id,
                 status=TaskStatus.SUCCEEDED,
                 result=execution_result,
-                completed_at=datetime.utcnow(),
+                completed_at=_utc_now(),
             )
 
             # Create graph node for completed task (Task → Graph integration)
@@ -461,7 +467,7 @@ class TaskManager:
                     task_id=task.id,
                     status=TaskStatus.FAILED,
                     error=str(e),
-                    completed_at=datetime.utcnow(),
+                    completed_at=_utc_now(),
                 )
             except Exception as update_error:
                 logger.error(f"Failed to update task status: {update_error}")
@@ -478,9 +484,7 @@ class TaskManager:
             task_id: Task ID
         """
         try:
-            self.tasks_store.update_task(
-                task_id, notification_sent_at=datetime.utcnow()
-            )
+            self.tasks_store.update_task(task_id, notification_sent_at=_utc_now())
             logger.debug(f"Marked task {task_id} as notification sent")
         except Exception as e:
             logger.warning(f"Failed to mark task {task_id} as notification sent: {e}")
@@ -565,7 +569,7 @@ class TaskManager:
                 "completed_at": (
                     task.completed_at.isoformat()
                     if hasattr(task, "completed_at") and task.completed_at
-                    else datetime.utcnow().isoformat()
+                    else _utc_now().isoformat()
                 ),
                 "timeline_item_type": (
                     timeline_item.type.value
@@ -592,7 +596,7 @@ class TaskManager:
                     "label": timeline_item.title or playbook_code,
                     "status": "completed",
                     "metadata": node_metadata,
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": _utc_now().isoformat(),
                 },
                 actor="system",
                 actor_context="task_completion",
@@ -623,7 +627,7 @@ class TaskManager:
             task_id: Task ID
         """
         try:
-            self.tasks_store.update_task(task_id, displayed_at=datetime.utcnow())
+            self.tasks_store.update_task(task_id, displayed_at=_utc_now())
             logger.debug(f"Marked task {task_id} as displayed")
         except Exception as e:
             logger.warning(f"Failed to mark task {task_id} as displayed: {e}")
@@ -664,7 +668,7 @@ class TaskManager:
             # Create MindEvent with ARTIFACT_CREATED event type (unified event stream)
             event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.AGENT,
                 channel="workspace",
                 profile_id=workspace.owner_user_id,
@@ -1087,7 +1091,7 @@ class TaskManager:
                         task_id=task.id,
                         status=TaskStatus.SUCCEEDED,
                         result=execution_result_data,
-                        completed_at=datetime.utcnow(),
+                        completed_at=_utc_now(),
                     )
 
                     # Create timeline item
@@ -1121,7 +1125,7 @@ class TaskManager:
                             task_id=task.id,
                             status=TaskStatus.FAILED,
                             error="Execution completed but no result available",
-                            completed_at=datetime.utcnow(),
+                            completed_at=_utc_now(),
                         )
 
                         # Create error TimelineItem for failed execution
@@ -1138,7 +1142,7 @@ class TaskManager:
                                 "error": "Execution completed but no result available",
                             },
                             cta=None,
-                            created_at=datetime.utcnow(),
+                            created_at=_utc_now(),
                         )
                         self.timeline_items_store.create_timeline_item(
                             error_timeline_item
@@ -1188,7 +1192,7 @@ class TaskManager:
             if not running_tasks:
                 return timed_out_task_ids
 
-            timeout_threshold = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+            timeout_threshold = _utc_now() - timedelta(minutes=timeout_minutes)
 
             for task in running_tasks:
                 # Check if task has been running too long
@@ -1197,7 +1201,7 @@ class TaskManager:
                 if start_time:
                     # Ensure both times are timezone-naive for comparison
                     # start_time from database is already timezone-naive (UTC)
-                    # timeout_threshold is also timezone-naive (UTC from datetime.utcnow())
+                    # timeout_threshold is also timezone-naive (UTC from _utc_now())
                     if start_time < timeout_threshold:
                         # Task has timed out
                         try:
@@ -1211,7 +1215,7 @@ class TaskManager:
                                 "execution_id": execution_id,
                                 "started_at": start_time.isoformat(),
                                 "timeout_after_minutes": timeout_minutes,
-                                "current_time": datetime.utcnow().isoformat(),
+                                "current_time": _utc_now().isoformat(),
                             }
 
                             # Check if there are any execution steps
@@ -1288,7 +1292,7 @@ class TaskManager:
                                 task_id=task.id,
                                 status=TaskStatus.FAILED,
                                 error=timeout_error,
-                                completed_at=datetime.utcnow(),
+                                completed_at=_utc_now(),
                             )
 
                             # Update execution_context
@@ -1321,7 +1325,7 @@ class TaskManager:
                                     "timeout_minutes": timeout_minutes,
                                 },
                                 cta=None,
-                                created_at=datetime.utcnow(),
+                                created_at=_utc_now(),
                             )
                             self.timeline_items_store.create_timeline_item(
                                 error_timeline_item
@@ -1353,7 +1357,7 @@ class TaskManager:
             if not running_tasks:
                 return timed_out_task_ids
 
-            timeout_threshold = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+            timeout_threshold = _utc_now() - timedelta(minutes=timeout_minutes)
 
             for task in running_tasks:
                 # Check if task has been running too long
@@ -1362,7 +1366,7 @@ class TaskManager:
                 if start_time:
                     # Ensure both times are timezone-naive for comparison
                     # start_time from database is already timezone-naive (UTC)
-                    # timeout_threshold is also timezone-naive (UTC from datetime.utcnow())
+                    # timeout_threshold is also timezone-naive (UTC from _utc_now())
                     if start_time < timeout_threshold:
                         # Task has timed out
                         try:
@@ -1376,7 +1380,7 @@ class TaskManager:
                                 task_id=task.id,
                                 status=TaskStatus.FAILED,
                                 error=timeout_error,
-                                completed_at=datetime.utcnow(),
+                                completed_at=_utc_now(),
                             )
 
                             # Create error TimelineItem for timed out task
@@ -1404,7 +1408,7 @@ class TaskManager:
                                     "timeout_minutes": timeout_minutes,
                                 },
                                 cta=None,
-                                created_at=datetime.utcnow(),
+                                created_at=_utc_now(),
                             )
                             self.timeline_items_store.create_timeline_item(
                                 error_timeline_item

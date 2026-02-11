@@ -5,7 +5,12 @@ Handles Task creation, status updates, and cleanup for playbook executions
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Optional, Any
 
 from backend.app.models.workspace import Task, TaskStatus
@@ -80,9 +85,9 @@ class PlaybookTaskManager:
                 status=TaskStatus.RUNNING,
                 execution_context=execution_context,
                 params=inputs or {},
-                created_at=datetime.utcnow(),
-                started_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=_utc_now(),
+                started_at=_utc_now(),
+                updated_at=_utc_now()
             )
 
             self.tasks_store.create_task(task)
@@ -131,7 +136,7 @@ class PlaybookTaskManager:
                         "structured_output": structured_output,
                         "status": "completed"
                     },
-                    completed_at=datetime.utcnow()
+                    completed_at=_utc_now()
                 )
                 logger.info(f"PlaybookTaskManager: Updated task {task.id} status to SUCCEEDED for completed execution {execution_id}")
                 return True

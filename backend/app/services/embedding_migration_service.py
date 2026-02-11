@@ -9,7 +9,12 @@ import logging
 import os
 import asyncio
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from uuid import UUID
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
@@ -210,7 +215,7 @@ class EmbeddingMigrationService:
 
         # Update status to in_progress
         migration.status = MigrationStatus.IN_PROGRESS
-        migration.started_at = datetime.utcnow()
+        migration.started_at = _utc_now()
         self.store.update_migration(migration)
 
         # Start migration task
@@ -247,7 +252,7 @@ class EmbeddingMigrationService:
 
             # Mark migration as completed
             migration.status = MigrationStatus.COMPLETED
-            migration.completed_at = datetime.utcnow()
+            migration.completed_at = _utc_now()
             self.store.update_migration(migration)
 
             logger.info(f"Completed migration task {migration.id}")
@@ -256,7 +261,7 @@ class EmbeddingMigrationService:
             logger.error(f"Migration task {migration.id} failed: {e}", exc_info=True)
             migration.status = MigrationStatus.FAILED
             migration.error_message = str(e)
-            migration.completed_at = datetime.utcnow()
+            migration.completed_at = _utc_now()
             self.store.update_migration(migration)
 
         finally:
@@ -545,7 +550,7 @@ class EmbeddingMigrationService:
                     metadata["embedding_model"] = migration.target_model
                     metadata["embedding_provider"] = migration.target_provider
                     metadata["embedding_dimension"] = len(new_embedding)
-                    metadata["migrated_at"] = datetime.utcnow().isoformat()
+                    metadata["migrated_at"] = _utc_now().isoformat()
                     metadata["migrated_from"] = migration.source_model
 
                     cursor.execute("""
@@ -582,7 +587,7 @@ class EmbeddingMigrationService:
                     metadata["embedding_model"] = migration.target_model
                     metadata["embedding_provider"] = migration.target_provider
                     metadata["embedding_dimension"] = len(new_embedding)
-                    metadata["migrated_at"] = datetime.utcnow().isoformat()
+                    metadata["migrated_at"] = _utc_now().isoformat()
                     metadata["migrated_from"] = migration.source_model
                     metadata["original_id"] = str(embedding_record["id"])
 
@@ -625,7 +630,7 @@ class EmbeddingMigrationService:
                         old_metadata = {}
 
                     old_metadata["deprecated"] = True
-                    old_metadata["deprecated_at"] = datetime.utcnow().isoformat()
+                    old_metadata["deprecated_at"] = _utc_now().isoformat()
                     old_metadata["deprecated_by"] = str(migration.id)
 
                     cursor.execute("""
@@ -646,7 +651,7 @@ class EmbeddingMigrationService:
                     new_metadata["embedding_model"] = migration.target_model
                     new_metadata["embedding_provider"] = migration.target_provider
                     new_metadata["embedding_dimension"] = len(new_embedding)
-                    new_metadata["migrated_at"] = datetime.utcnow().isoformat()
+                    new_metadata["migrated_at"] = _utc_now().isoformat()
                     new_metadata["migrated_from"] = migration.source_model
                     new_metadata.pop("deprecated", None)
                     new_metadata.pop("deprecated_at", None)
@@ -703,7 +708,7 @@ class EmbeddingMigrationService:
             return False
 
         migration.status = MigrationStatus.CANCELLED
-        migration.completed_at = datetime.utcnow()
+        migration.completed_at = _utc_now()
         self.store.update_migration(migration)
 
         logger.info(f"Cancelled migration {migration_id}")

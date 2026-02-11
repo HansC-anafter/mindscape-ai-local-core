@@ -7,7 +7,12 @@ Scans /packs/*.yaml and registers enabled packs' routes.
 
 import importlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, APIRouter
@@ -132,7 +137,7 @@ def _auto_install_default_packs(pack_metas: List[Dict[str, Any]], default_enable
             }
             store.upsert_pack(
                 pack_id=pack_id,
-                installed_at=datetime.utcnow(),
+                installed_at=_utc_now(),
                 enabled=True,
                 metadata=metadata,
             )

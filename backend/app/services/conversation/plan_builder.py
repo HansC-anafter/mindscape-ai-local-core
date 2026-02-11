@@ -8,7 +8,12 @@ import logging
 import os
 import asyncio
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
 from ...capabilities.registry import get_registry
 from backend.app.services.pack_info_collector import PackInfoCollector
@@ -1005,7 +1010,7 @@ Message analysis hints:
                 # In the future, this should be passed from ConversationOrchestrator
                 trace_id = trace_recorder.create_trace(
                     workspace_id=workspace_id,
-                    execution_id=f"plan_{profile_id}_{int(datetime.utcnow().timestamp())}",
+                    execution_id=f"plan_{profile_id}_{int(_utc_now().timestamp())}",
                     user_id=profile_id,
                 )
                 trace_node_id = trace_recorder.start_node(
@@ -1027,7 +1032,7 @@ Message analysis hints:
                     f"Failed to start trace node for LLM plan generation: {e}"
                 )
 
-            llm_start_time = datetime.utcnow()
+            llm_start_time = _utc_now()
             try:
                 result = await extract(
                     text=context_with_history,
@@ -1035,7 +1040,7 @@ Message analysis hints:
                     example_output=example_output,
                     llm_provider=llm_provider,
                 )
-                llm_end_time = datetime.utcnow()
+                llm_end_time = _utc_now()
                 latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
 
                 # End trace node for successful LLM call
@@ -1066,7 +1071,7 @@ Message analysis hints:
                             f"Failed to end trace node for LLM plan generation: {e}"
                         )
             except Exception as e:
-                llm_end_time = datetime.utcnow()
+                llm_end_time = _utc_now()
                 latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
 
                 # End trace node for failed LLM call
@@ -1213,7 +1218,7 @@ Message analysis hints:
         Returns:
             ExecutionPlan object with planned tasks
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
         import uuid
 
         playbooks_to_use = (
@@ -1268,7 +1273,7 @@ Message analysis hints:
                             message_id=message_id or str(uuid.uuid4()),
                             workspace_id=workspace_id,
                             tasks=task_plans,
-                            created_at=datetime.utcnow(),
+                            created_at=_utc_now(),
                             project_id=project_id,
                             project_assignment_decision=project_assignment_decision,
                         )
@@ -1433,7 +1438,7 @@ Message analysis hints:
             message_id=message_id or str(uuid.uuid4()),
             workspace_id=workspace_id,
             tasks=task_plans,
-            created_at=datetime.utcnow(),
+            created_at=_utc_now(),
             project_id=project_id,
             project_assignment_decision=project_assignment_decision,
         )

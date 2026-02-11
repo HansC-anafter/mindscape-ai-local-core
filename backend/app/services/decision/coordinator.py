@@ -14,7 +14,12 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.core.runtime_port import ExecutionProfile
 
@@ -957,7 +962,7 @@ class UnifiedDecisionCoordinator:
         try:
             event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.AGENT,
                 channel="api",
                 profile_id=user_id or "",
@@ -1297,7 +1302,7 @@ class UnifiedDecisionCoordinator:
             if store:
                 event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.AGENT,
                     channel="api",
                     profile_id=user_id or "",

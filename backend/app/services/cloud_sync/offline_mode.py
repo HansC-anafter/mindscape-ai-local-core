@@ -6,7 +6,12 @@ Manages offline mode detection and graceful degradation
 import asyncio
 import logging
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Callable, List
 from dataclasses import dataclass
 
@@ -66,7 +71,7 @@ class ConnectivityMonitor:
 
         self.state = ConnectivityState(
             status=ConnectivityStatus.OFFLINE,
-            last_check=datetime.utcnow(),
+            last_check=_utc_now(),
             consecutive_failures=0,
         )
 
@@ -113,7 +118,7 @@ class ConnectivityMonitor:
                     self.state.status = ConnectivityStatus.ONLINE
                     self.state.consecutive_failures = 0
                     self.state.last_error = None
-                    self.state.last_check = datetime.utcnow()
+                    self.state.last_check = _utc_now()
 
                     if old_status != ConnectivityStatus.ONLINE:
                         self._notify_status_change(old_status, ConnectivityStatus.ONLINE)
@@ -123,7 +128,7 @@ class ConnectivityMonitor:
                     old_status = self.state.status
                     self.state.consecutive_failures += 1
                     self.state.last_error = f"HTTP {response.status_code}"
-                    self.state.last_check = datetime.utcnow()
+                    self.state.last_check = _utc_now()
 
                     if self.state.consecutive_failures >= self.failure_threshold:
                         self.state.status = ConnectivityStatus.DEGRADED
@@ -137,7 +142,7 @@ class ConnectivityMonitor:
             old_status = self.state.status
             self.state.consecutive_failures += 1
             self.state.last_error = "Timeout"
-            self.state.last_check = datetime.utcnow()
+            self.state.last_check = _utc_now()
 
             if self.state.consecutive_failures >= self.failure_threshold:
                 self.state.status = ConnectivityStatus.OFFLINE
@@ -151,7 +156,7 @@ class ConnectivityMonitor:
             old_status = self.state.status
             self.state.consecutive_failures += 1
             self.state.last_error = str(e)
-            self.state.last_check = datetime.utcnow()
+            self.state.last_check = _utc_now()
 
             if self.state.consecutive_failures >= self.failure_threshold:
                 self.state.status = ConnectivityStatus.OFFLINE

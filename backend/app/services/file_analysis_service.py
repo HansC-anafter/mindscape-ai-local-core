@@ -7,7 +7,12 @@ Extracted from workspace routes for better separation of concerns.
 
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -269,7 +274,7 @@ class FileAnalysisService:
 
         file_event = MindEvent(
             id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
             actor=EventActor.USER,
             channel="api",
             profile_id=profile_id,
@@ -333,7 +338,7 @@ class FileAnalysisService:
                     IntentStatus,
                     PriorityLevel,
                 )
-                from datetime import datetime as dt
+                from datetime import datetime as dt, timezone
 
                 for intent_text in intents[:3]:
                     if intent_text and len(intent_text.strip()) > 0:
@@ -463,7 +468,7 @@ class FileAnalysisService:
                     if semantic_seeds.get("enabled") and intents
                     else None
                 ),
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
             )
             self.timeline_items_store.create_timeline_item(timeline_item)
             logger.info(

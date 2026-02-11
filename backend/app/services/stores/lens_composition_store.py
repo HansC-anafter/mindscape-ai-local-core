@@ -1,6 +1,11 @@
 """Lens Composition store for data persistence (Postgres)."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 
 from sqlalchemy import text
@@ -42,8 +47,8 @@ class LensCompositionStore(PostgresStoreBase):
                 ),
                 "fusion_strategy": composition.fusion_strategy,
                 "metadata": self.serialize_json(composition.metadata),
-                "created_at": composition.created_at or datetime.utcnow(),
-                "updated_at": composition.updated_at or datetime.utcnow(),
+                "created_at": composition.created_at or _utc_now(),
+                "updated_at": composition.updated_at or _utc_now(),
             }
             conn.execute(query, params)
             logger.info(f"Created Lens Composition: {composition.composition_id}")
@@ -96,7 +101,7 @@ class LensCompositionStore(PostgresStoreBase):
             return self.get_composition(composition_id)
 
         set_clauses.append("updated_at = :updated_at")
-        params["updated_at"] = datetime.utcnow()
+        params["updated_at"] = _utc_now()
 
         with self.transaction() as conn:
             result = conn.execute(

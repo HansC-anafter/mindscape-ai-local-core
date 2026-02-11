@@ -6,7 +6,14 @@ All task writes go through the /chat flow, ensuring single source of truth.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now() -> datetime:
+    """Return timezone-aware UTC now. Fixes Postgres timestamptz offset bug."""
+    return datetime.now(timezone.utc)
+
+
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
@@ -187,9 +194,7 @@ class TasksStore(PostgresStoreBase):
             params["completed_at"] = completed_at
 
         with self.transaction() as conn:
-            query = text(
-                f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id"
-            )
+            query = text(f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id")
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
@@ -249,9 +254,7 @@ class TasksStore(PostgresStoreBase):
             return self.get_task(task_id)
 
         with self.transaction() as conn:
-            query = text(
-                f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id"
-            )
+            query = text(f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id")
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
@@ -531,7 +534,7 @@ class TasksStore(PostgresStoreBase):
         """
         from datetime import timedelta
 
-        time_threshold = datetime.utcnow() - timedelta(hours=created_within_hours)
+        time_threshold = _utc_now() - timedelta(hours=created_within_hours)
 
         query = """
             SELECT * FROM tasks
@@ -657,7 +660,7 @@ class TasksStore(PostgresStoreBase):
             return [self._row_to_task(row) for row in rows]
 
     def try_claim_task(self, task_id: str, runner_id: str) -> bool:
-        now = datetime.utcnow()
+        now = _utc_now()
 
         with self.transaction() as conn:
             row = conn.execute(
@@ -709,7 +712,7 @@ class TasksStore(PostgresStoreBase):
     def update_task_heartbeat(
         self, task_id: str, runner_id: Optional[str] = None
     ) -> None:
-        now = datetime.utcnow()
+        now = _utc_now()
         now_iso = now.isoformat()
         task = self.get_task(task_id)
         if not task:

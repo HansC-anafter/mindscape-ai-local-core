@@ -10,7 +10,12 @@ import re
 import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.workspace import Artifact, ArtifactType, PrimaryActionType
 from backend.app.services.stores.artifacts_store import ArtifactsStore
@@ -409,8 +414,8 @@ class PlaybookOutputArtifactCreator:
             or metadata.get("post_url"),
             sync_state=None,
             metadata=metadata,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
         )
 
         # Save to store

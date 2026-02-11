@@ -9,7 +9,12 @@ Manages long-term workspace memory including:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
@@ -108,7 +113,7 @@ class WorkspaceCoreMemoryService:
             important_milestones=memory_data.get("important_milestones"),
             learnings=memory_data.get("learnings"),
             updated_at=datetime.fromisoformat(
-                memory_data.get("updated_at", datetime.utcnow().isoformat())
+                memory_data.get("updated_at", _utc_now().isoformat())
             ),
         )
 
@@ -152,7 +157,7 @@ class WorkspaceCoreMemoryService:
             existing_learnings = memory.learnings or []
             memory.learnings = existing_learnings + learnings
 
-        memory.updated_at = datetime.utcnow()
+        memory.updated_at = _utc_now()
 
         workspace = await self.store.get_workspace(workspace_id)
         workspace.metadata = workspace.metadata or {}
@@ -185,7 +190,7 @@ class WorkspaceCoreMemoryService:
         memory = await self.get_core_memory(workspace_id)
         existing_milestones = memory.important_milestones or []
         existing_milestones.append(
-            {**milestone, "added_at": datetime.utcnow().isoformat()}
+            {**milestone, "added_at": _utc_now().isoformat()}
         )
         return await self.update_core_memory(
             workspace_id=workspace_id, important_milestones=existing_milestones

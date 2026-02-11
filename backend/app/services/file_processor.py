@@ -12,7 +12,12 @@ import logging
 import base64
 import mimetypes
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +52,7 @@ class FileProcessor:
                 "name": file_name,
                 "size": file_size or 0,
                 "type": file_type or self._detect_mime_type(file_name),
-                "processed_at": datetime.utcnow().isoformat()
+                "processed_at": _utc_now().isoformat()
             }
 
             if file_data.startswith('data:'):

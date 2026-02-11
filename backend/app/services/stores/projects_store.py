@@ -3,7 +3,12 @@ Projects store for Mindscape data persistence
 Handles project CRUD operations
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 from backend.app.services.stores.base import StoreBase
 from ...models.project import Project
@@ -99,7 +104,7 @@ class ProjectsStore(StoreBase):
         """Update an existing project"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            project.updated_at = datetime.utcnow()
+            project.updated_at = _utc_now()
             cursor.execute('''
                 UPDATE projects SET
                     type = ?,

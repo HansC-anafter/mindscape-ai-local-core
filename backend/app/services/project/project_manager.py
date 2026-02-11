@@ -5,7 +5,12 @@ Handles Project CRUD operations and manages project lifecycle.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Optional, List, Dict, Any
 import logging
 
@@ -82,8 +87,8 @@ class ProjectManager:
             initiator_user_id=initiator_user_id,
             human_owner_user_id=human_owner_user_id,
             ai_pm_id=ai_pm_id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
             metadata=metadata or {},
         )
 
@@ -121,8 +126,8 @@ class ProjectManager:
                     "edges": [],
                     "playbook_sequence": validated_playbook_sequence,
                 },
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
             )
             flows_store.create_flow(flow)
             logger.info(
@@ -201,7 +206,7 @@ class ProjectManager:
         Returns:
             Updated Project object
         """
-        project.updated_at = datetime.utcnow()
+        project.updated_at = _utc_now()
         self.projects_store.update_project(project)
         logger.info(f"Updated project: {project.id}")
 

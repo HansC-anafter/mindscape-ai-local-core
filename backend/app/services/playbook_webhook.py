@@ -6,7 +6,12 @@ Handles post-execution webhooks for playbooks
 import logging
 import json
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from app.database.config import get_vector_postgres_config
@@ -120,8 +125,8 @@ class PlaybookWebhookHandler:
                 "next_action": project_data.get("next_action"),
                 "estimated_duration": project_data.get("estimated_duration")
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         created_intent = self.store.create_intent(intent)

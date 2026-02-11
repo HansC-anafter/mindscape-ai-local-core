@@ -10,7 +10,12 @@ EvidenceReducer（證據收斂器）
 import logging
 import hashlib
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.core.trace.trace_schema import (
     TraceGraph,
@@ -80,7 +85,7 @@ class EvidenceReducer:
             strictness_level=correlation_ids.strictness_level,
             mind_lens_level=correlation_ids.mind_lens_level,
             policy_version=correlation_ids.policy_version,
-            created_at=datetime.utcnow(),
+            created_at=_utc_now(),
         )
 
         # 提取工具路徑

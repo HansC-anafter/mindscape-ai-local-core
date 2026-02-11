@@ -10,7 +10,12 @@ import os
 import sys
 import uuid
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ...models.workspace import TimelineItem, TimelineItemType
 from ...models.mindscape import IntentTag, IntentTagStatus, IntentSource
@@ -211,8 +216,8 @@ class IntentExtractor:
                                 "extraction_source": "intent_extractor",
                                 "llm_analysis": resolution_result.llm_analysis or {},
                             },
-                            created_at=datetime.utcnow(),
-                            updated_at=datetime.utcnow(),
+                            created_at=_utc_now(),
+                            updated_at=_utc_now(),
                             confirmed_at=None,
                             rejected_at=None,
                         )
@@ -319,9 +324,9 @@ class IntentExtractor:
                         "action": "create_candidate_intents",
                         "candidate_intents_created": intents_created,
                     },
-                    created_at=datetime.utcnow(),
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
+                    created_at=_utc_now(),
+                    started_at=_utc_now(),
+                    completed_at=_utc_now(),
                     error=None,
                 )
                 tasks_store.create_task(action_task)
@@ -370,7 +375,7 @@ class IntentExtractor:
                         "thread_id": thread_id,
                     },
                     cta=None,  # No CTA - already completed
-                    created_at=datetime.utcnow(),
+                    created_at=_utc_now(),
                 )
 
                 self.timeline_items_store.create_timeline_item(timeline_item)
@@ -408,7 +413,7 @@ class IntentExtractor:
                         "requires_cta": True,
                         "llm_analysis": resolution_result.llm_analysis or {},
                     },
-                    created_at=datetime.utcnow(),
+                    created_at=_utc_now(),
                     started_at=None,
                     completed_at=None,
                     error=None,

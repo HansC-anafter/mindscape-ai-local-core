@@ -22,7 +22,12 @@ from contextlib import contextmanager
 import uuid
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +213,7 @@ class SpanContext:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        duration = (datetime.utcnow() - self.start_time).total_seconds()
+        duration = (_utc_now() - self.start_time).total_seconds()
         if exc_type:
             logger.debug(
                 f"[Span End] {self.name}, span_id={self.span_id}, "

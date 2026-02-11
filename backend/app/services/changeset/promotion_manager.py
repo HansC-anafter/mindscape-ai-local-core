@@ -6,7 +6,12 @@ Manages promotion of change sets to production (only with human confirmation).
 
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.core.ir.changeset import ChangeSetIR, ChangeSetStatus
 
@@ -49,7 +54,7 @@ class PromotionManager:
             # Update changeset
             changeset.status = ChangeSetStatus.APPROVED
             changeset.approved_by = approved_by
-            changeset.approved_at = datetime.utcnow()
+            changeset.approved_at = _utc_now()
 
             if notes:
                 if not changeset.metadata:
@@ -105,7 +110,7 @@ class PromotionManager:
 
             # Update changeset
             changeset.status = ChangeSetStatus.PROMOTED_TO_PROD
-            changeset.promoted_at = datetime.utcnow()
+            changeset.promoted_at = _utc_now()
 
             if not changeset.metadata:
                 changeset.metadata = {}

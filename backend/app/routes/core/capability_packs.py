@@ -12,7 +12,12 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from pathlib import Path
 import tempfile
 import logging
@@ -267,7 +272,7 @@ async def enable_pack(pack_id: str):
         else:
             installed_packs_store.upsert_pack(
                 pack_id=pack_id,
-                installed_at=datetime.utcnow(),
+                installed_at=_utc_now(),
                 enabled=True,
                 metadata=pack_meta,
             )
@@ -674,7 +679,7 @@ async def install_from_file(
 
                     installed_packs_store.upsert_pack(
                         pack_id=capability_id,
-                        installed_at=datetime.utcnow(),
+                        installed_at=_utc_now(),
                         enabled=True,
                         metadata=pack_metadata,
                     )
@@ -1000,7 +1005,7 @@ async def install_from_cloud(
 
                     installed_packs_store.upsert_pack(
                         pack_id=capability_code,
-                        installed_at=datetime.utcnow(),
+                        installed_at=_utc_now(),
                         enabled=True,
                         metadata=pack_metadata,
                     )

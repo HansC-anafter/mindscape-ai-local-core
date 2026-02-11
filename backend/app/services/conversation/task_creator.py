@@ -6,7 +6,12 @@ Creates and manages task instances for playbook executions.
 
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from ...core.domain_context import LocalDomainContext
@@ -113,8 +118,8 @@ class TaskCreator:
             },
             result=None,
             execution_context=execution_context,
-            created_at=datetime.utcnow(),
-            started_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            started_at=_utc_now(),
             completed_at=None,
             error=None,
         )
@@ -176,9 +181,9 @@ class TaskCreator:
                         # Lens binding (retrospective)
                         "lens_snapshot_hash": lens_snapshot_hash,
                         # Lifecycle
-                        "planned_at": datetime.utcnow().isoformat(),
+                        "planned_at": _utc_now().isoformat(),
                     },
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": _utc_now().isoformat(),
                 },
                 actor="system",
                 actor_context="task_creation",

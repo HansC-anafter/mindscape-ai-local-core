@@ -7,7 +7,12 @@ import yaml
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from .cache_store import CacheStore, CacheLifecycleManager
 from .asset_fetcher import AssetFetcher
@@ -98,7 +103,7 @@ class FlowLoader:
                 }
 
             self._loaded_flows[full_uri] = flow_data
-            self._load_timestamps[full_uri] = datetime.utcnow()
+            self._load_timestamps[full_uri] = _utc_now()
 
             return flow_data
 
@@ -165,7 +170,7 @@ class FlowLoader:
                 }
 
             self._loaded_flows[full_uri] = flow_data
-            self._load_timestamps[full_uri] = datetime.utcnow()
+            self._load_timestamps[full_uri] = _utc_now()
 
             return flow_data
 

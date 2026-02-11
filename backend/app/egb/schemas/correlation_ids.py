@@ -7,7 +7,12 @@ Correlation IDs Schema
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 import hashlib
 
@@ -155,7 +160,7 @@ class CorrelationIds:
         if isinstance(created_at, str):
             created_at = datetime.fromisoformat(created_at)
         elif created_at is None:
-            created_at = datetime.utcnow()
+            created_at = _utc_now()
 
         # 向後相容：如果有 trace_id 但沒有 run_id，使用 trace_id
         run_id = data.get("run_id") or data.get("trace_id") or str(uuid.uuid4())

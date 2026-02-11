@@ -7,7 +7,12 @@ PlanState can be written by LLM (can overwrite previous versions).
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 
 
@@ -62,7 +67,7 @@ class PlanVersion:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PlanVersion":
         """Create PlanVersion from dictionary"""
-        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.utcnow())
+        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", _utc_now())
         return cls(
             version_id=data["version_id"],
             version_number=data["version_number"],
@@ -129,7 +134,7 @@ class PlanState:
         # Sort by version number
         self.versions.sort(key=lambda v: v.version_number)
 
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
     def get_active_version(self) -> Optional[PlanVersion]:
         """Get active version"""
@@ -171,8 +176,8 @@ class PlanState:
         versions = [PlanVersion.from_dict(v) for v in data.get("versions", [])]
         status = PlanStatus(data.get("status", "draft"))
 
-        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.utcnow())
-        updated_at = datetime.fromisoformat(data["updated_at"]) if isinstance(data.get("updated_at"), str) else data.get("updated_at", datetime.utcnow())
+        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", _utc_now())
+        updated_at = datetime.fromisoformat(data["updated_at"]) if isinstance(data.get("updated_at"), str) else data.get("updated_at", _utc_now())
 
         return cls(
             state_id=data["state_id"],

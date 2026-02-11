@@ -3,7 +3,12 @@ Entities and Tags store for Mindscape data persistence
 Handles entity, tag, and entity-tag association CRUD operations
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase
 from ...models.mindscape import Entity, Tag, EntityTag, EntityType, TagCategory
@@ -97,7 +102,7 @@ class EntitiesStore(StoreBase):
 
             if set_clauses:
                 set_clauses.append('updated_at = ?')
-                params.append(self.to_isoformat(datetime.utcnow()))
+                params.append(self.to_isoformat(_utc_now()))
                 params.append(entity_id)
 
                 cursor.execute(
@@ -206,7 +211,7 @@ class EntitiesStore(StoreBase):
                 entity_id=entity_id,
                 tag_id=tag_id,
                 value=value,
-                created_at=datetime.utcnow()
+                created_at=_utc_now()
             )
             cursor.execute('''
                 INSERT OR REPLACE INTO entity_tags (entity_id, tag_id, value, created_at)

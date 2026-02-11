@@ -8,7 +8,12 @@ Stores embeddings in mindscape_personal table for semantic search.
 import logging
 import os
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -403,7 +408,7 @@ class EventEmbeddingGenerator:
             cursor = conn.cursor()
 
             seed_id = str(uuid.uuid4())
-            now = datetime.utcnow()
+            now = _utc_now()
 
             seed_type = self._map_event_type_to_seed_type(event.event_type)
 

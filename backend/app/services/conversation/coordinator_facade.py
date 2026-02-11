@@ -8,7 +8,12 @@ Provides unified interface for plan execution and playbook coordination.
 import logging
 import sys
 from typing import Dict, Any, Optional, List, Callable
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 import re
 
@@ -679,7 +684,7 @@ class CoordinatorFacade:
 
             assistant_event = MindEvent(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 actor=EventActor.ASSISTANT,
                 channel="local_workspace",
                 profile_id=ctx.actor_id,

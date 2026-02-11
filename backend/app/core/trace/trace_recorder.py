@@ -8,7 +8,12 @@ Integrates with existing services to automatically capture LLM calls, tool execu
 import logging
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, List, Optional, Any
 from threading import Lock
 
@@ -110,7 +115,7 @@ class TraceRecorder:
                 node_type=node_type,
                 name=name,
                 status=TraceStatus.RUNNING,
-                start_time=datetime.utcnow(),
+                start_time=_utc_now(),
                 metadata=trace_metadata,
                 input_data=input_data,
             )
@@ -174,7 +179,7 @@ class TraceRecorder:
                 return
 
             node.status = status
-            node.end_time = datetime.utcnow()
+            node.end_time = _utc_now()
             if output_data:
                 node.output_data = output_data
 

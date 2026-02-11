@@ -5,7 +5,12 @@ Handles importing configuration from PortableConfiguration format
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -153,8 +158,8 @@ class ImportService:
                     required_tools=pb_data.get("required_tools", []),
                     scope=pb_data.get("scope"),
                     owner={"type": "imported"},
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=_utc_now(),
+                    updated_at=_utc_now()
                 )
 
                 playbook = Playbook(
@@ -204,7 +209,7 @@ class ImportService:
 
                 # Create intent
                 intent = IntentCard(
-                    id=f"imported-{datetime.utcnow().timestamp()}",
+                    id=f"imported-{_utc_now().timestamp()}",
                     profile_id=profile_id,
                     title=intent_data.get("title", intent_data.get("name", "Untitled")),
                     description=intent_data.get("description", ""),
@@ -212,8 +217,8 @@ class ImportService:
                     status=status,
                     tags=intent_data.get("tags", []),
                     category=intent_data.get("category"),
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=_utc_now(),
+                    updated_at=_utc_now()
                 )
 
                 # Save to store

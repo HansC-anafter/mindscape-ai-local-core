@@ -7,7 +7,12 @@ WorldState can only be written by tools, not by LLM or policy.
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from enum import Enum
 
 
@@ -53,7 +58,7 @@ class WorldStateEntry:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "WorldStateEntry":
         """Create WorldStateEntry from dictionary"""
-        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.utcnow())
+        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", _utc_now())
         return cls(
             entry_id=data["entry_id"],
             entry_type=WorldStateEntryType(data["entry_type"]),
@@ -124,7 +129,7 @@ class WorldState:
 
         self.entries.append(entry)
         self._rebuild_index()
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
     def get_entry(self, key: str, latest: bool = True) -> Optional[WorldStateEntry]:
         """
@@ -170,8 +175,8 @@ class WorldState:
         """Create WorldState from dictionary"""
         entries = [WorldStateEntry.from_dict(e) for e in data.get("entries", [])]
 
-        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.utcnow())
-        updated_at = datetime.fromisoformat(data["updated_at"]) if isinstance(data.get("updated_at"), str) else data.get("updated_at", datetime.utcnow())
+        created_at = datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", _utc_now())
+        updated_at = datetime.fromisoformat(data["updated_at"]) if isinstance(data.get("updated_at"), str) else data.get("updated_at", _utc_now())
 
         state = cls(
             state_id=data["state_id"],

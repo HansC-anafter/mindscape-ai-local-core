@@ -13,7 +13,12 @@ import logging
 import asyncio
 from typing import Dict, List, Optional, Any
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.model_weights_installer import (
@@ -81,7 +86,7 @@ class LocalPreviewService:
             "template_id": template_id,
             "preview_path": str(v_path),
             "patches": knob_patches,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now().isoformat(),
         }
 
     def _get_template_path(self, template_id: str) -> Path:
@@ -136,7 +141,7 @@ class LocalPreviewService:
         output_path = (
             self.output_root
             / workspace_id
-            / f"preview_{int(datetime.utcnow().timestamp())}.mp4"
+            / f"preview_{int(_utc_now().timestamp())}.mp4"
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.touch()

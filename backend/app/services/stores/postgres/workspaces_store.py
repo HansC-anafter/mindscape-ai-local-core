@@ -1,7 +1,12 @@
 """Postgres adaptation of WorkspacesStore."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 
@@ -163,7 +168,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
 
     async def update_workspace(self, workspace: Workspace) -> Workspace:
         """Update an existing workspace."""
-        workspace.updated_at = datetime.utcnow()
+        workspace.updated_at = _utc_now()
         with self.transaction() as conn:
             query = text(
                 """

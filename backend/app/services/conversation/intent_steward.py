@@ -8,7 +8,12 @@ Collects IntentSignals, filters and analyzes them, then generates layout plans.
 import logging
 import uuid
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from ...models.mindscape import (
     IntentSignal, IntentLayoutPlan, IntentStewardInput,
@@ -98,7 +103,7 @@ class IntentStewardService:
                 "profile_id": profile_id,
                 "conversation_id": conversation_id,
                 "steward_version": "v2_phase1",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_now().isoformat(),
                 "mode": "observation"
             })
 
@@ -132,7 +137,7 @@ class IntentStewardService:
                     "workspace_id": workspace_id,
                     "profile_id": profile_id,
                     "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_now().isoformat()
                 }
             )
 
@@ -657,8 +662,8 @@ Return only valid JSON, no additional text."""
                             tags=intent_data.get("tags", []),
                             category=intent_data.get("category"),
                             progress_percentage=intent_data.get("progress_percentage", 0),
-                            created_at=datetime.utcnow(),
-                            updated_at=datetime.utcnow(),
+                            created_at=_utc_now(),
+                            updated_at=_utc_now(),
                             started_at=None,
                             completed_at=None,
                             due_date=None,
@@ -737,7 +742,7 @@ Return only valid JSON, no additional text."""
                             "reasoning": operation.reasoning,
                             "rollback_data": original_state  # Store original state for rollback
                         })
-                        existing_intent.updated_at = datetime.utcnow()
+                        existing_intent.updated_at = _utc_now()
 
                         # Save update using IntentsStore
                         updated_intent = self.store.intents.update_intent(existing_intent)
@@ -790,7 +795,7 @@ Return only valid JSON, no additional text."""
             # Create IntentLog entry
             intent_log = IntentLog(
                 id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=_utc_now(),
                 raw_input=f"IntentSteward analysis for turn {turn_id}",
                 channel="intent_steward",
                 profile_id=profile_id,
@@ -821,7 +826,7 @@ Return only valid JSON, no additional text."""
                 f"INTENT_STEWARD_LOG: turn_id={turn_id}, workspace_id={workspace_id}, "
                 f"profile_id={profile_id}, planned_operations={len(layout_plan.long_term_intents)}, "
                 f"ephemeral_tasks={len(layout_plan.ephemeral_tasks)}, "
-                f"timestamp={datetime.utcnow().isoformat()}"
+                f"timestamp={_utc_now().isoformat()}"
             )
 
         except Exception as e:

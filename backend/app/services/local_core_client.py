@@ -5,7 +5,12 @@ To replace missing module preventing backend startup.
 """
 
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 import logging
 
@@ -63,8 +68,8 @@ class LocalCoreClient:
                 values={"constraints": constraints, "syntax": syntax},
                 source={"workspace_id": workspace_id, "type": "preset"},
                 metadata=metadata or {},
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
             )
 
             result = self.mind_lens_service.create_instance(instance)

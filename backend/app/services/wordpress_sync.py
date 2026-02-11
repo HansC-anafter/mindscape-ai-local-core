@@ -7,7 +7,12 @@ import os
 import uuid
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -199,7 +204,7 @@ class WordPressSync:
             try:
                 modified_dt = datetime.fromisoformat(modified.replace('Z', '+00:00'))
             except:
-                modified_dt = datetime.utcnow()
+                modified_dt = _utc_now()
 
             # Skip if not modified since last sync
             if existing:

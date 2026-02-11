@@ -10,7 +10,12 @@ Migration: All functionality has been migrated to ToolRegistryService.
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 
 from ...models.tool_connection import (
@@ -152,7 +157,7 @@ async def update_connection(
         if request.is_active is not None:
             connection.is_active = request.is_active
 
-        connection.updated_at = datetime.utcnow()
+        connection.updated_at = _utc_now()
 
         return tool_connection_store.save_connection(connection)
 
@@ -257,7 +262,7 @@ async def validate_connection(
             connection_id=request.connection_id,
             is_valid=is_valid,
             error_message=error_message,
-            validated_at=datetime.utcnow(),
+            validated_at=_utc_now(),
         )
 
     except HTTPException:

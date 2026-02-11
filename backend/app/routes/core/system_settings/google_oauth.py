@@ -4,7 +4,12 @@ Google OAuth endpoints
 from fastapi import APIRouter, HTTPException, Query, Body, Request
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import logging
 
 from .shared import settings_store
@@ -327,7 +332,7 @@ async def test_google_oauth_config(
             "valid": True,
             "warnings": warnings,
             "message": "Configuration format is valid. This only validates format, not actual credentials.",
-            "tested_at": datetime.utcnow().isoformat()
+            "tested_at": _utc_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Failed to test Google OAuth config: {e}", exc_info=True)

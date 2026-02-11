@@ -5,7 +5,12 @@ Handles tool parsing, execution loop, and tool call management
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, List, Optional, Any, Callable, Awaitable
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -494,7 +499,7 @@ Please retry the tool call."""
                 f"Consider ensuring workspace_id is always provided."
             )
 
-        tool_start_time = datetime.utcnow()
+        tool_start_time = _utc_now()
         tool_call_id = str(uuid.uuid4())
 
         # Start trace node for tool execution
@@ -638,7 +643,7 @@ Please retry the tool call."""
                     result=result,
                     execution_id=execution_id,
                     metadata={
-                        "duration_ms": int((datetime.utcnow() - tool_start_time).total_seconds() * 1000),
+                        "duration_ms": int((_utc_now() - tool_start_time).total_seconds() * 1000),
                         "step_id": step_id,
                     }
                 )
@@ -646,7 +651,7 @@ Please retry the tool call."""
             except Exception as e:
                 logger.warning(f"Failed to integrate tool result to WorldState: {e}", exc_info=True)
 
-            tool_end_time = datetime.utcnow()
+            tool_end_time = _utc_now()
             duration_ms = int((tool_end_time - tool_start_time).total_seconds() * 1000)
 
             # End trace node for tool execution
@@ -770,7 +775,7 @@ Please retry the tool call."""
             return result
 
         except Exception as e:
-            tool_end_time = datetime.utcnow()
+            tool_end_time = _utc_now()
             duration_ms = int((tool_end_time - tool_start_time).total_seconds() * 1000)
 
             # End trace node for failed tool execution

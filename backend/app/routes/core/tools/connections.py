@@ -5,7 +5,12 @@ Handles CRUD operations for tool connections with multi-tenant support.
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.tool_registry import ToolConnectionModel
 from backend.app.models.tool_connection import (
@@ -190,7 +195,7 @@ async def update_connection(
     if request.x_platform is not None:
         conn.x_platform = request.x_platform
 
-    conn.updated_at = datetime.utcnow()
+    conn.updated_at = _utc_now()
 
     return registry.update_connection(conn)
 
@@ -269,7 +274,7 @@ async def validate_connection(
         connection_id=request.connection_id,
         is_valid=is_valid,
         error_message=error_message,
-        validated_at=datetime.utcnow(),
+        validated_at=_utc_now(),
     )
 
 

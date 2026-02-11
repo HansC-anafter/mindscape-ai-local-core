@@ -7,7 +7,12 @@ EGB 流程編排器，整合所有元件的執行流程。
 import logging
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.egb.schemas.correlation_ids import CorrelationIds
 from backend.app.egb.schemas.evidence_profile import IntentEvidenceProfile
@@ -573,7 +578,7 @@ class EGBOrchestrator:
             profile.failed_runs += 1
 
         # Update time range
-        now = datetime.utcnow()
+        now = _utc_now()
         if profile.first_run_at is None:
             profile.first_run_at = now
         profile.last_run_at = now

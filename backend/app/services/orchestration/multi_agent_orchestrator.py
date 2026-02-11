@@ -6,7 +6,12 @@ Supports sequential, loop, parallel, and hierarchical patterns.
 """
 
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 import uuid
 from backend.app.models.playbook import AgentDefinition
 from backend.app.models.workspace_runtime_profile import (
@@ -37,7 +42,7 @@ class OrchestrationState:
         self.retry_count: int = 0
         self.visited_agents: List[str] = []
         self.agent_results: Dict[str, Any] = {}
-        self.start_time: datetime = datetime.utcnow()
+        self.start_time: datetime = _utc_now()
 
     def can_continue(self, loop_budget: Optional[LoopBudget], stop_conditions: Optional[StopConditions]) -> bool:
         """
@@ -204,7 +209,7 @@ class MultiAgentOrchestrator:
             if exhausted_limits:
                 event = MindEvent(
                     id=str(uuid.uuid4()),
-                    timestamp=datetime.utcnow(),
+                    timestamp=_utc_now(),
                     actor=EventActor.SYSTEM,
                     channel="runtime_profile",
                     profile_id=self.profile_id or "system",

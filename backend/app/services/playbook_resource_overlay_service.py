@@ -470,9 +470,9 @@ class PlaybookResourceOverlayService:
                 pass
 
         # Update updated_at
-        from datetime import datetime
+        from datetime import datetime, timezone
 
-        resource["updated_at"] = datetime.utcnow().isoformat()
+        resource["updated_at"] = _utc_now().isoformat()
 
         # Write to overlay path
         with open(overlay_file, "w", encoding="utf-8") as f:

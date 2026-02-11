@@ -6,7 +6,12 @@ Handles AI agent execution with user context and mindscape integration
 import os
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import Dict, List, Optional, Any
 import logging
 
@@ -223,7 +228,7 @@ class AgentRunner:
         """Execute an agent with the given request"""
 
         execution_id = str(uuid.uuid4())
-        start_time = datetime.utcnow()
+        start_time = _utc_now()
 
         execution = AgentExecution(
             id=execution_id,
@@ -261,7 +266,7 @@ class AgentRunner:
             response_text = agent_response.output
 
             # Update execution record
-            end_time = datetime.utcnow()
+            end_time = _utc_now()
             execution.status = "completed"
             execution.completed_at = end_time
             execution.duration_seconds = (end_time - start_time).total_seconds()
@@ -330,7 +335,7 @@ class AgentRunner:
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
 
-            end_time = datetime.utcnow()
+            end_time = _utc_now()
             execution.status = "failed"
             execution.completed_at = end_time
             execution.duration_seconds = (end_time - start_time).total_seconds()

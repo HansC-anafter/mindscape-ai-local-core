@@ -6,7 +6,12 @@ Handles Intent-specific logic like tree building and status filtering.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional, Dict, Any
 
 from ...models.mindscape import IntentCard, IntentStatus
@@ -53,12 +58,12 @@ class IntentResourceHandler(ResourceHandler):
             "created_at": (
                 intent_card.created_at.isoformat()
                 if intent_card.created_at
-                else datetime.utcnow().isoformat()
+                else _utc_now().isoformat()
             ),
             "updated_at": (
                 intent_card.updated_at.isoformat()
                 if intent_card.updated_at
-                else datetime.utcnow().isoformat()
+                else _utc_now().isoformat()
             ),
         }
 

@@ -4,7 +4,12 @@ Notion tool provider routes
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 from backend.app.models.tool_registry import ToolConnectionModel
 from backend.app.services.tool_registry import ToolRegistryService
@@ -80,8 +85,8 @@ async def create_notion_connection(
             description=f"Notion connection: {request.name}",
             api_key=request.api_key,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=_utc_now(),
+            updated_at=_utc_now()
         )
         conn = registry.create_connection(connection)
         return conn

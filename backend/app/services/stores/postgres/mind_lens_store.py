@@ -1,7 +1,12 @@
 """Postgres adaptation of MindLensStore."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 from typing import List, Optional
 from sqlalchemy import text
 
@@ -40,8 +45,8 @@ class PostgresMindLensStore(PostgresStoreBase):
                     [d.dict() for d in schema.dimensions]
                 ),
                 "version": schema.version,
-                "created_at": schema.created_at or datetime.utcnow(),
-                "updated_at": schema.updated_at or datetime.utcnow(),
+                "created_at": schema.created_at or _utc_now(),
+                "updated_at": schema.updated_at or _utc_now(),
             }
             conn.execute(query, params)
             logger.info(f"Created Mind Lens schema: {schema.schema_id}")
@@ -93,8 +98,8 @@ class PostgresMindLensStore(PostgresStoreBase):
                 "values": self.serialize_json(instance.values),
                 "source": self.serialize_json(instance.source),
                 "version": instance.version,
-                "created_at": instance.created_at or datetime.utcnow(),
-                "updated_at": instance.updated_at or datetime.utcnow(),
+                "created_at": instance.created_at or _utc_now(),
+                "updated_at": instance.updated_at or _utc_now(),
             }
             conn.execute(query, params)
             logger.info(f"Created Mind Lens instance: {instance.mind_lens_id}")
@@ -165,7 +170,7 @@ class PostgresMindLensStore(PostgresStoreBase):
                 return self.get_instance(instance_id)
 
             set_clauses.append("updated_at = :updated_at")
-            params["updated_at"] = datetime.utcnow()
+            params["updated_at"] = _utc_now()
 
             query = text(
                 f'UPDATE mind_lens_instances SET {", ".join(set_clauses)} WHERE mind_lens_id = :instance_id'
@@ -213,8 +218,8 @@ class PostgresMindLensStore(PostgresStoreBase):
                     if lens_spec.transformers
                     else None
                 ),
-                "created_at": lens_spec.created_at or datetime.utcnow(),
-                "updated_at": lens_spec.updated_at or datetime.utcnow(),
+                "created_at": lens_spec.created_at or _utc_now(),
+                "updated_at": lens_spec.updated_at or _utc_now(),
             }
             conn.execute(query, params)
             logger.info(f"Created LensSpec: {lens_spec.lens_id}")
