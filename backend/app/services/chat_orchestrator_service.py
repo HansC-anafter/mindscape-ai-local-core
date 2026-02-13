@@ -145,9 +145,11 @@ class ChatOrchestratorService:
             runtime_profile_store = WorkspaceRuntimeProfileStore(
                 db_path=self.orchestrator.store.db_path
             )
-            runtime_profile = runtime_profile_store.get_runtime_profile(workspace_id)
+            runtime_profile = await runtime_profile_store.get_runtime_profile(
+                workspace_id
+            )
             if not runtime_profile:
-                runtime_profile = runtime_profile_store.create_default_profile(
+                runtime_profile = await runtime_profile_store.create_default_profile(
                     workspace_id
                 )
 
