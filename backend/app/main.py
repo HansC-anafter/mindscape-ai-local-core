@@ -481,6 +481,59 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"Failed to initialize Cloud Connector: {e}", exc_info=True)
 
+    # Ensure required databases exist (handles case where postgres volume
+    # was created without running init scripts, e.g. on Windows)
+    try:
+        import psycopg2
+        from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
+        pg_host = os.getenv(
+            "POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres")
+        )
+        pg_port = int(
+            os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432"))
+        )
+        pg_user = os.getenv(
+            "POSTGRES_CORE_USER", os.getenv("POSTGRES_USER", "mindscape")
+        )
+        pg_pass = os.getenv(
+            "POSTGRES_CORE_PASSWORD",
+            os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+        )
+        core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
+        vector_db = os.getenv("POSTGRES_VECTOR_DB", "mindscape_vectors")
+
+        # Connect to default 'postgres' database to create missing databases
+        conn = psycopg2.connect(
+            host=pg_host,
+            port=pg_port,
+            user=pg_user,
+            password=pg_pass,
+            dbname="postgres",
+        )
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cur = conn.cursor()
+
+        for db_name in [core_db, vector_db]:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+            if not cur.fetchone():
+                cur.execute(f'CREATE DATABASE "{db_name}"')
+                logger.info(f"Created missing database: {db_name}")
+
+        # Ensure pgvector extension exists in vector database
+        cur.close()
+        conn.close()
+        vconn = psycopg2.connect(
+            host=pg_host, port=pg_port, user=pg_user, password=pg_pass, dbname=vector_db
+        )
+        vconn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        vcur = vconn.cursor()
+        vcur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        vcur.close()
+        vconn.close()
+    except Exception as e:
+        logger.warning(f"Database auto-creation check failed (non-blocking): {e}")
+
     # Run database migrations using unified migration orchestrator
     logger.info("Running database migrations...")
     try:
