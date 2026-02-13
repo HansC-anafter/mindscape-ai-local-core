@@ -135,9 +135,9 @@ def run_migrations():
         else:
             print(f"[preflight] Alembic migration failed (exit {result.returncode})")
             if result.stdout:
-                print(f"[preflight] stdout: {result.stdout[:2000]}")
+                print(f"[preflight] stdout: {result.stdout[:5000]}")
             if result.stderr:
-                print(f"[preflight] stderr: {result.stderr[:2000]}")
+                print(f"[preflight] stderr: {result.stderr[:5000]}")
             return False
     except subprocess.TimeoutExpired:
         print("[preflight] Alembic migration timed out after 120s")

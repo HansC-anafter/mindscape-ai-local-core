@@ -18,6 +18,13 @@ depends_on = None
 
 
 def upgrade():
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+
+    if "channel_bindings" in existing_tables:
+        return
+
     op.create_table(
         "channel_bindings",
         sa.Column("id", sa.String(), nullable=False),
