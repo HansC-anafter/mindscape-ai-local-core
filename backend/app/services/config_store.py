@@ -149,6 +149,19 @@ class ConfigStore(PostgresStoreBase):
         """Get existing config or create default"""
         config = self.get_config(profile_id)
         if not config:
+            # Ensure the profile exists before inserting (FK constraint)
+            self._ensure_profile_exists(profile_id)
             config = UserConfig(profile_id=profile_id)
             self.save_config(config)
         return config
+
+    def _ensure_profile_exists(self, profile_id: str):
+        """Ensure a profile row exists before referencing it from user_configs."""
+        try:
+            from backend.app.services.mindscape_store import get_store
+
+            store = get_store()
+            if not store.get_profile(profile_id):
+                store.ensure_default_profile()
+        except Exception as e:
+            logger.warning(f"Could not ensure profile {profile_id} exists: {e}")

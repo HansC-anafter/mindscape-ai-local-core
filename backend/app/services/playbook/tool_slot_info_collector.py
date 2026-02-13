@@ -103,9 +103,10 @@ class ToolSlotInfoCollector:
             slot_info_map[slot] = info
             logger.debug(f"Collected slot from mappings: {slot}")
 
-        # Source 3: Auto-inject installed capability pack tools
-        capability_slots = await self._collect_from_capabilities(
-            exclude_slots=set(slot_info_map.keys())
+        # Source 3: Auto-inject installed capability pack tools (with RAG)
+        capability_slots, rag_status = await self._collect_from_capabilities(
+            exclude_slots=set(slot_info_map.keys()),
+            user_message=user_message,
         )
         for slot, info in capability_slots.items():
             slot_info_map[slot] = info
@@ -121,6 +122,11 @@ class ToolSlotInfoCollector:
         logger.info(
             f"Collected {len(slot_info_map)} tool slots for playbook {playbook_code}"
         )
+
+        # Skip expensive LLM intent filtering when RAG already filtered tools
+        if rag_status == "hit" and enable_intent_filtering:
+            enable_intent_filtering = False
+            logger.info("RAG hit, skipping LLM intent filtering")
 
         # Intent filtering (if enabled and user message provided)
         if enable_intent_filtering and user_message and len(slot_info_map) > 5:
@@ -492,53 +498,84 @@ class ToolSlotInfoCollector:
         return slot_info_map
 
     async def _collect_from_capabilities(
-        self, exclude_slots: Optional[set] = None
-    ) -> Dict[str, ToolSlotInfo]:
+        self,
+        exclude_slots: Optional[set] = None,
+        user_message: Optional[str] = None,
+    ) -> tuple:
         """
-        Auto-inject installed capability pack tools from the tool registry DB.
+        Auto-inject capability pack tools using RAG search when possible.
 
-        Reads from ToolRegistryService (PostgreSQL tool_registry table), which
-        is the canonical source populated during mindpack installation.
-
-        These are low-priority (30) so playbook-defined and workspace-mapped
-        tools always take precedence. Intent filtering removes irrelevant ones.
-
-        Args:
-            exclude_slots: Slots to exclude (already collected from other sources)
+        Strategy:
+        - If user_message is provided, try RAG search first (top-15 tools)
+        - On RAG hit: return matched tools, skip full list
+        - On RAG miss: return empty (no relevant tools)
+        - On RAG error or no user_message: fallback to full ToolListService
 
         Returns:
-            Dict mapping slot -> ToolSlotInfo for capability tools
+            Tuple of (slot_info_map, rag_status)
+            rag_status: "hit" | "miss" | "error"
         """
         slot_info_map: Dict[str, ToolSlotInfo] = {}
         exclude_slots = exclude_slots or set()
 
-        try:
-            from backend.app.services.tool_registry import ToolRegistryService
+        # Try RAG search when user_message is available
+        if user_message:
+            try:
+                from backend.app.services.tool_embedding_service import (
+                    ToolEmbeddingService,
+                    RAG_HIT,
+                    RAG_MISS,
+                )
 
-            registry_service = ToolRegistryService()
-            all_tools = registry_service.get_tools(enabled_only=True)
+                svc = ToolEmbeddingService()
+                matches, rag_status = await svc.search(user_message, top_k=15)
+
+                if rag_status == RAG_HIT:
+                    for match in matches:
+                        if match.tool_id in exclude_slots:
+                            continue
+                        slot_info_map[match.tool_id] = ToolSlotInfo(
+                            slot=match.tool_id,
+                            description=match.description,
+                            source="capability",
+                            priority=30,
+                        )
+                    logger.info(
+                        f"RAG hit: injected {len(slot_info_map)} tools "
+                        f"(top: {matches[0].tool_id} @ {matches[0].similarity:.3f})"
+                    )
+                    return slot_info_map, "hit"
+
+                if rag_status == RAG_MISS:
+                    logger.info("RAG miss: no relevant tools found")
+                    return {}, "miss"
+
+            except Exception as e:
+                logger.warning(f"Tool RAG failed, falling back to full list: {e}")
+
+        # Fallback: get ALL tools from ToolListService
+        try:
+            from backend.app.services.tool_list_service import ToolListService
+
+            tool_svc = ToolListService()
+            all_tools = tool_svc.get_all_tools()
 
             for tool in all_tools:
-                tool_id = tool.tool_id
-                if tool_id in exclude_slots:
+                if tool.tool_id in exclude_slots:
                     continue
-
-                description = tool.description or ""
-                # Skip tools without descriptions (not useful for LLM)
-                if not description:
+                if not tool.description:
                     continue
-
-                slot_info_map[tool_id] = ToolSlotInfo(
-                    slot=tool_id,
-                    description=description,
+                slot_info_map[tool.tool_id] = ToolSlotInfo(
+                    slot=tool.tool_id,
+                    description=tool.description,
                     source="capability",
-                    priority=30,  # Below playbook (90), workspace (50)
+                    priority=30,
                 )
 
         except Exception as e:
-            logger.warning(f"Failed to collect capability tools from registry: {e}")
+            logger.warning(f"Failed to collect capability tools: {e}")
 
-        return slot_info_map
+        return slot_info_map, "error"
 
     def format_for_prompt(
         self,

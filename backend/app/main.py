@@ -856,6 +856,17 @@ except Exception as e:
     except Exception as e:
         logger.warning(f"Failed to register workspace tools: {e}", exc_info=True)
 
+    # Bootstrap tool embeddings for RAG-based tool discovery
+    try:
+        from backend.app.services.tool_embedding_service import ToolEmbeddingService
+
+        svc = ToolEmbeddingService()
+        await svc.ensure_table()
+        count = await svc.ensure_indexed()
+        logger.info(f"Tool embeddings: {count} tools indexed")
+    except Exception as e:
+        logger.warning(f"Tool embedding bootstrap failed (non-blocking): {e}")
+
     # Register filesystem tools
     try:
         from backend.app.services.tools.registry import register_filesystem_tools
