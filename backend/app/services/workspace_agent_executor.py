@@ -186,16 +186,17 @@ class WorkspaceAgentExecutor:
 
             # 8. Complete trace
             execution_time = (_utc_now() - start_time).total_seconds()
+            result_artifacts = result.files_created + result.files_modified
             trace.complete(
                 success=result.success,
                 output=result.output,
-                artifacts=result.artifacts,
+                artifacts=result_artifacts,
             )
 
             return AgentExecutionResponse(
                 success=result.success,
                 output=result.output,
-                artifacts=result.artifacts,
+                artifacts=result_artifacts,
                 trace_id=trace.trace_id,
                 execution_time_seconds=execution_time,
             )
