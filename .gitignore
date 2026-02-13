@@ -110,6 +110,7 @@ docker-compose.override.yml
 /backend/i18n/playbooks/
 /backend/playbooks/
 /backend/playbooks/specs/
+/backend/app/playbooks/
 
 # Cloud 特定的模型目录（不应在 local-core 中）
 /backend/app/models/sonic_space/

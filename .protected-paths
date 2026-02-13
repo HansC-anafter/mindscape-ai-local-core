@@ -1,0 +1,36 @@
+# Protected Paths Configuration
+# ==============================
+# Paths listed here are BLOCKED from being committed or pushed to this repo.
+# Both pre-commit and pre-push hooks read this file.
+#
+# Format:
+#   - Lines starting with # are comments
+#   - Empty lines are ignored
+#   - Each non-comment line is a directory prefix to block
+#   - Lines starting with ! are whitelist exceptions
+#
+# ARCHITECTURE RULE:
+#   Cloud capability content (playbook specs, i18n, capability models)
+#   belongs ONLY in mindscape-ai-cloud. It must NEVER be pushed to local-core.
+
+# Cloud playbook content
+backend/i18n/playbooks/
+backend/playbooks/specs/
+backend/app/playbooks/
+
+# Capability-installed directories
+backend/app/capabilities/
+web-console/src/app/capabilities/
+
+# Cloud-specific model directories
+backend/app/models/sonic_space/
+backend/app/models/visual_lens/
+backend/app/models/walkto_lab/
+backend/app/models/yogacoach/
+
+# Internal documentation
+docs-internal/
+
+# --- Whitelist (allowed exceptions) ---
+!backend/playbooks/pdf_ocr_processing.yaml
+!backend/playbooks/system_mindscape_state_sync.yaml

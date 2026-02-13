@@ -880,6 +880,14 @@ except Exception as e:
     except Exception as e:
         logger.warning(f"Failed to initialize Content Vault: {e}", exc_info=True)
 
+    # Print startup banner — marks the end of successful initialization
+    try:
+        from backend.app.startup_banner import print_startup_banner
+
+        print_startup_banner()
+    except Exception as e:
+        logger.debug(f"Startup banner unavailable: {e}")
+
 
 @app.get("/")
 async def root():
