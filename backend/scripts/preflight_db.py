@@ -211,6 +211,67 @@ if __name__ == "__main__":
         migration_ok = run_migrations()
         if not migration_ok:
             print("[preflight] WARNING: Alembic migration returned failure")
+            # Clean up stale alembic_version entries if tables are missing
+            # This handles the case where a previous failed migration left
+            # partial state (e.g. some tables created, version stamped, but
+            # subsequent migrations failed). Without cleanup, Alembic would
+            # skip already-stamped migrations and still fail.
+            try:
+                import psycopg2
+                from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
+                pg_host = os.getenv(
+                    "POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres")
+                )
+                pg_port = int(
+                    os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432"))
+                )
+                pg_user = os.getenv(
+                    "POSTGRES_CORE_USER", os.getenv("POSTGRES_USER", "mindscape")
+                )
+                pg_pass = os.getenv(
+                    "POSTGRES_CORE_PASSWORD",
+                    os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+                )
+                core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
+
+                conn = psycopg2.connect(
+                    host=pg_host,
+                    port=pg_port,
+                    user=pg_user,
+                    password=pg_pass,
+                    dbname=core_db,
+                    connect_timeout=5,
+                )
+                conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+                cur = conn.cursor()
+
+                # Check if alembic_version exists and has entries
+                cur.execute(
+                    "SELECT EXISTS ("
+                    "  SELECT 1 FROM information_schema.tables"
+                    "  WHERE table_name = 'alembic_version' AND table_schema = 'public'"
+                    ")"
+                )
+                if cur.fetchone()[0]:
+                    cur.execute("SELECT version_num FROM alembic_version")
+                    versions = [r[0] for r in cur.fetchall()]
+                    if versions:
+                        print(
+                            f"[preflight] Cleaning stale alembic_version entries: {versions}"
+                        )
+                        cur.execute("DELETE FROM alembic_version")
+
+                cur.close()
+                conn.close()
+
+                # Retry migration after cleanup
+                print("[preflight] Retrying Alembic migration after cleanup...")
+                migration_ok = run_migrations()
+                if migration_ok:
+                    print("[preflight] Migration succeeded on retry")
+            except Exception as e:
+                print(f"[preflight] Cleanup/retry failed: {e}")
     else:
         print("[preflight] Skipping migrations since database setup failed")
 
