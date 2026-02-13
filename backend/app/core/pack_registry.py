@@ -165,7 +165,11 @@ def get_enabled_pack_ids() -> set:
         return set()
 
 
-def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> None:
+def load_and_register_packs(
+    app: FastAPI,
+    packs_dir: Optional[Path] = None,
+    route_collector: Optional[List[Any]] = None,
+) -> List[Any]:
     """
     Scan packs directory and register enabled packs' routes
 
@@ -220,6 +224,7 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
 
     # Register routes for enabled packs
     registered_count = 0
+    added_routes: List[Any] = []
     for pack in pack_metas:
         pack_id = pack.get('id')
         if not pack_id:
@@ -242,11 +247,16 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
                 router = load_router_from_string(route_import)
                 # For workspace pack, routes already have prefix, don't add another
                 # For other packs, add pack_id as prefix
+                before_len = len(app.router.routes) if route_collector is not None else None
                 if pack_id == "workspace":
                     app.include_router(router, tags=[pack_id])
                 else:
                     prefix = f"/api/v1/{pack_id}"
                     app.include_router(router, prefix=prefix, tags=[pack_id])
+                if route_collector is not None and before_len is not None:
+                    new_routes = app.router.routes[before_len:]
+                    route_collector.extend(new_routes)
+                    added_routes.extend(new_routes)
                 registered_count += 1
                 logger.info(f"Registered route from pack '{pack_id}': {route_import}")
             except Exception as e:
@@ -259,3 +269,4 @@ def load_and_register_packs(app: FastAPI, packs_dir: Optional[Path] = None) -> N
                 continue
 
     logger.info(f"Successfully registered {registered_count} routes from {len(packs_to_load)} enabled packs")
+    return added_routes

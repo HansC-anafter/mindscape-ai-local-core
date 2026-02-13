@@ -8,6 +8,7 @@ Version 2: Supports new MindscapeTool architecture
 - Backward compatible with legacy Tool class
 - Supports new MindscapeTool implementations
 """
+
 from typing import Dict, Type, Optional, List, Union
 from backend.app.services.tools.base import Tool, MindscapeTool, ToolConnection
 
@@ -18,25 +19,26 @@ from backend.app.services.tools.wordpress.wordpress_tool_v1 import WordPressTool
 from backend.app.services.tools.wordpress.wordpress_tools import (
     create_wordpress_tools,
     get_wordpress_tool_by_name,
-    validate_wp_connection
+    validate_wp_connection,
 )
+
 # Canva tools moved to capability pack
 # Removed: Canva tools are now provided by the installed capability pack
 from backend.app.services.tools.slack.slack_tools import (
     create_slack_tools,
-    get_slack_tool_by_name
+    get_slack_tool_by_name,
 )
 from backend.app.services.tools.airtable.airtable_tools import (
     create_airtable_tools,
-    get_airtable_tool_by_name
+    get_airtable_tool_by_name,
 )
 from backend.app.services.tools.google_sheets.google_sheets_tools import (
     create_google_sheets_tools,
-    get_google_sheets_tool_by_name
+    get_google_sheets_tool_by_name,
 )
 from backend.app.services.tools.github.github_tools import (
     create_github_tools,
-    get_github_tool_by_name
+    get_github_tool_by_name,
 )
 from backend.app.services.tools.providers.sandbox_provider import create_sandbox_tools
 
@@ -85,7 +87,9 @@ def get_tool(tool_type: str, connection_type: str, connection: ToolConnection) -
         raise ValueError(f"Unknown tool type: {tool_type}")
 
     if connection_type not in STATIC_TOOL_REGISTRY[tool_type]:
-        raise ValueError(f"Connection type '{connection_type}' not supported for tool '{tool_type}'")
+        raise ValueError(
+            f"Connection type '{connection_type}' not supported for tool '{tool_type}'"
+        )
 
     tool_class = STATIC_TOOL_REGISTRY[tool_type][connection_type]
     return tool_class(connection)
@@ -313,7 +317,9 @@ def register_google_sheets_tools(connection: ToolConnection) -> List[MindscapeTo
     """
     access_token = connection.oauth_token or connection.api_key
     if not access_token:
-        raise ValueError("Google Sheets access token is required (oauth_token or api_key)")
+        raise ValueError(
+            "Google Sheets access token is required (oauth_token or api_key)"
+        )
 
     tools = create_google_sheets_tools(access_token)
 
@@ -360,7 +366,8 @@ def register_github_tools(connection: ToolConnection) -> List[MindscapeTool]:
 def get_dynamic_tools_for_site(site_id: str) -> List[str]:
     """Get all registered tool IDs for a site"""
     return [
-        tool_id for tool_id in _dynamic_tools.keys()
+        tool_id
+        for tool_id in _dynamic_tools.keys()
         if tool_id.startswith(f"wp.{site_id}.")
     ]
 
@@ -373,10 +380,7 @@ def is_core_tool(tool_type: str) -> bool:
 def get_available_tools() -> Dict[str, Dict[str, bool]]:
     """Get list of available tools and their connection types"""
     return {
-        tool_type: {
-            connection_type: True
-            for connection_type in implementations.keys()
-        }
+        tool_type: {connection_type: True for connection_type in implementations.keys()}
         for tool_type, implementations in STATIC_TOOL_REGISTRY.items()
     }
 
@@ -425,7 +429,7 @@ def register_filesystem_tools():
         FilesystemListFilesTool,
         FilesystemReadFileTool,
         FilesystemWriteFileTool,
-        FilesystemSearchTool
+        FilesystemSearchTool,
     )
 
     data_dir = os.getenv("DATA_DIR", "./data")
@@ -435,7 +439,7 @@ def register_filesystem_tools():
         FilesystemListFilesTool(base_directory=str(default_base_dir)),
         FilesystemReadFileTool(base_directory=str(default_base_dir)),
         FilesystemWriteFileTool(base_directory=str(default_base_dir)),
-        FilesystemSearchTool(base_directory=str(default_base_dir))
+        FilesystemSearchTool(base_directory=str(default_base_dir)),
     ]
 
     for tool in tools:
@@ -471,6 +475,7 @@ def register_unsplash_tools():
         List of registered tools
     """
     from backend.app.services.tools.unsplash import register_unsplash_tools as _register
+
     return _register()
 
 
@@ -490,17 +495,19 @@ def register_content_vault_tools(vault_path: Optional[str] = None):
         ContentVaultLoadContextTool,
         ContentVaultBuildPromptTool,
         ContentVaultWritePostsTool,
-        ContentVaultMergeContextTool
+        ContentVaultMergeContextTool,
     )
 
     if vault_path is None:
-        vault_path = os.getenv("CONTENT_VAULT_PATH") or str(Path.home() / "content-vault")
+        vault_path = os.getenv("CONTENT_VAULT_PATH") or str(
+            Path.home() / "content-vault"
+        )
 
     tools = [
         ContentVaultLoadContextTool(vault_path),
         ContentVaultBuildPromptTool(),
         ContentVaultWritePostsTool(vault_path),
-        ContentVaultMergeContextTool(vault_path)
+        ContentVaultMergeContextTool(vault_path),
     ]
 
     for tool in tools:
@@ -510,8 +517,36 @@ def register_content_vault_tools(vault_path: Optional[str] = None):
     return tools
 
 
+def register_external_agent_tools() -> List[MindscapeTool]:
+    """
+    Register all external agent tools (builtin)
 
+    Returns:
+        List of registered tools
+    """
+    from backend.app.services.tools.external_agent_wrapper import (
+        ExternalAgentExecuteTool,
+        ExternalAgentListTool,
+        ExternalAgentCheckTool,
+    )
 
+    tools = [
+        ExternalAgentExecuteTool(),
+        ExternalAgentListTool(),
+        ExternalAgentCheckTool(),
+    ]
+
+    for tool in tools:
+        # Register as simple name (e.g., external_agent_execute)
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+
+        # Register as core.* (e.g., core.external_agent_execute)
+        # This is required for Playbook integration which uses core.* prefix
+        core_id = f"core.{tool_id}"
+        register_mindscape_tool(core_id, tool)
+
+    return tools
 
 
 def get_tool_metadata(tool_id: str) -> Optional[Dict]:
@@ -532,4 +567,3 @@ def get_tool_metadata(tool_id: str) -> Optional[Dict]:
     if tool:
         return tool.to_dict()
     return None
-

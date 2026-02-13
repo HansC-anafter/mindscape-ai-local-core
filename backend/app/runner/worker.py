@@ -2,6 +2,7 @@ import asyncio
 import logging
 import multiprocessing as mp
 import os
+import random
 import socket
 import threading
 import uuid
@@ -14,6 +15,8 @@ def _utc_now() -> datetime:
 
 
 from typing import Any, Dict, Optional
+
+from sqlalchemy import text
 
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
@@ -252,6 +255,78 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _extract_target_username(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(task_ctx, dict):
+        return None
+    inputs = task_ctx.get("inputs")
+    if not isinstance(inputs, dict):
+        return None
+    for key in ("target_username", "seed", "handle"):
+        val = inputs.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def _get_risk_cooldown_seconds() -> int:
+    min_s = _env_int("IG_RISK_COOLDOWN_MIN_SECONDS", 3600)
+    max_s = _env_int("IG_RISK_COOLDOWN_MAX_SECONDS", 21600)
+    if max_s < min_s:
+        max_s = min_s
+    if max_s == min_s:
+        return min_s
+    return random.randint(min_s, max_s)
+
+
+def _recent_ig_risk_signal(
+    tasks_store: TasksStore, target_username: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    if not target_username:
+        return None
+    try:
+        with tasks_store.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT updated_at,
+                           content::jsonb->'progress'->>'error_type' AS error_type,
+                           content::jsonb->'progress'->>'error_message' AS error_message,
+                           content::jsonb->'progress'->>'stage' AS stage
+                    FROM artifacts
+                    WHERE playbook_code = 'ig_analyze_following'
+                      AND content IS NOT NULL
+                      AND content::jsonb->'metadata'->>'target_username' = :target
+                      AND (
+                        (content::jsonb->'progress'->>'error_type') IN ('rate_limited','challenge_required','login_required')
+                        OR (content::jsonb->'progress'->>'stage') = 'blocked'
+                        OR (content::jsonb->'progress'->>'error_message') ILIKE '%try again later%'
+                        OR (content::jsonb->'progress'->>'error_message') ILIKE '%risk signal%'
+                        OR (content::jsonb->'progress'->>'error_message') ILIKE '%we restrict%'
+                      )
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"target": target_username},
+            ).fetchone()
+    except Exception as e:
+        logger.debug(f"IG risk signal lookup failed: {e}")
+        return None
+
+    if not row:
+        return None
+    mapping = row._mapping if hasattr(row, "_mapping") else row
+    updated_at = mapping.get("updated_at") if isinstance(mapping, dict) else row[0]
+    if not isinstance(updated_at, datetime):
+        return None
+    return {
+        "updated_at": updated_at,
+        "error_type": mapping.get("error_type") if isinstance(mapping, dict) else row[1],
+        "error_message": mapping.get("error_message") if isinstance(mapping, dict) else row[2],
+        "stage": mapping.get("stage") if isinstance(mapping, dict) else row[3],
+    }
+
+
 def _runner_id() -> str:
     val = (os.getenv("LOCAL_CORE_RUNNER_ID", "") or "").strip()
     if val:
@@ -304,6 +379,38 @@ def _try_auto_resume_ig_task(
             f"Auto-resume skipped for task {task.id}: retry_count={retry_count} >= max={max_retries}"
         )
         return False
+
+    # Risk cooldown guard: if recent IG risk signal detected, suppress auto-resume.
+    target_username = _extract_target_username(current_ctx)
+    cooldown_until = _parse_utc_iso(current_ctx.get("ig_risk_cooldown_until"))
+    if cooldown_until and _utc_now() < cooldown_until:
+        current_ctx["auto_resume_suppressed"] = True
+        current_ctx["auto_resume_suppressed_reason"] = "ig_risk_cooldown_active"
+        return False
+
+    risk = _recent_ig_risk_signal(tasks_store, target_username)
+    if risk:
+        now_naive = datetime.utcnow()
+        risk_time = risk.get("updated_at")
+        if isinstance(risk_time, datetime):
+            min_s = _env_int("IG_RISK_COOLDOWN_MIN_SECONDS", 3600)
+            max_s = _env_int("IG_RISK_COOLDOWN_MAX_SECONDS", 21600)
+            if max_s < min_s:
+                max_s = min_s
+            if risk_time >= (now_naive - timedelta(seconds=max_s)):
+                cooldown_seconds = _get_risk_cooldown_seconds()
+                cooldown_until_ts = _utc_now() + timedelta(seconds=cooldown_seconds)
+                current_ctx["auto_resume_suppressed"] = True
+                current_ctx["auto_resume_suppressed_reason"] = "ig_risk_signal"
+                current_ctx["ig_risk_detected_at"] = risk_time.isoformat()
+                current_ctx["ig_risk_error_type"] = risk.get("error_type")
+                current_ctx["ig_risk_error_message"] = risk.get("error_message")
+                current_ctx["ig_risk_cooldown_until"] = cooldown_until_ts.isoformat()
+                logger.warning(
+                    f"Auto-resume suppressed for task {task.id} due to IG risk signal "
+                    f"(target={target_username}, cooldown_until={current_ctx['ig_risk_cooldown_until']})"
+                )
+                return False
 
     # Mark CURRENT task as failed with resume note
     current_ctx["auto_resumed"] = True

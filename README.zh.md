@@ -133,8 +133,26 @@ Mindscape AI 原生支援 **Agent Skills 開放標準** 與 **Model Context Prot
 | 標準 | 整合程度 |
 |-----|---------|
 | **Agent Skills** | SKILL.md 索引、語意搜尋、格式轉換 |
-| **MCP** | 原生 MCP Server 支援作為工具提供者 |
+| **MCP** | 原生 MCP Server + IDE Bridge + 伺服器端 Sampling |
 | **LangChain** | LangChain 生態系統的工具適配器 |
+
+### MCP Gateway 架構
+
+**MCP Gateway**（`mcp-mindscape-gateway/`）透過 MCP 協議將 Mindscape 能力暴露給外部 AI 工具：
+
+| 元件 | 職責 |
+|------|------|
+| **MCP Gateway** | TypeScript MCP 伺服器，向 Claude Desktop、Cursor 等暴露工具 |
+| **MCP Bridge** | 後端 API（`/api/v1/mcp/*`），提供同步聊天、意圖提交、專案偵測 |
+| **Event Hook Service** | 冪等的副作用執行器，具備治理不變量（事件化、冪等、回執驗證、政策閘門） |
+| **Sampling Gate** | 伺服器端向 IDE 發起的 LLM 呼叫，三層降級（Sampling -> WS LLM -> 待處理卡片） |
+
+核心能力：
+- **回執驗證覆蓋**：IDE 提供已驗證的執行回執，可跳過冗餘的 Hook 執行
+- **MCP Sampling**：伺服器透過 `createMessage()` 向 IDE 的 LLM 發送結構化提示，降低 WS 端 LLM 成本
+- **安全控制**：範本白名單、每 Workspace 頻率限制、PII 去識別化
+
+詳見 [MCP Gateway 架構](./docs/core-architecture/mcp-gateway.md)。
 
 ### Mindscape 的定位：Skill-compatible Workflow Layer
 
@@ -445,6 +463,7 @@ docker logs mindscape-ai-local-core-backend | grep -i "postgresql engine"
   - 本地/雲端邊界
   - Playbooks 與工作流（包含身份治理與權限控管）
   - Project + Flow + Sandbox（v2.0）
+  - [MCP Gateway 架構](./docs/core-architecture/mcp-gateway.md) - MCP Bridge、Event Hooks、Sampling Gate
 
 ### Playbook 開發
 - [Playbook 開發](./docs/playbook-development/README.md) - 建立與擴展 Playbook

@@ -53,6 +53,7 @@ structlog==23.2.0
 
 # YAML parsing for Playbook frontmatter
 pyyaml==6.0.1
+jsonschema>=4.26.0
 
 # PDF text extraction
 PyPDF2==3.0.1

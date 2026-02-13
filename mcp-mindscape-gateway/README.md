@@ -8,6 +8,8 @@ Exposes Mindscape Local Core capabilities to external MCP clients (Cursor, Claud
 - **P1: Mind-Lens MCP API** - Expose style adjustment capabilities
 - **P2: Multi-Workspace Mode** - Per-user workspace isolation
 - **P3: Context Passthrough** - Track Intent/Seed from external calls
+- **P4: Chat Sync & Intent Tools** - Synchronous chat with automatic side-effects
+- **P5: Sampling (Experimental)** - Server-initiated LLM calls to IDE client
 
 ## Quick Start
 
@@ -76,7 +78,9 @@ Pass conversation context for intent/seed tracking:
 }
 ```
 
-## Tool Naming Convention
+## Tool Categories
+
+### Tool Naming Convention
 
 MCP protocol requires `[a-zA-Z0-9_-]` only. Tool names use underscores:
 
@@ -85,13 +89,50 @@ MCP protocol requires `[a-zA-Z0-9_-]` only. Tool names use underscores:
 | `wordpress.get_posts` | `mindscape_tool_wordpress_get_posts` |
 | `creative.blog_post` | `mindscape_playbook_creative_blog_post` |
 
-## Mind-Lens Tools
+### Mind-Lens Tools
 
 | Tool | Description |
 |------|-------------|
 | `mindscape_lens_list_schemas` | List available Lens schemas |
 | `mindscape_lens_resolve` | Resolve Lens for current context |
 | `mindscape_lens_get_effective` | Get effective merged Lens |
+
+### Chat Sync Tools
+
+| Tool | Description |
+|------|-------------|
+| `mindscape_chat_sync` | Synchronous chat with automatic side-effects |
+
+Supports `ide_receipts` for receipt-based override (skip hooks when IDE has already processed).
+
+### Intent Tools
+
+| Tool | Description |
+|------|-------------|
+| `mindscape_intent_extract` | Extract intent signals from text |
+| `mindscape_intent_submit` | Submit intent signals to backend |
+
+### Project Tools
+
+| Tool | Description |
+|------|-------------|
+| `mindscape_project_detect` | Detect or create project context |
+
+## Backend Integration
+
+The gateway communicates with the MCP Bridge (`/api/v1/mcp/*`) on the backend, which provides:
+
+- **Event Hook Service** - Idempotent side-effect execution with governance invariants
+- **Receipt Validation** - IDE-provided execution receipts to skip redundant hooks
+- **Sampling Gate** - Three-tier fallback: Sampling -> WS LLM -> pending card
+
+See [MCP Gateway Architecture](../docs/core-architecture/mcp-gateway.md) for detailed design.
+
+## Sampling (Experimental)
+
+The server declares `experimental.sampling` capability. When the IDE client supports MCP Sampling, `server.createMessage()` sends structured prompts to the client's LLM for intent extraction, reducing WS-side LLM costs.
+
+Safety controls: template allowlist, per-workspace rate limit (10/min), PII redaction, 30s timeout.
 
 ## Claude Desktop Configuration
 

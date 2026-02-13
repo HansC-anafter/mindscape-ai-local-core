@@ -28,6 +28,38 @@ logger = logging.getLogger(__name__)
 class TasksStore(PostgresStoreBase):
     """Postgres-backed store for managing task execution records."""
 
+    def _sync_playbook_execution_status(
+        self,
+        conn,
+        execution_id: Optional[str],
+        status: TaskStatus,
+        execution_context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not execution_id:
+            return
+        # Skip sync for auto-resume placeholder failures to avoid clobbering running retries.
+        if execution_context and execution_context.get("auto_resumed"):
+            return
+        if status in (TaskStatus.FAILED, TaskStatus.CANCELLED_BY_USER, TaskStatus.EXPIRED):
+            target_status = "failed"
+        elif status == TaskStatus.SUCCEEDED:
+            target_status = "done"
+        else:
+            return
+        try:
+            conn.execute(
+                text(
+                    "UPDATE playbook_executions SET status = :status, updated_at = :updated_at WHERE id = :id"
+                ),
+                {"status": target_status, "updated_at": _utc_now(), "id": execution_id},
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to sync playbook_executions status for %s: %s",
+                execution_id,
+                e,
+            )
+
     def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
         super().__init__(db_role=db_role)
         self.db_path = db_path
@@ -199,6 +231,23 @@ class TasksStore(PostgresStoreBase):
             if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
 
+            # Sync playbook_executions status (best effort)
+            try:
+                row = conn.execute(
+                    text("SELECT execution_id, execution_context FROM tasks WHERE id = :task_id"),
+                    {"task_id": task_id},
+                ).fetchone()
+                if row:
+                    execution_id = row._mapping["execution_id"] if hasattr(row, "_mapping") else row[0]
+                    execution_context = self.deserialize_json(
+                        row._mapping["execution_context"] if hasattr(row, "_mapping") else row[1]
+                    )
+                    self._sync_playbook_execution_status(
+                        conn, execution_id, status, execution_context
+                    )
+            except Exception:
+                pass
+
             logger.info("Updated task %s status to %s", task_id, status.value)
             return self.get_task(task_id)
 
@@ -258,6 +307,24 @@ class TasksStore(PostgresStoreBase):
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
+
+            # Sync playbook_executions status when task status is set.
+            try:
+                status_val = kwargs.get("status")
+                if status_val is not None:
+                    status_obj = status_val if isinstance(status_val, TaskStatus) else TaskStatus(status_val)
+                    row = conn.execute(
+                        text("SELECT execution_id FROM tasks WHERE id = :task_id"),
+                        {"task_id": task_id},
+                    ).fetchone()
+                    execution_id = None
+                    if row:
+                        execution_id = row._mapping["execution_id"] if hasattr(row, "_mapping") else row[0]
+                    self._sync_playbook_execution_status(
+                        conn, execution_id, status_obj, execution_context
+                    )
+            except Exception:
+                pass
 
             logger.info("Updated task %s", task_id)
             return self.get_task(task_id)
@@ -711,12 +778,18 @@ class TasksStore(PostgresStoreBase):
 
     def update_task_heartbeat(
         self, task_id: str, runner_id: Optional[str] = None
-    ) -> None:
+    ) -> bool:
+        """Update heartbeat and return True if the task should be aborted.
+
+        Returns:
+            should_abort: True if the DB task status indicates the runner
+            should stop (cancelled, expired, or externally failed).
+        """
         now = _utc_now()
         now_iso = now.isoformat()
         task = self.get_task(task_id)
         if not task:
-            return
+            return True  # task deleted — abort
 
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
         ctx = dict(ctx)
@@ -769,6 +842,32 @@ class TasksStore(PostgresStoreBase):
         else:
             self.update_task(task_id, execution_context=ctx)
         logger.info("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
+
+        # ── Abort detection ──────────────────────────────────────
+        # Re-read status after write to catch external cancellation.
+        if should_revive:
+            return False  # just revived — keep running
+
+        abort_statuses = {
+            TaskStatus.CANCELLED_BY_USER,
+            TaskStatus.EXPIRED,
+        }
+        # Handle string-based statuses as fallback
+        status_str = str(task.status).lower() if task.status else ""
+        if task.status in abort_statuses:
+            logger.warning(
+                "Task %s status=%s — signalling abort to runner", task_id, task.status
+            )
+            return True
+        if (
+            task.status == TaskStatus.FAILED
+            and (task.error or "") != "Execution interrupted by server restart"
+        ):
+            logger.warning(
+                "Task %s externally failed (%s) — signalling abort", task_id, task.error
+            )
+            return True
+        return False
 
     def _coerce_datetime(self, value: Optional[Any]) -> Optional[datetime]:
         if value is None:

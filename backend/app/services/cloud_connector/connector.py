@@ -19,6 +19,7 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from .transport import TransportHandler
 from .heartbeat import HeartbeatMonitor
+from .messaging_handler import MessagingHandler
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class CloudConnector:
             tenant_id: Tenant identifier (default: from env or "local")
         """
         self.cloud_ws_url = cloud_ws_url or os.getenv(
-            "CLOUD_WS_URL", "wss://cloud.mindscape.ai/api/v1/executor/ws"
+            "CLOUD_WS_URL", "wss://agent.anafter.co/api/v1/executor/ws"
         )
         self.device_id = device_id or self._get_or_create_device_id()
         self.tenant_id = tenant_id or os.getenv("TENANT_ID", "local")
@@ -58,6 +59,7 @@ class CloudConnector:
         self.websocket: Optional[WebSocketClientProtocol] = None
         self.transport_handler: Optional[TransportHandler] = None
         self.heartbeat_monitor: Optional[HeartbeatMonitor] = None
+        self.messaging_handler: Optional[MessagingHandler] = None
 
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
@@ -100,7 +102,9 @@ class CloudConnector:
         user_token = os.getenv("SITE_HUB_USER_TOKEN") or os.getenv("SITE_HUB_API_TOKEN")
 
         if not user_token:
-            logger.warning("SITE_HUB_USER_TOKEN not set, using mock token for development")
+            logger.warning(
+                "SITE_HUB_USER_TOKEN not set, using mock token for development"
+            )
             return "mock_device_token_for_development"
 
         try:
@@ -138,6 +142,15 @@ class CloudConnector:
         try:
             self.device_token = await self.get_device_token()
 
+            # Build WSS URL with query params for device registry
+            site_key = os.getenv("SITE_KEY", self.tenant_id)
+            ws_url = (
+                f"{self.cloud_ws_url}"
+                f"?device_id={self.device_id}"
+                f"&site_key={site_key}"
+                f"&token={self.device_token}"
+            )
+
             headers = {
                 "Authorization": f"Bearer {self.device_token}",
                 "X-Device-Id": self.device_id,
@@ -146,11 +159,23 @@ class CloudConnector:
 
             logger.info(f"Connecting to Cloud WebSocket: {self.cloud_ws_url}")
 
+            # Force HTTP/1.1 via ALPN — GCP Load Balancer defaults to H2
+            # which breaks WebSocket upgrade semantics (Connection: Upgrade)
+            import ssl
+
+            ssl_context = ssl.create_default_context()
+            ssl_context.set_alpn_protocols(["http/1.1"])
+
             self.websocket = await websockets.connect(
-                self.cloud_ws_url,
-                extra_headers=headers,
+                ws_url,
+                additional_headers=headers,
+                ssl=ssl_context,
+                open_timeout=30,
                 ping_interval=30,
                 ping_timeout=10,
+                close_timeout=10,
+                compression=None,
+                max_size=2**20,
             )
 
             self._is_connected = True
@@ -162,6 +187,10 @@ class CloudConnector:
 
             self.transport_handler = TransportHandler(self.websocket, self.device_id)
             self.heartbeat_monitor = HeartbeatMonitor(self.websocket)
+            self.messaging_handler = MessagingHandler(
+                websocket=self.websocket,
+                device_id=self.device_id,
+            )
 
             asyncio.create_task(self._message_loop())
             asyncio.create_task(self.heartbeat_monitor.start())
@@ -235,7 +264,14 @@ class CloudConnector:
 
         if msg_type == "execution_request":
             if self.transport_handler:
-                await self.transport_handler.handle_execution_request(msg.get("payload"))
+                await self.transport_handler.handle_execution_request(
+                    msg.get("payload")
+                )
+        elif msg_type == "messaging_event":
+            if self.messaging_handler:
+                await self.messaging_handler.handle(msg.get("payload", {}))
+            else:
+                logger.warning("Received messaging_event but no handler configured")
         elif msg_type == "ping":
             if self.websocket:
                 await self.websocket.send(json.dumps({"type": "pong"}))
@@ -262,7 +298,9 @@ class CloudConnector:
             self._max_reconnect_delay,
         )
 
-        logger.info(f"Reconnecting in {delay} seconds (attempt {self._reconnect_attempts})")
+        logger.info(
+            f"Reconnecting in {delay} seconds (attempt {self._reconnect_attempts})"
+        )
         await asyncio.sleep(delay)
 
         await self.connect()

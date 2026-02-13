@@ -4,6 +4,8 @@ FastAPI application for personal AI agent platform
 """
 
 import os
+import signal
+import faulthandler
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -32,6 +34,7 @@ from .routes.core.artifacts import router as artifacts_router
 from .routes.core.resources import router as resources_router
 from .routes.core.system_settings import router as system_settings_router
 from .routes.core.settings_extensions import router as settings_extensions_router
+from .routes.core.runtime_environments import router as runtime_environments_router
 from .routes.core.data_sources import router as data_sources_router
 from .routes.core.workspace_resource_bindings import (
     router as workspace_resource_bindings_router,
@@ -57,12 +60,35 @@ from .core.pack_registry import load_and_register_packs
 from .core.security import security_monitor, auth_manager
 from .init_db import init_mindscape_tables
 from .capabilities.registry import load_capabilities
+from .services.capability_reload_manager import (
+    hot_reload_enabled,
+    reload_capability_routes,
+)
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _capability_hot_reload_enabled() -> bool:
+    return hot_reload_enabled()
+
+
+def _enable_usr1_faulthandler():
+    if not (os.getenv("PYTHONFAULTHANDLER") or os.getenv("ENABLE_FAULTHANDLER")):
+        return
+    try:
+        faulthandler.enable()
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+        faulthandler.register(signal.SIGUSR2, all_threads=True)
+        logger.info("Faulthandler enabled: SIGUSR1/SIGUSR2 will dump stack traces.")
+    except Exception:
+        logger.exception("Failed to enable faulthandler.")
+
+
+_enable_usr1_faulthandler()
 
 # Create FastAPI app
 app = FastAPI(
@@ -72,6 +98,13 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+if os.getenv("PYTHONFAULTHANDLER") or os.getenv("ENABLE_FAULTHANDLER"):
+
+    @app.post("/debug/dump-stacks")
+    async def _dump_stacks():
+        faulthandler.dump_traceback(all_threads=True)
+        return {"ok": True}
 
 
 # CORS middleware - MUST be first middleware (before TrustedHostMiddleware)
@@ -169,6 +202,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(config.router, tags=["config"])
     app.include_router(system_settings_router, tags=["system"])
     app.include_router(settings_extensions_router)
+    app.include_router(runtime_environments_router, tags=["runtime-environments"])
     app.include_router(tools.router, tags=["tools"])
     app.include_router(sandbox.router, tags=["sandboxes"])
     app.include_router(deployment.router, tags=["deployment"])
@@ -191,25 +225,32 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.warning(f"Failed to register admin reload routes: {e}")
 
-    try:
-        from backend.app.capabilities.api_loader import load_capability_apis
-        import os
+    if not _capability_hot_reload_enabled():
+        try:
+            from backend.app.capabilities.api_loader import load_capability_apis
+            import os
 
-        allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
-        allowlist = allowlist_env.split(",") if allowlist_env else None
-        capability_routers = load_capability_apis(
-            app=app, allowlist=allowlist, enable_all=False
+            allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
+            allowlist = allowlist_env.split(",") if allowlist_env else None
+            capability_routers = load_capability_apis(
+                app=app, allowlist=allowlist, enable_all=False
+            )
+            if allowlist:
+                logger.info(
+                    f"Loaded {len(capability_routers)} cloud capability API routers (allowlist={allowlist})"
+                )
+            else:
+                logger.info(
+                    f"Loaded {len(capability_routers)} cloud capability API routers (using enabled_by_default from manifests)"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to load cloud capability API routers: {e}", exc_info=True
+            )
+    else:
+        logger.info(
+            "Capability hot reload enabled; capability API routers will be loaded via reload manager."
         )
-        if allowlist:
-            logger.info(
-                f"Loaded {len(capability_routers)} cloud capability API routers (allowlist={allowlist})"
-            )
-        else:
-            logger.info(
-                f"Loaded {len(capability_routers)} cloud capability API routers (using enabled_by_default from manifests)"
-            )
-    except Exception as e:
-        logger.error(f"Failed to load cloud capability API routers: {e}", exc_info=True)
 
     # Register YogaCoach API routes directly (installed capability)
     try:
@@ -280,6 +321,15 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.debug(f"MCP Bridge routes not registered: {e}")
 
+    # Agent WebSocket routes (real-time task dispatch to IDE agents)
+    try:
+        from .routes.agent_websocket import router as agent_ws_router
+
+        app.include_router(agent_ws_router, tags=["agent-websocket"])
+        logger.info("Agent WebSocket routes registered")
+    except Exception as e:
+        logger.debug(f"Agent WebSocket routes not registered: {e}")
+
 
 def register_core_primitives(app: FastAPI) -> None:
     """Register core primitives"""
@@ -298,16 +348,22 @@ def register_core_primitives(app: FastAPI) -> None:
         logger.warning(f"Failed to load capability_installation router: {e}")
 
 
+def initialize_feature_packs(app: FastAPI) -> None:
+    """Initialize pack routes and capability APIs."""
+    try:
+        if _capability_hot_reload_enabled():
+            reload_capability_routes(app, reason="startup")
+        else:
+            load_and_register_packs(app)
+    except Exception as e:
+        logger.warning(
+            f"Failed to load some feature packs during startup: {e}. App will continue to start."
+        )
+
+
 register_core_routes(app)
 register_core_primitives(app)
-# Pack loading failures are logged but do not prevent app startup
-try:
-    load_and_register_packs(app)
-except Exception as e:
-    logger.warning(
-        f"Failed to load some feature packs during startup: {e}. App will continue to start."
-    )
-    # Continue startup - core functionality should still work
+initialize_feature_packs(app)
 
 # Manually register mindscape routes (if not loaded via pack registry)
 try:
@@ -373,12 +429,49 @@ async def startup_event():
         logger.info("Playbook handlers registered successfully")
     except Exception as e:
         logger.warning(f"Failed to register playbook handlers: {e}", exc_info=True)
+
+    # Check for dependency updates (Development Mode only)
+    # Compares build-time requirements (in image) vs run-time requirements (volume mounted code)
+    if os.getenv("ENVIRONMENT") == "development":
+        try:
+            from pathlib import Path
+            import hashlib
+
+            # Paths inside container based on Dockerfile structure
+            # /app/requirements.txt is COPY'd during build (frozen state)
+            # /app/backend/requirements.txt is volume mounted from host (current state)
+            build_reqs_path = Path("/app/requirements.txt")
+            runtime_reqs_path = Path("/app/backend/requirements.txt")
+
+            if build_reqs_path.exists() and runtime_reqs_path.exists():
+                build_hash = hashlib.md5(build_reqs_path.read_bytes()).hexdigest()
+                runtime_hash = hashlib.md5(runtime_reqs_path.read_bytes()).hexdigest()
+
+                if build_hash != runtime_hash:
+                    logger.warning("\n" + "!" * 80)
+                    logger.warning("DEPENDENCY MISMATCH DETECTED!")
+                    logger.warning(
+                        "The requirements.txt in your running container differs from your local code."
+                    )
+                    logger.warning(
+                        "This means your Docker image is outdated and missing new dependencies."
+                    )
+                    logger.warning("PLEASE RUN: docker compose up --build")
+                    logger.warning("!" * 80 + "\n")
+            else:
+                logger.debug(
+                    "Could not find both requirements.txt files for dependency check. Skipping."
+                )
+        except Exception as e:
+            logger.warning(f"Dependency check failed: {e}")
+
     # Initialize Cloud Connector (if enabled)
     cloud_connector_enabled = (
         os.getenv("CLOUD_CONNECTOR_ENABLED", "false").lower() == "true"
     )
     if cloud_connector_enabled:
         try:
+            import asyncio
             from backend.app.services.cloud_connector import CloudConnector
 
             connector = CloudConnector()
@@ -396,25 +489,10 @@ async def startup_event():
 
         capabilities_root = Path(__file__).parent / "capabilities"
         alembic_configs = {
-            "sqlite": Path(__file__).parent.parent / "alembic.sqlite.ini",
             "postgres": Path(__file__).parent.parent / "alembic.postgres.ini",
         }
 
         orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
-
-        # Run SQLite migrations
-        logger.info("Checking SQLite migrations...")
-        sqlite_result = orchestrator.apply("sqlite", dry_run=False)
-        if sqlite_result.get("status") == "validation_failed":
-            logger.error(
-                f"SQLite migration validation failed: {sqlite_result.get('failed_checks')}"
-            )
-        elif sqlite_result.get("status") == "error":
-            logger.error(f"SQLite migration error: {sqlite_result.get('error')}")
-        else:
-            logger.info(
-                f"SQLite migrations: {sqlite_result.get('status')}, applied: {sqlite_result.get('migrations_applied', 0)}"
-            )
 
         # Run PostgreSQL migrations
         logger.info("Checking PostgreSQL migrations...")
@@ -510,14 +588,7 @@ def register_core_primitives(app: FastAPI) -> None:
 
 register_core_routes(app)
 register_core_primitives(app)
-# Pack loading failures are logged but do not prevent app startup
-try:
-    load_and_register_packs(app)
-except Exception as e:
-    logger.warning(
-        f"Failed to load some feature packs during startup: {e}. App will continue to start."
-    )
-    # Continue startup - core functionality should still work
+initialize_feature_packs(app)
 
 # Manually register mindscape routes (if not loaded via pack registry)
 try:
@@ -664,6 +735,15 @@ except Exception as e:
         )
     except Exception as e:
         logger.warning(f"Failed to register Content Vault tools: {e}", exc_info=True)
+
+    # Register External Agent tools
+    try:
+        from backend.app.services.tools.registry import register_external_agent_tools
+
+        external_agent_tools = register_external_agent_tools()
+        logger.info(f"Registered {len(external_agent_tools)} external agent tools")
+    except Exception as e:
+        logger.warning(f"Failed to register external agent tools: {e}", exc_info=True)
 
     # Unsplash tools are provided by cloud capability pack, not local-core
     # They are loaded via capabilities/registry from cloud capabilities/unsplash/manifest.yaml

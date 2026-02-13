@@ -39,7 +39,7 @@ class ToolExecutor:
             return
         self._last_capability_reload_at = now
         try:
-            load_capabilities()
+            load_capabilities(reset=True)
             self.registry = get_registry()
             logger.info(f"Reloaded capability registry ({reason})")
         except Exception as e:

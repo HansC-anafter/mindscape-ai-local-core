@@ -74,6 +74,7 @@ class SamplingGate:
         "intent_extract",
         "steward_analyze",
         "plan_build",
+        "agent_task_dispatch",
     }
 
     # Rate limit: max requests per workspace per window
@@ -382,5 +383,62 @@ class SamplingGate:
             "metadata": {
                 "template": "steward_analyze",
                 "source": "mindscape_gateway",
+            },
+        }
+
+    @staticmethod
+    def build_agent_task_dispatch_prompt(
+        task: str,
+        execution_id: str,
+        workspace_id: str,
+        allowed_tools: list = None,
+        context: dict = None,
+    ) -> dict:
+        """
+        Build a structured prompt for dispatching a coding task to the IDE agent.
+
+        Returns a dict matching MCP CreateMessageRequest params shape.
+        """
+        system_prompt = (
+            "You are receiving a task dispatch from Mindscape AI. "
+            "Execute the coding task described below using the allowed tools. "
+            "Return a JSON object with: status ('completed' or 'failed'), "
+            "output (summary of work done), files_modified (list), "
+            "files_created (list), and error (null or error message)."
+        )
+
+        ctx = context or {}
+        tools_text = ", ".join(allowed_tools or [])
+        context_lines = "\n".join(f"  {k}: {v}" for k, v in ctx.items() if v)
+
+        redacted_task = SamplingGate.redact_prompt(task)
+
+        return {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            f"## Task Dispatch\n\n"
+                            f"**Execution ID:** {execution_id}\n"
+                            f"**Workspace:** {workspace_id}\n"
+                            f"**Allowed Tools:** {tools_text}\n\n"
+                            f"**Task:**\n{redacted_task}"
+                            + (
+                                f"\n\n**Context:**\n{context_lines}"
+                                if context_lines
+                                else ""
+                            )
+                        ),
+                    },
+                }
+            ],
+            "systemPrompt": system_prompt,
+            "maxTokens": 4096,
+            "metadata": {
+                "template": "agent_task_dispatch",
+                "source": "mindscape_gateway",
+                "execution_id": execution_id,
             },
         }

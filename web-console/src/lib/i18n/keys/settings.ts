@@ -248,5 +248,16 @@ export const settingsKeys = {
   scan: true,
   retry: true,
   selected: true,
+
+  // Runtime Environments
+  runtimeEnvironments: true,
+  runtimeEnvironmentsDescription: true,
+  addRuntime: true,
+  addRuntimeDescription: true,
+  runtimeConfiguration: true,
+  runtimeConfigurationUpdated: true,
+  runtimeAddedSuccessfully: true,
+  add: true,
+  loading: true,
 } as const;
 

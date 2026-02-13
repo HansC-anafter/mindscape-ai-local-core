@@ -605,31 +605,61 @@ async def install_from_file(
             )
             post_install_handler.run_all(cap_dir, capability_code, manifest, result)
 
-            # 7. Reload capability registry
+            # 7. Reload capability registry (and routes if hot reload enabled)
+            hot_reload_result = None
+            hot_reload_performed = False
             try:
-                from app.capabilities.registry import get_registry
+                from app.capabilities.registry import get_registry, load_capabilities
+                from app.services.capability_reload_manager import (
+                    hot_reload_enabled,
+                    reload_capability_routes,
+                )
+                from starlette.concurrency import run_in_threadpool
 
                 registry = get_registry()
                 if hasattr(registry, "_capabilities_cache"):
                     registry._capabilities_cache.clear()
                 if hasattr(registry, "_tools_cache"):
                     registry._tools_cache.clear()
-                logger.info(f"Reloaded capability registry for {capability_code}")
+
+                if hot_reload_enabled():
+                    hot_reload_result = await run_in_threadpool(
+                        reload_capability_routes,
+                        fastapi_request.app,
+                        f"install-from-file:{capability_code}",
+                    )
+                    hot_reload_performed = True
+                    logger.info(f"Hot reload completed for {capability_code}")
+                else:
+                    load_capabilities(reset=True)
+                    logger.info(f"Reloaded capability registry for {capability_code}")
             except Exception as e:
-                logger.warning(f"Failed to reload capability registry: {e}")
-                result.add_warning(f"Failed to reload capability registry: {e}")
+                logger.warning(f"Failed to reload capability registry/routes: {e}")
+                result.add_warning(
+                    f"Failed to reload capability registry/routes: {e}"
+                )
+                try:
+                    from app.capabilities.registry import load_capabilities
+
+                    load_capabilities(reset=True)
+                except Exception:
+                    pass
 
             # 8. Trigger reload in dev mode (--reload flag watches directories)
             # In production, return restart_required flag for orchestrator
             restart_triggered = False
+            restart_required = True
             env = os.getenv("ENVIRONMENT", "development")
 
-            if env in ("development", "dev"):
+            if hot_reload_performed:
+                restart_required = False
+            elif env in ("development", "dev"):
                 try:
                     # Touch trigger file to activate uvicorn --reload
                     trigger_file = Path("/app/backend/app/capabilities/.reload_trigger")
                     trigger_file.touch()
                     restart_triggered = True
+                    restart_required = False
                     logger.info(
                         f"Reload triggered for {capability_code} via file touch"
                     )
@@ -688,7 +718,7 @@ async def install_from_file(
 
             # 9. Send webhook notification for production restart (if configured)
             webhook_result = None
-            if not restart_triggered:
+            if restart_required:
                 try:
                     webhook_service = get_restart_webhook_service()
                     if webhook_service.is_configured():
@@ -713,8 +743,9 @@ async def install_from_file(
                 "version": result_dict.get("version"),
                 "message": f"Successfully installed {capability_id} v{result_dict.get('version')}",
                 "warnings": result.warnings,
-                "restart_required": not restart_triggered,
+                "restart_required": restart_required,
                 "restart_triggered": restart_triggered,
+                "hot_reload": hot_reload_result,
                 "webhook": webhook_result,
             }
 
@@ -937,29 +968,59 @@ async def install_from_cloud(
             )
             post_install_handler.run_all(cap_dir, capability_code, manifest, result)
 
-            # 7. Reload capability registry
+            # 7. Reload capability registry (and routes if hot reload enabled)
+            hot_reload_result = None
+            hot_reload_performed = False
             try:
-                from app.capabilities.registry import get_registry
+                from app.capabilities.registry import get_registry, load_capabilities
+                from app.services.capability_reload_manager import (
+                    hot_reload_enabled,
+                    reload_capability_routes,
+                )
+                from starlette.concurrency import run_in_threadpool
 
                 registry = get_registry()
                 if hasattr(registry, "_capabilities_cache"):
                     registry._capabilities_cache.clear()
                 if hasattr(registry, "_tools_cache"):
                     registry._tools_cache.clear()
-                logger.info(f"Reloaded capability registry for {capability_code}")
+
+                if hot_reload_enabled():
+                    hot_reload_result = await run_in_threadpool(
+                        reload_capability_routes,
+                        fastapi_request.app,
+                        f"install-from-cloud:{capability_code}",
+                    )
+                    hot_reload_performed = True
+                    logger.info(f"Hot reload completed for {capability_code}")
+                else:
+                    load_capabilities(reset=True)
+                    logger.info(f"Reloaded capability registry for {capability_code}")
             except Exception as e:
-                logger.warning(f"Failed to reload capability registry: {e}")
-                result.add_warning(f"Failed to reload capability registry: {e}")
+                logger.warning(f"Failed to reload capability registry/routes: {e}")
+                result.add_warning(
+                    f"Failed to reload capability registry/routes: {e}"
+                )
+                try:
+                    from app.capabilities.registry import load_capabilities
+
+                    load_capabilities(reset=True)
+                except Exception:
+                    pass
 
             # 8. Trigger reload in dev mode (--reload flag watches directories)
             restart_triggered = False
+            restart_required = True
             env = os.getenv("ENVIRONMENT", "development")
 
-            if env in ("development", "dev"):
+            if hot_reload_performed:
+                restart_required = False
+            elif env in ("development", "dev"):
                 try:
                     trigger_file = Path("/app/backend/app/capabilities/.reload_trigger")
                     trigger_file.touch()
                     restart_triggered = True
+                    restart_required = False
                     logger.info(
                         f"Reload triggered for {capability_code} from cloud via file touch"
                     )
@@ -1014,7 +1075,7 @@ async def install_from_cloud(
 
             # 9. Send webhook notification for production restart (if configured)
             webhook_result = None
-            if not restart_triggered:
+            if restart_required:
                 try:
                     webhook_service = get_restart_webhook_service()
                     if webhook_service.is_configured():
@@ -1042,8 +1103,9 @@ async def install_from_cloud(
                 "warnings": result.warnings,
                 "provider_id": request.provider_id,
                 "pack_ref": request.pack_ref,
-                "restart_required": not restart_triggered,
+                "restart_required": restart_required,
                 "restart_triggered": restart_triggered,
+                "hot_reload": hot_reload_result,
                 "webhook": webhook_result,
             }
 

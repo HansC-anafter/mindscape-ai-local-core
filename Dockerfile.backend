@@ -19,13 +19,8 @@ RUN npm install -g openclaw@latest
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
 
-# Copy mindscape-playbook-tools wheel (temporary solution)
-# TODO: Replace with PyPI installation: pip install mindscape-playbook-tools>=1.0.0
-COPY mindscape_playbook_tools-*.whl .
-
-# Install Python dependencies (including playbook-tools wheel)
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir mindscape_playbook_tools-*.whl
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code (精确复制，避免 COPY . . 把不需要的文件带进去)
 # .dockerignore 会排除 backend/app/capabilities/ 等 cloud packs

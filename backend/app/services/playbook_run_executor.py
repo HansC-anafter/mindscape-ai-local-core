@@ -14,7 +14,13 @@ This class is only used internally by PlaybookService for backward compatibility
 import logging
 import asyncio
 import os
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
+
 
 from backend.app.models.playbook import (
     PlaybookRun,

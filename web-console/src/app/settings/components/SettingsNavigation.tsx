@@ -179,6 +179,12 @@ const navigationItems: NavigationItem[] = [
     ],
   },
   {
+    id: 'runtime',
+    label: 'runtimeEnvironments',
+    icon: '⚙️',
+    tab: 'runtime',
+  },
+  {
     id: 'tools',
     label: 'toolsAndIntegrations',
     icon: '🔧',

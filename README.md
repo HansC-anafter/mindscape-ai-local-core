@@ -133,8 +133,26 @@ Mindscape AI natively supports the **Agent Skills open standard** and **Model Co
 | Standard | Integration Level |
 |----------|------------------|
 | **Agent Skills** | SKILL.md indexing, semantic search, format conversion |
-| **MCP** | Native MCP server support as tool providers |
+| **MCP** | Native MCP server + IDE bridge + server-initiated sampling |
 | **LangChain** | Tool adapters for LangChain ecosystem |
+
+### MCP Gateway Architecture
+
+The **MCP Gateway** (`mcp-mindscape-gateway/`) exposes Mindscape capabilities to external AI tools via the MCP protocol:
+
+| Component | Role |
+|-----------|------|
+| **MCP Gateway** | TypeScript MCP server exposing tools to Claude Desktop, Cursor, etc. |
+| **MCP Bridge** | Backend API (`/api/v1/mcp/*`) for synchronous chat, intent submission, project detection |
+| **Event Hook Service** | Idempotent side-effect runner with governance invariants (evented, idempotent, receipt-verified, policy-gated) |
+| **Sampling Gate** | Server-initiated LLM calls to IDE client with three-tier fallback (Sampling -> WS LLM -> pending card) |
+
+Key capabilities:
+- **Receipt-based override**: IDE can skip redundant hooks by providing validated execution receipts
+- **MCP Sampling**: Server sends structured prompts to the IDE's LLM via `createMessage()`, reducing WS-side LLM costs
+- **Safety controls**: Template allowlist, per-workspace rate limiting, PII redaction
+
+See [MCP Gateway Architecture](./docs/core-architecture/mcp-gateway.md) for the full design.
 
 ### Mindscape's Position: Skill-compatible Workflow Layer
 
@@ -450,6 +468,7 @@ cd mindscape-ai-local-core
   - Local/Cloud Boundary
   - Playbooks & Workflows (including identity governance and access control)
   - Project + Flow + Sandbox (v2.0)
+  - [MCP Gateway Architecture](./docs/core-architecture/mcp-gateway.md) - MCP Bridge, Event Hooks, Sampling Gate
 
 ### Playbook Development
 - [Playbook Development](./docs/playbook-development/README.md) - Create and extend playbooks

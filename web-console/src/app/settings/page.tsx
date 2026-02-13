@@ -16,6 +16,7 @@ import { LocalizationPanel } from './components/LocalizationPanel';
 import { ServiceStatusPanel } from './components/ServiceStatusPanel';
 import { GovernancePanel } from './components/GovernancePanel';
 import { AITeamGovernancePanel } from './components/panels/AITeamGovernancePanel';
+import { RuntimeEnvironmentsSettings } from './components/panels/RuntimeEnvironmentsSettings';
 import { useTools } from './hooks/useTools';
 import type { SettingsTab } from './types';
 
@@ -43,7 +44,7 @@ export default function SettingsPage() {
     const modelParam = searchParams?.get('model' as any);
     const serviceParam = searchParams?.get('service' as any);
 
-    const validTabs: SettingsTab[] = ['tools', 'packs', 'basic', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'governance'];
+    const validTabs: SettingsTab[] = ['tools', 'packs', 'basic', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'governance', 'runtime'];
     if (tabParam && validTabs.includes(tabParam as SettingsTab)) {
       setActiveTab(tabParam as SettingsTab);
     }
@@ -105,6 +106,8 @@ export default function SettingsPage() {
         return <ToolsPanel activeSection={activeSection} activeProvider={activeProvider} />;
       case 'packs':
         return <PacksPanel getToolStatus={getToolStatusForPack} activeSection={activeSection} />;
+      case 'runtime':
+        return <RuntimeEnvironmentsSettings />;
       case 'localization':
         return <LocalizationPanel activeSection={activeSection} />;
       case 'service_status':

@@ -14,12 +14,21 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Dict, Any, Optional
 
 from websockets.client import WebSocketClientProtocol
 
-from sitehub_protocol.transport import ExecutionRequest, ExecutionEvent, UsageReport
-from sitehub_protocol.contracts.execution_context import ExecutionContext
+try:
+    from sitehub_protocol.transport import ExecutionRequest, ExecutionEvent, UsageReport
+    from sitehub_protocol.contracts.execution_context import ExecutionContext
+except ImportError:
+    # sitehub_protocol not installed — transport features disabled, messaging still works
+    ExecutionRequest = None
+    ExecutionEvent = None
+    UsageReport = None
+    ExecutionContext = None
 
 logger = logging.getLogger(__name__)
 

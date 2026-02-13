@@ -17,6 +17,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.models.workspace import Artifact, ArtifactType, PrimaryActionType
 from backend.app.services.stores.artifacts_store import ArtifactsStore
 
@@ -500,7 +501,7 @@ class PlaybookOutputArtifactCreator:
             f"enhanced_context.artifact.title='{enhanced_context['artifact']['title']}', "
             f"enhanced_context.title='{enhanced_context.get('title')}'"
         )
-        storage_info = self._resolve_storage_path(
+        storage_info = await self._resolve_storage_path(
             playbook_code=playbook_metadata.get("playbook_code", ""),
             playbook_scope=playbook_scope,
             execution_id=context.get("execution_id", ""),
@@ -719,7 +720,7 @@ class PlaybookOutputArtifactCreator:
             logger.error(f"Failed to write artifact file: {e}", exc_info=True)
             raise
 
-    def _resolve_storage_path(
+    async def _resolve_storage_path(
         self,
         playbook_code: str,
         playbook_scope: str,

@@ -10,6 +10,7 @@ SQLite support has been deprecated and removed.
 
 import os
 import json
+import time
 import uuid
 from datetime import datetime
 
@@ -17,6 +18,8 @@ from datetime import datetime
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import logging
@@ -188,7 +191,12 @@ class MindscapeStore:
             conn.close()
 
     def _init_db(self):
-        """Initialize database tables"""
+        """Initialize database tables with retry logic for startup resilience.
+
+        PostgreSQL may still be performing WAL recovery after an unclean shutdown.
+        We retry with exponential backoff to avoid crashing the entire backend
+        during the brief window where postgres rejects connections.
+        """
         # Skip if already initialized in this process
         if MindscapeStore._schema_initialized:
             return
@@ -206,18 +214,46 @@ class MindscapeStore:
             "playbook_executions",
         }
 
-        try:
-            with self.connection_factory.get_connection() as conn:
-                result = conn.execute(
-                    text(
-                        "SELECT table_name FROM information_schema.tables "
-                        "WHERE table_schema = 'public'"
+        max_retries = 5
+        base_delay = 1  # seconds
+        last_exc = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                with self.connection_factory.get_connection() as conn:
+                    result = conn.execute(
+                        text(
+                            "SELECT table_name FROM information_schema.tables "
+                            "WHERE table_schema = 'public'"
+                        )
                     )
-                )
-                existing_tables = {row[0] for row in result.fetchall()}
-        except Exception as exc:
-            logger.error("PostgreSQL schema validation failed: %s", exc)
-            raise
+                    existing_tables = {row[0] for row in result.fetchall()}
+                # Connection succeeded, break out of retry loop
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** (attempt - 1))  # 1, 2, 4, 8, 16
+                    logger.warning(
+                        "PostgreSQL not ready (attempt %d/%d): %s. "
+                        "Retrying in %ds...",
+                        attempt,
+                        max_retries,
+                        exc,
+                        delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        "PostgreSQL schema validation failed after %d attempts: %s",
+                        max_retries,
+                        exc,
+                    )
+                    raise
+
+        if last_exc is not None:
+            raise last_exc
 
         missing_tables = sorted(required_tables - existing_tables)
         if missing_tables:

@@ -674,4 +674,15 @@ export const settingsZhTW = {
   scanDescription: '指向您的 ComfyUI 安裝資料夾以自動檢測配置。',
   scanning: '掃描中...',
   scan: '開始掃描',
+
+  // Runtime Environments
+  runtimeEnvironments: '執行環境',
+  runtimeEnvironmentsDescription: '配置 Playbook 和任務的執行環境',
+  addRuntime: '新增執行環境',
+  addRuntimeDescription: '新增自訂的執行環境',
+  runtimeConfiguration: '執行環境配置',
+  runtimeConfigurationUpdated: '執行環境配置已更新',
+  runtimeAddedSuccessfully: '執行環境「{name}」新增成功',
+  add: '新增',
+  loading: '載入中',
 } as const satisfies Partial<Record<MessageKey, string>>;

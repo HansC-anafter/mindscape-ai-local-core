@@ -119,4 +119,4 @@ export interface PlaybookReadinessStatus {
   optional_tools: string[];
 }
 
-export type SettingsTab = 'basic' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'packs' | 'localization' | 'service_status' | 'governance';
+export type SettingsTab = 'basic' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'packs' | 'localization' | 'service_status' | 'governance' | 'runtime';
