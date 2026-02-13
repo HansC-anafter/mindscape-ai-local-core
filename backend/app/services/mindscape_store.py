@@ -144,8 +144,19 @@ class MindscapeStore:
 
         # Initialize database schema
         # Note: Database migrations are managed by Alembic (run: alembic upgrade head)
+        # _init_db validates tables exist but must not crash, because this
+        # constructor runs at module-import time (before startup_event can
+        # execute migrations).  Migrations are applied by MigrationOrchestrator
+        # in startup_event; _init_db only logs a warning here.
         self._init_db()
-        self.ensure_default_profile()
+        try:
+            self.ensure_default_profile()
+        except Exception as e:
+            # Tables may not exist yet during first startup; startup_event
+            # will run migrations then re-initialize.
+            logger.warning(
+                "ensure_default_profile deferred (tables may not exist yet): %s", e
+            )
 
     def get_user_meta(
         self, profile_id: str, playbook_code: str
@@ -258,10 +269,13 @@ class MindscapeStore:
         missing_tables = sorted(required_tables - existing_tables)
         if missing_tables:
             missing_str = ", ".join(missing_tables)
-            raise RuntimeError(
-                "Missing PostgreSQL tables: "
-                f"{missing_str}. Run: alembic -c backend/alembic.ini upgrade head"
+            logger.warning(
+                "Missing PostgreSQL tables: %s. "
+                "They will be created by the migration orchestrator in startup_event. "
+                "If this persists, run: alembic -c backend/alembic.ini upgrade head",
+                missing_str,
             )
+            return
 
         MindscapeStore._schema_initialized = True
 
