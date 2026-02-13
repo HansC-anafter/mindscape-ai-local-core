@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 AGENT_CLI_MAP = {
-    "moltbot": {
+    "openclaw": {
         "command": "openclaw",
         "package": "openclaw",
         "github_repo": "https://github.com/openclaw/openclaw",
@@ -33,22 +33,22 @@ AGENT_CLI_MAP = {
             },
         ],
         "install_guide": """
-## 安裝 Moltbot (OpenClaw)
+## Install OpenClaw
 
-OpenClaw 是一個強大的 AI 代理，專注於程式碼生成和任務自動化。
+OpenClaw is a powerful AI agent focused on code generation and task automation.
 
-### 方式一：npm 安裝
+### Option 1: npm install
 ```bash
 npm install -g openclaw
 ```
 
-### 方式二：從 GitHub 安裝（推薦）
+### Option 2: Install from GitHub (recommended)
 ```bash
 npm install -g https://github.com/openclaw/openclaw
 ```
 
-### 驗證安裝
-安裝完成後，執行以下命令確認：
+### Verify installation
+After installation, run the following command to confirm:
 ```bash
 openclaw --version
 ```
@@ -65,21 +65,21 @@ openclaw --version
             {"method": "pip", "command": "pip install uv"},
         ],
         "install_guide": """
-## 安裝 uv (LangGraph 需要)
+## Install uv (required by LangGraph)
 
-uv 是一個快速的 Python 套件管理器，LangGraph Agent 需要它來管理依賴。
+uv is a fast Python package manager. The LangGraph Agent requires it to manage dependencies.
 
-### 推薦方式 (官方腳本)
+### Recommended (official script)
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 替代方式 (pip)
+### Alternative (pip)
 ```bash
 pip install uv
 ```
 
-### 驗證安裝
+### Verify installation
 ```bash
 uv --version
 ```
@@ -93,21 +93,21 @@ uv --version
             {"method": "pip", "command": "pip install aider-chat"},
         ],
         "install_guide": """
-## 安裝 Aider
+## Install Aider
 
-Aider 是一個 AI 配對程式設計助手。
+Aider is an AI pair programming assistant.
 
-### 推薦方式 (pipx)
+### Recommended (pipx)
 ```bash
 pipx install aider-chat
 ```
 
-### 替代方式 (pip)
+### Alternative (pip)
 ```bash
 pip install aider-chat
 ```
 
-### 驗證安裝
+### Verify installation
 ```bash
 aider --version
 ```
@@ -209,7 +209,7 @@ def check_agent_cli(agent_id: str) -> CLICheckResult:
     Check if the CLI for a specific agent is installed.
 
     Args:
-        agent_id: Agent identifier (e.g., "moltbot", "langgraph")
+        agent_id: Agent identifier (e.g., "openclaw", "langgraph")
 
     Returns:
         CLICheckResult with availability info

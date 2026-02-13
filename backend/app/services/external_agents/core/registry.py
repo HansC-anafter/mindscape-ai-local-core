@@ -34,7 +34,7 @@ class AgentManifest:
     """
 
     name: str
-    """Agent name (e.g., 'moltbot', 'autogpt')."""
+    """Agent name (e.g., 'openclaw', 'autogpt')."""
 
     version: str
     """Agent adapter version."""
@@ -80,9 +80,9 @@ class AgentRegistry:
 
     Usage:
         registry = get_agent_registry()
-        moltbot = registry.get_adapter("moltbot")
-        if await moltbot.is_available():
-            response = await moltbot.execute(request)
+        openclaw = registry.get_adapter("openclaw")
+        if await openclaw.is_available():
+            response = await openclaw.execute(request)
     """
 
     _instance: Optional["AgentRegistry"] = None

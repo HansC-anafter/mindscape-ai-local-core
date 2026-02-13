@@ -352,7 +352,7 @@ async def install_agent_cli_endpoint(agent_id: str, request: CLIInstallRequest):
     The command executed is predefined in AGENT_CLI_MAP, not user-provided.
 
     Args:
-        agent_id: Agent to install (moltbot, langgraph, aider)
+        agent_id: Agent to install (openclaw, langgraph, aider)
         request: Installation options
 
     Returns:

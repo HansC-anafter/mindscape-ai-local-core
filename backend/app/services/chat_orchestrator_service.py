@@ -17,6 +17,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.models.workspace import Workspace, WorkspaceChatRequest
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
@@ -198,7 +199,7 @@ class ChatOrchestratorService:
                 user_event.id,
             )
 
-            # 4. Check if workspace has preferred_agent (e.g., moltbot)
+            # 4. Check if workspace has preferred_agent (e.g., openclaw)
             # If so, route to WorkspaceAgentExecutor instead of LLM
             preferred_agent = getattr(workspace, "preferred_agent", None)
 

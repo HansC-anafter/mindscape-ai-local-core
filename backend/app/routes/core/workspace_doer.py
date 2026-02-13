@@ -18,6 +18,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from fastapi import APIRouter, HTTPException, Path, Body, Query
 from pydantic import BaseModel, Field
 
@@ -42,7 +43,7 @@ class ConfigureAgentRequest(BaseModel):
 
     preferred_agent: Optional[str] = Field(
         None,
-        description="External agent to use (e.g., 'moltbot', 'aider'). Set to null to use Mindscape LLM.",
+        description="External agent to use (e.g., 'openclaw', 'aider'). Set to null to use Mindscape LLM.",
     )
     config_preset: Optional[str] = Field(
         "balanced",

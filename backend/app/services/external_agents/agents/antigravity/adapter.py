@@ -5,7 +5,7 @@ Dispatches coding tasks to the Antigravity IDE agent via a transport-agnostic
 Dispatch Contract. Supports WebSocket Push (primary), REST Polling (fallback),
 and MCP Sampling (experimental).
 
-Unlike CLI-based adapters (e.g. MoltbotAdapter), this adapter communicates
+Unlike CLI-based adapters (e.g. OpenClawAdapter), this adapter communicates
 over the network to an IDE instance rather than spawning a subprocess.
 """
 

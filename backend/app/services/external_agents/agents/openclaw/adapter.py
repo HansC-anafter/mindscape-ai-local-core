@@ -1,8 +1,8 @@
 """
-Moltbot Agent Adapter
+OpenClaw Agent Adapter
 
-Adapter for executing Moltbot/OpenClaw within Mindscape's governance layer.
-This adapter extends BaseAgentAdapter with Moltbot-specific implementation.
+Adapter for executing OpenClaw within Mindscape's governance layer.
+This adapter extends BaseAgentAdapter with OpenClaw-specific implementation.
 """
 
 import asyncio
@@ -22,17 +22,17 @@ from backend.app.services.external_agents.core.base_adapter import (
 logger = logging.getLogger(__name__)
 
 
-class MoltbotAdapter(BaseAgentAdapter):
+class OpenClawAdapter(BaseAgentAdapter):
     """
-    Moltbot/Claude Code Execution Adapter
+    OpenClaw Code Execution Adapter
 
-    Extends BaseAgentAdapter with Claude Code CLI functionality:
-    - CLI invocation via 'claude' or 'openclaw' command
+    Extends BaseAgentAdapter with OpenClaw CLI functionality:
+    - CLI invocation via 'openclaw' command
     - Sandbox configuration generation
     - Execution trace collection
 
     Usage:
-        adapter = MoltbotAdapter()
+        adapter = OpenClawAdapter()
         if await adapter.is_available():
             response = await adapter.execute(request)
     """
@@ -43,7 +43,7 @@ class MoltbotAdapter(BaseAgentAdapter):
     # CLI commands to try (in order of preference)
     CLI_COMMANDS = ["openclaw"]
 
-    # Moltbot-specific denied tools
+    # OpenClaw-specific denied tools
     ALWAYS_DENIED_TOOLS = [
         "system.run",
         "gateway",
@@ -56,11 +56,11 @@ class MoltbotAdapter(BaseAgentAdapter):
         default_model: str = "anthropic/claude-sonnet-4-20250514",
     ):
         """
-        Initialize Moltbot adapter.
+        Initialize OpenClaw adapter.
 
         Args:
             cli_command: Command to invoke CLI (auto-detected if None)
-            default_model: Default LLM model for Moltbot
+            default_model: Default LLM model for OpenClaw
         """
         super().__init__()
         self.cli_command = cli_command
@@ -114,7 +114,7 @@ class MoltbotAdapter(BaseAgentAdapter):
 
     async def execute(self, request: AgentRequest) -> AgentResponse:
         """
-        Execute a Moltbot task within the sandbox.
+        Execute an OpenClaw task within the sandbox.
 
         Args:
             request: The execution request with task and constraints
@@ -151,12 +151,12 @@ class MoltbotAdapter(BaseAgentAdapter):
         # Execute with timeout
         try:
             result = await asyncio.wait_for(
-                self._run_moltbot(request, config_path),
+                self._run_openclaw(request, config_path),
                 timeout=request.max_duration_seconds,
             )
         except asyncio.TimeoutError:
             logger.warning(
-                f"Moltbot execution timed out after {request.max_duration_seconds}s"
+                f"OpenClaw execution timed out after {request.max_duration_seconds}s"
             )
             return AgentResponse(
                 success=False,
@@ -166,7 +166,7 @@ class MoltbotAdapter(BaseAgentAdapter):
                 exit_code=-1,
             )
         except Exception as e:
-            logger.exception("Moltbot execution failed with exception")
+            logger.exception("OpenClaw execution failed with exception")
             return AgentResponse(
                 success=False,
                 output="",
@@ -198,7 +198,7 @@ class MoltbotAdapter(BaseAgentAdapter):
         return response
 
     def _generate_sandbox_config(self, request: AgentRequest) -> Dict[str, Any]:
-        """Generate a restricted Moltbot config for sandbox execution."""
+        """Generate a restricted OpenClaw config for sandbox execution."""
         all_denied = self.merge_denied_tools(request.denied_tools)
 
         return {
@@ -221,7 +221,7 @@ class MoltbotAdapter(BaseAgentAdapter):
             },
         }
 
-    async def _run_moltbot(
+    async def _run_openclaw(
         self, request: AgentRequest, config_path: Path
     ) -> Dict[str, Any]:
         """Actually run the CLI process."""
@@ -254,7 +254,7 @@ class MoltbotAdapter(BaseAgentAdapter):
         }
 
     def _collect_trace(self, sandbox_path: Path) -> Dict[str, Any]:
-        """Collect execution trace from Moltbot output files."""
+        """Collect execution trace from OpenClaw output files."""
         trace_file = sandbox_path / ".openclaw" / "execution_trace.json"
 
         if trace_file.exists():

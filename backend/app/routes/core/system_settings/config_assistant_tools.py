@@ -28,7 +28,7 @@ async def install_agent_cli(agent_id: str, method: str = "npm") -> Dict[str, Any
     Install CLI for an agent using specified method.
 
     Args:
-        agent_id: Agent ID (e.g., 'moltbot')
+        agent_id: Agent ID (e.g., 'openclaw')
         method: Installation method ('npm', 'pip', 'github')
 
     Returns installation result with success status and output.
@@ -53,7 +53,7 @@ async def install_from_github(agent_id: str, repo_url: str) -> Dict[str, Any]:
 
     # Map agent to known GitHub repos
     KNOWN_REPOS = {
-        "moltbot": "https://github.com/openclaw/openclaw",
+        "openclaw": "https://github.com/openclaw/openclaw",
         "aider": "https://github.com/paul-gauthier/aider",
     }
 

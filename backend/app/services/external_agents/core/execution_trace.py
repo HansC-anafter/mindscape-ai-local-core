@@ -71,8 +71,8 @@ class ExecutionTrace:
     execution_id: str
     """Unique identifier for this execution."""
 
-    agent_type: str = "moltbot"
-    """Type of external agent (moltbot, autogpt, etc.)."""
+    agent_type: str = "openclaw"
+    """Type of external agent (openclaw, autogpt, etc.)."""
 
     agent_version: Optional[str] = None
     """Version of the external agent."""
@@ -143,7 +143,7 @@ class ExecutionTraceCollector:
 
     Usage:
         collector = ExecutionTraceCollector(sandbox_path)
-        trace = collector.collect_from_moltbot(response, request)
+        trace = collector.collect_from_openclaw(response, request)
         await collector.save_trace(trace)
     """
 
@@ -170,7 +170,7 @@ class ExecutionTraceCollector:
         Args:
             response: The AgentResponse from any adapter
             request: The original AgentRequest
-            agent_type: Type of agent (e.g., 'moltbot', 'autogpt')
+            agent_type: Type of agent (e.g., 'openclaw', 'autogpt')
             execution_id: Optional custom execution ID
 
         Returns:
@@ -241,18 +241,18 @@ class ExecutionTraceCollector:
             sandbox_path=request.sandbox_path,
         )
 
-    def collect_from_moltbot(
+    def collect_from_openclaw(
         self,
-        response: "MoltbotResponse",  # noqa: F821 - forward reference
-        request: "MoltbotRequest",  # noqa: F821 - forward reference
+        response: "AgentResponse",  # noqa: F821 - forward reference
+        request: "AgentRequest",  # noqa: F821 - forward reference
         execution_id: Optional[str] = None,
     ) -> ExecutionTrace:
         """
-        Collect execution trace from a Moltbot response.
+        Collect execution trace from an OpenClaw response.
 
         Args:
-            response: The MoltbotResponse from adapter
-            request: The original MoltbotRequest
+            response: The AgentResponse from adapter
+            request: The original AgentRequest
             execution_id: Optional custom execution ID
 
         Returns:
@@ -308,7 +308,7 @@ class ExecutionTraceCollector:
 
         return ExecutionTrace(
             execution_id=execution_id,
-            agent_type="moltbot",
+            agent_type="openclaw",
             started_at=now,
             completed_at=now,
             duration_seconds=response.duration_seconds,

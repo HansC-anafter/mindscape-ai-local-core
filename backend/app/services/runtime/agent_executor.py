@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -174,7 +176,7 @@ class LangChainAgentExecutor:
             model="gemini-2.5-pro",
             tools={"check_cli": check_cli_func}
         )
-        result = await executor.run("Install moltbot CLI")
+        result = await executor.run("Install openclaw CLI")
     """
 
     AGENT_PROMPT = (
@@ -311,9 +313,7 @@ Always verify your actions completed successfully.""",
                 final_answer=result.get("output", ""),
                 steps=steps,
                 total_iterations=len(steps),
-                total_duration_ms=int(
-                    (_utc_now() - start_time).total_seconds() * 1000
-                ),
+                total_duration_ms=int((_utc_now() - start_time).total_seconds() * 1000),
             )
 
         except Exception as e:
@@ -321,9 +321,7 @@ Always verify your actions completed successfully.""",
             return AgentResult(
                 status=AgentStatus.FAILED,
                 error=str(e),
-                total_duration_ms=int(
-                    (_utc_now() - start_time).total_seconds() * 1000
-                ),
+                total_duration_ms=int((_utc_now() - start_time).total_seconds() * 1000),
             )
 
 

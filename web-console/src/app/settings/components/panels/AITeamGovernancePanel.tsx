@@ -47,8 +47,8 @@ const AVAILABLE_AGENTS: AgentDefinition[] = [
         features: ['Playbook 執行', 'Tool 調用', '模型切換', '對話記憶', '工作流編排'],
     },
     {
-        id: 'moltbot',
-        name: 'Moltbot',
+        id: 'openclaw',
+        name: 'OpenClaw',
         icon: '🔥',
         description: 'Lightweight local CLI Agent for quick tasks',
         descriptionZh: '輕量級本地 CLI Agent，適合快速任務執行',

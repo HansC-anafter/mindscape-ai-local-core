@@ -48,7 +48,7 @@ class WorkspaceSandboxResolver:
             workspace_storage_base: Workspace's storage_base_path
             workspace_id: Workspace ID (for validation)
             execution_id: Unique execution ID
-            agent_id: Agent identifier (e.g., 'moltbot', 'langgraph')
+            agent_id: Agent identifier (e.g., 'openclaw', 'langgraph')
 
         Returns:
             Path object pointing to the sandbox directory
@@ -207,7 +207,7 @@ def get_agent_sandbox(
             workspace_storage_base="/path/to/workspace",
             workspace_id="ws-123",
             execution_id="exec-456",
-            agent_id="moltbot"
+            agent_id="openclaw"
         )
     """
     return WorkspaceSandboxResolver.get_sandbox_path_for_execution(

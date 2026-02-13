@@ -356,7 +356,7 @@ class PlaybookPreflight:
         3. Task risk level assessment
 
         Args:
-            agent_id: External agent identifier (e.g., 'moltbot', 'aider')
+            agent_id: External agent identifier (e.g., 'openclaw', 'aider')
             task: Task description to execute
             workspace: Workspace model instance
             context: Optional additional context

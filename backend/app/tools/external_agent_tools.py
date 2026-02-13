@@ -8,10 +8,10 @@ Uses the Agent Registry for pluggable agent discovery.
 
 Usage in Playbook:
     steps:
-      - id: execute_moltbot
+      - id: execute_openclaw
         tool: external_agent.execute
         inputs:
-          agent: moltbot
+          agent: openclaw
           task: "Build a landing page for the product"
           allowed_tools: ["file", "web_search"]
 """
@@ -42,7 +42,7 @@ async def execute_agent(
     - sandbox_path is auto-generated within workspace boundaries
 
     Args:
-        agent: Agent name (e.g., 'moltbot', 'autogpt')
+        agent: Agent name (e.g., 'openclaw', 'autogpt')
         task: The task description for the agent to execute
         allowed_tools: List of allowed tools (default from AGENT.md)
         denied_tools: Additional tools to deny
@@ -285,7 +285,7 @@ async def check_agent(agent: str) -> Dict[str, Any]:
 
 
 # Legacy alias for backward compatibility
-async def moltbot_execute(
+async def openclaw_execute(
     task: str,
     allowed_skills: Optional[List[str]] = None,
     denied_tools: Optional[List[str]] = None,
@@ -293,12 +293,12 @@ async def moltbot_execute(
     context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Execute a Moltbot task (legacy API).
+    Execute an OpenClaw task (legacy API).
 
-    Use execute_agent(agent="moltbot", ...) for new code.
+    Use execute_agent(agent="openclaw", ...) for new code.
     """
     return await execute_agent(
-        agent="moltbot",
+        agent="openclaw",
         task=task,
         allowed_tools=allowed_skills,
         denied_tools=denied_tools,
@@ -337,9 +337,9 @@ EXTERNAL_AGENT_TOOLS = {
         "governance": {"risk_level": "low"},
     },
     # Legacy
-    "moltbot_execute": {
-        "function": moltbot_execute,
-        "description": "Execute a Moltbot task (legacy, use 'execute' instead)",
+    "openclaw_execute": {
+        "function": openclaw_execute,
+        "description": "Execute an OpenClaw task (legacy, use 'execute' instead)",
         "inputs": {
             "task": {"type": "string", "required": True},
             "allowed_skills": {"type": "array", "default": ["file", "web_search"]},

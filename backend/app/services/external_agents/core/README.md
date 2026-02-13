@@ -15,7 +15,7 @@ external_agents/
 │   └── workspace_sandbox_resolver.py  # Workspace-bound sandbox enforcement
 │
 └── agents/                       # Pluggable agent directory
-    └── moltbot/                  # Each agent as a subdirectory
+    └── openclaw/                  # Each agent as a subdirectory
         ├── AGENT.md              # Agent manifest
         └── adapter.py            # Implementation
 ```
@@ -35,9 +35,9 @@ sandbox = get_agent_sandbox(
     workspace_storage_base="/path/to/workspace",
     workspace_id="ws-123",
     execution_id="exec-456",
-    agent_id="moltbot",
+    agent_id="openclaw",
 )
-# Result: /path/to/workspace/agent_sandboxes/moltbot/exec-456/
+# Result: /path/to/workspace/agent_sandboxes/openclaw/exec-456/
 ```
 
 ## Adding a New Agent

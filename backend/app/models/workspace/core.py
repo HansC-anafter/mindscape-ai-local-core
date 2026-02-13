@@ -123,7 +123,7 @@ class Workspace(BaseModel):
     # Users explicitly choose which agent to use; governance applies automatically
     preferred_agent: Optional[str] = Field(
         None,
-        description="Currently selected external agent for task execution (e.g., 'moltbot', 'aider'). "
+        description="Currently selected external agent for task execution (e.g., 'openclaw', 'aider'). "
         "When set, tasks are routed to this agent instead of Mindscape LLM. "
         "All workspaces can use external agents - governance/sandbox applies automatically.",
     )
@@ -207,7 +207,7 @@ class CreateWorkspaceRequest(BaseModel):
     # External Agent configuration (unified for all workspaces)
     preferred_agent: Optional[str] = Field(
         None,
-        description="Selected external agent (e.g., 'moltbot'). Null = Mindscape LLM",
+        description="Selected external agent (e.g., 'openclaw'). Null = Mindscape LLM",
     )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None, description="Sandbox configuration for agent execution"
@@ -267,7 +267,7 @@ class UpdateWorkspaceRequest(BaseModel):
     # External Agent configuration (unified for all workspaces)
     preferred_agent: Optional[str] = Field(
         None,
-        description="Selected external agent (e.g., 'moltbot'). Null = Mindscape LLM",
+        description="Selected external agent (e.g., 'openclaw'). Null = Mindscape LLM",
     )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None, description="Sandbox configuration for agent execution"
