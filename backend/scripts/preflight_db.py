@@ -150,10 +150,76 @@ def run_migrations():
         return False
 
 
+def verify_critical_tables():
+    """Verify that critical PostgreSQL tables exist. Returns True if all OK."""
+    try:
+        import psycopg2
+    except ImportError:
+        print("[preflight] psycopg2 not available, skipping table verification")
+        return True  # Can't verify, let startup_event handle it
+
+    critical_tables = ["profiles", "workspaces", "system_settings", "user_configs"]
+
+    pg_host = os.getenv("POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres"))
+    pg_port = int(os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432")))
+    pg_user = os.getenv("POSTGRES_CORE_USER", os.getenv("POSTGRES_USER", "mindscape"))
+    pg_pass = os.getenv(
+        "POSTGRES_CORE_PASSWORD",
+        os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+    )
+    core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
+
+    try:
+        conn = psycopg2.connect(
+            host=pg_host,
+            port=pg_port,
+            user=pg_user,
+            password=pg_pass,
+            dbname=core_db,
+            connect_timeout=5,
+        )
+        cur = conn.cursor()
+        missing = []
+        for table in critical_tables:
+            cur.execute(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.tables"
+                "  WHERE table_name = %s AND table_schema = 'public'"
+                ")",
+                (table,),
+            )
+            if not cur.fetchone()[0]:
+                missing.append(table)
+        cur.close()
+        conn.close()
+
+        if missing:
+            print(f"[preflight] CRITICAL: Missing tables: {', '.join(missing)}")
+            return False
+        else:
+            print(f"[preflight] All {len(critical_tables)} critical tables verified")
+            return True
+
+    except Exception as e:
+        print(f"[preflight] Table verification failed: {e}")
+        return False
+
+
 if __name__ == "__main__":
     db_ok = ensure_databases()
     if db_ok:
-        run_migrations()
+        migration_ok = run_migrations()
+        if not migration_ok:
+            print("[preflight] WARNING: Alembic migration returned failure")
     else:
         print("[preflight] Skipping migrations since database setup failed")
+
+    # Verify critical tables exist regardless of migration result
+    tables_ok = verify_critical_tables()
+    if not tables_ok:
+        print("[preflight] FATAL: Critical tables missing after migration!")
+        print("[preflight] The application cannot start without these tables.")
+        print("[preflight] Check PostgreSQL connection and Alembic configuration.")
+        sys.exit(1)
+
     print("[preflight] Preflight complete, starting application...")

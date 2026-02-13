@@ -627,6 +627,56 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"SQLite auto migration failed (non-blocking): {e}")
 
+    # Verify critical tables exist (last safety net)
+    try:
+        from sqlalchemy import text, create_engine
+
+        _verify_db_url = os.environ.get("DATABASE_URL_CORE") or os.environ.get(
+            "DATABASE_URL"
+        )
+        if _verify_db_url:
+            _verify_engine = create_engine(_verify_db_url)
+            _critical_tables = [
+                "profiles",
+                "workspaces",
+                "system_settings",
+                "user_configs",
+            ]
+            _missing = []
+            with _verify_engine.connect() as _conn:
+                for _tbl in _critical_tables:
+                    _result = _conn.execute(
+                        text(
+                            "SELECT EXISTS ("
+                            "  SELECT 1 FROM information_schema.tables"
+                            "  WHERE table_name = :t AND table_schema = 'public'"
+                            ")"
+                        ),
+                        {"t": _tbl},
+                    )
+                    if not _result.scalar():
+                        _missing.append(_tbl)
+            _verify_engine.dispose()
+
+            if _missing:
+                logger.error("=" * 60)
+                logger.error("CRITICAL: Required database tables are missing!")
+                logger.error(f"Missing tables: {', '.join(_missing)}")
+                logger.error("")
+                logger.error("The API will fail on most requests until this is fixed.")
+                logger.error(
+                    "Try: docker compose exec backend alembic -c "
+                    "/app/backend/alembic.postgres.ini upgrade heads"
+                )
+                logger.error("Or:  docker compose down && docker compose up --build")
+                logger.error("=" * 60)
+            else:
+                logger.info(
+                    f"Critical table verification passed ({len(_critical_tables)} tables)"
+                )
+    except Exception as e:
+        logger.warning(f"Critical table verification failed (non-blocking): {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
