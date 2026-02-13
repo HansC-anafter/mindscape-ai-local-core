@@ -549,6 +549,31 @@ async def startup_event():
                 f"Failed to initialize mindscape tables (will retry on first use): {e2}"
             )
 
+    # Auto-migrate SQLite data if legacy database detected
+    try:
+        from app.services.sqlite_auto_migrator import run_auto_migration
+
+        migration_result = run_auto_migration()
+        if migration_result.get("status") == "migrated":
+            logger.info(
+                f"SQLite auto migration completed: {migration_result.get('total_rows', 0)} rows, "
+                f"critical tables verified: {migration_result.get('critical_verified')}"
+            )
+        elif migration_result.get("status") == "skipped":
+            logger.debug(
+                f"SQLite auto migration skipped: {migration_result.get('reason')}"
+            )
+        elif migration_result.get("status") == "error":
+            logger.error(
+                f"SQLite auto migration error: {migration_result.get('error')}"
+            )
+            logger.error(
+                "Manual migration available: docker compose exec backend "
+                "python /app/backend/scripts/migrate_all_data_to_postgres.py"
+            )
+    except Exception as e:
+        logger.warning(f"SQLite auto migration failed (non-blocking): {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
