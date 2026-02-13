@@ -21,6 +21,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Create mindscape_personal table."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("mindscape_personal"):
+        return
+
     op.create_table(
         "mindscape_personal",
         sa.Column("id", sa.String(64), primary_key=True),
@@ -56,6 +61,19 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop mindscape_personal table."""
-    op.drop_index("ix_mindscape_personal_seed_type", table_name="mindscape_personal")
-    op.drop_index("ix_mindscape_personal_user_id", table_name="mindscape_personal")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("mindscape_personal"):
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("mindscape_personal")}
+    # Skip dropping the legacy table shape created by the initial bootstrap migration.
+    if "seed_type" not in existing_columns:
+        return
+
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("mindscape_personal")}
+    if "ix_mindscape_personal_seed_type" in existing_indexes:
+        op.drop_index("ix_mindscape_personal_seed_type", table_name="mindscape_personal")
+    if "ix_mindscape_personal_user_id" in existing_indexes:
+        op.drop_index("ix_mindscape_personal_user_id", table_name="mindscape_personal")
     op.drop_table("mindscape_personal")

@@ -18,6 +18,10 @@ depends_on = None
 
 
 def upgrade():
+    # These tables are already introduced by 20260129000000_catchup_remaining.
+    # Keep this revision as an explicit no-op to avoid duplicate table creation.
+    return
+
     op.create_table(
         "commands",
         sa.Column("command_id", sa.String(), nullable=False),
@@ -161,6 +165,9 @@ def upgrade():
 
 
 def downgrade():
+    # No-op downgrade; tables belong to earlier schema baseline revisions.
+    return
+
     op.drop_index("idx_thread_refs_thread", table_name="thread_references")
     op.drop_table("thread_references")
     op.drop_index("idx_upm_profile_playbook", table_name="user_playbook_meta")

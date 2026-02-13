@@ -19,6 +19,11 @@ depends_on = None
 
 def upgrade() -> None:
     """Create artifacts table for storing playbook outputs."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("artifacts"):
+        return
+
     op.create_table(
         "artifacts",
         sa.Column("id", sa.String(64), primary_key=True),
@@ -73,10 +78,22 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop artifacts table."""
-    op.drop_index("ix_artifacts_created_at", table_name="artifacts")
-    op.drop_index("ix_artifacts_playbook_code", table_name="artifacts")
-    op.drop_index("ix_artifacts_thread_id", table_name="artifacts")
-    op.drop_index("ix_artifacts_execution_id", table_name="artifacts")
-    op.drop_index("ix_artifacts_task_id", table_name="artifacts")
-    op.drop_index("ix_artifacts_workspace_id", table_name="artifacts")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("artifacts"):
+        return
+
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("artifacts")}
+    if "ix_artifacts_created_at" in existing_indexes:
+        op.drop_index("ix_artifacts_created_at", table_name="artifacts")
+    if "ix_artifacts_playbook_code" in existing_indexes:
+        op.drop_index("ix_artifacts_playbook_code", table_name="artifacts")
+    if "ix_artifacts_thread_id" in existing_indexes:
+        op.drop_index("ix_artifacts_thread_id", table_name="artifacts")
+    if "ix_artifacts_execution_id" in existing_indexes:
+        op.drop_index("ix_artifacts_execution_id", table_name="artifacts")
+    if "ix_artifacts_task_id" in existing_indexes:
+        op.drop_index("ix_artifacts_task_id", table_name="artifacts")
+    if "ix_artifacts_workspace_id" in existing_indexes:
+        op.drop_index("ix_artifacts_workspace_id", table_name="artifacts")
     op.drop_table("artifacts")

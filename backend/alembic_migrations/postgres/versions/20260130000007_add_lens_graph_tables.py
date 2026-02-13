@@ -15,7 +15,119 @@ branch_labels = None
 depends_on = None
 
 
+def _create_extended_lens_tables(existing_tables: set[str]) -> None:
+    if "lens_profile_nodes" not in existing_tables:
+        op.create_table(
+            "lens_profile_nodes",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("preset_id", sa.String(length=36), nullable=False),
+            sa.Column("node_id", sa.String(length=36), nullable=False),
+            sa.Column("state", sa.String(length=20), server_default="keep", nullable=False),
+            sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+            sa.CheckConstraint(
+                "state IN ('off', 'keep', 'emphasize')", name="ck_lens_profile_nodes_state"
+            ),
+            sa.UniqueConstraint("preset_id", "node_id", name="uq_lens_profile_nodes"),
+            sa.ForeignKeyConstraint(["preset_id"], ["mind_lens_profiles.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["node_id"], ["graph_nodes.id"], ondelete="CASCADE"),
+        )
+        op.create_index("idx_lens_profile_nodes_preset", "lens_profile_nodes", ["preset_id"])
+        op.create_index("idx_lens_profile_nodes_node", "lens_profile_nodes", ["node_id"])
+
+    if "workspace_lens_overrides" not in existing_tables:
+        op.create_table(
+            "workspace_lens_overrides",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("workspace_id", sa.String(length=36), nullable=False),
+            sa.Column("node_id", sa.String(length=36), nullable=False),
+            sa.Column("state", sa.String(length=20), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+            sa.CheckConstraint(
+                "state IN ('off', 'keep', 'emphasize')", name="ck_workspace_lens_overrides_state"
+            ),
+            sa.UniqueConstraint("workspace_id", "node_id", name="uq_workspace_lens_overrides"),
+            sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["node_id"], ["graph_nodes.id"], ondelete="CASCADE"),
+        )
+        op.create_index("idx_workspace_overrides_ws", "workspace_lens_overrides", ["workspace_id"])
+        op.create_index("idx_workspace_overrides_node", "workspace_lens_overrides", ["node_id"])
+
+    if "lens_snapshots" not in existing_tables:
+        op.create_table(
+            "lens_snapshots",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("effective_lens_hash", sa.String(length=16), nullable=False),
+            sa.Column("profile_id", sa.String(length=36), nullable=False),
+            sa.Column("workspace_id", sa.String(length=36), nullable=True),
+            sa.Column("session_id", sa.String(length=255), nullable=True),
+            sa.Column("nodes_json", sa.Text(), nullable=False),
+            sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("effective_lens_hash", name="uq_lens_snapshots_hash"),
+        )
+        op.create_index("idx_lens_snapshots_hash", "lens_snapshots", ["effective_lens_hash"])
+        op.create_index("idx_lens_snapshots_profile", "lens_snapshots", ["profile_id"])
+        op.create_index("idx_lens_snapshots_workspace", "lens_snapshots", ["workspace_id"])
+
+    if "lens_receipts" not in existing_tables:
+        op.create_table(
+            "lens_receipts",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("execution_id", sa.String(length=255), nullable=False),
+            sa.Column("workspace_id", sa.String(length=36), nullable=False),
+            sa.Column("effective_lens_hash", sa.String(length=16), nullable=False),
+            sa.Column("triggered_nodes_json", sa.Text(), nullable=True),
+            sa.Column("base_output", sa.Text(), nullable=True),
+            sa.Column("lens_output", sa.Text(), nullable=True),
+            sa.Column("diff_summary", sa.Text(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+            sa.Column("accepted", sa.Boolean(), nullable=True),
+            sa.Column("rerun_count", sa.Integer(), nullable=True),
+            sa.Column("edit_count", sa.Integer(), nullable=True),
+            sa.Column("time_to_accept_ms", sa.Integer(), nullable=True),
+            sa.Column("apply_target", sa.String(length=20), nullable=True),
+            sa.Column("anti_goal_violations", sa.Integer(), nullable=True),
+            sa.Column("coverage_emph_triggered", sa.Float(), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index("idx_lens_receipts_execution", "lens_receipts", ["execution_id"])
+        op.create_index("idx_lens_receipts_workspace", "lens_receipts", ["workspace_id"])
+        op.create_index("idx_lens_receipts_hash", "lens_receipts", ["effective_lens_hash"])
+        op.create_index("idx_lens_receipts_accepted", "lens_receipts", ["accepted"])
+        op.create_index("idx_lens_receipts_apply_target", "lens_receipts", ["apply_target"])
+
+    if "preview_votes" not in existing_tables:
+        op.create_table(
+            "preview_votes",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("preview_id", sa.String(length=255), nullable=False),
+            sa.Column("workspace_id", sa.String(length=36), nullable=False),
+            sa.Column("profile_id", sa.String(length=36), nullable=False),
+            sa.Column("session_id", sa.String(length=255), nullable=True),
+            sa.Column("chosen_variant", sa.String(length=10), nullable=False),
+            sa.Column("preview_type", sa.String(length=50), nullable=True),
+            sa.Column("input_text_hash", sa.String(length=64), nullable=True),
+            sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index("idx_preview_votes_workspace", "preview_votes", ["workspace_id"])
+        op.create_index("idx_preview_votes_profile", "preview_votes", ["profile_id"])
+        op.create_index("idx_preview_votes_session", "preview_votes", ["session_id"])
+        op.create_index("idx_preview_votes_chosen", "preview_votes", ["chosen_variant"])
+
+
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+
+    # Legacy graph tables may already be present from 20251227000000.
+    if "graph_nodes" in existing_tables:
+        _create_extended_lens_tables(existing_tables)
+        return
+
     # --- Graph Nodes ---
     op.create_table(
         "graph_nodes",
@@ -267,6 +379,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Keep downgrade as a no-op because this revision can be partially skipped
+    # when legacy graph tables are already present.
+    return
+
     op.drop_index("idx_preview_votes_chosen", table_name="preview_votes")
     op.drop_index("idx_preview_votes_session", table_name="preview_votes")
     op.drop_index("idx_preview_votes_profile", table_name="preview_votes")

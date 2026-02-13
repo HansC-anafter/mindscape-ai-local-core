@@ -21,6 +21,10 @@ def upgrade():
     """Create external_docs table."""
     # Ensure pgvector extension exists
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("external_docs"):
+        return
 
     op.create_table(
         "external_docs",
@@ -62,6 +66,19 @@ def upgrade():
 
 def downgrade():
     """Drop external_docs table."""
-    op.drop_index("idx_external_docs_source", table_name="external_docs")
-    op.drop_index("idx_external_docs_user", table_name="external_docs")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("external_docs"):
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("external_docs")}
+    # Skip dropping the legacy table shape created by the initial bootstrap migration.
+    if "source_id" in existing_columns:
+        return
+
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("external_docs")}
+    if "idx_external_docs_source" in existing_indexes:
+        op.drop_index("idx_external_docs_source", table_name="external_docs")
+    if "idx_external_docs_user" in existing_indexes:
+        op.drop_index("idx_external_docs_user", table_name="external_docs")
     op.drop_table("external_docs")

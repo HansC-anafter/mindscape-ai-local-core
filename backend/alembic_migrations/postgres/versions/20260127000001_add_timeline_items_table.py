@@ -1,7 +1,7 @@
 """Add timeline_items table
 
 Revision ID: 20260127000001
-Revises: 20260130000009
+Revises: 9c14677ddefc
 Create Date: 2026-01-27
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 revision: str = "20260127000001"
 down_revision: Union[str, None] = "9c14677ddefc"
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = "20260130000000"
 
 
 def upgrade() -> None:
