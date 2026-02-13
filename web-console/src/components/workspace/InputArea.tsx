@@ -11,6 +11,7 @@ import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useMessages } from '@/contexts/MessagesContext';
 import { useChatModel } from '@/hooks/useChatModel';
 import IntentChips from '../../app/workspaces/components/IntentChips';
+import { useToast } from '@/components/Toast';
 
 interface AgentInfo {
   id: string;
@@ -52,6 +53,7 @@ export function InputArea({
   canSend,
 }: InputAreaProps) {
   const { input, setInput, llmConfigured, duplicateFileToast, copiedAll } = useUIState();
+  const { showToast, ToastComponent } = useToast();
   const { textareaRef, fileInputRef } = useWorkspaceRefs();
   const {
     currentChatModel,
@@ -83,8 +85,14 @@ export function InputArea({
   }, [apiUrl]);
 
   const handleAgentChange = async (agentId: string | null) => {
+    const previousAgent = preferredAgent;
     // Optimistic update
     setPreferredAgent(agentId);
+
+    // Determine display name for the agent
+    const agentDisplayName = agentId
+      ? availableAgents.find(a => a.id === agentId)?.name || agentId
+      : 'Mindscape LLM';
 
     try {
       const response = await fetch(
@@ -99,13 +107,30 @@ export function InputArea({
       if (!response.ok) {
         console.error('[InputArea] Failed to set preferred agent:', await response.text());
         // Revert on failure
-        setPreferredAgent(null);
+        setPreferredAgent(previousAgent);
+        showToast({
+          type: 'error',
+          message: `Failed to switch executor to ${agentDisplayName}`,
+          duration: 3000,
+        });
       } else {
         console.log('[InputArea] Agent persisted:', agentId);
+        showToast({
+          type: 'success',
+          message: agentId
+            ? `Executor switched to ${agentDisplayName}`
+            : 'Switched back to Mindscape LLM',
+          duration: 3000,
+        });
       }
     } catch (err) {
       console.error('[InputArea] Error setting preferred agent:', err);
-      setPreferredAgent(null);
+      setPreferredAgent(previousAgent);
+      showToast({
+        type: 'error',
+        message: `Failed to switch executor: network error`,
+        duration: 3000,
+      });
     }
   };
 
@@ -246,6 +271,7 @@ export function InputArea({
           onAgentChange={handleAgentChange}
         />
       </div>
+      <ToastComponent />
     </form>
   );
 }

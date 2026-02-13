@@ -339,6 +339,15 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.warning(f"Failed to register Agent Registry API routes: {e}")
 
+    # Workspace Agent Configuration routes (preferred agent, sandbox config)
+    try:
+        from .routes.core.workspace_doer import router as workspace_doer_router
+
+        app.include_router(workspace_doer_router, tags=["workspace-agents"])
+        logger.info("Workspace Agent Configuration routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register Workspace Agent Configuration routes: {e}")
+
 
 def register_core_primitives(app: FastAPI) -> None:
     """Register core primitives"""
