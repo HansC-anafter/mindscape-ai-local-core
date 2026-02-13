@@ -330,6 +330,15 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.debug(f"Agent WebSocket routes not registered: {e}")
 
+    # Agent Registry API routes (agent listing and availability)
+    try:
+        from .routes.core.agents import router as agents_router
+
+        app.include_router(agents_router, tags=["agents"])
+        logger.info("Agent Registry API routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register Agent Registry API routes: {e}")
+
 
 def register_core_primitives(app: FastAPI) -> None:
     """Register core primitives"""
