@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 import logging
 
 from sqlalchemy import text
@@ -48,10 +50,11 @@ class SystemSettingsStore(PostgresStoreBase):
                 )
             )
             if result.fetchone() is None:
-                raise RuntimeError(
+                logger.warning(
                     "Missing PostgreSQL table: system_settings. "
-                    "Run: alembic -c backend/alembic.ini upgrade head"
+                    "Will be created by migration orchestrator in startup_event."
                 )
+                return
 
     def _init_default_settings(self):
         """Initialize default system settings"""

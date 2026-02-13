@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 import logging
 
 from sqlalchemy import text
@@ -49,9 +51,10 @@ class ModelConfigStore(PostgresStoreBase):
         missing = {"model_providers", "model_configs"} - existing
         if missing:
             missing_list = ", ".join(sorted(missing))
-            raise RuntimeError(
-                f"Missing PostgreSQL tables: {missing_list}. "
-                "Run: alembic -c backend/alembic.ini upgrade head"
+            logger.warning(
+                "Missing PostgreSQL tables: %s. "
+                "Will be created by migration orchestrator in startup_event.",
+                missing_list,
             )
 
     def get_all_models(

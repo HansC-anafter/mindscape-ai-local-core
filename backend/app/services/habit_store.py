@@ -10,6 +10,8 @@ from datetime import datetime
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
@@ -54,9 +56,10 @@ class HabitStore(PostgresStoreBase):
         missing = required_tables - existing
         if missing:
             missing_str = ", ".join(sorted(missing))
-            raise RuntimeError(
-                "Missing PostgreSQL tables: "
-                f"{missing_str}. Run: alembic -c backend/alembic.ini upgrade head"
+            logger.warning(
+                "Missing PostgreSQL tables: %s. "
+                "Will be created by migration orchestrator in startup_event.",
+                missing_str,
             )
 
     def create_observation(self, observation: HabitObservation) -> HabitObservation:
@@ -86,9 +89,11 @@ class HabitStore(PostgresStoreBase):
                     "habit_category": observation.habit_category.value,
                     "source_type": observation.source_type,
                     "source_id": observation.source_id,
-                    "source_context": self.serialize_json(observation.source_context)
-                    if observation.source_context
-                    else None,
+                    "source_context": (
+                        self.serialize_json(observation.source_context)
+                        if observation.source_context
+                        else None
+                    ),
                     "has_insight_signal": observation.has_insight_signal,
                     "insight_score": observation.insight_score,
                     "observed_at": observation.observed_at,
@@ -284,18 +289,22 @@ class HabitStore(PostgresStoreBase):
                     "profile_id": audit_log.profile_id,
                     "candidate_id": audit_log.candidate_id,
                     "action": audit_log.action.value,
-                    "previous_status": audit_log.previous_status.value
-                    if audit_log.previous_status
-                    else None,
-                    "new_status": audit_log.new_status.value
-                    if audit_log.new_status
-                    else None,
+                    "previous_status": (
+                        audit_log.previous_status.value
+                        if audit_log.previous_status
+                        else None
+                    ),
+                    "new_status": (
+                        audit_log.new_status.value if audit_log.new_status else None
+                    ),
                     "actor_type": audit_log.actor_type,
                     "actor_id": audit_log.actor_id,
                     "reason": audit_log.reason,
-                    "metadata": self.serialize_json(audit_log.metadata)
-                    if audit_log.metadata
-                    else None,
+                    "metadata": (
+                        self.serialize_json(audit_log.metadata)
+                        if audit_log.metadata
+                        else None
+                    ),
                     "created_at": audit_log.created_at,
                 },
             )
@@ -352,6 +361,7 @@ class HabitStore(PostgresStoreBase):
 
     def _row_to_observation(self, row) -> HabitObservation:
         """Convert database row to HabitObservation."""
+
         def _coerce_datetime(value: Optional[datetime]) -> Optional[datetime]:
             if value is None:
                 return None
@@ -368,9 +378,11 @@ class HabitStore(PostgresStoreBase):
             source_type=row.source_type,
             source_id=row.source_id,
             source_context=self.deserialize_json(row.source_context, None),
-            has_insight_signal=bool(row.has_insight_signal)
-            if row.has_insight_signal is not None
-            else False,
+            has_insight_signal=(
+                bool(row.has_insight_signal)
+                if row.has_insight_signal is not None
+                else False
+            ),
             insight_score=row.insight_score or 0.0,
             observed_at=_coerce_datetime(row.observed_at) or _utc_now(),
             created_at=_coerce_datetime(row.created_at) or _utc_now(),
@@ -378,6 +390,7 @@ class HabitStore(PostgresStoreBase):
 
     def _row_to_candidate(self, row) -> HabitCandidate:
         """Convert database row to HabitCandidate."""
+
         def _coerce_datetime(value: Optional[datetime]) -> Optional[datetime]:
             if value is None:
                 return None
@@ -403,6 +416,7 @@ class HabitStore(PostgresStoreBase):
 
     def _row_to_audit_log(self, row) -> HabitAuditLog:
         """Convert database row to HabitAuditLog."""
+
         def _coerce_datetime(value: Optional[datetime]) -> Optional[datetime]:
             if value is None:
                 return None
@@ -415,9 +429,11 @@ class HabitStore(PostgresStoreBase):
             profile_id=row.profile_id,
             candidate_id=row.candidate_id,
             action=HabitAuditAction(row.action),
-            previous_status=HabitCandidateStatus(row.previous_status)
-            if row.previous_status
-            else None,
+            previous_status=(
+                HabitCandidateStatus(row.previous_status)
+                if row.previous_status
+                else None
+            ),
             new_status=HabitCandidateStatus(row.new_status) if row.new_status else None,
             actor_type=row.actor_type,
             actor_id=row.actor_id,

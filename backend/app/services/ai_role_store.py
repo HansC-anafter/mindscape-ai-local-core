@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import List, Optional
 
 from sqlalchemy import text
@@ -28,7 +30,9 @@ class AIRoleStore(PostgresStoreBase):
     Manages which AI roles a user has enabled and their configurations.
     """
 
-    def __init__(self, db_path: str = "data/my_agent_console.db", db_role: str = "core"):
+    def __init__(
+        self, db_path: str = "data/my_agent_console.db", db_role: str = "core"
+    ):
         super().__init__(db_role=db_role)
         self.db_path = db_path
         self._ensure_tables()
@@ -51,9 +55,10 @@ class AIRoleStore(PostgresStoreBase):
         missing = required_tables - existing
         if missing:
             missing_str = ", ".join(sorted(missing))
-            raise RuntimeError(
-                "Missing PostgreSQL tables: "
-                f"{missing_str}. Run: alembic -c backend/alembic.ini upgrade head"
+            logger.warning(
+                "Missing PostgreSQL tables: %s. "
+                "Will be created by migration orchestrator in startup_event.",
+                missing_str,
             )
 
     def save_role_config(self, role: AIRoleConfig) -> AIRoleConfig:
@@ -104,20 +109,22 @@ class AIRoleStore(PostgresStoreBase):
                     "playbooks": self.serialize_json(role.playbooks),
                     "suggested_tasks": self.serialize_json(role.suggested_tasks),
                     "tools": self.serialize_json(role.tools),
-                    "mindscape_profile_override": self.serialize_json(
-                        role.mindscape_profile_override
-                    )
-                    if role.mindscape_profile_override
-                    else None,
+                    "mindscape_profile_override": (
+                        self.serialize_json(role.mindscape_profile_override)
+                        if role.mindscape_profile_override
+                        else None
+                    ),
                     "usage_count": role.usage_count,
                     "last_used_at": role.last_used_at,
                     "is_enabled": role.is_enabled,
                     "is_custom": role.is_custom,
                     "created_at": role.created_at,
                     "updated_at": role.updated_at,
-                    "x_platform": self.serialize_json(role.x_platform)
-                    if role.x_platform
-                    else None,
+                    "x_platform": (
+                        self.serialize_json(role.x_platform)
+                        if role.x_platform
+                        else None
+                    ),
                 },
             )
 
@@ -229,6 +236,7 @@ class AIRoleStore(PostgresStoreBase):
 
     def _row_to_role_config(self, row) -> AIRoleConfig:
         """Convert database row to AIRoleConfig model."""
+
         def _coerce_datetime(value: Optional[datetime]) -> Optional[datetime]:
             if value is None:
                 return None

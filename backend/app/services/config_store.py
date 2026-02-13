@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 import logging
 
 from sqlalchemy import text
@@ -43,9 +45,9 @@ class ConfigStore(PostgresStoreBase):
                 )
             )
             if result.fetchone() is None:
-                raise RuntimeError(
+                logger.warning(
                     "Missing PostgreSQL table: user_configs. "
-                    "Run: alembic -c backend/alembic.ini upgrade head"
+                    "Will be created by migration orchestrator in startup_event."
                 )
 
     def get_config(self, profile_id: str) -> Optional[UserConfig]:
