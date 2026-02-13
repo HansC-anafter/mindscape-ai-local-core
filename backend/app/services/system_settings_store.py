@@ -30,6 +30,7 @@ class SystemSettingsStore(PostgresStoreBase):
 
     def __init__(self, db_path: Optional[str] = None):
         super().__init__()
+        self._tables_ready = False
         if db_path is not None:
             logger.warning("SystemSettingsStore ignores db_path in Postgres-only mode.")
         if self.factory.get_db_type(self.db_role) != "postgres":
@@ -37,8 +38,9 @@ class SystemSettingsStore(PostgresStoreBase):
                 "SQLite is no longer supported for SystemSettingsStore. Configure PostgreSQL."
             )
         self._ensure_schema()
-        self._init_default_settings()
-        self._migrate_settings()
+        if self._tables_ready:
+            self._init_default_settings()
+            self._migrate_settings()
 
     def _ensure_schema(self):
         """Ensure system_settings table exists (managed by Alembic)."""
@@ -55,6 +57,7 @@ class SystemSettingsStore(PostgresStoreBase):
                     "Will be created by migration orchestrator in startup_event."
                 )
                 return
+            self._tables_ready = True
 
     def _init_default_settings(self):
         """Initialize default system settings"""
@@ -301,6 +304,8 @@ class SystemSettingsStore(PostgresStoreBase):
         return setting.value
 
     def get_setting(self, key: str) -> Optional[SystemSetting]:
+        if not self._tables_ready:
+            return None
         with self.get_connection() as conn:
             row = (
                 conn.execute(
