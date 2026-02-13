@@ -104,6 +104,12 @@ Long-chain execution patterns for complex workflows.
 #### [MCP Gateway](./mcp-gateway.md)
 Model Context Protocol Gateway architecture for exposing Mindscape capabilities to external AI tools (Claude Desktop, Cursor IDE, custom integrations). Includes three-layer tool governance, auto-provision, and context passthrough.
 
+#### [Cloud Connector](./cloud-connector.md)
+Platform-agnostic WebSocket bridge for connecting Local-Core to any compatible cloud platform. Handles execution requests, event reporting, messaging, and heartbeat monitoring.
+
+#### [Runtime Environments](./runtime-environments.md)
+Multi-runtime management architecture for executing playbooks and tools across local and remote backends. Includes settings extension panels and auto-discovery.
+
 #### [Sandbox System](./sandbox/)
 System-level Sandbox architecture, unifying all AI write operations.
 
