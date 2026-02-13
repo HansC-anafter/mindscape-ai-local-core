@@ -39,12 +39,12 @@ def _yield_session(session_factory, role: str) -> Generator[Session, None, None]
 
 def get_db_core() -> Generator[Session, None, None]:
     """Get PostgreSQL core database session."""
-    return _yield_session(SessionLocalCore, "core")
+    yield from _yield_session(SessionLocalCore, "core")
 
 
 def get_db_vector() -> Generator[Session, None, None]:
     """Get PostgreSQL vector database session."""
-    return _yield_session(SessionLocalVector, "vector")
+    yield from _yield_session(SessionLocalVector, "vector")
 
 
 # Backward-compatible aliases
