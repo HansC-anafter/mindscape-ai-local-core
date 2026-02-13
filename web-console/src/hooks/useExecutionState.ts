@@ -515,9 +515,16 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
       }
     };
 
+    // Clear pipelineStage when assistant message arrives via SSE
+    const handleClearPipeline = () => {
+      setState(prev => prev.pipelineStage ? { ...prev, pipelineStage: null } : prev);
+    };
+
     window.addEventListener('execution-event', handleExecutionEvent as EventListener);
+    window.addEventListener('clear-pipeline-stage', handleClearPipeline as EventListener);
     return () => {
       window.removeEventListener('execution-event', handleExecutionEvent as EventListener);
+      window.removeEventListener('clear-pipeline-stage', handleClearPipeline as EventListener);
     };
   }, [handleEvent]);
 

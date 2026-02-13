@@ -127,6 +127,12 @@ export function useMessageStream(
                     console.log('[useMessageStream] Received new message via SSE:', message.id);
                     seenIdsRef.current.add(event.id);
                     setStreamedMessages(prev => [...prev, message]);
+
+                    // Clear pipelineStage when assistant message arrives
+                    // (handles agent path where no run_started/run_completed events are sent)
+                    if (message.role === 'assistant') {
+                        window.dispatchEvent(new CustomEvent('clear-pipeline-stage'));
+                    }
                 }
 
                 // Mark as connected on first event
