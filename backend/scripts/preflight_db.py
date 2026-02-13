@@ -118,7 +118,7 @@ def run_migrations():
     print(f"[preflight] Running Alembic migrations from {backend_dir}...")
     try:
         result = subprocess.run(
-            ["alembic", "-c", alembic_ini, "upgrade", "head"],
+            ["alembic", "-c", alembic_ini, "upgrade", "heads"],
             cwd=backend_dir,
             capture_output=True,
             text=True,
