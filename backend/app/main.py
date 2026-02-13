@@ -859,10 +859,12 @@ except Exception as e:
     # Bootstrap tool embeddings for RAG-based tool discovery
     try:
         from backend.app.services.tool_embedding_service import ToolEmbeddingService
+        import asyncio
 
         svc = ToolEmbeddingService()
-        await svc.ensure_table()
-        count = await svc.ensure_indexed()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(svc.ensure_table())
+        count = loop.run_until_complete(svc.ensure_indexed())
         logger.info(f"Tool embeddings: {count} tools indexed")
     except Exception as e:
         logger.warning(f"Tool embedding bootstrap failed (non-blocking): {e}")
