@@ -537,9 +537,13 @@ async def event_stream_generator(
                     yield f"event: {event_data['type']}\n"
                     yield f"data: {json.dumps(event_data)}\n\n"
 
-                    # Update last_poll_time to this event's timestamp
+                    # Update last_poll_time to this event's timestamp,
+                    # but cap at current UTC time to prevent future-timestamped
+                    # events (e.g. playbook_step with timezone anomalies) from
+                    # advancing the cursor past real-time events.
                     if isinstance(event.timestamp, datetime):
-                        last_poll_time = event.timestamp
+                        now_utc = datetime.utcnow()
+                        last_poll_time = min(event.timestamp, now_utc)
 
                 # Send heartbeat to keep connection alive
                 heartbeat_counter += 1
