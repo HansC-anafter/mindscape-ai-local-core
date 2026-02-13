@@ -1,0 +1,2 @@
+# This directory is populated by CapabilityInstaller at runtime.
+# The .gitkeep ensures the directory exists for webpack require.context() calls.

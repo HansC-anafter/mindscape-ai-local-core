@@ -104,7 +104,9 @@ docker-compose.override.yml
 # 这些路径应该永远为空，如果出现文件则说明架构违规
 # 所有通过 CapabilityInstaller 安装的文件都应该被排除
 /web-console/src/app/capabilities/
+!/web-console/src/app/capabilities/.gitkeep
 /backend/app/capabilities/
+!/backend/app/capabilities/.gitkeep
 
 # Capability-installed playbooks (透過 API 安裝，不應該直接 commit)
 /backend/i18n/playbooks/

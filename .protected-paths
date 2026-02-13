@@ -34,3 +34,5 @@ docs-internal/
 # --- Whitelist (allowed exceptions) ---
 !backend/playbooks/pdf_ocr_processing.yaml
 !backend/playbooks/system_mindscape_state_sync.yaml
+!backend/app/capabilities/.gitkeep
+!web-console/src/app/capabilities/.gitkeep
