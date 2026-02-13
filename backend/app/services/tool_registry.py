@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 import logging
 
 from sqlalchemy import text
@@ -90,10 +92,12 @@ class ToolRegistryService(PostgresStoreBase):
         self._discovery_providers: Dict[str, ToolDiscoveryProvider] = {}
 
         # Initialize database
+        self._tables_ready = False
         self._ensure_tables()
 
-        # Load data (from SQLite, fallback to JSON for migration)
-        self._load_registry()
+        # Load data only if tables exist
+        if self._tables_ready:
+            self._load_registry()
 
         # Register default providers (built-in)
         self._register_default_providers()
@@ -112,10 +116,13 @@ class ToolRegistryService(PostgresStoreBase):
         missing = required_tables - existing
         if missing:
             missing_str = ", ".join(sorted(missing))
-            raise RuntimeError(
-                "Missing PostgreSQL tables: "
-                f"{missing_str}. Run: alembic -c backend/alembic.ini upgrade head"
+            logger.warning(
+                "Missing PostgreSQL tables: %s. "
+                "Will be created by migration orchestrator in startup_event.",
+                missing_str,
             )
+            return
+        self._tables_ready = True
 
     def _load_registry(self):
         """Load tool registry from PostgreSQL database"""
