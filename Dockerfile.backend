@@ -45,5 +45,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Run the application (uses PORT env var from docker-compose.yml, no hardcoded default)
 # The PORT environment variable MUST be set in docker-compose.yml
-CMD ["sh", "-c", "exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT}"]
+# preflight_db.py creates missing databases before uvicorn imports the app
+CMD ["sh", "-c", "python /app/backend/scripts/preflight_db.py && exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT}"]
 
