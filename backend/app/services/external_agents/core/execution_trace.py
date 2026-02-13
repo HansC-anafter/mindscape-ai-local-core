@@ -392,3 +392,65 @@ class ExecutionTraceCollector:
         except Exception:
             pass
         return None
+
+
+import uuid
+
+
+class ExecutionTraceHandle:
+    """Handle for an in-progress execution trace with lifecycle methods."""
+
+    def __init__(self, trace_id: str, workspace_id: str, agent_id: str, task: str):
+        self.trace_id = trace_id
+        self.workspace_id = workspace_id
+        self.agent_id = agent_id
+        self.task = task
+        self.started_at = datetime.utcnow().isoformat()
+        self.status = "running"
+        self.output: Optional[str] = None
+        self.error: Optional[str] = None
+        self.artifacts: List[str] = []
+
+    def complete(
+        self,
+        success: bool = True,
+        output: str = "",
+        artifacts: Optional[List[str]] = None,
+    ):
+        """Mark the trace as completed."""
+        self.status = "completed" if success else "failed"
+        self.output = output
+        self.artifacts = artifacts or []
+        logger.info(
+            f"[ExecutionTrace] Trace {self.trace_id} completed: "
+            f"success={success}, artifacts={len(self.artifacts)}"
+        )
+
+    def fail(self, error: str):
+        """Mark the trace as failed."""
+        self.status = "failed"
+        self.error = error
+        logger.warning(f"[ExecutionTrace] Trace {self.trace_id} failed: {error}")
+
+
+class ExecutionTraceService:
+    """Service for creating and managing execution traces."""
+
+    def start_trace(
+        self,
+        workspace_id: str,
+        agent_id: str,
+        task: str,
+    ) -> ExecutionTraceHandle:
+        """Start a new execution trace and return a handle for it."""
+        trace_id = str(uuid.uuid4())
+        logger.info(
+            f"[ExecutionTrace] Starting trace {trace_id}: "
+            f"agent={agent_id}, workspace={workspace_id}"
+        )
+        return ExecutionTraceHandle(
+            trace_id=trace_id,
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            task=task,
+        )
