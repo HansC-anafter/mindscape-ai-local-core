@@ -70,8 +70,7 @@ services:
       # Example for Windows: C:\Users\yourname\Documents:/host/documents:rw
       # The frontend will automatically convert host paths to /host/documents/... when saving
       # - ${HOME}/Documents:/host/documents:rw
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+
     networks:
       - mindscape-network
     depends_on:
@@ -133,8 +132,7 @@ services:
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
       - ./web-console:/app/web-console:rw
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+
     networks:
       - mindscape-network
     depends_on:
@@ -172,8 +170,7 @@ services:
       - ./web-console/tailwind.config.js:/app/web-console/tailwind.config.js:ro
       - ./web-console/postcss.config.js:/app/web-console/postcss.config.js:ro
       - ./packages:/app/packages:ro
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+
     networks:
       - mindscape-network
     healthcheck:
@@ -212,8 +209,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init-dual-dbs.sh:/docker-entrypoint-initdb.d/00-init-dual-dbs.sh:ro
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
     networks:
       - mindscape-network
     healthcheck:
@@ -224,8 +219,8 @@ services:
         ]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 60s
 
   # OCR Service (Local PaddleOCR)
   ocr-service:
@@ -242,8 +237,6 @@ services:
       - TZ=${TZ:-UTC}
     volumes:
       - ./data:/app/data:ro
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
     networks:
       - mindscape-network
     healthcheck:
