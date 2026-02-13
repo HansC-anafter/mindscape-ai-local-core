@@ -12,10 +12,16 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
 from backend.app.services.external_agents.core.registry import get_agent_registry
+from backend.app.services.external_agents.core.base_adapter import (
+    AgentRequest,
+    AgentResponse,
+)
 from backend.app.services.external_agents.core.execution_trace import (
     ExecutionTraceService,
     ExecutionTrace,
@@ -168,12 +174,15 @@ class WorkspaceAgentExecutor:
                 f"sandbox={sandbox_path}"
             )
 
-            result = await adapter.execute(
+            agent_request = AgentRequest(
                 task=task,
                 sandbox_path=sandbox_path,
-                context=context,
-                timeout=request.timeout_seconds,
+                workspace_id=self.workspace.id,
+                max_duration_seconds=request.timeout_seconds,
+                agent_config=context,
             )
+
+            result = await adapter.execute(agent_request)
 
             # 8. Complete trace
             execution_time = (_utc_now() - start_time).total_seconds()
