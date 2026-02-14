@@ -16,8 +16,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# ---- Virtual environment ----
+VENV_DIR="${PROJECT_ROOT}/.venv-ws-bridge"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "[setup] Creating virtual environment at ${VENV_DIR}..."
+    python3 -m venv "$VENV_DIR"
+fi
+
+# shellcheck disable=SC1091
+source "${VENV_DIR}/bin/activate"
+
+# Install required packages if needed
+if ! python3 -c "import websockets" 2>/dev/null; then
+    echo "[setup] Installing required packages..."
+    pip install --quiet websockets sqlalchemy psycopg2-binary
+fi
+
 # ---- Configuration ----
-export MINDSCAPE_WS_HOST="${MINDSCAPE_WS_HOST:-localhost:8000}"
+export MINDSCAPE_WS_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
 export MINDSCAPE_WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-bac7ce63-e768-454d-96f3-3a00e8e1df69}"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-/Users/shock/Projects_local/workspace}"
 
@@ -42,6 +58,7 @@ echo " Workspace:  $MINDSCAPE_WORKSPACE_ID"
 echo " Backend:    ws://$MINDSCAPE_WS_HOST"
 echo " Root:       $MINDSCAPE_WORKSPACE_ROOT"
 echo " Runtime:    $ANTIGRAVITY_IDE_RUNTIME_CMD"
+echo " Venv:       $VENV_DIR"
 echo "======================================"
 echo ""
 
