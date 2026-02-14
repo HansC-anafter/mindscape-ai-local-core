@@ -49,6 +49,8 @@ export interface ThreadRun {
   steps_completed: number;
   steps_total: number;
   deliverable_ids: string[];
+  result_summary?: string;
+  storage_ref?: string;
 }
 
 export interface ThreadSource {

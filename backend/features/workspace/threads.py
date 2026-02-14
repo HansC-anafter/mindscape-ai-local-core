@@ -17,8 +17,12 @@ from backend.app.models.workspace import Workspace
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.models.thread_bundle import (
-    ThreadBundle, ThreadOverview, ThreadDeliverable,
-    ThreadReferenceResponse, ThreadRun, ThreadSource
+    ThreadBundle,
+    ThreadOverview,
+    ThreadDeliverable,
+    ThreadReferenceResponse,
+    ThreadRun,
+    ThreadSource,
 )
 from pydantic import BaseModel, Field
 
@@ -28,13 +32,21 @@ logger = logging.getLogger(__name__)
 
 class CreateThreadRequest(BaseModel):
     """Request to create a new conversation thread"""
-    title: Optional[str] = Field(None, description="Thread title (auto-generated if not provided)")
-    project_id: Optional[str] = Field(None, description="Optional: associate with a project")
-    pinned_scope: Optional[str] = Field(None, description="Optional: pin a scope for this thread")
+
+    title: Optional[str] = Field(
+        None, description="Thread title (auto-generated if not provided)"
+    )
+    project_id: Optional[str] = Field(
+        None, description="Optional: associate with a project"
+    )
+    pinned_scope: Optional[str] = Field(
+        None, description="Optional: pin a scope for this thread"
+    )
 
 
 class UpdateThreadRequest(BaseModel):
     """Request to update a conversation thread"""
+
     title: Optional[str] = Field(None, description="Thread title")
     project_id: Optional[str] = Field(None, description="Project ID")
     pinned_scope: Optional[str] = Field(None, description="Pinned scope")
@@ -45,7 +57,7 @@ async def create_thread(
     workspace_id: str = Path(..., description="Workspace ID"),
     request: CreateThreadRequest = Body(...),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> ConversationThread:
     """
     Create a new conversation thread in a workspace.
@@ -62,7 +74,9 @@ async def create_thread(
                 if project:
                     title = f"與 {project.title} 的對話"
             except Exception as e:
-                logger.warning(f"Failed to get project {request.project_id} for thread title: {e}")
+                logger.warning(
+                    f"Failed to get project {request.project_id} for thread title: {e}"
+                )
 
         if not title:
             title = "新對話"
@@ -78,7 +92,7 @@ async def create_thread(
         last_message_at=now_utc,
         message_count=0,
         metadata={},
-        is_default=False
+        is_default=False,
     )
 
     # 保存到資料庫
@@ -88,7 +102,9 @@ async def create_thread(
     try:
         locale = workspace.default_locale or "zh-TW"
         i18n = get_i18n_service(default_locale=locale)
-        welcome_message = i18n.t("workspace", "welcome.returning_workspace", workspace_title=workspace.title)
+        welcome_message = i18n.t(
+            "workspace", "welcome.returning_workspace", workspace_title=workspace.title
+        )
 
         welcome_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -127,9 +143,13 @@ async def create_thread(
                 message_count=message_count,
             )
         except Exception as e:
-            logger.warning(f"Failed to update thread statistics for seeded welcome message: {e}")
+            logger.warning(
+                f"Failed to update thread statistics for seeded welcome message: {e}"
+            )
     except Exception as e:
-        logger.warning(f"Failed to seed welcome message for new thread {thread_id}: {e}")
+        logger.warning(
+            f"Failed to seed welcome message for new thread {thread_id}: {e}"
+        )
 
     logger.info(f"Created conversation thread {thread_id} for workspace {workspace_id}")
     return thread
@@ -138,9 +158,11 @@ async def create_thread(
 @router.get("/{workspace_id}/threads", response_model=List[ConversationThread])
 async def list_threads(
     workspace_id: str = Path(..., description="Workspace ID"),
-    limit: Optional[int] = Query(None, ge=1, le=100, description="Maximum number of threads to return"),
+    limit: Optional[int] = Query(
+        None, ge=1, le=100, description="Maximum number of threads to return"
+    ),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> List[ConversationThread]:
     """
     獲取 Workspace 的所有對話 Thread 列表
@@ -148,8 +170,7 @@ async def list_threads(
     返回按 updated_at DESC 排序的 thread 列表。
     """
     threads = store.conversation_threads.list_threads_by_workspace(
-        workspace_id=workspace_id,
-        limit=limit
+        workspace_id=workspace_id, limit=limit
     )
     return threads
 
@@ -159,7 +180,7 @@ async def get_thread(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> ConversationThread:
     """
     獲取指定的對話 Thread
@@ -169,7 +190,9 @@ async def get_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     return thread
 
@@ -180,7 +203,7 @@ async def update_thread(
     thread_id: str = Path(..., description="Thread ID"),
     request: UpdateThreadRequest = Body(...),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> ConversationThread:
     """
     更新對話 Thread 的標題或其他屬性
@@ -190,13 +213,15 @@ async def update_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     updated_thread = store.conversation_threads.update_thread(
         thread_id=thread_id,
         title=request.title,
         project_id=request.project_id,
-        pinned_scope=request.pinned_scope
+        pinned_scope=request.pinned_scope,
     )
 
     if not updated_thread:
@@ -210,7 +235,7 @@ async def delete_thread(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ):
     """
     刪除對話 Thread
@@ -222,7 +247,9 @@ async def delete_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     if thread.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default thread")
@@ -239,7 +266,7 @@ async def get_thread_bundle(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> ThreadBundle:
     """
     Get Thread Bundle (aggregated view)
@@ -258,46 +285,54 @@ async def get_thread_bundle(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     # Get Deliverables from artifacts table
     artifacts = store.artifacts.get_by_thread(
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        limit=100
+        workspace_id=workspace_id, thread_id=thread_id, limit=100
     )
     deliverables = []
     for a in artifacts:
         # Infer source from playbook_code and metadata
-        source = 'playbook' if a.playbook_code else 'ai_generated'
-        if a.metadata and 'source' in a.metadata:
-            source = a.metadata['source']
+        source = "playbook" if a.playbook_code else "ai_generated"
+        if a.metadata and "source" in a.metadata:
+            source = a.metadata["source"]
 
         # Get source_event_id from metadata or execution_id
-        source_event_id = a.metadata.get('source_event_id', '') if a.metadata else ''
+        source_event_id = a.metadata.get("source_event_id", "") if a.metadata else ""
         if not source_event_id and a.execution_id:
             source_event_id = a.execution_id
 
         # Infer status from metadata or default to 'draft'
-        status = a.metadata.get('status', 'draft') if a.metadata else 'draft'
-        if a.sync_state == 'synced':
-            status = 'final'
+        status = a.metadata.get("status", "draft") if a.metadata else "draft"
+        if a.sync_state == "synced":
+            status = "final"
 
-        deliverables.append(ThreadDeliverable(
-            id=a.id,
-            title=a.title or 'Untitled',
-            artifact_type=a.artifact_type.value if hasattr(a.artifact_type, 'value') else str(a.artifact_type),
-            source=source,
-            source_event_id=source_event_id,
-            status=status,
-            updated_at=a.updated_at.isoformat() if a.updated_at else a.created_at.isoformat(),
-        ))
+        deliverables.append(
+            ThreadDeliverable(
+                id=a.id,
+                title=a.title or "Untitled",
+                artifact_type=(
+                    a.artifact_type.value
+                    if hasattr(a.artifact_type, "value")
+                    else str(a.artifact_type)
+                ),
+                source=source,
+                source_event_id=source_event_id,
+                status=status,
+                updated_at=(
+                    a.updated_at.isoformat()
+                    if a.updated_at
+                    else a.created_at.isoformat()
+                ),
+            )
+        )
 
     # Get References from thread_references table
     refs = store.thread_references.get_by_thread(
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        limit=100
+        workspace_id=workspace_id, thread_id=thread_id, limit=100
     )
     references = [
         ThreadReferenceResponse(
@@ -308,16 +343,14 @@ async def get_thread_bundle(
             snippet=r.snippet,
             reason=r.reason,
             created_at=r.created_at.isoformat(),
-            pinned_by=r.pinned_by or 'user',
+            pinned_by=r.pinned_by or "user",
         )
         for r in refs
     ]
 
     # Get Runs from playbook_executions table
     executions = store.playbook_executions.get_by_thread(
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        limit=20
+        workspace_id=workspace_id, thread_id=thread_id, limit=20
     )
     runs = []
     for ex in executions:
@@ -328,8 +361,8 @@ async def get_thread_bundle(
         steps_completed = 0
         steps_total = 0
         if ex.metadata:
-            steps_completed = ex.metadata.get('steps_completed', 0)
-            steps_total = ex.metadata.get('steps_total', 0)
+            steps_completed = ex.metadata.get("steps_completed", 0)
+            steps_total = ex.metadata.get("steps_total", 0)
 
         # Calculate duration
         duration_ms = None
@@ -337,33 +370,110 @@ async def get_thread_bundle(
             delta = ex.updated_at - ex.created_at
             duration_ms = int(delta.total_seconds() * 1000)
 
-        runs.append(ThreadRun(
-            id=ex.id,
-            playbook_name=ex.playbook_code,
-            status=ex.status,
-            started_at=ex.created_at.isoformat(),
-            duration_ms=duration_ms,
-            steps_completed=steps_completed,
-            steps_total=steps_total,
-            deliverable_ids=deliverable_ids,
-        ))
+        runs.append(
+            ThreadRun(
+                id=ex.id,
+                playbook_name=ex.playbook_code,
+                status=ex.status,
+                started_at=ex.created_at.isoformat(),
+                duration_ms=duration_ms,
+                steps_completed=steps_completed,
+                steps_total=steps_total,
+                deliverable_ids=deliverable_ids,
+            )
+        )
+
+    # Also include task dispatch runs (agent-executed tasks)
+    try:
+        task_runs = store.tasks.list_tasks_by_thread(
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            limit=20,
+            exclude_cancelled=True,
+        )
+        playbook_exec_ids = {ex.id for ex in executions}
+        for task in task_runs:
+            # Skip tasks already covered by playbook_executions
+            if task.execution_id in playbook_exec_ids or task.id in playbook_exec_ids:
+                continue
+
+            # Map task status to ThreadRun status
+            status_map = {
+                "SUCCEEDED": "completed",
+                "FAILED": "failed",
+                "RUNNING": "running",
+                "PENDING": "running",
+            }
+            run_status = status_map.get(
+                (
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                ),
+                "running",
+            )
+
+            # Extract result summary and storage_ref
+            result_summary = None
+            storage_ref = None
+            if task.result and isinstance(task.result, dict):
+                result_summary = task.result.get("summary") or task.result.get(
+                    "output", ""
+                )
+                storage_ref = task.result.get("storage_ref")
+
+            # Calculate duration
+            duration_ms = None
+            if task.result and isinstance(task.result, dict):
+                dur_sec = task.result.get("duration_seconds")
+                if dur_sec:
+                    duration_ms = int(float(dur_sec) * 1000)
+            elif task.created_at and task.completed_at:
+                delta = task.completed_at - task.created_at
+                duration_ms = int(delta.total_seconds() * 1000)
+
+            # Get deliverable IDs from artifacts with this execution_id
+            task_exec_id = task.execution_id or task.id
+            deliverable_ids = [
+                a.id for a in artifacts if a.execution_id == task_exec_id
+            ]
+
+            runs.append(
+                ThreadRun(
+                    id=task.id,
+                    playbook_name=task.title or task.playbook_id or "Agent Task",
+                    status=run_status,
+                    started_at=(task.started_at or task.created_at).isoformat(),
+                    duration_ms=duration_ms,
+                    steps_completed=1 if run_status == "completed" else 0,
+                    steps_total=1,
+                    deliverable_ids=deliverable_ids,
+                    result_summary=result_summary,
+                    storage_ref=storage_ref,
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to load task dispatch runs for thread {thread_id}: {e}")
+
+    # Sort all runs by started_at descending
+    runs.sort(key=lambda r: r.started_at, reverse=True)
 
     # Get Sources from thread configuration
     sources = _get_thread_sources(thread, store)
 
     # Determine thread status
-    status = 'in_progress'
-    if deliverables and all(d.status == 'final' for d in deliverables):
-        status = 'delivered'
+    status = "in_progress"
+    if deliverables and all(d.status == "final" for d in deliverables):
+        status = "delivered"
     elif not deliverables and not references:
-        status = 'pending_data'
+        status = "pending_data"
 
     return ThreadBundle(
         thread_id=thread_id,
         overview=ThreadOverview(
             title=thread.title,
             status=status,
-            summary=thread.metadata.get('summary') if thread.metadata else None,
+            summary=thread.metadata.get("summary") if thread.metadata else None,
             project_id=thread.project_id,
             pinned_scope=thread.pinned_scope,
         ),
@@ -374,7 +484,9 @@ async def get_thread_bundle(
     )
 
 
-def _get_thread_sources(thread: ConversationThread, store: MindscapeStore) -> List[ThreadSource]:
+def _get_thread_sources(
+    thread: ConversationThread, store: MindscapeStore
+) -> List[ThreadSource]:
     """
     Get thread sources from thread configuration
 
@@ -386,34 +498,39 @@ def _get_thread_sources(thread: ConversationThread, store: MindscapeStore) -> Li
     # If thread has pinned_scope, convert it to ThreadSource
     if thread.pinned_scope:
         if isinstance(thread.pinned_scope, dict):
-            scope_type = thread.pinned_scope.get('type', '')
-            if scope_type == 'site':
-                sources.append(ThreadSource(
-                    id=thread.pinned_scope.get('identifier', ''),
-                    type='wordpress_site',
-                    identifier=thread.pinned_scope.get('identifier', ''),
-                    display_name=thread.pinned_scope.get('display_name', ''),
-                    permissions=['read', 'write'],
-                    sync_status='connected'
-                ))
-            elif scope_type == 'obsidian_vault':
-                sources.append(ThreadSource(
-                    id=thread.pinned_scope.get('identifier', ''),
-                    type='obsidian_vault',
-                    identifier=thread.pinned_scope.get('identifier', ''),
-                    display_name=thread.pinned_scope.get('display_name', ''),
-                    permissions=['read', 'write'],
-                    sync_status='connected'
-                ))
+            scope_type = thread.pinned_scope.get("type", "")
+            if scope_type == "site":
+                sources.append(
+                    ThreadSource(
+                        id=thread.pinned_scope.get("identifier", ""),
+                        type="wordpress_site",
+                        identifier=thread.pinned_scope.get("identifier", ""),
+                        display_name=thread.pinned_scope.get("display_name", ""),
+                        permissions=["read", "write"],
+                        sync_status="connected",
+                    )
+                )
+            elif scope_type == "obsidian_vault":
+                sources.append(
+                    ThreadSource(
+                        id=thread.pinned_scope.get("identifier", ""),
+                        type="obsidian_vault",
+                        identifier=thread.pinned_scope.get("identifier", ""),
+                        display_name=thread.pinned_scope.get("display_name", ""),
+                        permissions=["read", "write"],
+                        sync_status="connected",
+                    )
+                )
 
     return sources
 
 
 class AddReferenceRequest(BaseModel):
     """Request to add a reference to a thread"""
-    source_type: Literal['obsidian', 'notion', 'wordpress', 'local_file', 'url', 'google_drive'] = Field(
-        ..., description="Source connector type"
-    )
+
+    source_type: Literal[
+        "obsidian", "notion", "wordpress", "local_file", "url", "google_drive"
+    ] = Field(..., description="Source connector type")
     uri: str = Field(..., description="Real URI (clickable)")
     title: str = Field(..., description="Reference title")
     snippet: Optional[str] = Field(None, description="Short summary snippet")
@@ -422,18 +539,22 @@ class AddReferenceRequest(BaseModel):
 
 class UpdateReferenceRequest(BaseModel):
     """Request to update a thread reference"""
+
     title: Optional[str] = Field(None, description="Reference title")
     snippet: Optional[str] = Field(None, description="Short summary snippet")
     reason: Optional[str] = Field(None, description="Reason for pinning")
 
 
-@router.post("/{workspace_id}/threads/{thread_id}/references", response_model=ThreadReferenceResponse)
+@router.post(
+    "/{workspace_id}/threads/{thread_id}/references",
+    response_model=ThreadReferenceResponse,
+)
 async def add_reference_to_thread(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     request: AddReferenceRequest = Body(...),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> ThreadReferenceResponse:
     """
     Add a reference to a thread
@@ -447,7 +568,9 @@ async def add_reference_to_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     from backend.app.models.workspace import ThreadReference
 
@@ -460,9 +583,9 @@ async def add_reference_to_thread(
         title=request.title,
         snippet=request.snippet,
         reason=request.reason,
-        pinned_by='user',
+        pinned_by="user",
         created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        updated_at=datetime.utcnow(),
     )
 
     created_reference = store.thread_references.create_reference(reference)
@@ -475,16 +598,19 @@ async def add_reference_to_thread(
         snippet=created_reference.snippet,
         reason=created_reference.reason,
         created_at=created_reference.created_at.isoformat(),
-        pinned_by=created_reference.pinned_by
+        pinned_by=created_reference.pinned_by,
     )
 
 
-@router.get("/{workspace_id}/threads/{thread_id}/references", response_model=List[ThreadReferenceResponse])
+@router.get(
+    "/{workspace_id}/threads/{thread_id}/references",
+    response_model=List[ThreadReferenceResponse],
+)
 async def list_thread_references(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> List[ThreadReferenceResponse]:
     """
     List all references for a thread
@@ -495,12 +621,12 @@ async def list_thread_references(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     refs = store.thread_references.get_by_thread(
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        limit=100
+        workspace_id=workspace_id, thread_id=thread_id, limit=100
     )
 
     return [
@@ -512,20 +638,23 @@ async def list_thread_references(
             snippet=r.snippet,
             reason=r.reason,
             created_at=r.created_at.isoformat(),
-            pinned_by=r.pinned_by or 'user',
+            pinned_by=r.pinned_by or "user",
         )
         for r in refs
     ]
 
 
-@router.put("/{workspace_id}/threads/{thread_id}/references/{reference_id}", response_model=ThreadReferenceResponse)
+@router.put(
+    "/{workspace_id}/threads/{thread_id}/references/{reference_id}",
+    response_model=ThreadReferenceResponse,
+)
 async def update_thread_reference(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     reference_id: str = Path(..., description="Reference ID"),
     request: UpdateReferenceRequest = Body(...),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ) -> ThreadReferenceResponse:
     """
     Update a thread reference
@@ -536,7 +665,9 @@ async def update_thread_reference(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     # Verify reference exists and belongs to thread
     reference = store.thread_references.get_reference(reference_id)
@@ -544,17 +675,19 @@ async def update_thread_reference(
         raise HTTPException(status_code=404, detail="Reference not found")
 
     if reference.thread_id != thread_id:
-        raise HTTPException(status_code=403, detail="Reference does not belong to this thread")
+        raise HTTPException(
+            status_code=403, detail="Reference does not belong to this thread"
+        )
 
     # Update reference
     updates = {}
     if request.title is not None:
-        updates['title'] = request.title
+        updates["title"] = request.title
     if request.snippet is not None:
-        updates['snippet'] = request.snippet
+        updates["snippet"] = request.snippet
     if request.reason is not None:
-        updates['reason'] = request.reason
-    updates['updated_at'] = datetime.utcnow()
+        updates["reason"] = request.reason
+    updates["updated_at"] = datetime.utcnow()
 
     if updates:
         store.thread_references.update_reference(reference_id, **updates)
@@ -568,7 +701,7 @@ async def update_thread_reference(
         snippet=reference.snippet,
         reason=reference.reason,
         created_at=reference.created_at.isoformat(),
-        pinned_by=reference.pinned_by or 'user',
+        pinned_by=reference.pinned_by or "user",
     )
 
 
@@ -578,7 +711,7 @@ async def delete_thread_reference(
     thread_id: str = Path(..., description="Thread ID"),
     reference_id: str = Path(..., description="Reference ID"),
     workspace: Workspace = Depends(get_workspace),
-    store: MindscapeStore = Depends(get_store)
+    store: MindscapeStore = Depends(get_store),
 ):
     """
     Delete a thread reference
@@ -589,7 +722,9 @@ async def delete_thread_reference(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     if thread.workspace_id != workspace_id:
-        raise HTTPException(status_code=403, detail="Thread does not belong to this workspace")
+        raise HTTPException(
+            status_code=403, detail="Thread does not belong to this workspace"
+        )
 
     # Verify reference exists and belongs to thread
     reference = store.thread_references.get_reference(reference_id)
@@ -597,7 +732,9 @@ async def delete_thread_reference(
         raise HTTPException(status_code=404, detail="Reference not found")
 
     if reference.thread_id != thread_id:
-        raise HTTPException(status_code=403, detail="Reference does not belong to this thread")
+        raise HTTPException(
+            status_code=403, detail="Reference does not belong to this thread"
+        )
 
     deleted = store.thread_references.delete_reference(reference_id)
     if not deleted:

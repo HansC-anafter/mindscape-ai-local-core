@@ -315,6 +315,8 @@ function ReferencesSection({
 }
 
 function RunsSection({ items }: { items: ThreadBundleType['runs'] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -327,34 +329,69 @@ function RunsSection({ items }: { items: ThreadBundleType['runs'] }) {
     );
   }
 
+  const statusConfig: Record<string, { icon: string; color: string; label: string }> = {
+    completed: { icon: '✅', color: 'text-green-600 dark:text-green-400', label: '完成' },
+    running: { icon: '⏳', color: 'text-blue-600 dark:text-blue-400', label: '執行中' },
+    failed: { icon: '❌', color: 'text-red-600 dark:text-red-400', label: '失敗' },
+    cancelled: { icon: '⛔', color: 'text-gray-500 dark:text-gray-400', label: '已取消' },
+  };
+
   return (
     <div className="space-y-3">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="p-3 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <h4 className="font-medium text-gray-900 dark:text-gray-100">{item.playbook_name}</h4>
-              <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                <span>{item.status}</span>
-                <span>•</span>
-                <span>{item.steps_completed}/{item.steps_total} 步驟</span>
-                {item.duration_ms && (
-                  <>
-                    <span>•</span>
-                    <span>{(item.duration_ms / 1000).toFixed(1)} 秒</span>
-                  </>
+      {items.map((item) => {
+        const sc = statusConfig[item.status] || statusConfig.running;
+        const isExpanded = expandedId === item.id;
+        const hasDetails = !!(item as any).result_summary;
+
+        return (
+          <div
+            key={item.id}
+            className={cn(
+              'p-3 border dark:border-gray-700 rounded-lg transition-colors',
+              hasDetails ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800' : '',
+            )}
+            onClick={() => hasDetails && setExpandedId(isExpanded ? null : item.id)}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">{sc.icon}</span>
+                  <h4 className="font-medium text-gray-900 dark:text-gray-100">{item.playbook_name}</h4>
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span className={sc.color}>{sc.label}</span>
+                  <span>•</span>
+                  <span>{item.steps_completed}/{item.steps_total} 步驟</span>
+                  {item.duration_ms && (
+                    <>
+                      <span>•</span>
+                      <span>{(item.duration_ms / 1000).toFixed(1)} 秒</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {hasDetails && (
+                <span className="text-xs text-gray-400 mt-1">{isExpanded ? '▲' : '▼'}</span>
+              )}
+            </div>
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              開始於 {new Date(item.started_at).toLocaleString('zh-TW')}
+            </div>
+            {isExpanded && (item as any).result_summary && (
+              <div className="mt-3 pt-3 border-t dark:border-gray-700">
+                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  {(item as any).result_summary}
+                </p>
+                {(item as any).storage_ref && (
+                  <div className="mt-2 text-xs text-blue-500 dark:text-blue-400">
+                    📁 {(item as any).storage_ref}
+                  </div>
                 )}
               </div>
-            </div>
+            )}
           </div>
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            開始於 {new Date(item.started_at).toLocaleString('zh-TW')}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
