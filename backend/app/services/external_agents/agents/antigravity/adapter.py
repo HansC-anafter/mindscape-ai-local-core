@@ -70,14 +70,14 @@ def parse_dispatch_response(
     duration = raw.get("duration_seconds", time.monotonic() - start_time)
 
     return AgentResponse(
-        success=status == "completed",
+        success=status in ("completed", "dispatched_to_ide"),
         output=raw.get("output", ""),
         duration_seconds=duration,
         tool_calls=raw.get("tool_calls", []),
         files_modified=raw.get("files_modified", []),
         files_created=raw.get("files_created", []),
         error=raw.get("error"),
-        exit_code=0 if status == "completed" else 1,
+        exit_code=0 if status in ("completed", "dispatched_to_ide") else 1,
         agent_metadata={
             "transport": raw.get("metadata", {}).get("transport", "unknown"),
             "execution_id": raw.get("execution_id", ""),
