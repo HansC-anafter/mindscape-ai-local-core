@@ -15,6 +15,7 @@ from backend.app.models.workspace import ConversationThread
 from backend.app.routes.workspace_dependencies import get_workspace, get_store
 from backend.app.models.workspace import Workspace
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.models.thread_bundle import (
     ThreadBundle,
@@ -385,7 +386,8 @@ async def get_thread_bundle(
 
     # Also include task dispatch runs (agent-executed tasks)
     try:
-        task_runs = store.tasks.list_tasks_by_thread(
+        tasks_store = TasksStore()
+        task_runs = tasks_store.list_tasks_by_thread(
             workspace_id=workspace_id,
             thread_id=thread_id,
             limit=20,
