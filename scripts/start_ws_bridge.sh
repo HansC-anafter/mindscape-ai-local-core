@@ -63,7 +63,5 @@ echo "======================================"
 echo ""
 
 exec python3 -m backend.app.services.external_agents.agents.antigravity.ide_ws_client \
-  --mode single \
   --workspace-id "$MINDSCAPE_WORKSPACE_ID" \
-  --host "$MINDSCAPE_WS_HOST" \
-  --workspace-root "$MINDSCAPE_WORKSPACE_ROOT"
+  --host "$MINDSCAPE_WS_HOST"
