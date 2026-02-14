@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import List, Optional
 from sqlalchemy import text
 
@@ -68,6 +70,19 @@ class PostgresArtifactsStore(PostgresStoreBase):
         with self.get_connection() as conn:
             query = text("SELECT * FROM artifacts WHERE id = :id")
             result = conn.execute(query, {"id": artifact_id})
+            row = result.fetchone()
+            if not row:
+                return None
+            return self._row_to_artifact(row)
+
+    def get_by_execution_id(self, execution_id: str) -> Optional[Artifact]:
+        """Get artifact by execution_id (returns most recent if multiple)."""
+        with self.get_connection() as conn:
+            query = text(
+                "SELECT * FROM artifacts WHERE execution_id = :execution_id "
+                "ORDER BY updated_at DESC LIMIT 1"
+            )
+            result = conn.execute(query, {"execution_id": execution_id})
             row = result.fetchone()
             if not row:
                 return None
