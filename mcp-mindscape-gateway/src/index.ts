@@ -20,7 +20,6 @@ import { confirmTools, isConfirmTool, CONFIRM_TOOL_NAMES } from "./tools/confirm
 import { intentTools, isIntentTool, INTENT_TOOL_NAMES } from "./tools/intent_tools.js";
 import { chatSyncTools, isChatSyncTool, CHAT_SYNC_TOOL_NAMES } from "./tools/chat_sync_tools.js";
 import { projectTools, isProjectTool, PROJECT_TOOL_NAMES } from "./tools/project_tools.js";
-import { taskDispatchTools, isTaskDispatchTool, TASK_DISPATCH_TOOL_NAMES } from "./tools/task_dispatch_tools.js";
 import { ContextHandler } from "./context_handler.js";
 import { ConfirmGuard } from "./confirm_guard.js";
 import { config } from "./config.js";
@@ -58,16 +57,6 @@ mindscapeClient.listPacks().then(packs => {
 // ============================================
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    // Task-dispatch-only mode: return minimal tool set for Antigravity runner
-    if (config.toolFilter === "task_dispatch") {
-      const mcpTools: any[] = [
-        ...taskDispatchTools,
-        ...chatSyncTools,
-        ...lensTools
-      ];
-      return { tools: mcpTools };
-    }
-
     const tools = await mindscapeClient.listTools({
       enabled_only: true
     });
@@ -109,7 +98,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     // ============================================
     // MCP Bridge Tools (Intent, Chat Sync, Project)
     // ============================================
-    for (const tool of [...intentTools, ...chatSyncTools, ...projectTools, ...taskDispatchTools]) {
+    for (const tool of [...intentTools, ...chatSyncTools, ...projectTools]) {
       const decision = toolAccessPolicy.getAccessLevel(tool.name);
       if (decision.allowed) {
         mcpTools.push(tool);
@@ -485,49 +474,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
       };
-    }
-
-    // ============================================
-    // Task Dispatch Tools
-    // ============================================
-    if (isTaskDispatchTool(name)) {
-      if (name === TASK_DISPATCH_TOOL_NAMES.ACK) {
-        const result = await mindscapeClient.ackTask({
-          execution_id: String((inputs as any).execution_id),
-          lease_id: String((inputs as any).lease_id),
-          client_id: String((inputs as any).client_id || "")
-        });
-        return {
-          content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
-        };
-      } else if (name === TASK_DISPATCH_TOOL_NAMES.PROGRESS) {
-        const result = await mindscapeClient.reportProgress({
-          execution_id: String((inputs as any).execution_id),
-          lease_id: String((inputs as any).lease_id),
-          progress_pct: (inputs as any).progress_pct != null ? Number((inputs as any).progress_pct) : undefined,
-          message: (inputs as any).message,
-          client_id: (inputs as any).client_id ? String((inputs as any).client_id) : undefined
-        });
-        return {
-          content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
-        };
-      } else if (name === TASK_DISPATCH_TOOL_NAMES.SUBMIT_RESULT) {
-        const result = await mindscapeClient.submitTaskResult({
-          execution_id: String((inputs as any).execution_id),
-          lease_id: (inputs as any).lease_id ? String((inputs as any).lease_id) : undefined,
-          status: String((inputs as any).status || "completed"),
-          output: String((inputs as any).output || ""),
-          error: (inputs as any).error,
-          client_id: String((inputs as any).client_id || ""),
-          duration_seconds: Number((inputs as any).duration_seconds) || 0,
-          tool_calls: (inputs as any).tool_calls || [],
-          files_modified: (inputs as any).files_modified || [],
-          files_created: (inputs as any).files_created || []
-        });
-        return {
-          content: [{ type: "text", text: JSON.stringify({ status: "completed", tool: name, result }, null, 2) }]
-        };
-      }
     }
 
     throw new Error(`Unknown tool: ${name}`);
