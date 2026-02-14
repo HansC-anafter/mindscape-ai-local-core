@@ -1,8 +1,9 @@
 /**
  * Task Dispatch MCP Tools
  *
- * Pull-based task runner tools for Antigravity Agent.
- * Agent calls next_task → ack → progress* → submit_result.
+ * Task execution tools for Antigravity Agent.
+ * Agent receives dispatched task → ack → progress* → submit_result.
+ * Polling is handled by daemon processes (ide_ws_client.py / worker.py).
  */
 
 // ============================================
@@ -10,51 +11,9 @@
 // ============================================
 export const taskDispatchTools = [
     {
-        name: "mindscape_task_next",
-        description: "[DEPRECATED — use daemon polling instead] " +
-            "Poll for the next pending task from Mindscape backend. " +
-            "Returns a task with lease_id (reserved with a short lease). " +
-            "If no tasks are available, blocks for up to wait_seconds then returns empty. " +
-            "After receiving a task, always call mindscape_task_ack to confirm pickup.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                workspace_id: {
-                    type: "string",
-                    description: "Workspace ID to poll tasks from"
-                },
-                client_id: {
-                    type: "string",
-                    description: "Unique client identifier for lease tracking (e.g. 'antigravity-mcp-runner')"
-                },
-                limit: {
-                    type: "number",
-                    description: "Maximum number of tasks to reserve (default: 1)",
-                    default: 1
-                },
-                lease_seconds: {
-                    type: "number",
-                    description: "Initial lease duration in seconds (default: 30). Must ack within this time.",
-                    default: 30
-                },
-                wait_seconds: {
-                    type: "number",
-                    description: "Long-poll wait time in seconds (default: 5, max: 5). Blocks until a task arrives or timeout.",
-                    default: 5
-                }
-            },
-            required: ["workspace_id", "client_id"]
-        },
-        _mindscape: {
-            layer: "primitive",
-            pack: "task_dispatch",
-            action: "next"
-        }
-    },
-    {
         name: "mindscape_task_ack",
         description: "Acknowledge task pickup and extend lease from 30s to 300s. " +
-            "Must be called after mindscape_task_next returns a task. " +
+            "Must be called after receiving a dispatched task. " +
             "Verifies lease_id to prevent duplicate execution. Idempotent.",
         inputSchema: {
             type: "object",
@@ -69,7 +28,7 @@ export const taskDispatchTools = [
                 },
                 client_id: {
                     type: "string",
-                    description: "Must match the client_id used in mindscape_task_next"
+                    description: "Client identifier for lease tracking"
                 }
             },
             required: ["execution_id", "lease_id", "client_id"]
@@ -165,7 +124,7 @@ export const taskDispatchTools = [
                 },
                 client_id: {
                     type: "string",
-                    description: "Must match the client_id used in mindscape_task_next"
+                    description: "Client identifier for ownership verification"
                 },
                 duration_seconds: {
                     type: "number",
@@ -194,26 +153,6 @@ export const taskDispatchTools = [
             pack: "task_dispatch",
             action: "submit_result"
         }
-    },
-    {
-        name: "mindscape_task_list_inflight",
-        description: "[DEPRECATED — crash recovery handled by daemon] " +
-            "List tasks currently reserved/inflight for this client.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                client_id: {
-                    type: "string",
-                    description: "Client ID to list inflight tasks for"
-                }
-            },
-            required: ["client_id"]
-        },
-        _mindscape: {
-            layer: "primitive",
-            pack: "task_dispatch",
-            action: "list_inflight"
-        }
     }
 ];
 
@@ -221,11 +160,9 @@ export const taskDispatchTools = [
 // Utility exports
 // ============================================
 export const TASK_DISPATCH_TOOL_NAMES = {
-    NEXT: "mindscape_task_next",
     ACK: "mindscape_task_ack",
     PROGRESS: "mindscape_task_progress",
     SUBMIT_RESULT: "mindscape_task_submit_result",
-    LIST_INFLIGHT: "mindscape_task_list_inflight"
 } as const;
 
 export function isTaskDispatchTool(name: string): boolean {
