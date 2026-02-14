@@ -152,11 +152,11 @@ class AntigravityAdapter(BaseAgentAdapter):
 
     async def is_available(self) -> bool:
         """
-        Check if Antigravity is reachable via the configured transport.
+        Check if Antigravity IDE agent is reachable.
 
-        - ws: Check if ws_manager has an active connection
-        - polling: Always available (tasks are queued)
-        - sampling: Check if mcp_server is injected
+        Available when:
+        1. An active WS connection from the IDE exists, OR
+        2. MCP REST polling endpoints are enabled (tasks queue for pull)
         """
         if self._available_cache is not None:
             return self._available_cache
@@ -164,36 +164,30 @@ class AntigravityAdapter(BaseAgentAdapter):
         # Lazy-resolve ws_manager from global singleton
         self._resolve_ws_manager()
 
-        if self.strategy == "ws":
-            available = self.ws_manager is not None and (
-                hasattr(self.ws_manager, "has_connections")
-                and self.ws_manager.has_connections()
-            )
-            # Auto-fallback to polling if WS has no connections
-            if not available and self.ws_manager is not None:
-                logger.info(
-                    "WS manager exists but no connections, "
-                    "falling back to polling strategy"
-                )
-                self.strategy = "polling"
-                available = True
-        elif self.strategy == "polling":
-            # Polling is always available — tasks go to the pending queue
-            available = True
-        elif self.strategy == "sampling":
-            available = self.sampling_gate is not None and self.mcp_server is not None
-        else:
-            logger.warning(f"Unknown strategy: {self.strategy}")
-            available = False
+        ws_connected = (
+            self.ws_manager is not None
+            and hasattr(self.ws_manager, "has_connections")
+            and self.ws_manager.has_connections()
+        )
+
+        # MCP REST polling is always enabled — tasks queue as PendingTask
+        # and are pulled via GET /api/v1/mcp/agent/pending
+        mcp_polling_enabled = True
+
+        available = ws_connected or mcp_polling_enabled
 
         self._available_cache = available
 
-        if available:
+        if ws_connected:
             self._version_cache = "ide-connected"
-            logger.info(f"Antigravity adapter available via '{self.strategy}' strategy")
+            logger.info("Antigravity IDE client connected via WebSocket")
+        elif mcp_polling_enabled:
+            self._version_cache = "mcp-polling"
+            logger.info("Antigravity available via MCP REST polling")
         else:
             logger.warning(
-                f"Antigravity adapter not available via '{self.strategy}' strategy"
+                "NO_CLIENT_CONNECTED: Antigravity IDE agent is not reachable. "
+                "No active WebSocket connection from IDE."
             )
 
         return available
@@ -222,52 +216,65 @@ class AntigravityAdapter(BaseAgentAdapter):
         """
         Execute a task by dispatching to the Antigravity IDE agent.
 
-        Routes to the appropriate transport strategy.
+        Transport priority:
+          1. WebSocket Push (if IDE client is connected)
+          2. REST Polling fallback (queue as PendingTask for MCP pull)
         """
         logger.info(
-            f"AntigravityAdapter.execute called for workspace={request.workspace_id} task={request.task[:50]}"
+            f"AntigravityAdapter.execute called for workspace={request.workspace_id} "
+            f"task={request.task[:50]}"
         )
         # Reset availability cache on each execution
         self._available_cache = None
 
         # Lazy-resolve ws_manager
         self._resolve_ws_manager()
-        logger.info(
-            f"AntigravityAdapter: ws_manager resolved? {self.ws_manager is not None}"
-        )
-        if self.ws_manager:
-            logger.info(
-                f"AntigravityAdapter: ws_manager has connections? {self.ws_manager.has_connections()}"
-            )
 
-        self.log_execution_start(request)
         execution_id = str(uuid.uuid4())
+        has_client = self.ws_manager is not None and self.ws_manager.has_connections()
 
-        try:
-            logger.info(f"AntigravityAdapter: strategy={self.strategy}")
-            if self.strategy == "ws":
+        if has_client:
+            # Primary path: dispatch via WebSocket
+            self.log_execution_start(request)
+            try:
                 response = await self._execute_via_ws(request, execution_id)
-            elif self.strategy == "polling":
-                response = await self._execute_via_polling(request, execution_id)
-            elif self.strategy == "sampling":
-                response = await self._execute_via_sampling(request, execution_id)
-            else:
+                if response.agent_metadata is None:
+                    response.agent_metadata = {}
+                response.agent_metadata["executor_location"] = "ide"
+            except Exception as e:
+                logger.exception("Antigravity WS execution failed with exception")
                 response = AgentResponse(
                     success=False,
                     output="",
                     duration_seconds=0,
-                    error=f"Unknown transport strategy: {self.strategy}",
+                    error=str(e),
+                    exit_code=-1,
+                    agent_metadata={"executor_location": "ide"},
                 )
-        except Exception as e:
-            logger.exception("Antigravity execution failed with exception")
-            response = AgentResponse(
-                success=False,
-                output="",
-                duration_seconds=0,
-                error=str(e),
-                exit_code=-1,
-            )
+            self.log_execution_end(response)
+            return response
 
+        # No WS client connected — fail fast.
+        # Polling tools (mindscape_task_next) have been removed;
+        # tasks can only be executed via WS push.
+        logger.warning(
+            "No IDE agent connected via WebSocket. "
+            "Task cannot be executed. Start the WS bridge: "
+            "scripts/start_ws_bridge.sh "
+            f"(execution_id={execution_id})"
+        )
+        response = AgentResponse(
+            success=False,
+            output="",
+            duration_seconds=0,
+            error=(
+                "No Antigravity IDE agent connected. "
+                "Start the WS bridge (scripts/start_ws_bridge.sh) "
+                "to enable task dispatch."
+            ),
+            exit_code=-1,
+            agent_metadata={"executor_location": "none"},
+        )
         self.log_execution_end(response)
         return response
 
@@ -354,27 +361,36 @@ class AntigravityAdapter(BaseAgentAdapter):
         execution_id: str,
     ) -> AgentResponse:
         """
-        Queue task for REST Polling pickup by IDE.
+        Queue task for REST Polling pickup by MCP Gateway.
 
         Flow:
           1. Build dispatch payload
-          2. Store as 'pending' in dispatch_store
+          2. Enqueue as PendingTask via AgentDispatchManager
           3. Return immediately with status='running'
         """
         start_time = time.monotonic()
         payload = build_dispatch_payload(request, execution_id)
 
-        if self.dispatch_store:
-            await self.dispatch_store.create_pending_task(
+        if self.ws_manager is not None:
+            from app.routes.agent_websocket import PendingTask
+
+            pending = PendingTask(
                 execution_id=execution_id,
                 workspace_id=request.workspace_id or "",
                 payload=payload,
             )
+            self.ws_manager._enqueue_pending(pending)
+            logger.info(
+                f"Task {execution_id} enqueued as PendingTask for MCP polling "
+                f"(workspace={request.workspace_id})"
+            )
+        else:
+            logger.error(f"Cannot enqueue task {execution_id}: ws_manager is None")
 
         # Polling is async by nature — return immediately with running status
         return AgentResponse(
             success=True,  # Task queued successfully
-            output="Task queued for IDE pickup via polling.",
+            output="Task queued for IDE pickup via MCP polling.",
             duration_seconds=time.monotonic() - start_time,
             exit_code=0,
             agent_metadata={
