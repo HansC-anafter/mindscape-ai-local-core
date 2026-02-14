@@ -223,11 +223,15 @@ class AntigravityWSClient:
         Handle a dispatched task.
 
         1. Send ack
-        2. Execute task via task_handler
-        3. Send result
+        2. Fire-and-forget: trigger IDE agent via `antigravity chat`
+        3. Send immediate 'dispatched_to_ide' result
+           (actual result comes later via MCP submit_result)
         """
         execution_id = msg.get("execution_id", "")
         task = msg.get("task", "")
+        workspace_id = msg.get("workspace_id", "")
+        context = msg.get("context", {})
+        lease_id = msg.get("lease_id", "")
 
         logger.info(f"Task received: exec={execution_id}, task={task[:80]}...")
 
@@ -239,52 +243,81 @@ class AntigravityWSClient:
             }
         )
 
-        # 2. Execute
-        start_time = time.monotonic()
+        # 2. Fire-and-forget: trigger IDE agent
+        #    antigravity chat is non-blocking (opens IDE chat panel and exits).
+        #    The agent will use MCP tools (ack/progress/submit_result) to handle
+        #    the task autonomously. We do NOT wait for the result here.
         try:
-            result = await self.task_handler(msg)
-            duration = time.monotonic() - start_time
-
-            # 3. Send result
-            await self._send(
-                {
-                    "type": "result",
-                    "execution_id": execution_id,
-                    "status": result.get("status", "completed"),
-                    "output": result.get("output", ""),
-                    "duration_seconds": duration,
-                    "tool_calls": result.get("tool_calls", []),
-                    "files_modified": result.get("files_modified", []),
-                    "files_created": result.get("files_created", []),
-                    "error": result.get("error"),
-                    "governance": {
-                        "output_hash": hashlib.sha256(
-                            result.get("output", "").encode()
-                        ).hexdigest(),
-                        "summary": result.get("output", "")[:200],
-                    },
-                }
+            await self._trigger_ide_agent(
+                execution_id=execution_id,
+                workspace_id=workspace_id,
+                task=task,
+                lease_id=lease_id,
+                context=context,
             )
-
-            logger.info(
-                f"Task completed: exec={execution_id}, "
-                f"duration={duration:.1f}s, "
-                f"status={result.get('status', 'completed')}"
-            )
-
         except Exception as e:
-            duration = time.monotonic() - start_time
-            logger.error(f"Task failed: {e}")
-            await self._send(
-                {
-                    "type": "result",
-                    "execution_id": execution_id,
-                    "status": "failed",
-                    "output": "",
-                    "duration_seconds": duration,
-                    "error": str(e),
-                }
-            )
+            logger.error(f"Failed to trigger IDE agent: {e}")
+
+        # 3. Send immediate result so adapter does not time out.
+        #    The real result will arrive via MCP submit_result from the agent.
+        await self._send(
+            {
+                "type": "result",
+                "execution_id": execution_id,
+                "status": "dispatched_to_ide",
+                "output": (
+                    f"Task dispatched to IDE agent. " f"execution_id={execution_id}"
+                ),
+                "duration_seconds": 0,
+                "governance": {
+                    "output_hash": "",
+                    "summary": "Dispatched to IDE agent for execution",
+                },
+            }
+        )
+
+        logger.info(f"Task dispatched to IDE agent: exec={execution_id}")
+
+    async def _trigger_ide_agent(
+        self,
+        execution_id: str,
+        workspace_id: str,
+        task: str,
+        lease_id: str,
+        context: Dict[str, Any],
+    ) -> None:
+        """
+        Fire-and-forget trigger of the IDE agent via `antigravity chat`.
+
+        The CLI opens the IDE chat panel with the prompt and exits immediately.
+        The agent then executes the task using MCP tools autonomously.
+        """
+        cli_path = os.environ.get(
+            "ANTIGRAVITY_CLI_PATH",
+            os.path.expanduser("~/.antigravity/antigravity/bin/antigravity"),
+        )
+
+        # Build prompt with all context the agent needs
+        prompt = (
+            f"You have a Mindscape task to execute. Use the mindscape-task-runner skill.\n\n"
+            f"Task: {task}\n\n"
+            f"execution_id: {execution_id}\n"
+            f"workspace_id: {workspace_id}\n"
+            f"lease_id: {lease_id}\n"
+        )
+
+        cmd = [cli_path, "chat", "-m", "agent", prompt]
+
+        logger.info(f"Triggering IDE agent: {cli_path} chat -m agent '...'")
+
+        # Fire-and-forget: start subprocess but do NOT wait
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            cwd=self.workspace_root if hasattr(self, "workspace_root") else os.getcwd(),
+        )
+        logger.info(f"IDE agent triggered (pid={proc.pid}), " f"exec={execution_id}")
 
     # ============================================================
     #  Send helpers
