@@ -11,7 +11,7 @@
 export const taskDispatchTools = [
     {
         name: "mindscape_task_next",
-        description: "[DEPRECATED — use daemon polling instead] " +
+        description:
             "Poll for the next pending task from Mindscape backend. " +
             "Returns a task with lease_id (reserved with a short lease). " +
             "If no tasks are available, blocks for up to wait_seconds then returns empty. " +
@@ -197,8 +197,7 @@ export const taskDispatchTools = [
     },
     {
         name: "mindscape_task_list_inflight",
-        description: "[DEPRECATED — crash recovery handled by daemon] " +
-            "List tasks currently reserved/inflight for this client.",
+        description: "List tasks currently reserved/inflight for this client.",
         inputSchema: {
             type: "object",
             properties: {
