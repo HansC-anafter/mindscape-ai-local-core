@@ -462,12 +462,76 @@ class RuntimeAssetsInstaller:
                 with open(migrations_yaml, "r") as f:
                     migration_data = yaml.safe_load(f)
                 revisions = migration_data.get("revisions", [])
-            else:
-                # No migrations.yaml - skip migration execution for this capability
-                # Only capabilities with explicit migrations.yaml should have migrations executed
-                logger.info(
-                    f"No migrations.yaml found for {capability_code}, skipping migration execution"
+
+                # Drift detection: compare declared revisions against actual
+                # migration files to catch undeclared migrations that would
+                # silently fail to execute.
+                migration_paths = migration_data.get(
+                    "migration_paths", ["migrations/versions/"]
                 )
+                actual_revisions = set()
+                for mpath in migration_paths:
+                    versions_dir = capability_dir / mpath
+                    if versions_dir.exists():
+                        for mf in versions_dir.glob("*.py"):
+                            if mf.name.startswith("__"):
+                                continue
+                            # Extract revision from filename
+                            # (format: {revision}_{description}.py)
+                            rev_part = mf.stem.split("_")[0]
+                            if rev_part and rev_part.isdigit():
+                                actual_revisions.add(rev_part)
+
+                declared_set = set(str(r) for r in revisions)
+                undeclared = actual_revisions - declared_set
+                if undeclared:
+                    drift_msg = (
+                        f"Migration drift detected for {capability_code}: "
+                        f"files exist for revisions {sorted(undeclared)} "
+                        f"but they are NOT declared in migrations.yaml. "
+                        f"These migrations will NOT be executed until added "
+                        f"to the revisions list."
+                    )
+                    logger.warning(drift_msg)
+                    result.add_warning(drift_msg)
+            else:
+                # No migrations.yaml - attempt fallback: run alembic upgrade heads
+                # This ensures newly copied migration files get executed even without
+                # explicit revision declarations
+                logger.warning(
+                    f"No migrations.yaml found for {capability_code}, "
+                    f"attempting fallback: alembic upgrade heads"
+                )
+                try:
+                    from app.services.migrations.orchestrator import (
+                        MigrationOrchestrator,
+                    )
+
+                    alembic_configs = {"postgres": alembic_config}
+                    capabilities_root = (
+                        self.local_core_root / "backend" / "app" / "capabilities"
+                    )
+                    orchestrator = MigrationOrchestrator(
+                        capabilities_root, alembic_configs
+                    )
+                    fallback_result = orchestrator.apply("postgres", dry_run=False)
+                    applied = fallback_result.get("migrations_applied", 0)
+                    logger.info(
+                        f"Fallback migration completed for {capability_code}: "
+                        f"status={fallback_result.get('status')}, applied={applied}"
+                    )
+                    if result.migration_status is None:
+                        result.migration_status = {}
+                    result.migration_status[capability_code] = "applied_fallback"
+                except Exception as e:
+                    logger.error(
+                        f"Fallback migration failed for {capability_code}: {e}",
+                        exc_info=True,
+                    )
+                    result.add_warning(f"Migration fallback failed: {e}")
+                    if result.migration_status is None:
+                        result.migration_status = {}
+                    result.migration_status[capability_code] = "error"
                 return
 
             if not revisions:
