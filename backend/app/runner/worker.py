@@ -875,14 +875,9 @@ async def run_forever() -> None:
         except Exception:
             pass
 
-        # Runner liveness heartbeat: renew a lock so the backend knows we're alive.
+        # Runner liveness heartbeat via shared PostgreSQL.
         try:
-            locks_store.try_acquire(
-                lock_key="runner_alive", owner_id=runner_id, ttl_seconds=120
-            )
-            locks_store.renew(
-                lock_key="runner_alive", owner_id=runner_id, ttl_seconds=120
-            )
+            tasks_store.upsert_runner_heartbeat(runner_id)
         except Exception:
             pass
 
