@@ -120,25 +120,35 @@ class PlanExecutor:
 
         # Use get_resolved_mode() to respect runtime_profile.default_mode priority
         from backend.app.utils.runtime_profile import get_resolved_mode
-        from backend.app.services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
+        from backend.app.services.stores.workspace_runtime_profile_store import (
+            WorkspaceRuntimeProfileStore,
+        )
 
         # Load runtime profile if available
         runtime_profile = None
         if workspace:
             try:
                 # Get db_path from tasks_store (which has db_path attribute)
-                db_path = getattr(self.tasks_store, 'db_path', None)
+                db_path = getattr(self.tasks_store, "db_path", None)
                 if db_path:
                     profile_store = WorkspaceRuntimeProfileStore(db_path=db_path)
-                    runtime_profile = profile_store.get_runtime_profile(workspace.id)
+                    runtime_profile = await profile_store.get_runtime_profile(
+                        workspace.id
+                    )
                     # Ensure Phase 2 fields are initialized
                     if runtime_profile:
                         runtime_profile.ensure_phase2_fields()
             except Exception as e:
                 logger.debug(f"Failed to load runtime profile: {e}")
 
-        resolved_mode_enum = get_resolved_mode(workspace, runtime_profile) if workspace else None
-        execution_mode = resolved_mode_enum.value if resolved_mode_enum else (getattr(workspace, "execution_mode", None) or "qa")
+        resolved_mode_enum = (
+            get_resolved_mode(workspace, runtime_profile) if workspace else None
+        )
+        execution_mode = (
+            resolved_mode_enum.value
+            if resolved_mode_enum
+            else (getattr(workspace, "execution_mode", None) or "qa")
+        )
         execution_priority = getattr(workspace, "execution_priority", None) or "medium"
 
         # Initialize StopConditions tracking (Phase 2)
@@ -155,22 +165,34 @@ class PlanExecutor:
         try:
             if runtime_profile and runtime_profile.topology_routing:
                 try:
-                    from backend.app.services.orchestration.multi_agent_orchestrator import MultiAgentOrchestrator
-                    from backend.app.services.orchestration.topology_validator import TopologyValidator, TopologyValidationError
+                    from backend.app.services.orchestration.multi_agent_orchestrator import (
+                        MultiAgentOrchestrator,
+                    )
+                    from backend.app.services.orchestration.topology_validator import (
+                        TopologyValidator,
+                        TopologyValidationError,
+                    )
 
                     # Collect agent_roster from all playbooks in execution plan
                     agent_roster = {}
                     for task_plan in execution_plan.tasks:
                         try:
                             resolved_playbook = await self.playbook_resolver.resolve(
-                                pack_id=task_plan.pack_id,
-                                ctx=ctx
+                                pack_id=task_plan.pack_id, ctx=ctx
                             )
-                            if resolved_playbook and resolved_playbook.playbook and resolved_playbook.playbook.agent_roster:
+                            if (
+                                resolved_playbook
+                                and resolved_playbook.playbook
+                                and resolved_playbook.playbook.agent_roster
+                            ):
                                 # Merge agent rosters (later playbooks override earlier ones if agent_id conflicts)
-                                agent_roster.update(resolved_playbook.playbook.agent_roster)
+                                agent_roster.update(
+                                    resolved_playbook.playbook.agent_roster
+                                )
                         except Exception as e:
-                            logger.debug(f"Failed to load agent_roster from playbook {task_plan.pack_id}: {e}")
+                            logger.debug(
+                                f"Failed to load agent_roster from playbook {task_plan.pack_id}: {e}"
+                            )
 
                     # Validate topology - fail-fast if topology is configured but roster is missing
                     validator = TopologyValidator()
@@ -182,8 +204,12 @@ class PlanExecutor:
                         )
 
                     try:
-                        validator.validate(runtime_profile.topology_routing, agent_roster)
-                        logger.info(f"Topology validated successfully: {len(agent_roster)} agents in roster")
+                        validator.validate(
+                            runtime_profile.topology_routing, agent_roster
+                        )
+                        logger.info(
+                            f"Topology validated successfully: {len(agent_roster)} agents in roster"
+                        )
                     except TopologyValidationError as e:
                         logger.error(f"Topology validation failed: {e}")
                         # Fail-fast: raise error if topology is invalid
@@ -191,37 +217,54 @@ class PlanExecutor:
 
                     # Get event store for event recording
                     from backend.app.services.stores.events_store import EventsStore
-                    db_path = getattr(self.tasks_store, 'db_path', None)
+
+                    db_path = getattr(self.tasks_store, "db_path", None)
                     event_store = EventsStore(db_path=db_path) if db_path else None
 
                     # Initialize MultiAgentOrchestrator (execution_id will be set later when available)
                     multi_agent_orchestrator = MultiAgentOrchestrator(
                         agent_roster=agent_roster,
                         topology=runtime_profile.topology_routing,
-                        loop_budget=runtime_profile.loop_budget if runtime_profile else None,
+                        loop_budget=(
+                            runtime_profile.loop_budget if runtime_profile else None
+                        ),
                         stop_conditions=stop_conditions,
                         workspace_id=workspace.id if workspace else None,
-                        profile_id=getattr(runtime_profile, 'profile_id', None),
-                        event_store=event_store
+                        profile_id=getattr(runtime_profile, "profile_id", None),
+                        event_store=event_store,
                     )
-                    logger.info(f"MultiAgentOrchestrator initialized with {len(agent_roster)} agents")
+                    logger.info(
+                        f"MultiAgentOrchestrator initialized with {len(agent_roster)} agents"
+                    )
 
                     # Phase 2: Register orchestrator in global registry for tool_executor access
-                    from backend.app.services.orchestration.orchestrator_registry import get_orchestrator_registry
+                    from backend.app.services.orchestration.orchestrator_registry import (
+                        get_orchestrator_registry,
+                    )
+
                     orchestrator_registry = get_orchestrator_registry()
                     # Use message_id as execution_id for registration (will be updated when we get actual execution_id)
                     orchestrator_registry.register(message_id, multi_agent_orchestrator)
 
                     # Phase 2: Initialize agent flow - get initial agent(s)
-                    initial_agents = multi_agent_orchestrator.get_next_agents(current_agent_id=None)
+                    initial_agents = multi_agent_orchestrator.get_next_agents(
+                        current_agent_id=None
+                    )
                     if initial_agents:
                         # Set first agent as current
                         multi_agent_orchestrator.set_current_agent(initial_agents[0])
-                        logger.info(f"MultiAgentOrchestrator: Starting with agent '{initial_agents[0]}'")
+                        logger.info(
+                            f"MultiAgentOrchestrator: Starting with agent '{initial_agents[0]}'"
+                        )
                     else:
-                        logger.warning("MultiAgentOrchestrator: No initial agents found")
+                        logger.warning(
+                            "MultiAgentOrchestrator: No initial agents found"
+                        )
                 except Exception as e:
-                    logger.warning(f"Failed to initialize MultiAgentOrchestrator: {e}", exc_info=True)
+                    logger.warning(
+                        f"Failed to initialize MultiAgentOrchestrator: {e}",
+                        exc_info=True,
+                    )
                     # Don't fail execution if orchestration setup fails, but log warning
 
             from backend.app.shared.execution_thresholds import (
@@ -239,14 +282,18 @@ class PlanExecutor:
                 # Phase 2: Multi-Agent Orchestration - determine which agent should handle this task
                 if multi_agent_orchestrator:
                     # Check if we should transition to next agent based on topology
-                    next_agents = multi_agent_orchestrator.get_next_agents(current_agent_id=current_agent_id)
+                    next_agents = multi_agent_orchestrator.get_next_agents(
+                        current_agent_id=current_agent_id
+                    )
 
                     if next_agents and current_agent_id != next_agents[0]:
                         # Transition to next agent
                         new_agent_id = next_agents[0]
                         multi_agent_orchestrator.set_current_agent(new_agent_id)
                         current_agent_id = new_agent_id
-                        logger.info(f"MultiAgentOrchestrator: Transitioned to agent '{current_agent_id}'")
+                        logger.info(
+                            f"MultiAgentOrchestrator: Transitioned to agent '{current_agent_id}'"
+                        )
 
                         # Record turn when switching agents (conversation turn)
                         multi_agent_orchestrator.record_turn()
@@ -254,13 +301,21 @@ class PlanExecutor:
                         # First task - set initial agent
                         current_agent_id = next_agents[0]
                         multi_agent_orchestrator.set_current_agent(current_agent_id)
-                        logger.info(f"MultiAgentOrchestrator: Starting with agent '{current_agent_id}'")
+                        logger.info(
+                            f"MultiAgentOrchestrator: Starting with agent '{current_agent_id}'"
+                        )
 
                     # Record iteration at start of each task (if this is a new iteration)
                     # For sequential pattern, each task is a step; for loop pattern, we track iterations separately
                     if multi_agent_orchestrator.topology.default_pattern == "loop":
                         # In loop pattern, record iteration when starting a new cycle
-                        if task_index == 1 or (task_index > 1 and current_agent_id == multi_agent_orchestrator.state.visited_agents[0] if multi_agent_orchestrator.state.visited_agents else False):
+                        if task_index == 1 or (
+                            task_index > 1
+                            and current_agent_id
+                            == multi_agent_orchestrator.state.visited_agents[0]
+                            if multi_agent_orchestrator.state.visited_agents
+                            else False
+                        ):
                             multi_agent_orchestrator.record_iteration()
 
                     # Check MultiAgentOrchestrator stop conditions before processing task
@@ -311,7 +366,10 @@ class PlanExecutor:
                     f"current_agent={current_agent_id if multi_agent_orchestrator else None}"
                 )
 
-                if should_auto_execute and side_effect_level == SideEffectLevel.READONLY:
+                if (
+                    should_auto_execute
+                    and side_effect_level == SideEffectLevel.READONLY
+                ):
                     # Phase 2: Record step in MultiAgentOrchestrator
                     if multi_agent_orchestrator:
                         multi_agent_orchestrator.record_step()
@@ -334,7 +392,9 @@ class PlanExecutor:
                             f"PlanExecutor: READONLY task {task_plan.pack_id} completed"
                         )
                     else:
-                        error_count += 1  # Track error count for StopConditions (Phase 2)
+                        error_count += (
+                            1  # Track error count for StopConditions (Phase 2)
+                        )
                         # Phase 2: Record error in MultiAgentOrchestrator
                         if multi_agent_orchestrator:
                             multi_agent_orchestrator.record_error()
@@ -342,10 +402,14 @@ class PlanExecutor:
                         # Apply RecoveryPolicy if available (Phase 2)
                         if runtime_profile and runtime_profile.recovery_policy:
                             try:
-                                from backend.app.services.conversation.recovery_handler import RecoveryHandler
+                                from backend.app.services.conversation.recovery_handler import (
+                                    RecoveryHandler,
+                                )
                                 import asyncio
 
-                                recovery_handler = RecoveryHandler(runtime_profile.recovery_policy)
+                                recovery_handler = RecoveryHandler(
+                                    runtime_profile.recovery_policy
+                                )
 
                                 # Create a retry function (if needed)
                                 async def retry_readonly_task():
@@ -366,10 +430,13 @@ class PlanExecutor:
                                     error=Exception("Readonly task execution failed"),
                                     operation=f"execute_readonly_task({task_plan.pack_id})",
                                     retry_func=retry_readonly_task,
-                                    retry_count=retry_count
+                                    retry_count=retry_count,
                                 )
 
-                                if recovery_result["action"] == "retry" and recovery_result["retry_after"] is not None:
+                                if (
+                                    recovery_result["action"] == "retry"
+                                    and recovery_result["retry_after"] is not None
+                                ):
                                     # Wait before retry
                                     await asyncio.sleep(recovery_result["retry_after"])
                                     retry_count += 1
@@ -377,18 +444,25 @@ class PlanExecutor:
                                     retry_result = await retry_readonly_task()
                                     if retry_result:
                                         results["executed_tasks"].append(retry_result)
-                                        logger.info(f"RecoveryPolicy: Retry succeeded for {task_plan.pack_id}")
+                                        logger.info(
+                                            f"RecoveryPolicy: Retry succeeded for {task_plan.pack_id}"
+                                        )
                                         continue  # Skip to next task
 
                                 elif recovery_result["action"] == "fallback":
                                     fallback_info = await recovery_handler.apply_fallback_mode(
                                         recovery_result["fallback_mode"],
-                                        f"execute_readonly_task({task_plan.pack_id})"
+                                        f"execute_readonly_task({task_plan.pack_id})",
                                     )
-                                    logger.info(f"RecoveryPolicy: Applied fallback mode: {fallback_info['mode']}")
+                                    logger.info(
+                                        f"RecoveryPolicy: Applied fallback mode: {fallback_info['mode']}"
+                                    )
                                     # Continue with fallback mode restrictions
                             except Exception as e:
-                                logger.warning(f"RecoveryPolicy handling failed: {e}", exc_info=True)
+                                logger.warning(
+                                    f"RecoveryPolicy handling failed: {e}",
+                                    exc_info=True,
+                                )
 
                         await self._handle_execution_failure(
                             task_plan=task_plan,
@@ -437,7 +511,9 @@ class PlanExecutor:
                                 f"PlanExecutor: Suggestion card created for {task_plan.pack_id}"
                             )
                         else:
-                            error_count += 1  # Track error count for StopConditions (Phase 2)
+                            error_count += (
+                                1  # Track error count for StopConditions (Phase 2)
+                            )
                             self.error_policy.warn_and_continue(
                                 f"Failed to create suggestion card for EXTERNAL_WRITE task {task_plan.pack_id}"
                             )
@@ -446,12 +522,16 @@ class PlanExecutor:
             # Check definition_of_done after execution (Phase 2 StopConditions)
             definition_of_done_passed = True
             if stop_conditions and stop_conditions.definition_of_done:
-                logger.info(f"StopConditions: Checking definition_of_done: {stop_conditions.definition_of_done}")
+                logger.info(
+                    f"StopConditions: Checking definition_of_done: {stop_conditions.definition_of_done}"
+                )
 
                 # Get changed files from execution results
                 changed_files = []
                 for executed_task in results.get("executed_tasks", []):
-                    if isinstance(executed_task, dict) and executed_task.get("changed_files"):
+                    if isinstance(executed_task, dict) and executed_task.get(
+                        "changed_files"
+                    ):
                         changed_files.extend(executed_task["changed_files"])
 
                 # Implement actual criteria checking
@@ -461,33 +541,47 @@ class PlanExecutor:
                     if criterion_lower == "lint passed":
                         # Check if lint passed (reuse QualityGateChecker logic)
                         if runtime_profile and runtime_profile.quality_gates:
-                            from backend.app.services.conversation.quality_gate_checker import QualityGateChecker
+                            from backend.app.services.conversation.quality_gate_checker import (
+                                QualityGateChecker,
+                            )
+
                             quality_checker = QualityGateChecker(
                                 workspace_id=workspace.id if workspace else None,
-                                project_path=None
+                                project_path=None,
                             )
                             lint_result = quality_checker._check_lint(changed_files)
                             if not lint_result.get("passed", False):
-                                logger.warning(f"DefinitionOfDone: 'lint passed' failed: {lint_result.get('errors', [])}")
+                                logger.warning(
+                                    f"DefinitionOfDone: 'lint passed' failed: {lint_result.get('errors', [])}"
+                                )
                                 definition_of_done_passed = False
                         else:
-                            logger.warning("DefinitionOfDone: 'lint passed' required but quality_gates not configured")
+                            logger.warning(
+                                "DefinitionOfDone: 'lint passed' required but quality_gates not configured"
+                            )
                             definition_of_done_passed = False
 
                     elif criterion_lower == "tests passed":
                         # Check if tests passed
                         if runtime_profile and runtime_profile.quality_gates:
-                            from backend.app.services.conversation.quality_gate_checker import QualityGateChecker
+                            from backend.app.services.conversation.quality_gate_checker import (
+                                QualityGateChecker,
+                            )
+
                             quality_checker = QualityGateChecker(
                                 workspace_id=workspace.id if workspace else None,
-                                project_path=None
+                                project_path=None,
                             )
                             test_result = quality_checker._check_tests()
                             if not test_result.get("passed", False):
-                                logger.warning(f"DefinitionOfDone: 'tests passed' failed: {test_result.get('errors', [])}")
+                                logger.warning(
+                                    f"DefinitionOfDone: 'tests passed' failed: {test_result.get('errors', [])}"
+                                )
                                 definition_of_done_passed = False
                         else:
-                            logger.warning("DefinitionOfDone: 'tests passed' required but quality_gates not configured")
+                            logger.warning(
+                                "DefinitionOfDone: 'tests passed' required but quality_gates not configured"
+                            )
                             definition_of_done_passed = False
 
                     elif criterion_lower == "docs updated":
@@ -497,19 +591,25 @@ class PlanExecutor:
                         has_doc_changes = False
                         if changed_files:
                             has_doc_changes = any(
-                                any(ext in f for ext in doc_extensions) or
-                                any(doc_dir in f for doc_dir in doc_dirs)
+                                any(ext in f for ext in doc_extensions)
+                                or any(doc_dir in f for doc_dir in doc_dirs)
                                 for f in changed_files
                             )
                         if not has_doc_changes:
-                            logger.warning("DefinitionOfDone: 'docs updated' failed: No documentation files were modified")
+                            logger.warning(
+                                "DefinitionOfDone: 'docs updated' failed: No documentation files were modified"
+                            )
                             definition_of_done_passed = False
 
                     else:
-                        logger.warning(f"DefinitionOfDone: Unknown criterion '{criterion}', treating as passed")
+                        logger.warning(
+                            f"DefinitionOfDone: Unknown criterion '{criterion}', treating as passed"
+                        )
 
             if not definition_of_done_passed:
-                logger.error("DefinitionOfDone: Not all criteria passed. Execution marked as incomplete.")
+                logger.error(
+                    "DefinitionOfDone: Not all criteria passed. Execution marked as incomplete."
+                )
                 # Fail-close: raise exception to block completion
                 raise ValueError(
                     f"DefinitionOfDone not met. Failed criteria: {stop_conditions.definition_of_done}. "
@@ -521,17 +621,22 @@ class PlanExecutor:
             # Check QualityGates after execution (Phase 2)
             if runtime_profile and runtime_profile.quality_gates:
                 try:
-                    from backend.app.services.conversation.quality_gate_checker import QualityGateChecker
+                    from backend.app.services.conversation.quality_gate_checker import (
+                        QualityGateChecker,
+                    )
 
                     # Get changed files from execution results (if available)
                     changed_files = []
                     for executed_task in results.get("executed_tasks", []):
-                        if isinstance(executed_task, dict) and executed_task.get("changed_files"):
+                        if isinstance(executed_task, dict) and executed_task.get(
+                            "changed_files"
+                        ):
                             changed_files.extend(executed_task["changed_files"])
 
                     # Get event store for event recording
                     from backend.app.services.stores.events_store import EventsStore
-                    db_path = getattr(self.tasks_store, 'db_path', None)
+
+                    db_path = getattr(self.tasks_store, "db_path", None)
                     event_store = EventsStore(db_path=db_path) if db_path else None
 
                     # Use primary execution_id (from first task launch) for event association
@@ -548,15 +653,21 @@ class PlanExecutor:
                         workspace_id=workspace.id if workspace else None,
                         project_path=None,  # Will use current working directory
                         execution_id=execution_id_for_quality,
-                        profile_id=getattr(runtime_profile, 'profile_id', None) if runtime_profile else None,
-                        event_store=event_store
+                        profile_id=(
+                            getattr(runtime_profile, "profile_id", None)
+                            if runtime_profile
+                            else None
+                        ),
+                        event_store=event_store,
                     )
 
                     # Check quality gates
                     quality_result = quality_checker.check_quality_gates(
                         quality_gates=runtime_profile.quality_gates,
-                        execution_result={"executed_tasks": results.get("executed_tasks", [])},
-                        changed_files=changed_files if changed_files else None
+                        execution_result={
+                            "executed_tasks": results.get("executed_tasks", [])
+                        },
+                        changed_files=changed_files if changed_files else None,
                     )
 
                     if not quality_result.passed:
@@ -588,19 +699,27 @@ class PlanExecutor:
             # This finally block ensures orchestrator is cleaned up whether execution succeeds or fails
             if multi_agent_orchestrator:
                 try:
-                    from backend.app.services.orchestration.orchestrator_registry import get_orchestrator_registry
+                    from backend.app.services.orchestration.orchestrator_registry import (
+                        get_orchestrator_registry,
+                    )
+
                     orchestrator_registry = get_orchestrator_registry()
 
                     # Use unregister_by_orchestrator to clean up all keys for this orchestrator instance
                     # This is safer than unregistering individual keys, as it handles duplicate registrations
                     # and ensures all keys (execution_id, message_id, trace_id) are cleaned up
-                    orchestrator_registry.unregister_by_orchestrator(multi_agent_orchestrator)
+                    orchestrator_registry.unregister_by_orchestrator(
+                        multi_agent_orchestrator
+                    )
                     logger.debug(
                         f"OrchestratorRegistry: Cleaned up orchestrator registrations "
                         f"(was registered with {len(registered_execution_ids)} keys: {registered_execution_ids})"
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to cleanup orchestrator registrations: {e}", exc_info=True)
+                    logger.warning(
+                        f"Failed to cleanup orchestrator registrations: {e}",
+                        exc_info=True,
+                    )
 
         return results
 
@@ -637,7 +756,9 @@ class PlanExecutor:
             execution_mode in ("execution", "hybrid")
             and side_effect_level == SideEffectLevel.READONLY
         ):
-            from backend.app.shared.execution_thresholds import should_auto_execute_readonly
+            from backend.app.shared.execution_thresholds import (
+                should_auto_execute_readonly,
+            )
 
             should_auto_execute = should_auto_execute_readonly(
                 execution_priority, llm_confidence
@@ -682,8 +803,12 @@ class PlanExecutor:
         project_id: Optional[str],
         event_emitter: TaskEventsEmitter,
         execution_plan: Optional[ExecutionPlan] = None,
-        multi_agent_orchestrator: Optional[Any] = None,  # Phase 2: MultiAgentOrchestrator for tracking
-        registered_execution_ids: Optional[List[str]] = None,  # Phase 2: Track registered execution IDs
+        multi_agent_orchestrator: Optional[
+            Any
+        ] = None,  # Phase 2: MultiAgentOrchestrator for tracking
+        registered_execution_ids: Optional[
+            List[str]
+        ] = None,  # Phase 2: Track registered execution IDs
     ) -> Optional[Dict[str, Any]]:
         """
         Execute readonly task using coordination modules
@@ -731,8 +856,15 @@ class PlanExecutor:
                 plan_context = PlanContext(
                     plan_summary=execution_plan.plan_summary or "",
                     reasoning=execution_plan.reasoning or "",
-                    steps=[step.dict() if hasattr(step, 'dict') else step for step in execution_plan.steps],
-                    dependencies=task_plan.params.get("depends_on", []) if task_plan.params else [],
+                    steps=[
+                        step.dict() if hasattr(step, "dict") else step
+                        for step in execution_plan.steps
+                    ],
+                    dependencies=(
+                        task_plan.params.get("depends_on", [])
+                        if task_plan.params
+                        else []
+                    ),
                 )
 
                 try:
@@ -767,34 +899,51 @@ class PlanExecutor:
                     # Update orchestrator with execution_id for event recording
                     multi_agent_orchestrator.execution_id = execution_id
 
-                    from backend.app.services.orchestration.orchestrator_registry import get_orchestrator_registry
+                    from backend.app.services.orchestration.orchestrator_registry import (
+                        get_orchestrator_registry,
+                    )
+
                     orchestrator_registry = get_orchestrator_registry()
 
                     # Register with actual execution_id (primary key)
                     # Only register if not already registered with this key (avoid duplicate registration)
                     if execution_id not in registered_execution_ids:
-                        orchestrator_registry.register(execution_id, multi_agent_orchestrator)
+                        orchestrator_registry.register(
+                            execution_id, multi_agent_orchestrator
+                        )
                         registered_execution_ids.append(execution_id)
                         logger.info(
                             f"OrchestratorRegistry: Registered orchestrator for execution_id={execution_id} "
                             f"(tool_executor will use this key for tool_call counting)"
                         )
                     else:
-                        logger.debug(f"OrchestratorRegistry: execution_id={execution_id} already registered, skipping duplicate")
+                        logger.debug(
+                            f"OrchestratorRegistry: execution_id={execution_id} already registered, skipping duplicate"
+                        )
 
                     # Also register with message_id as fallback (if not already registered)
                     # This ensures backward compatibility if some code paths use message_id
                     if message_id and message_id not in registered_execution_ids:
-                        orchestrator_registry.register(message_id, multi_agent_orchestrator)
+                        orchestrator_registry.register(
+                            message_id, multi_agent_orchestrator
+                        )
                         registered_execution_ids.append(message_id)
-                        logger.debug(f"OrchestratorRegistry: Also registered with message_id={message_id} as fallback")
+                        logger.debug(
+                            f"OrchestratorRegistry: Also registered with message_id={message_id} as fallback"
+                        )
 
                     # Register trace_id if available (for tool_executor fallback)
-                    trace_id = message_id  # Use message_id as trace_id (as per launch call)
+                    trace_id = (
+                        message_id  # Use message_id as trace_id (as per launch call)
+                    )
                     if trace_id and trace_id not in registered_execution_ids:
-                        orchestrator_registry.register(trace_id, multi_agent_orchestrator)
+                        orchestrator_registry.register(
+                            trace_id, multi_agent_orchestrator
+                        )
                         registered_execution_ids.append(trace_id)
-                        logger.debug(f"OrchestratorRegistry: Also registered with trace_id={trace_id} as fallback")
+                        logger.debug(
+                            f"OrchestratorRegistry: Also registered with trace_id={trace_id} as fallback"
+                        )
 
                 if execution_id:
                     task = self.tasks_store.get_task_by_execution_id(execution_id)
@@ -803,9 +952,11 @@ class PlanExecutor:
                             task_id=task.id,
                             pack_id=pack_id,
                             playbook_code=resolved_playbook.code,
-                            status=task.status.value
-                            if hasattr(task.status, "value")
-                            else str(task.status),
+                            status=(
+                                task.status.value
+                                if hasattr(task.status, "value")
+                                else str(task.status)
+                            ),
                             task_type=task.task_type,
                             workspace_id=ctx.workspace_id,
                             execution_id=execution_id,

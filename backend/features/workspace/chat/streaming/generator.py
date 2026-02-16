@@ -235,10 +235,12 @@ async def generate_streaming_response(
         runtime_profile_store = WorkspaceRuntimeProfileStore(
             db_path=orchestrator.store.db_path
         )
-        runtime_profile = runtime_profile_store.get_runtime_profile(workspace_id)
+        runtime_profile = await runtime_profile_store.get_runtime_profile(workspace_id)
         if not runtime_profile:
             # Create default profile if not exists (ensure PolicyGuard always works)
-            runtime_profile = runtime_profile_store.create_default_profile(workspace_id)
+            runtime_profile = await runtime_profile_store.create_default_profile(
+                workspace_id
+            )
 
         # Use get_resolved_mode() to respect runtime_profile.default_mode priority
         resolved_mode_enum = get_resolved_mode(workspace, runtime_profile)

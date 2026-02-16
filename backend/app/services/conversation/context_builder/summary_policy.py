@@ -67,7 +67,9 @@ class SummaryPolicy:
                     profile_store = WorkspaceRuntimeProfileStore(
                         db_path=self.store.db_path
                     )
-                    runtime_profile = profile_store.get_runtime_profile(workspace_id)
+                    runtime_profile = await profile_store.get_runtime_profile(
+                        workspace_id
+                    )
 
                     if runtime_profile:
                         shared_state = getattr(
