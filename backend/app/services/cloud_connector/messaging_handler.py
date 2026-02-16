@@ -280,9 +280,7 @@ class MessagingHandler:
             loop = asyncio.get_running_loop()
             store = MindscapeStore()
 
-            workspace = await loop.run_in_executor(
-                None, lambda: store.get_workspace(workspace_id)
-            )
+            workspace = await store.get_workspace(workspace_id)
             if not workspace:
                 logger.error(f"[MessagingHandler] Workspace {workspace_id} not found")
                 await self._send_reply(
