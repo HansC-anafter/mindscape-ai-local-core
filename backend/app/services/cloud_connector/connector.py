@@ -90,42 +90,67 @@ class CloudConnector:
 
     async def get_device_token(self) -> str:
         """
-        Get device token from site-hub.
+        Get device token for WebSocket authentication.
+
+        Token resolution order:
+        1. SITE_HUB_USER_TOKEN / SITE_HUB_API_TOKEN environment variable
+        2. OAuth access_token from the 'site-hub' runtime in the database
+        3. Mock token (development fallback)
 
         Returns:
-            Device token
-
-        Raises:
-            Exception: If token retrieval fails
+            Access token for WebSocket authentication
         """
-        site_hub_url = os.getenv("SITE_HUB_URL", "https://site-hub.mindscape.ai")
+        # Priority 1: explicit env var
         user_token = os.getenv("SITE_HUB_USER_TOKEN") or os.getenv("SITE_HUB_API_TOKEN")
+
+        # Priority 2: OAuth token from site-hub runtime in DB
+        if not user_token:
+            user_token = self._get_runtime_oauth_token()
 
         if not user_token:
             logger.warning(
-                "SITE_HUB_USER_TOKEN not set, using mock token for development"
+                "No auth token available (env vars not set, runtime OAuth token "
+                "not found). Using mock token for development."
             )
             return "mock_device_token_for_development"
 
-        try:
-            import httpx
+        logger.info("Using OAuth token for CloudConnector WebSocket authentication")
+        return user_token
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{site_hub_url}/api/v1/device-tokens",
-                    json={
-                        "device_id": self.device_id,
-                        "tenant_id": self.tenant_id,
-                        "user_token": user_token,
-                    },
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data["token"]
+    def _get_runtime_oauth_token(self) -> str | None:
+        """
+        Read OAuth access_token from the site-hub runtime's auth_config in DB.
+
+        Returns:
+            Access token string, or None if unavailable.
+        """
+        try:
+            from app.database import get_db_postgres
+            from app.models.runtime_environment import RuntimeEnvironment
+            from app.services.runtime_auth_service import RuntimeAuthService
+
+            db = next(get_db_postgres())
+            runtime = (
+                db.query(RuntimeEnvironment)
+                .filter(RuntimeEnvironment.id == "site-hub")
+                .first()
+            )
+            if not runtime or not runtime.auth_config:
+                logger.debug("No site-hub runtime or auth_config found in DB")
+                return None
+
+            svc = RuntimeAuthService()
+            token_data = svc.decrypt_token_blob(runtime.auth_config)
+            access_token = token_data.get("access_token")
+            if access_token:
+                logger.debug("Retrieved OAuth token from site-hub runtime")
+                return access_token
+
+            logger.debug("site-hub runtime auth_config has no access_token")
+            return None
         except Exception as e:
-            logger.error(f"Failed to get device token: {e}")
-            raise
+            logger.warning(f"Failed to read runtime OAuth token: {e}")
+            return None
 
     async def connect(self) -> None:
         """
