@@ -192,24 +192,31 @@ class GeminiCLIAdapter(PollingAgentAdapter):
         return available
 
     def _has_active_polling_runners(self) -> bool:
-        """Check if any runner process has recent heartbeats in the DB.
+        """Check if the runner container is alive via its heartbeat lock.
 
-        The runner container talks directly to PostgreSQL via TasksStore,
-        bypassing the backend's in-memory AgentDispatchManager entirely.
-        So we check the DB for running tasks with recent heartbeats.
+        The runner container writes a 'runner_alive' lock every poll cycle
+        (even when idle) with a 120s TTL. We check for a non-expired lock.
         """
         try:
-            from backend.app.services.stores.tasks_store import TasksStore
+            from backend.app.services.stores.runner_locks_store import (
+                RunnerLocksStore,
+            )
             from backend.app.services.mindscape_store import MindscapeStore
 
             store = MindscapeStore()
+            locks_store = RunnerLocksStore(db_path=store.db_path)
+            owner = locks_store.get_owner("runner_alive")
+            if owner:
+                return True
+
+            # Fallback: check DB for running tasks
+            from backend.app.services.stores.tasks_store import TasksStore
+
             tasks_store = TasksStore(db_path=store.db_path)
             running = tasks_store.list_running_playbook_execution_tasks(
-                workspace_id=None, limit=5
+                workspace_id=None, limit=1
             )
-            if running:
-                return True
-            return False
+            return bool(running)
         except Exception as e:
             logger.debug(f"Failed to check for active polling runners: {e}")
             return False

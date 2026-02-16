@@ -321,8 +321,12 @@ def _recent_ig_risk_signal(
         return None
     return {
         "updated_at": updated_at,
-        "error_type": mapping.get("error_type") if isinstance(mapping, dict) else row[1],
-        "error_message": mapping.get("error_message") if isinstance(mapping, dict) else row[2],
+        "error_type": (
+            mapping.get("error_type") if isinstance(mapping, dict) else row[1]
+        ),
+        "error_message": (
+            mapping.get("error_message") if isinstance(mapping, dict) else row[2]
+        ),
         "stage": mapping.get("stage") if isinstance(mapping, dict) else row[3],
     }
 
@@ -868,6 +872,17 @@ async def run_forever() -> None:
                 _reap_stale_running_tasks(tasks_store, runner_id=runner_id)
                 _reap_stale_runner_locks(tasks_store, locks_store, runner_id=runner_id)
                 last_reap_at = now
+        except Exception:
+            pass
+
+        # Runner liveness heartbeat: renew a lock so the backend knows we're alive.
+        try:
+            locks_store.try_acquire(
+                lock_key="runner_alive", owner_id=runner_id, ttl_seconds=120
+            )
+            locks_store.renew(
+                lock_key="runner_alive", owner_id=runner_id, ttl_seconds=120
+            )
         except Exception:
             pass
 
