@@ -241,18 +241,28 @@ class MessagingHandler:
                     f"/api/v1/workspaces/{workspace_id}/chat",
                     json={
                         "message": message_text,
-                        "stream": True,
+                        "stream": False,
                         "mode": "auto",
                     },
-                    timeout=120.0,
+                    timeout=180.0,
                 )
 
-            if response.status_code in (200, 202):
+            if response.status_code == 200:
                 result_data = response.json()
+
+                # Extract LLM reply from display_events (last assistant message)
+                reply_text = ""
+                for evt in reversed(result_data.get("display_events", [])):
+                    if evt.get("actor") == "assistant" and evt.get("payload", {}).get(
+                        "message"
+                    ):
+                        reply_text = evt["payload"]["message"]
+                        break
+
                 logger.info(
-                    f"[MessagingHandler] Workspace chat accepted: "
+                    f"[MessagingHandler] Workspace chat completed: "
                     f"status={response.status_code}, "
-                    f"data={json.dumps(result_data, ensure_ascii=False)[:200]}"
+                    f"reply_text_length={len(reply_text)}"
                 )
                 await self._send_reply(
                     request_id,
@@ -261,6 +271,7 @@ class MessagingHandler:
                         "status": "completed",
                         "workspace_id": workspace_id,
                         "event_id": result_data.get("event_id", user_event_id),
+                        "reply_text": reply_text,
                     },
                 )
             else:
