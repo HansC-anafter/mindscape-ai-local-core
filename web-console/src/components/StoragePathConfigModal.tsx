@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { LocalFilesystemManagerContent } from '@/app/settings/components/wizards/LocalFilesystemManagerContent';
 import ResourceBindingPanel from '@/app/workspaces/[workspaceId]/components/ResourceBindingPanel';
 import DataSourceOverlayPanel from '@/app/workspaces/[workspaceId]/components/DataSourceOverlayPanel';
@@ -18,6 +19,12 @@ interface Workspace {
   execution_priority?: 'low' | 'medium' | 'high';
 }
 
+interface ToolConnectionStatus {
+  connected: boolean;
+  status: string;
+  connection_count?: number;
+}
+
 interface StoragePathConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -25,11 +32,12 @@ interface StoragePathConfigModalProps {
   workspaceId: string;
   apiUrl: string;
   onSuccess?: () => void;
+  toolConnections?: Record<string, ToolConnectionStatus>;
 }
 
 const COMMON_ARTIFACTS = ['docx', 'pptx', 'xlsx', 'pdf', 'md', 'html'];
 
-type TabType = 'storage' | 'results' | 'resources' | 'dataSources';
+type TabType = 'storage' | 'results' | 'resources' | 'dataSources' | 'tools';
 
 export default function StoragePathConfigModal({
   isOpen,
@@ -37,7 +45,8 @@ export default function StoragePathConfigModal({
   workspace,
   workspaceId,
   apiUrl,
-  onSuccess
+  onSuccess,
+  toolConnections
 }: StoragePathConfigModalProps) {
   const [workspaceData, setWorkspaceData] = useState<Workspace | null>(workspace);
   const [activeTab, setActiveTab] = useState<TabType>('storage');
@@ -159,170 +168,220 @@ export default function StoragePathConfigModal({
 
   const tabs: { id: TabType; label: string }[] = [
     { id: 'storage', label: t('configureWorkspaceStoragePath' as any) || '配置工作區儲存路徑' },
+    { id: 'tools', label: t('toolConnections' as any) || '工具連線' },
     { id: 'results', label: t('expectedArtifacts' as any) || '預期產出類型' },
     { id: 'resources', label: t('resourceBindings' as any) || '資源綁定' },
     { id: 'dataSources', label: t('dataSourceOverlaySettings' as any) || '資料來源覆寫' },
   ];
 
   return (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={onClose}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="workspace-settings-modal-title"
-        >
-          <div
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="workspace-settings-modal-title"
+    >
+      <div
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b dark:border-gray-700 flex-shrink-0">
+          <div>
+            <h2
+              id="workspace-settings-modal-title"
+              className="text-2xl font-semibold text-gray-900 dark:text-gray-100"
+            >
+              {t('fullSettings' as any) || '完整設置'}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {t('fullSettingsDescription' as any) || '管理資源綁定、工具覆寫和資料來源覆寫'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            aria-label={t('close' as any)}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b dark:border-gray-700 flex-shrink-0">
-              <div>
-                <h2
-                  id="workspace-settings-modal-title"
-                  className="text-2xl font-semibold text-gray-900 dark:text-gray-100"
-                >
-                  {t('fullSettings' as any) || '完整設置'}
-                </h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {t('fullSettingsDescription' as any) || '管理資源綁定、工具覆寫和資料來源覆寫'}
-                </p>
-              </div>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                aria-label={t('close' as any)}
-              >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
 
-            {/* Tabs */}
-            <div className="flex border-b dark:border-gray-700 flex-shrink-0">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`
+        {/* Tabs */}
+        <div className="flex border-b dark:border-gray-700 flex-shrink-0">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`
                     px-6 py-3 text-sm font-medium transition-colors
                     ${activeTab === tab.id
-                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                    }
+                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }
                   `}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content - Scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          {activeTab === 'storage' && workspaceData && (
+            <div className="p-6">
+              <LocalFilesystemManagerContent
+                onSuccess={handleStorageConfigSuccess}
+                workspaceMode={true}
+                workspaceId={workspaceId}
+                apiUrl={apiUrl}
+                workspaceTitle={workspaceData?.title}
+                initialStorageBasePath={workspaceData?.storage_base_path}
+                initialArtifactsDir={workspaceData?.artifacts_dir}
+                initialPlaybookStorageConfig={workspaceData?.playbook_storage_config}
+                showHeader={false}
+              />
             </div>
+          )}
 
-            {/* Content - Scrollable */}
-            <div className="flex-1 overflow-y-auto">
-              {activeTab === 'storage' && workspaceData && (
-                <div className="p-6">
-                  <LocalFilesystemManagerContent
-                    onSuccess={handleStorageConfigSuccess}
-                    workspaceMode={true}
-                    workspaceId={workspaceId}
-                    apiUrl={apiUrl}
-                    workspaceTitle={workspaceData?.title}
-                    initialStorageBasePath={workspaceData?.storage_base_path}
-                    initialArtifactsDir={workspaceData?.artifacts_dir}
-                    initialPlaybookStorageConfig={workspaceData?.playbook_storage_config}
-                    showHeader={false}
-                  />
-                </div>
-              )}
+          {activeTab === 'results' && (
+            <div className="p-6 space-y-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                  {t('expectedArtifacts' as any) || '預期產出類型'}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {t('expectedArtifactsDescription' as any) || '選擇此 Workspace 預期產出的檔案類型, AI 會優先嘗試產出這些類型的文件。'}
+                </p>
 
-              {activeTab === 'results' && (
-                <div className="p-6 space-y-4">
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                      {t('expectedArtifacts' as any) || '預期產出類型'}
-                    </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                      {t('expectedArtifactsDescription' as any) || '選擇此 Workspace 預期產出的檔案類型, AI 會優先嘗試產出這些類型的文件。'}
-                    </p>
-
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {COMMON_ARTIFACTS.map((artifact) => (
-                        <button
-                          key={artifact}
-                          onClick={() => handleToggleArtifact(artifact)}
-                          className={`
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {COMMON_ARTIFACTS.map((artifact) => (
+                    <button
+                      key={artifact}
+                      onClick={() => handleToggleArtifact(artifact)}
+                      className={`
                             px-3 py-1.5 rounded-full text-sm transition-all
                             ${expectedArtifacts.includes(artifact)
-                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700'
-                            }
+                          ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700'
+                        }
                           `}
-                        >
-                          {artifact.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
+                    >
+                      {artifact.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
 
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleSaveExecutionSettings}
-                        disabled={savingExecution || !executionSettingsChanged}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {savingExecution ? t('saving' as any) : t('saveSettings' as any)}
-                      </button>
-                    </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSaveExecutionSettings}
+                    disabled={savingExecution || !executionSettingsChanged}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {savingExecution ? t('saving' as any) : t('saveSettings' as any)}
+                  </button>
+                </div>
 
-                    {executionError && (
-                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mt-4">
-                        <p className="text-sm text-red-700 dark:text-red-300">{executionError}</p>
-                      </div>
-                    )}
-
-                    {executionSuccess && (
-                      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 mt-4">
-                        <p className="text-sm text-green-700 dark:text-green-300">{t('success' as any)}</p>
-                      </div>
-                    )}
+                {executionError && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mt-4">
+                    <p className="text-sm text-red-700 dark:text-red-300">{executionError}</p>
                   </div>
-                </div>
-              )}
+                )}
 
-              {activeTab === 'resources' && (
-                <div className="p-6">
-                  <ResourceBindingPanel workspaceId={workspaceId} />
-                </div>
-              )}
-
-              {activeTab === 'dataSources' && (
-                <div className="p-6">
-                  <DataSourceOverlayPanel workspaceId={workspaceId} />
-                </div>
-              )}
+                {executionSuccess && (
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 mt-4">
+                    <p className="text-sm text-green-700 dark:text-green-300">{t('success' as any)}</p>
+                  </div>
+                )}
+              </div>
             </div>
+          )}
 
-            {/* Footer */}
-            <div className="flex justify-end p-6 border-t dark:border-gray-700 flex-shrink-0">
-              <button
-                onClick={onClose}
-                className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-              >
-                {t('close' as any)}
-              </button>
+          {activeTab === 'resources' && (
+            <div className="p-6">
+              <ResourceBindingPanel workspaceId={workspaceId} />
             </div>
-          </div>
+          )}
+
+          {activeTab === 'dataSources' && (
+            <div className="p-6">
+              <DataSourceOverlayPanel workspaceId={workspaceId} />
+            </div>
+          )}
+
+          {activeTab === 'tools' && (
+            <div className="p-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                {t('toolConnections' as any) || '工具連線'}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                外部工具的連線狀態。未連線的工具請前往設定頁面配置。
+              </p>
+              <div className="space-y-3">
+                {toolConnections && Object.keys(toolConnections).length > 0 ? (
+                  Object.entries(toolConnections).map(([tool, status]) => (
+                    <div
+                      key={tool}
+                      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2.5 h-2.5 rounded-full ${status.connected
+                            ? 'bg-green-500'
+                            : 'bg-gray-400 dark:bg-gray-500'
+                          }`} />
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 capitalize">
+                          {tool}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {status.connected ? (
+                          <span className="text-sm text-green-600 dark:text-green-400">
+                            {t('connected' as any) || '已連線'}
+                          </span>
+                        ) : (
+                          <Link
+                            href="/settings"
+                            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            {t('goToSettings' as any) || '前往 Settings 配置'}
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                    尚無可用的工具連線資訊
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Footer */}
+        <div className="flex justify-end p-6 border-t dark:border-gray-700 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+          >
+            {t('close' as any)}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

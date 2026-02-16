@@ -5,6 +5,8 @@ Provides endpoints for fetching available external agents.
 """
 
 import logging
+import os
+from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -33,6 +35,7 @@ class AgentListResponse(BaseModel):
 
     agents: List[AgentInfo]
     total: int
+    bridge_script_path: Optional[str] = None
 
 
 @router.get("", response_model=AgentListResponse)
@@ -68,8 +71,24 @@ async def list_agents():
                 )
             )
 
+        # Resolve bridge script path on the host filesystem
+        # HOST_PROJECT_PATH is set in docker-compose.yml to the host's project root
+        host_root = os.environ.get("HOST_PROJECT_PATH")
+        if host_root:
+            bridge_path = Path(host_root) / "scripts" / "start_cli_bridge.sh"
+            script_path = str(bridge_path)
+        else:
+            # Fallback for non-Docker environments
+            project_root = Path(__file__).resolve().parents[4]
+            bridge_path = project_root / "scripts" / "start_cli_bridge.sh"
+            script_path = str(bridge_path) if bridge_path.exists() else None
+
         logger.info(f"[AgentsAPI] Listed {len(agents)} agents")
-        return AgentListResponse(agents=agents, total=len(agents))
+        return AgentListResponse(
+            agents=agents,
+            total=len(agents),
+            bridge_script_path=script_path,
+        )
 
     except Exception as e:
         logger.error(f"[AgentsAPI] Failed to list agents: {e}", exc_info=True)

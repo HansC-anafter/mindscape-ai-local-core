@@ -75,13 +75,15 @@ export function InputArea({
         if (response.ok) {
           const data = await response.json();
           setAvailableAgents(data.agents || []);
-          console.log('[InputArea] Loaded agents from API:', data.agents?.length);
         }
       } catch (err) {
         console.error('[InputArea] Failed to fetch agents:', err);
       }
     };
     fetchAgents();
+    // Poll every 30s to detect agent connection changes
+    const interval = setInterval(fetchAgents, 30_000);
+    return () => clearInterval(interval);
   }, [apiUrl]);
 
   const handleAgentChange = async (agentId: string | null) => {

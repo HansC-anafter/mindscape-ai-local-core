@@ -10,6 +10,7 @@ import PublishingModePanel from '../../../components/PublishingModePanel';
 import PlanningModePanel from '../../../components/PlanningModePanel';
 import IntegratedSystemStatusCard from '../../../components/IntegratedSystemStatusCard';
 import WorkspaceScopePanel from '../components/WorkspaceScopePanel';
+import StoragePathConfigModal from '@/components/StoragePathConfigModal';
 import TimelinePanel from '../components/TimelinePanel';
 import LeftSidebarTabs from './components/LeftSidebarTabs';
 import ProjectCard from './components/ProjectCard';
@@ -27,6 +28,7 @@ import ExecutionInspector from '../components/ExecutionInspector';
 import { ExecutionSidebar } from '@/components/execution';
 import ExecutionChatPanel from '../components/ExecutionChatPanel';
 import WorkspaceSettingsModal from './components/WorkspaceSettingsModal';
+import RuntimeSettingsModal from './components/RuntimeSettingsModal';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import SandboxModal from '@/components/sandbox/SandboxModal';
 import { getSandboxByProject } from '@/lib/sandbox-api';
@@ -112,6 +114,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [focusedExecution] = useState<any>(null);
   const [focusedPlaybookMetadata] = useState<any>(null);
   const [showSystemTools, setShowSystemTools] = useState(false);
+  const [showRuntimeModal, setShowRuntimeModal] = useState(false);
+  const [showDataSourcesModal, setShowDataSourcesModal] = useState(false);
   const [showFullSettings, setShowFullSettings] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
   const [sandboxId, setSandboxId] = useState<string | null>(null);
@@ -573,37 +577,62 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   >
                     {showSystemTools && (
                       <div className="overflow-y-auto max-h-[400px]">
-                        {/* Quick Settings View */}
-                        <>
-                          {/* Data Sources Section */}
-                          <div className="p-3 border-b dark:border-gray-700">
-                            <WorkspaceScopePanel
-                              dataSources={workspace.data_sources}
-                              workspaceId={workspaceId}
-                              apiUrl={API_URL}
-                              workspace={workspace}
-                            />
-                          </div>
+                        {/* Settings Tab Buttons */}
+                        <div className="flex border-b dark:border-gray-700">
+                          <button
+                            onClick={() => setShowDataSourcesModal(true)}
+                            className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors border-r dark:border-gray-700"
+                          >
+                            📁 資料來源
+                          </button>
+                          <button
+                            onClick={() => setShowRuntimeModal(true)}
+                            className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+                          >
+                            ☁️ 雲端 Runtime
+                          </button>
+                        </div>
 
-                          {/* System Status Section */}
-                          <div className="p-3">
-                            {systemStatus ? (
-                              <IntegratedSystemStatusCard
-                                systemStatus={systemStatus}
-                                workspace={workspace || {}}
-                                workspaceId={workspaceId}
-                                onRefresh={() => contextData.refreshAll()}
-                              />
-                            ) : (
-                              <div className="text-sm text-secondary dark:text-gray-400">Loading system status...</div>
-                            )}
-                          </div>
-                        </>
+                        {/* System Status Section */}
+                        <div className="p-3">
+                          {systemStatus ? (
+                            <IntegratedSystemStatusCard
+                              systemStatus={systemStatus}
+                              workspace={workspace || {}}
+                              workspaceId={workspaceId}
+                              onRefresh={() => contextData.refreshAll()}
+                            />
+                          ) : (
+                            <div className="text-sm text-secondary dark:text-gray-400">Loading system status...</div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Settings Modals */}
+            {workspace && (
+              <>
+                <StoragePathConfigModal
+                  isOpen={showDataSourcesModal}
+                  onClose={() => setShowDataSourcesModal(false)}
+                  workspace={workspace as any}
+                  workspaceId={workspaceId}
+                  apiUrl={API_URL}
+                  toolConnections={systemStatus?.tools}
+                  onSuccess={() => {
+                    window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+                  }}
+                />
+                <RuntimeSettingsModal
+                  isOpen={showRuntimeModal}
+                  onClose={() => setShowRuntimeModal(false)}
+                  workspaceId={workspaceId}
+                />
+              </>
             )}
           </div>
 

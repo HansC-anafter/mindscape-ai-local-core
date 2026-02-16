@@ -5,6 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: mindscape-ai-local-core-backend
+    shm_size: "2gb"
     restart: unless-stopped
     ports:
       - "8200:8200"
@@ -58,6 +59,8 @@ services:
       - CLOUD_LICENSE_KEY=${CLOUD_LICENSE_KEY:-}
       # Timezone
       - TZ=${TZ:-UTC}
+      # Host project path for bridge script reference
+      - HOST_PROJECT_PATH=${HOST_PROJECT_PATH:-${PWD}}
     volumes:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
@@ -96,6 +99,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: mindscape-ai-local-core-runner
+    shm_size: "2gb"
     restart: unless-stopped
     environment:
       - ENVIRONMENT=development
