@@ -54,6 +54,25 @@ class MessagingHandler:
         self.device_id = device_id
         self.workspace_id = workspace_id
         self._active_sessions: Dict[str, asyncio.Task] = {}
+        # Dedup guard: track in-progress request_ids to prevent duplicate LLM calls
+        self._processed_requests: Dict[str, float] = {}
+        self._dedup_ttl_seconds = 120  # 2 minute TTL
+
+    def _is_duplicate_request(self, request_id: str) -> bool:
+        """Check if request_id was already processed or is in-progress."""
+        import time
+
+        now = time.time()
+        # Lazy cleanup of expired entries
+        expired = [
+            k
+            for k, ts in self._processed_requests.items()
+            if now - ts > self._dedup_ttl_seconds
+        ]
+        for k in expired:
+            del self._processed_requests[k]
+
+        return request_id in self._processed_requests
 
     async def handle(self, payload: Dict[str, Any]) -> None:
         """
@@ -83,6 +102,25 @@ class MessagingHandler:
             f"[MessagingHandler] Received {channel}/{event_type} "
             f"request_id={request_id}"
         )
+
+        # Dedup guard: skip if request_id already processed or in-progress
+        if self._is_duplicate_request(request_id):
+            logger.warning(
+                f"[MessagingHandler] Duplicate request_id rejected: {request_id}"
+            )
+            await self._send_reply(
+                request_id,
+                payload,
+                {
+                    "status": "duplicate",
+                    "reason": "Request already processed or in-progress",
+                },
+            )
+            return
+
+        import time
+
+        self._processed_requests[request_id] = time.time()
 
         if event_type != "message":
             logger.info(f"[MessagingHandler] Ignoring non-message event: {event_type}")
