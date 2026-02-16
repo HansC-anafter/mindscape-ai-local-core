@@ -200,10 +200,10 @@ class MessagingHandler:
         message_text: str,
     ) -> None:
         """
-        Dispatch message to workspace chat pipeline.
+        Dispatch message to workspace chat via internal HTTP API.
 
-        Routes the message through the same path as the workspace chat input box:
-        WorkspaceChatRequest -> ChatOrchestratorService.run_background_chat()
+        Calls POST /api/v1/workspaces/{workspace_id}/chat — the exact same
+        endpoint used by the workspace chat input box in the frontend.
         """
         try:
             # 1. Resolve target workspace
@@ -220,47 +220,8 @@ class MessagingHandler:
                 )
                 return
 
-            # 2. Load workspace and orchestrator
-            from backend.app.services.mindscape_store import MindscapeStore
-            from backend.app.services.conversation_orchestrator import (
-                ConversationOrchestrator,
-            )
-            from backend.app.services.chat_orchestrator_service import (
-                ChatOrchestratorService,
-            )
-            from backend.app.models.workspace import WorkspaceChatRequest
-
-            store = MindscapeStore()
-            loop = asyncio.get_running_loop()
-
-            workspace = await loop.run_in_executor(
-                None, store.get_workspace, workspace_id
-            )
-            if not workspace:
-                logger.error(f"[MessagingHandler] Workspace not found: {workspace_id}")
-                await self._send_reply(
-                    request_id,
-                    original_payload,
-                    {
-                        "status": "error",
-                        "error": f"Workspace {workspace_id} not found",
-                    },
-                )
-                return
-
-            profile_id = workspace.owner_user_id or "system"
-            orchestrator = ConversationOrchestrator(store=store)
-            service = ChatOrchestratorService(orchestrator)
-
-            # 3. Build workspace chat request (same as chat input box)
-            chat_request = WorkspaceChatRequest(
-                message=message_text,
-                stream=True,
-                mode="auto",
-            )
-
-            user_event_id = str(uuid.uuid4())
             channel = original_payload.get("channel", "unknown")
+            user_event_id = str(uuid.uuid4())
 
             logger.info(
                 f"[MessagingHandler] Dispatching to workspace chat: "
@@ -268,30 +229,54 @@ class MessagingHandler:
                 f"event_id={user_event_id}, message={message_text[:60]}..."
             )
 
-            # 4. Run through workspace chat pipeline (same as chat input box)
-            await service.run_background_chat(
-                request=chat_request,
-                workspace=workspace,
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                user_event_id=user_event_id,
-            )
+            # 2. Call workspace chat API (same endpoint as the chat input box)
+            import os
+            import httpx
 
-            logger.info(
-                f"[MessagingHandler] Workspace chat completed: "
-                f"event_id={user_event_id}"
-            )
+            backend_port = os.environ.get("BACKEND_PORT", "8200")
+            async with httpx.AsyncClient(
+                base_url=f"http://localhost:{backend_port}"
+            ) as client:
+                response = await client.post(
+                    f"/api/v1/workspaces/{workspace_id}/chat",
+                    json={
+                        "message": message_text,
+                        "stream": True,
+                        "mode": "auto",
+                    },
+                    timeout=120.0,
+                )
 
-            # 5. Send reply back to Site-Hub
-            await self._send_reply(
-                request_id,
-                original_payload,
-                {
-                    "status": "completed",
-                    "workspace_id": workspace_id,
-                    "event_id": user_event_id,
-                },
-            )
+            if response.status_code in (200, 202):
+                result_data = response.json()
+                logger.info(
+                    f"[MessagingHandler] Workspace chat accepted: "
+                    f"status={response.status_code}, "
+                    f"data={json.dumps(result_data, ensure_ascii=False)[:200]}"
+                )
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "completed",
+                        "workspace_id": workspace_id,
+                        "event_id": result_data.get("event_id", user_event_id),
+                    },
+                )
+            else:
+                error_text = response.text[:500]
+                logger.error(
+                    f"[MessagingHandler] Workspace chat failed: "
+                    f"status={response.status_code}, body={error_text}"
+                )
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "error",
+                        "error": f"Workspace chat returned {response.status_code}: {error_text}",
+                    },
+                )
 
         except Exception as e:
             logger.error(f"[MessagingHandler] Dispatch failed: {e}", exc_info=True)
