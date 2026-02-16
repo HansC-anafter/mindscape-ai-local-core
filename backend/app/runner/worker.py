@@ -858,6 +858,12 @@ async def run_forever() -> None:
         f"Local-Core runner started runner_id={runner_id} poll_interval_ms={poll_interval_ms} max_inflight={max_inflight}"
     )
 
+    # Ensure heartbeat table exists before entering the poll loop.
+    try:
+        tasks_store.ensure_runner_heartbeats_table()
+    except Exception:
+        pass
+
     inflight: set[asyncio.Task] = set()
     last_reap_at: Optional[datetime] = None
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)

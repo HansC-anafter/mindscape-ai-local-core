@@ -85,77 +85,42 @@ async def workspace_chat(
             )
 
         logger.info(
-            f"WorkspaceChat: Received message request, stream={request.stream}, message={request.message[:50]}..."
+            f"WorkspaceChat: Received message request, message={request.message[:50]}..."
         )
 
-        # Async Job Queue Mode (Default/Stream)
-        # Even if stream=False effectively, we use async execution for consistency unless explicitly legacy.
-        if request.stream:
-            logger.info(f"WorkspaceChat: Asynchronous Job Queue path (Fire-and-Forget)")
+        # All requests go through the async job queue path.
+        # This ensures preferred_agent routing and SSE feedback always work.
+        user_event_id = str(uuid.uuid4())
+        service = ChatOrchestratorService(orchestrator)
 
-            # Generate Event ID here to return to client
-            user_event_id = str(uuid.uuid4())
-
-            # Init Service
-            service = ChatOrchestratorService(orchestrator)
-
-            # Add to Background Tasks
-            if background_tasks:
-                background_tasks.add_task(
-                    service.run_background_chat,
-                    request=request,
-                    workspace=workspace,
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    user_event_id=user_event_id,
-                )
-            else:
-                # Fallback if dependency fails? unlikely
-                await service.run_background_chat(
-                    request=request,
-                    workspace=workspace,
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    user_event_id=user_event_id,
-                )
-
-            # Return 202 Accepted
-            return JSONResponse(
-                status_code=202,
-                content={
-                    "status": "accepted",
-                    "message": "Chat request queued for background processing",
-                    "task_id": user_event_id,
-                    "event_id": user_event_id,
-                    "workspace_id": workspace_id,
-                },
+        if background_tasks:
+            background_tasks.add_task(
+                service.run_background_chat,
+                request=request,
+                workspace=workspace,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                user_event_id=user_event_id,
+            )
+        else:
+            await service.run_background_chat(
+                request=request,
+                workspace=workspace,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                user_event_id=user_event_id,
             )
 
-        # Non-streaming mode (Legacy/Sync)
-        # Get or create default thread if thread_id not provided
-        thread_id = request.thread_id
-        if not thread_id:
-            from backend.features.workspace.chat.streaming.generator import (
-                _get_or_create_default_thread,
-            )
-
-            thread_id = _get_or_create_default_thread(workspace_id, orchestrator.store)
-
-        result = await orchestrator.route_message(
-            workspace_id=workspace_id,
-            profile_id=profile_id,
-            message=request.message,
-            files=request.files,
-            mode=request.mode,
-            project_id=workspace.primary_project_id,
-            workspace=workspace,
-            thread_id=thread_id,
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": "Chat request queued for background processing",
+                "task_id": user_event_id,
+                "event_id": user_event_id,
+                "workspace_id": workspace_id,
+            },
         )
-
-        # Ensure workspace_id is included in result
-        if isinstance(result, dict) and "workspace_id" not in result:
-            result["workspace_id"] = workspace_id
-        return WorkspaceChatResponse(**result)
 
     except HTTPException:
         raise
