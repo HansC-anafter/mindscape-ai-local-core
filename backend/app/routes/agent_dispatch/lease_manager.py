@@ -37,6 +37,11 @@ class LeaseManagerMixin:
         # Lazy reclaim expired leases before reserving new ones
         self._reclaim_expired_reserves()
 
+        # Track polling liveness: record when this client last polled
+        if not hasattr(self, "_last_poll_by_client"):
+            self._last_poll_by_client: Dict[str, float] = {}
+        self._last_poll_by_client[client_id] = time.monotonic()
+
         queue = self._pending_queue.get(workspace_id, [])
         reserved, remaining = [], []
 
@@ -89,6 +94,15 @@ class LeaseManagerMixin:
                 self._reserved.pop(eid)
                 self._enqueue_pending(r.task)
                 logger.warning(f"[AgentWS] Lease expired for {eid}, re-queued")
+
+    def has_recent_poll_activity(self, max_age_seconds: float = 120.0) -> bool:
+        """Check if any client has polled within the specified time window."""
+        if not hasattr(self, "_last_poll_by_client"):
+            return False
+        now = time.monotonic()
+        return any(
+            (now - ts) < max_age_seconds for ts in self._last_poll_by_client.values()
+        )
 
     def ack_task(
         self,
