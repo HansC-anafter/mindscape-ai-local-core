@@ -238,10 +238,10 @@ class MessagingHandler:
         message_text: str,
     ) -> None:
         """
-        Dispatch message to workspace chat via internal HTTP API.
+        Dispatch message to workspace chat via direct service call.
 
-        Calls POST /api/v1/workspaces/{workspace_id}/chat — the exact same
-        endpoint used by the workspace chat input box in the frontend.
+        Calls ChatOrchestratorService.run_background_chat() in-process,
+        then queries DB for the assistant reply to send back to Site-Hub.
         """
         try:
             # 1. Resolve target workspace
@@ -267,65 +267,94 @@ class MessagingHandler:
                 f"event_id={user_event_id}, message={message_text[:60]}..."
             )
 
-            # 2. Call workspace chat API (same endpoint as the chat input box)
-            import os
-            import httpx
+            # 2. Call ChatOrchestratorService directly (in-process, no HTTP)
+            from backend.app.services.mindscape_store import MindscapeStore
+            from backend.app.services.conversation_orchestrator import (
+                ConversationOrchestrator,
+            )
+            from backend.app.services.chat_orchestrator_service import (
+                ChatOrchestratorService,
+            )
+            from backend.app.models.workspace import WorkspaceChatRequest
 
-            backend_port = os.environ.get("BACKEND_PORT", "8200")
-            async with httpx.AsyncClient(
-                base_url=f"http://localhost:{backend_port}"
-            ) as client:
-                response = await client.post(
-                    f"/api/v1/workspaces/{workspace_id}/chat",
-                    json={
-                        "message": message_text,
-                        "stream": False,
-                        "mode": "auto",
-                    },
-                    timeout=180.0,
-                )
+            loop = asyncio.get_running_loop()
+            store = MindscapeStore()
 
-            if response.status_code == 200:
-                result_data = response.json()
-
-                # Extract LLM reply from display_events (last assistant message)
-                reply_text = ""
-                for evt in reversed(result_data.get("display_events", [])):
-                    if evt.get("actor") == "assistant" and evt.get("payload", {}).get(
-                        "message"
-                    ):
-                        reply_text = evt["payload"]["message"]
-                        break
-
-                logger.info(
-                    f"[MessagingHandler] Workspace chat completed: "
-                    f"status={response.status_code}, "
-                    f"reply_text_length={len(reply_text)}"
-                )
-                await self._send_reply(
-                    request_id,
-                    original_payload,
-                    {
-                        "status": "completed",
-                        "workspace_id": workspace_id,
-                        "event_id": result_data.get("event_id", user_event_id),
-                        "reply_text": reply_text,
-                    },
-                )
-            else:
-                error_text = response.text[:500]
-                logger.error(
-                    f"[MessagingHandler] Workspace chat failed: "
-                    f"status={response.status_code}, body={error_text}"
-                )
+            workspace = await loop.run_in_executor(
+                None, lambda: store.get_workspace(workspace_id)
+            )
+            if not workspace:
+                logger.error(f"[MessagingHandler] Workspace {workspace_id} not found")
                 await self._send_reply(
                     request_id,
                     original_payload,
                     {
                         "status": "error",
-                        "error": f"Workspace chat returned {response.status_code}: {error_text}",
+                        "error": f"Workspace {workspace_id} not found",
                     },
                 )
+                return
+
+            profile_id = workspace.owner_user_id or "default-user"
+            orchestrator = ConversationOrchestrator(store)
+            service = ChatOrchestratorService(orchestrator)
+
+            chat_request = WorkspaceChatRequest(
+                message=message_text,
+                mode="auto",
+            )
+
+            await service.run_background_chat(
+                request=chat_request,
+                workspace=workspace,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                user_event_id=user_event_id,
+            )
+
+            # 3. Query DB for the latest assistant reply
+            reply_text = ""
+            try:
+                events = await loop.run_in_executor(
+                    None,
+                    lambda: store.events.get_events_by_thread(
+                        workspace_id=workspace_id,
+                        thread_id=None,
+                        limit=5,
+                    ),
+                )
+                for evt in reversed(events or []):
+                    actor_val = (
+                        evt.actor.value
+                        if hasattr(evt.actor, "value")
+                        else str(evt.actor)
+                    )
+                    if (
+                        actor_val == "assistant"
+                        and evt.payload
+                        and evt.payload.get("message")
+                    ):
+                        reply_text = evt.payload["message"]
+                        break
+            except Exception as db_err:
+                logger.warning(
+                    f"[MessagingHandler] Failed to fetch reply from DB: {db_err}"
+                )
+
+            logger.info(
+                f"[MessagingHandler] Workspace chat completed: "
+                f"reply_text_length={len(reply_text)}"
+            )
+            await self._send_reply(
+                request_id,
+                original_payload,
+                {
+                    "status": "completed",
+                    "workspace_id": workspace_id,
+                    "event_id": user_event_id,
+                    "reply_text": reply_text,
+                },
+            )
 
         except Exception as e:
             logger.error(f"[MessagingHandler] Dispatch failed: {e}", exc_info=True)
