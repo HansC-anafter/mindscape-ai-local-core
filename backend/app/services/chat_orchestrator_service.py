@@ -216,61 +216,88 @@ class ChatOrchestratorService:
                     AgentExecutionResponse,
                 )
 
+                # Pre-check: is the agent runtime actually connected?
                 executor = WorkspaceAgentExecutor(workspace)
-                agent_response: AgentExecutionResponse = await executor.execute(
-                    task=request.message,
-                    agent_id=preferred_agent,
-                )
+                agent_available = await executor.check_agent_available(preferred_agent)
 
-                # Create assistant event with agent response
-                if agent_response.success:
-                    assistant_event = MindEvent(
-                        id=str(uuid.uuid4()),
-                        timestamp=_utc_now(),
-                        actor=EventActor.ASSISTANT,
-                        channel="local_workspace",
-                        profile_id=profile_id,
-                        project_id=project_id,
-                        workspace_id=workspace_id,
-                        thread_id=thread_id,
-                        event_type=EventType.MESSAGE,
-                        payload={
-                            "message": agent_response.output,
-                            "agent_id": preferred_agent,
-                            "trace_id": agent_response.trace_id,
-                            "execution_time": agent_response.execution_time_seconds,
-                        },
-                        entity_ids=[],
-                        metadata={
-                            "external_agent": True,
-                            "agent_id": preferred_agent,
-                        },
+                if not agent_available:
+                    await self._create_error_event(
+                        workspace_id,
+                        profile_id,
+                        thread_id,
+                        f"Agent {preferred_agent} is unavailable: "
+                        f"no runtime connected. "
+                        f"Start the CLI bridge or switch to Mindscape LLM.",
                     )
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None,
-                        lambda: self.orchestrator.store.create_event(assistant_event),
+                    logger.warning(
+                        f"[AsyncChat] Agent {preferred_agent} unavailable, "
+                        f"no runtime connected"
                     )
-                    logger.info(
-                        f"[AsyncChat] External agent {preferred_agent} completed, "
-                        f"trace_id={agent_response.trace_id}"
-                    )
+                    return
                 else:
-                    # Create error event for failed execution
+                    # Agent is available — dispatch to it
+                    agent_response: AgentExecutionResponse = await executor.execute(
+                        task=request.message,
+                        agent_id=preferred_agent,
+                    )
+
+                    # Create assistant event with agent response
+                    if agent_response.success:
+                        assistant_event = MindEvent(
+                            id=str(uuid.uuid4()),
+                            timestamp=_utc_now(),
+                            actor=EventActor.ASSISTANT,
+                            channel="local_workspace",
+                            profile_id=profile_id,
+                            project_id=project_id,
+                            workspace_id=workspace_id,
+                            thread_id=thread_id,
+                            event_type=EventType.MESSAGE,
+                            payload={
+                                "message": agent_response.output,
+                                "agent_id": preferred_agent,
+                                "trace_id": agent_response.trace_id,
+                                "execution_time": agent_response.execution_time_seconds,
+                            },
+                            entity_ids=[],
+                            metadata={
+                                "external_agent": True,
+                                "agent_id": preferred_agent,
+                            },
+                        )
+                        loop = asyncio.get_running_loop()
+                        await loop.run_in_executor(
+                            None,
+                            lambda: self.orchestrator.store.create_event(
+                                assistant_event
+                            ),
+                        )
+                        logger.info(
+                            f"[AsyncChat] External agent {preferred_agent} completed, "
+                            f"trace_id={agent_response.trace_id}"
+                        )
+                        return  # Agent succeeded, done
+
+                    # Agent execution failed — report error, never silent fallback
                     error_msg = (
                         agent_response.error or "External agent execution failed"
                     )
                     await self._create_error_event(
-                        workspace_id, profile_id, thread_id, error_msg
+                        workspace_id,
+                        profile_id,
+                        thread_id,
+                        f"Agent {preferred_agent} execution failed: {error_msg}. "
+                        f"Check the CLI bridge logs or switch to Mindscape LLM.",
                     )
                     logger.error(
-                        f"[AsyncChat] External agent {preferred_agent} failed: {error_msg}"
+                        f"[AsyncChat] External agent {preferred_agent} failed: "
+                        f"{error_msg}"
                     )
+                    return
 
                 logger.info(
                     f"[AsyncChat] Background task completed for {user_event.id}"
                 )
-                return  # Exit early, don't fall through to LLM
 
             # 5. Generate Response (Consume Stream) - Default LLM path
 
