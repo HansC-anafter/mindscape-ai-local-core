@@ -1,12 +1,13 @@
 """
 Cloud Connector - Messaging Handler
 
-Handles messaging events from Cloud (LINE, WhatsApp, etc.)
-and dispatches them to the IDE agent via AgentDispatchManager.
+Handles messaging events from Cloud (LINE, WhatsApp, etc.) and routes them
+to the target workspace chat, treating the channel as a stateless input
+surface identical to the workspace chat input box.
 
 Flow:
-  Site-Hub → CloudConnector WS → MessagingHandler → AgentDispatchManager → IDE
-  IDE result → MessagingHandler → CloudConnector WS → Site-Hub → LINE Reply API
+  Site-Hub -> CloudConnector WS -> MessagingHandler -> workspace chat pipeline
+  Workspace reply -> MessagingHandler -> CloudConnector WS -> Site-Hub -> LINE Reply API
 """
 
 import asyncio
@@ -28,11 +29,11 @@ def _utc_now():
 
 class MessagingHandler:
     """
-    Handles messaging events relayed from Site-Hub.
+    Routes messaging events from Site-Hub channels to workspace chat.
 
-    Receives LINE/WhatsApp messages via the CloudConnector WebSocket,
-    dispatches tasks to the IDE (Antigravity Agent) via AgentDispatchManager,
-    and sends results back through the WebSocket for reply delivery.
+    Channels (LINE, WhatsApp, etc.) are stateless input surfaces.
+    Messages are resolved to a target workspace via ChannelBinding
+    and processed through the standard workspace chat pipeline.
     """
 
     def __init__(
@@ -47,7 +48,7 @@ class MessagingHandler:
         Args:
             websocket: WebSocket connection to Cloud
             device_id: Local-Core device identifier
-            workspace_id: Default workspace ID (for 1:1 mapping)
+            workspace_id: Default workspace ID (fallback if no binding found)
         """
         self.websocket = websocket
         self.device_id = device_id
@@ -67,7 +68,7 @@ class MessagingHandler:
             "reply_token": "nHuyW...",
             "message": {
                 "type": "text",
-                "text": "幫我在 login.tsx 加一個忘記密碼按鈕"
+                "text": "Hello from LINE"
             },
             "channel_config_id": "companion-line-workspace",
             "site_uuid": "bec8bf79-...",
@@ -111,98 +112,184 @@ class MessagingHandler:
             )
             return
 
-        # Dispatch to IDE agent
-        task = asyncio.create_task(self._dispatch_to_ide(request_id, payload, text))
+        # Dispatch to workspace chat (channel is a stateless input surface)
+        task = asyncio.create_task(
+            self._dispatch_to_workspace(request_id, payload, text)
+        )
         self._active_sessions[request_id] = task
 
-    async def _dispatch_to_ide(
+    async def _resolve_workspace_id(self, payload: Dict[str, Any]) -> Optional[str]:
+        """
+        Resolve workspace_id from channel binding.
+
+        Looks up the ChannelBinding table using channel_config_id from the payload.
+        Falls back to self.workspace_id or the first available workspace.
+        """
+        channel_config_id = payload.get("channel_config_id")
+
+        if channel_config_id:
+            try:
+                from backend.app.database.engine import SessionLocalCore
+                from backend.app.models.channel_binding import ChannelBinding
+
+                loop = asyncio.get_running_loop()
+
+                def _lookup_binding():
+                    db = SessionLocalCore()
+                    try:
+                        binding = (
+                            db.query(ChannelBinding)
+                            .filter(
+                                ChannelBinding.channel_id == channel_config_id,
+                                ChannelBinding.status == "active",
+                            )
+                            .first()
+                        )
+                        return binding.workspace_id if binding else None
+                    finally:
+                        db.close()
+
+                workspace_id = await loop.run_in_executor(None, _lookup_binding)
+                if workspace_id:
+                    logger.info(
+                        f"[MessagingHandler] Resolved workspace from binding: "
+                        f"channel={channel_config_id} -> workspace={workspace_id}"
+                    )
+                    return workspace_id
+                else:
+                    logger.warning(
+                        f"[MessagingHandler] No active binding for channel: "
+                        f"{channel_config_id}"
+                    )
+            except Exception as e:
+                logger.warning(f"[MessagingHandler] Binding lookup failed: {e}")
+
+        # Fallback: use default workspace_id
+        if self.workspace_id:
+            logger.info(
+                f"[MessagingHandler] Using default workspace: {self.workspace_id}"
+            )
+            return self.workspace_id
+
+        # Last resort: pick first workspace from store
+        try:
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            store = MindscapeStore()
+            loop = asyncio.get_running_loop()
+            workspaces = await loop.run_in_executor(None, store.list_workspaces)
+            if workspaces:
+                ws_id = (
+                    workspaces[0].id
+                    if hasattr(workspaces[0], "id")
+                    else str(workspaces[0])
+                )
+                logger.info(
+                    f"[MessagingHandler] Auto-selected first workspace: {ws_id}"
+                )
+                return ws_id
+        except Exception as e:
+            logger.warning(f"[MessagingHandler] Workspace lookup failed: {e}")
+
+        return None
+
+    async def _dispatch_to_workspace(
         self,
         request_id: str,
         original_payload: Dict[str, Any],
-        task_text: str,
+        message_text: str,
     ) -> None:
         """
-        Dispatch message as a task to the IDE agent.
+        Dispatch message to workspace chat pipeline.
 
-        Uses AgentDispatchManager to send the task to a connected IDE client.
+        Routes the message through the same path as the workspace chat input box:
+        WorkspaceChatRequest -> ChatOrchestratorService.run_background_chat()
         """
         try:
-            # Lazy import to avoid circular dependency
-            from backend.app.routes.agent_websocket import (
-                get_agent_dispatch_manager,
-            )
-
-            manager = get_agent_dispatch_manager()
-            workspace_id = self.workspace_id
-
+            # 1. Resolve target workspace
+            workspace_id = await self._resolve_workspace_id(original_payload)
             if not workspace_id:
-                # Attempt to resolve workspace_id from connected clients
-                connected = manager.get_connected_workspaces()
-                if connected:
-                    workspace_id = connected[0]
-                    logger.info(
-                        f"[MessagingHandler] Auto-selected workspace: "
-                        f"{workspace_id}"
-                    )
-                else:
-                    logger.error(
-                        "[MessagingHandler] No workspace available for dispatch"
-                    )
-                    await self._send_reply(
-                        request_id,
-                        original_payload,
-                        {
-                            "status": "error",
-                            "error": "No IDE client connected",
-                        },
-                    )
-                    return
+                logger.error("[MessagingHandler] No workspace available for dispatch")
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "error",
+                        "error": "No workspace bound to this channel",
+                    },
+                )
+                return
 
-            # Build dispatch payload
-            execution_id = f"msg_{uuid.uuid4().hex[:16]}"
-            dispatch_payload = {
-                "execution_id": execution_id,
-                "workspace_id": workspace_id,
-                "type": "dispatch",
-                "task": task_text,
-                "allowed_tools": ["file", "terminal", "browser"],
-                "max_duration": 600,
-                "issued_at": _utc_now().isoformat(),
-                "metadata": {
-                    "source": "messaging",
-                    "channel": original_payload.get("channel", "unknown"),
-                    "user_id": original_payload.get("user_id"),
-                    "request_id": request_id,
-                },
-            }
+            # 2. Load workspace and orchestrator
+            from backend.app.services.mindscape_store import MindscapeStore
+            from backend.app.services.conversation_orchestrator import (
+                ConversationOrchestrator,
+            )
+            from backend.app.services.chat_orchestrator_service import (
+                ChatOrchestratorService,
+            )
+            from backend.app.models.workspace import WorkspaceChatRequest
 
-            logger.info(
-                f"[MessagingHandler] Dispatching to IDE: "
-                f"workspace={workspace_id}, exec={execution_id}"
+            store = MindscapeStore()
+            loop = asyncio.get_running_loop()
+
+            workspace = await loop.run_in_executor(
+                None, store.get_workspace, workspace_id
+            )
+            if not workspace:
+                logger.error(f"[MessagingHandler] Workspace not found: {workspace_id}")
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "error",
+                        "error": f"Workspace {workspace_id} not found",
+                    },
+                )
+                return
+
+            profile_id = workspace.owner_user_id or "system"
+            orchestrator = ConversationOrchestrator(store=store)
+            service = ChatOrchestratorService(orchestrator)
+
+            # 3. Build workspace chat request (same as chat input box)
+            chat_request = WorkspaceChatRequest(
+                message=message_text,
+                stream=True,
+                mode="auto",
             )
 
-            # Dispatch and wait for result
-            result = await manager.dispatch_and_wait(
+            user_event_id = str(uuid.uuid4())
+            channel = original_payload.get("channel", "unknown")
+
+            logger.info(
+                f"[MessagingHandler] Dispatching to workspace chat: "
+                f"workspace={workspace_id}, channel={channel}, "
+                f"event_id={user_event_id}, message={message_text[:60]}..."
+            )
+
+            # 4. Run through workspace chat pipeline (same as chat input box)
+            await service.run_background_chat(
+                request=chat_request,
+                workspace=workspace,
                 workspace_id=workspace_id,
-                message=dispatch_payload,
-                execution_id=execution_id,
+                profile_id=profile_id,
+                user_event_id=user_event_id,
             )
 
             logger.info(
-                f"[MessagingHandler] IDE result received: "
-                f"status={result.get('status', 'unknown')}"
+                f"[MessagingHandler] Workspace chat completed: "
+                f"event_id={user_event_id}"
             )
 
-            # Send reply back to Site-Hub
+            # 5. Send reply back to Site-Hub
             await self._send_reply(
                 request_id,
                 original_payload,
                 {
-                    "status": result.get("status", "completed"),
-                    "output": result.get("output", ""),
-                    "files_modified": result.get("files_modified", []),
-                    "files_created": result.get("files_created", []),
-                    "duration_seconds": result.get("duration_seconds", 0),
+                    "status": "completed",
+                    "workspace_id": workspace_id,
+                    "event_id": user_event_id,
                 },
             )
 
