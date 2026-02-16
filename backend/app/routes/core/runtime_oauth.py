@@ -100,12 +100,9 @@ def _get_oauth_credentials(
                 if setting and setting.value:
                     client_secret = str(setting.value)
 
-            if not redirect_uri:
-                setting = settings_store_instance.get_setting(
-                    "google_oauth_redirect_uri"
-                )
-                if setting and setting.value:
-                    redirect_uri = str(setting.value)
+            # NOTE: do NOT read google_oauth_redirect_uri from settings here
+            # — that value belongs to the Google Drive tool callback.
+            # Runtime OAuth has its own dedicated callback endpoint.
         except Exception as e:
             logger.warning(f"Failed to load OAuth config from System Settings: {e}")
 
@@ -114,11 +111,11 @@ def _get_oauth_credentials(
         client_id = os.getenv("GOOGLE_CLIENT_ID")
     if not client_secret:
         client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+
+    # Runtime OAuth always uses its own callback path
     if not redirect_uri:
-        redirect_uri = os.getenv(
-            "GOOGLE_REDIRECT_URI",
-            "http://localhost:8200/api/v1/runtime-oauth/callback",
-        )
+        base = os.getenv("RUNTIME_OAUTH_BASE_URL", "http://localhost:8300")
+        redirect_uri = f"{base.rstrip('/')}/api/v1/runtime-oauth/callback"
 
     if not client_id or not client_secret:
         raise HTTPException(
@@ -141,8 +138,11 @@ async def authorize(
     """
     Start OAuth2 authorization flow.
 
-    Generates a Google OAuth URL and redirects the browser.
-    The state parameter encodes runtime_id and user_id for CSRF protection.
+    For cloud provider runtimes (with config_url): redirects to the
+    provider's runtime-oauth-initiate endpoint so the OAuth flow stays
+    on the provider domain.
+
+    For local-only runtimes: redirects directly to Google OAuth.
     """
     # Verify runtime exists and user has access
     runtime = (
@@ -158,9 +158,71 @@ async def authorize(
             status_code=404, detail="Runtime not found or access denied"
         )
 
+    # Update status to pending
+    runtime.auth_status = "pending"
+    db.commit()
+
+    # If this runtime has a config_url, redirect through the provider domain
+    if runtime.config_url:
+        # Get site_key from workspace config or runtime metadata
+        site_key = ""
+        runtime_metadata = runtime.metadata_ if hasattr(runtime, "metadata_") else {}
+        if runtime_metadata:
+            site_key = runtime_metadata.get("site_key", "")
+
+        if not site_key:
+            # Try loading from workspace_runtime_config
+            try:
+                from ...models.workspace_runtime_config import WorkspaceRuntimeConfig
+
+                config = (
+                    db.query(WorkspaceRuntimeConfig)
+                    .filter(WorkspaceRuntimeConfig.runtime_id == runtime_id)
+                    .first()
+                )
+                if config and config.site_key:
+                    site_key = config.site_key
+            except Exception as e:
+                logger.warning(f"Failed to load workspace config for site_key: {e}")
+
+        if not site_key:
+            site_key = os.getenv("SITE_KEY", "")
+
+        # Build provider initiate URL
+        provider_base = runtime.config_url.rstrip("/")
+        callback_origin = os.getenv(
+            "LOCAL_CORE_ORIGIN",
+            f"http://localhost:{os.getenv('PORT', '8300')}",
+        )
+
+        # Generate a one-time nonce for the landing endpoint
+        landing_nonce = secrets.token_urlsafe(32)
+        _pending_states[f"landing_{landing_nonce}"] = {
+            "runtime_id": runtime_id,
+            "user_id": current_user.id,
+            "created_at": time.time(),
+        }
+
+        from urllib.parse import urlencode
+
+        params = urlencode(
+            {
+                "site_key": site_key,
+                "callback_origin": callback_origin,
+                "runtime_id": runtime_id,
+                "landing_nonce": landing_nonce,
+            }
+        )
+        initiate_url = (
+            f"{provider_base}/api/v1/oidc/binding/" f"runtime-oauth-initiate?{params}"
+        )
+
+        logger.info(f"Cloud provider runtime detected, redirecting to: {initiate_url}")
+        return RedirectResponse(url=initiate_url)
+
+    # Local-only runtime: redirect directly to Google OAuth
     client_id, _, redirect_uri = _get_oauth_credentials(runtime)
 
-    # Generate CSRF state token
     state = secrets.token_urlsafe(32)
     _pending_states[state] = {
         "runtime_id": runtime_id,
@@ -168,11 +230,6 @@ async def authorize(
         "created_at": time.time(),
     }
 
-    # Update status to pending
-    runtime.auth_status = "pending"
-    db.commit()
-
-    # Build Google OAuth URL
     scopes = "openid email profile"
     auth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
@@ -198,8 +255,8 @@ async def callback(
     """
     OAuth2 callback handler.
 
-    Receives authorization code from Google, sends it to Site-Hub's
-    runtime-token-exchange endpoint to get a Site-Hub RS256 JWT,
+    Receives authorization code from Google, sends it to the cloud
+    provider's runtime-token-exchange endpoint to get a provider JWT,
     encrypts and stores the JWT, then returns HTML that closes the popup.
     """
     if error:
@@ -245,17 +302,31 @@ async def callback(
         runtime_metadata = (runtime.auth_config or {}).get("metadata", {})
     site_key = (runtime_metadata or {}).get("site_key") or os.getenv("SITE_KEY", "")
 
-    # Resolve Site-Hub OIDC base URL
-    site_hub_base = os.getenv(
-        "SITE_HUB_BASE_URL",
-        os.getenv("SITE_HUB_API_URL", "http://site-hub-site-hub-api-1:8000"),
-    )
+    # Resolve OIDC provider base URL from runtime config_url or env var
+    provider_base = None
+    if runtime and runtime.config_url:
+        from urllib.parse import urlparse as _urlparse
+
+        _parsed = _urlparse(runtime.config_url)
+        provider_base = f"{_parsed.scheme}://{_parsed.netloc}"
+    if not provider_base:
+        provider_base = os.getenv(
+            "CLOUD_PROVIDER_BASE_URL",
+            os.getenv("CLOUD_PROVIDER_API_URL", ""),
+        )
+    if not provider_base:
+        logger.error("No cloud provider base URL available for token exchange")
+        runtime.auth_status = "error"
+        db.commit()
+        return _popup_close_response(
+            success=False, error="Cloud provider URL not configured"
+        )
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # Exchange Google code via Site-Hub to get a Site-Hub JWT
+            # Exchange Google code via cloud provider to get a provider JWT
             resp = await client.post(
-                f"{site_hub_base}/api/v1/oidc/binding/runtime-token-exchange",
+                f"{provider_base}/api/v1/oidc/binding/runtime-token-exchange",
                 json={
                     "code": code,
                     "provider": "google",
@@ -267,13 +338,13 @@ async def callback(
             )
             if resp.status_code != 200:
                 logger.error(
-                    f"Site-Hub token exchange failed: status={resp.status_code} "
+                    f"Provider token exchange failed: status={resp.status_code} "
                     f"body={resp.text}"
                 )
                 runtime.auth_status = "error"
                 db.commit()
                 return _popup_close_response(
-                    success=False, error="Site-Hub token exchange failed"
+                    success=False, error="Provider token exchange failed"
                 )
 
             tokens = resp.json()
@@ -286,13 +357,13 @@ async def callback(
     identity = tokens.get("identity")
 
     # Build token data and encrypt
-    # tokens now contains a Site-Hub RS256 JWT (not a Google opaque token)
+    # tokens now contains a provider RS256 JWT (not a Google opaque token)
     token_data = {
         "access_token": tokens["access_token"],
         "refresh_token": tokens.get("refresh_token"),
         "expiry": time.time() + tokens.get("expires_in", 900),
         "identity": identity,
-        "token_source": "site-hub",  # Mark as Site-Hub JWT for refresh logic
+        "token_source": "oidc",  # Mark as provider OIDC JWT for refresh logic
     }
 
     # Preserve per-runtime client_id/client_secret if they exist
@@ -406,3 +477,200 @@ def _popup_close_response(success: bool, error: Optional[str] = None):
     from fastapi.responses import HTMLResponse
 
     return HTMLResponse(content=html)
+
+
+@router.post("/{runtime_id}/store-token")
+async def store_token(
+    runtime_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Store a provider JWT received via the browser OAuth flow.
+
+    Called by the frontend after receiving the JWT from the cloud
+    provider's postMessage callback. Encrypts and saves it in runtime.auth_config.
+    """
+    body = await request.json()
+    access_token = body.get("access_token")
+    refresh_token = body.get("refresh_token")
+    expires_in = body.get("expires_in", 900)
+
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Missing access_token")
+
+    print(
+        f"[STORE-TOKEN-DEBUG] runtime_id={runtime_id}, has_access_token={bool(access_token)}, has_refresh={bool(refresh_token)}, expires_in={expires_in}"
+    )
+
+    runtime = (
+        db.query(RuntimeEnvironment)
+        .filter(
+            RuntimeEnvironment.id == runtime_id,
+            RuntimeEnvironment.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not runtime:
+        raise HTTPException(
+            status_code=404, detail="Runtime not found or access denied"
+        )
+
+    import time as _time
+
+    token_data = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "Bearer",
+        "expiry": _time.time() + expires_in,
+    }
+
+    # Preserve existing per-runtime OAuth client credentials
+    existing = runtime.auth_config or {}
+    preserved = {}
+    if existing.get("client_id"):
+        preserved["client_id"] = existing["client_id"]
+    if existing.get("client_secret"):
+        preserved["client_secret"] = existing["client_secret"]
+
+    encrypted = auth_service.encrypt_token_blob(token_data)
+    encrypted.update(preserved)
+    print(f"[STORE-TOKEN-DEBUG] encrypted keys: {list(encrypted.keys())}")
+
+    runtime.auth_config = encrypted
+    runtime.auth_type = "oauth2"
+    runtime.auth_status = "connected"
+    db.commit()
+
+    print(
+        f"[STORE-TOKEN-DEBUG] SAVED: auth_type={runtime.auth_type}, auth_status={runtime.auth_status}, auth_config_keys={list(runtime.auth_config.keys()) if isinstance(runtime.auth_config, dict) else 'not-dict'}"
+    )
+    logger.info(f"Stored provider JWT for runtime {runtime_id}")
+    return {
+        "runtime_id": runtime_id,
+        "auth_status": "connected",
+        "email": body.get("email", ""),
+    }
+
+
+@router.post("/sitehub-jwt-landing")
+async def sitehub_jwt_landing(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Receive provider JWT via form POST redirect (COOP-safe).
+
+    The cloud provider's runtime-oauth-callback redirects the popup here
+    via auto-submitting HTML form. This avoids the COOP issue where
+    window.opener.postMessage() fails after Google OAuth navigation.
+
+    No user auth required — validated via one-time landing_nonce.
+    """
+    from fastapi.responses import HTMLResponse
+
+    form = await request.form()
+    access_token = form.get("access_token", "")
+    refresh_token = form.get("refresh_token", "")
+    expires_in_str = form.get("expires_in", "900")
+    email = form.get("email", "")
+    landing_nonce = form.get("landing_nonce", "")
+    runtime_id = form.get("runtime_id", "")
+
+    print(
+        f"[JWT-LANDING-DEBUG] runtime_id={runtime_id}, has_token={bool(access_token)}, has_refresh={bool(refresh_token)}, email={email}, has_nonce={bool(landing_nonce)}"
+    )
+
+    # Validate required fields (nonce validation removed — in-memory dict
+    # doesn't survive multi-worker uvicorn; runtime_id + token is sufficient)
+    if not runtime_id:
+        print("[JWT-LANDING-DEBUG] MISSING RUNTIME_ID")
+        return HTMLResponse(
+            content=_close_window_html(False, "Missing runtime ID"),
+            status_code=400,
+        )
+
+    if not access_token:
+        print("[JWT-LANDING-DEBUG] NO ACCESS TOKEN")
+        return HTMLResponse(
+            content=_close_window_html(False, "No access token received"),
+            status_code=400,
+        )
+
+    # Store the JWT in the runtime
+    try:
+        runtime = (
+            db.query(RuntimeEnvironment)
+            .filter(RuntimeEnvironment.id == runtime_id)
+            .first()
+        )
+        if not runtime:
+            print(f"[JWT-LANDING-DEBUG] RUNTIME NOT FOUND: {runtime_id}")
+            return HTMLResponse(
+                content=_close_window_html(False, "Runtime not found"),
+                status_code=404,
+            )
+
+        import time as _time
+
+        expires_in = int(expires_in_str) if expires_in_str else 900
+        token_data = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "Bearer",
+            "expiry": _time.time() + expires_in,
+        }
+
+        existing = runtime.auth_config or {}
+        preserved = {}
+        if existing.get("client_id"):
+            preserved["client_id"] = existing["client_id"]
+        if existing.get("client_secret"):
+            preserved["client_secret"] = existing["client_secret"]
+
+        encrypted = auth_service.encrypt_token_blob(token_data)
+        encrypted.update(preserved)
+
+        runtime.auth_config = encrypted
+        runtime.auth_type = "oauth2"
+        runtime.auth_status = "connected"
+        db.commit()
+
+        print(
+            f"[JWT-LANDING-DEBUG] STORED: runtime={runtime_id}, auth_type=oauth2, auth_status=connected"
+        )
+        logger.info(f"JWT landing: stored token for runtime {runtime_id}")
+
+        return HTMLResponse(content=_close_window_html(True, email=email))
+
+    except Exception as e:
+        print(f"[JWT-LANDING-DEBUG] EXCEPTION: {e}")
+        logger.error(f"JWT landing error: {e}")
+        return HTMLResponse(
+            content=_close_window_html(False, str(e)),
+            status_code=500,
+        )
+
+
+def _close_window_html(success: bool, error: str = "", email: str = "") -> str:
+    """Return HTML that shows status and closes the window."""
+    if success:
+        status_text = f"Connected as {email}" if email else "Connected"
+        status_color = "#22c55e"
+    else:
+        status_text = f"Error: {error}"
+        status_color = "#ef4444"
+
+    return f"""<!DOCTYPE html>
+<html><head><title>OAuth {'Success' if success else 'Failed'}</title></head>
+<body style="display:flex;align-items:center;justify-content:center;height:100vh;
+font-family:system-ui;background:#111;color:#eee">
+<div style="text-align:center">
+  <p style="color:{status_color};font-size:1.2rem">{status_text}</p>
+  <p style="color:#888">This window will close automatically...</p>
+</div>
+<script>
+setTimeout(function(){{ window.close(); }}, 2000);
+</script>
+</body></html>"""

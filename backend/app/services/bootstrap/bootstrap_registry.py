@@ -11,7 +11,7 @@ from .bootstrap_strategies import (
     BootstrapStrategy,
     PythonScriptStrategy,
     ContentVaultInitStrategy,
-    SiteHubRuntimeInitStrategy,
+    CloudProviderRuntimeInitStrategy,
     ConditionalBootstrapStrategy,
 )
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class BootstrapRegistry:
     """Bootstrap strategy registry"""
 
-    _instance: Optional['BootstrapRegistry'] = None
+    _instance: Optional["BootstrapRegistry"] = None
     _strategies: Dict[str, BootstrapStrategy] = {}
 
     def __new__(cls):
@@ -35,7 +35,7 @@ class BootstrapRegistry:
         if not self._strategies:
             self.register(PythonScriptStrategy())
             self.register(ContentVaultInitStrategy())
-            self.register(SiteHubRuntimeInitStrategy())
+            self.register(CloudProviderRuntimeInitStrategy())
             self.register(ConditionalBootstrapStrategy())
 
     def register(self, strategy: BootstrapStrategy):
@@ -51,4 +51,3 @@ class BootstrapRegistry:
     def list_strategies(self) -> list:
         """List all registered strategy types"""
         return list(self._strategies.keys())
-

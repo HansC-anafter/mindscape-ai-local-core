@@ -1,7 +1,7 @@
 """
 Bootstrap Strategy Registry
 
-注册和管理所有 bootstrap 策略
+Register and manage all bootstrap strategies.
 """
 
 import logging
@@ -11,7 +11,7 @@ from .bootstrap_strategies import (
     BootstrapStrategy,
     PythonScriptStrategy,
     ContentVaultInitStrategy,
-    SiteHubRuntimeInitStrategy,
+    CloudProviderRuntimeInitStrategy,
     ConditionalBootstrapStrategy,
 )
 
@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 class BootstrapRegistry:
-    """Bootstrap 策略注册表"""
+    """Bootstrap strategy registry (singleton)."""
 
-    _instance: Optional['BootstrapRegistry'] = None
+    _instance: Optional["BootstrapRegistry"] = None
     _strategies: Dict[str, BootstrapStrategy] = {}
 
     def __new__(cls):
@@ -31,25 +31,24 @@ class BootstrapRegistry:
         return cls._instance
 
     def _initialize(self):
-        """初始化默认策略"""
+        """Initialize default strategies."""
         if not self._strategies:
-            # 注册默认策略
+            # Register default strategies
             self.register(PythonScriptStrategy())
             self.register(ContentVaultInitStrategy())
-            self.register(SiteHubRuntimeInitStrategy())
+            self.register(CloudProviderRuntimeInitStrategy())
             self.register(ConditionalBootstrapStrategy())
 
     def register(self, strategy: BootstrapStrategy):
-        """注册一个策略"""
+        """Register a strategy."""
         strategy_type = strategy.get_type()
         self._strategies[strategy_type] = strategy
         logger.debug(f"Registered bootstrap strategy: {strategy_type}")
 
     def get_strategy(self, strategy_type: str) -> Optional[BootstrapStrategy]:
-        """获取策略"""
+        """Get strategy by type identifier."""
         return self._strategies.get(strategy_type)
 
     def list_strategies(self) -> list:
-        """列出所有已注册的策略类型"""
+        """List all registered strategy types."""
         return list(self._strategies.keys())
-

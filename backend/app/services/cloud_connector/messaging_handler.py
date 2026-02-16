@@ -6,8 +6,8 @@ to the target workspace chat, treating the channel as a stateless input
 surface identical to the workspace chat input box.
 
 Flow:
-  Site-Hub -> CloudConnector WS -> MessagingHandler -> workspace chat pipeline
-  Workspace reply -> MessagingHandler -> CloudConnector WS -> Site-Hub -> LINE Reply API
+  Cloud Provider -> CloudConnector WS -> MessagingHandler -> workspace chat pipeline
+  Workspace reply -> MessagingHandler -> CloudConnector WS -> Cloud Provider -> LINE Reply API
 """
 
 import asyncio
@@ -29,7 +29,7 @@ def _utc_now():
 
 class MessagingHandler:
     """
-    Routes messaging events from Site-Hub channels to workspace chat.
+    Routes messaging events from cloud provider channels to workspace chat.
 
     Channels (LINE, WhatsApp, etc.) are stateless input surfaces.
     Messages are resolved to a target workspace via ChannelBinding
@@ -76,7 +76,7 @@ class MessagingHandler:
 
     async def handle(self, payload: Dict[str, Any]) -> None:
         """
-        Handle incoming messaging event from Site-Hub.
+        Handle incoming messaging event from cloud provider.
 
         Expected payload format:
         {
@@ -241,7 +241,7 @@ class MessagingHandler:
         Dispatch message to workspace chat via direct service call.
 
         Calls ChatOrchestratorService.run_background_chat() in-process,
-        then queries DB for the assistant reply to send back to Site-Hub.
+        then queries DB for the assistant reply to send back to the cloud provider.
         """
         try:
             # 1. Resolve target workspace
@@ -389,9 +389,9 @@ class MessagingHandler:
         result: Dict[str, Any],
     ) -> None:
         """
-        Send messaging reply back to Site-Hub via WebSocket.
+        Send messaging reply back to the cloud provider via WebSocket.
 
-        Site-Hub will use this to call LINE Reply/Push API.
+        The cloud provider will use this to call LINE Reply/Push API.
         """
         try:
             reply_message = {

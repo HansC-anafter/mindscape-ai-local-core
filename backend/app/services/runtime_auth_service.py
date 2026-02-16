@@ -280,9 +280,9 @@ class RuntimeAuthService:
         """
         Refresh an expired OAuth2 access token.
 
-        For Site-Hub tokens (token_source="site-hub"), refreshes against
-        Site-Hub's OIDC /token endpoint. For legacy Google tokens, refreshes
-        against Google's token endpoint.
+        For OIDC provider tokens (token_source="oidc"), refreshes against
+        the provider's OIDC /token endpoint derived from runtime.config_url.
+        For legacy Google tokens, refreshes against Google's token endpoint.
 
         Args:
             runtime: RuntimeEnvironment instance
@@ -301,17 +301,32 @@ class RuntimeAuthService:
 
         token_source = token_data.get("token_source", "google")
 
-        if token_source == "site-hub":
-            # Refresh against Site-Hub OIDC token endpoint
-            site_hub_base = os.getenv(
-                "SITE_HUB_BASE_URL",
-                os.getenv("SITE_HUB_API_URL", "http://site-hub-site-hub-api-1:8000"),
-            )
+        if token_source in ("oidc", "site-hub"):
+            # Refresh against cloud provider OIDC token endpoint
+            # Priority: runtime config_url > env vars
+            provider_base = None
+            if runtime and runtime.config_url:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(runtime.config_url)
+                provider_base = f"{parsed.scheme}://{parsed.netloc}"
+            if not provider_base:
+                provider_base = os.getenv(
+                    "CLOUD_PROVIDER_BASE_URL",
+                    os.getenv("CLOUD_PROVIDER_API_URL", ""),
+                )
+
+            if not provider_base:
+                logger.error(
+                    f"Cannot refresh OIDC token for runtime {runtime.id}: "
+                    f"no config_url or CLOUD_PROVIDER_BASE_URL set"
+                )
+                return None
 
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(
-                        f"{site_hub_base}/api/v1/oidc/token",
+                        f"{provider_base}/api/v1/oidc/token",
                         data={
                             "grant_type": "refresh_token",
                             "refresh_token": refresh_token,
@@ -333,23 +348,21 @@ class RuntimeAuthService:
                         db.add(runtime)
                         db.commit()
                         logger.info(
-                            f"Site-Hub token refreshed and persisted for runtime {runtime.id}"
+                            f"OIDC token refreshed and persisted for runtime {runtime.id}"
                         )
                     except Exception as commit_err:
                         logger.error(f"Failed to persist refreshed token: {commit_err}")
                         db.rollback()
                 else:
                     logger.warning(
-                        f"Site-Hub token refreshed for runtime {runtime.id} but no db "
+                        f"OIDC token refreshed for runtime {runtime.id} but no db "
                         f"session provided — changes are in-memory only"
                     )
 
                 return new_tokens["access_token"]
 
             except Exception as e:
-                logger.error(
-                    f"Site-Hub token refresh failed for runtime {runtime.id}: {e}"
-                )
+                logger.error(f"OIDC token refresh failed for runtime {runtime.id}: {e}")
                 return None
 
         # Legacy: Refresh against Google's token endpoint

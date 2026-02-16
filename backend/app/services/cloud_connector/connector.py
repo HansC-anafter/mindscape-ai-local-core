@@ -31,7 +31,7 @@ class CloudConnector:
     Manages WebSocket connection, automatic reconnection, and coordinates
     transport and heartbeat components.
 
-    ⚠️ Hard Rule: This is an Execution Transport Adapter only.
+    Hard Rule: This is an Execution Transport Adapter only.
     It does NOT contain Cloud business logic or Cloud UI.
     """
 
@@ -93,17 +93,17 @@ class CloudConnector:
         Get device token for WebSocket authentication.
 
         Token resolution order:
-        1. SITE_HUB_USER_TOKEN / SITE_HUB_API_TOKEN environment variable
-        2. OAuth access_token from the 'site-hub' runtime in the database
+        1. CLOUD_PROVIDER_TOKEN / CLOUD_API_TOKEN environment variable
+        2. OAuth access_token from the cloud provider runtime in the database
         3. Mock token (development fallback)
 
         Returns:
             Access token for WebSocket authentication
         """
         # Priority 1: explicit env var
-        user_token = os.getenv("SITE_HUB_USER_TOKEN") or os.getenv("SITE_HUB_API_TOKEN")
+        user_token = os.getenv("CLOUD_PROVIDER_TOKEN") or os.getenv("CLOUD_API_TOKEN")
 
-        # Priority 2: OAuth token from site-hub runtime in DB
+        # Priority 2: OAuth token from cloud provider runtime in DB
         if not user_token:
             user_token = self._get_runtime_oauth_token()
 
@@ -119,7 +119,9 @@ class CloudConnector:
 
     def _get_runtime_oauth_token(self) -> str | None:
         """
-        Read OAuth access_token from the site-hub runtime's auth_config in DB.
+        Read OAuth access_token from the first connected OAuth runtime in DB.
+
+        Looks up the first runtime with auth_type='oauth2' and auth_status='connected'.
 
         Returns:
             Access token string, or None if unavailable.
@@ -132,21 +134,24 @@ class CloudConnector:
             db = next(get_db_postgres())
             runtime = (
                 db.query(RuntimeEnvironment)
-                .filter(RuntimeEnvironment.id == "site-hub")
+                .filter(
+                    RuntimeEnvironment.auth_type == "oauth2",
+                    RuntimeEnvironment.auth_status == "connected",
+                )
                 .first()
             )
             if not runtime or not runtime.auth_config:
-                logger.debug("No site-hub runtime or auth_config found in DB")
+                logger.debug("No connected OAuth runtime or auth_config found in DB")
                 return None
 
             svc = RuntimeAuthService()
             token_data = svc.decrypt_token_blob(runtime.auth_config)
             access_token = token_data.get("access_token")
             if access_token:
-                logger.debug("Retrieved OAuth token from site-hub runtime")
+                logger.debug("Retrieved OAuth token from cloud provider runtime")
                 return access_token
 
-            logger.debug("site-hub runtime auth_config has no access_token")
+            logger.debug("Cloud provider runtime auth_config has no access_token")
             return None
         except Exception as e:
             logger.warning(f"Failed to read runtime OAuth token: {e}")

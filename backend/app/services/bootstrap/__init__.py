@@ -9,16 +9,15 @@ from .bootstrap_strategies import (
     BootstrapStrategy,
     PythonScriptStrategy,
     ContentVaultInitStrategy,
-    SiteHubRuntimeInitStrategy,
+    CloudProviderRuntimeInitStrategy,
     ConditionalBootstrapStrategy,
 )
 
 __all__ = [
-    'BootstrapRegistry',
-    'BootstrapStrategy',
-    'PythonScriptStrategy',
-    'ContentVaultInitStrategy',
-    'SiteHubRuntimeInitStrategy',
-    'ConditionalBootstrapStrategy',
+    "BootstrapRegistry",
+    "BootstrapStrategy",
+    "PythonScriptStrategy",
+    "ContentVaultInitStrategy",
+    "CloudProviderRuntimeInitStrategy",
+    "ConditionalBootstrapStrategy",
 ]
-

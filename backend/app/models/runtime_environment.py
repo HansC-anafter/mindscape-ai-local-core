@@ -1,7 +1,7 @@
 """
 Runtime Environment Model
 
-Defines the data model for external runtime environments (e.g., Site-Hub, Semantic-Hub).
+Defines the data model for external runtime environments (e.g., cloud providers, API services).
 Supports authentication configuration and encrypted storage of credentials.
 """
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class RuntimeEnvironment(Base):
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {"extend_existing": True}
     """
     Runtime Environment model for storing external runtime configurations.
 
@@ -61,12 +61,19 @@ class RuntimeEnvironment(Base):
     config_url = Column(String, nullable=False)
 
     # Authentication configuration
-    auth_type = Column(String, nullable=False, default="none")  # "api_key" | "oauth2" | "none"
+    auth_type = Column(
+        String, nullable=False, default="none"
+    )  # "api_key" | "oauth2" | "none"
     auth_config = Column(JSON, nullable=True)  # Encrypted credentials stored here
 
     # Status
-    status = Column(String, nullable=False, default="not_configured")  # "active" | "inactive" | "configured" | "not_configured"
+    status = Column(
+        String, nullable=False, default="not_configured"
+    )  # "active" | "inactive" | "configured" | "not_configured"
     is_default = Column(Boolean, nullable=False, default=False)
+
+    # OAuth connection status: "disconnected" | "pending" | "connected" | "error"
+    auth_status = Column(String, nullable=False, default="disconnected", index=True)
 
     # Architecture support (for future Dispatch Workspace integration)
     supports_dispatch = Column(Boolean, nullable=False, default=True)
@@ -77,8 +84,15 @@ class RuntimeEnvironment(Base):
     extra_metadata = Column(JSON, nullable=True, default=dict)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     def to_dict(self, include_sensitive: bool = False) -> Dict[str, Any]:
         """
@@ -103,6 +117,12 @@ class RuntimeEnvironment(Base):
             "supports_cell": self.supports_cell,
             "recommended_for_dispatch": self.recommended_for_dispatch,
             "metadata": self.extra_metadata or {},
+            "auth_status": self.auth_status or "disconnected",
+            "auth_identity": (
+                (self.auth_config or {}).get("identity")
+                if self.auth_status == "connected"
+                else None
+            ),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -112,4 +132,3 @@ class RuntimeEnvironment(Base):
             data["auth_config"] = self.auth_config
 
         return data
-

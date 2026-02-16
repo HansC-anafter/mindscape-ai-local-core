@@ -26,7 +26,7 @@ class BootstrapStrategy(ABC):
         cap_dir: Path,
         capability_code: str,
         config: Dict,
-        result
+        result,
     ) -> bool:
         """
         Execute bootstrap operation
@@ -61,9 +61,9 @@ class PythonScriptStrategy(BootstrapStrategy):
         cap_dir: Path,
         capability_code: str,
         config: Dict,
-        result
+        result,
     ) -> bool:
-        script_path = config.get('path')
+        script_path = config.get("path")
         if not script_path:
             logger.warning(f"Python script bootstrap: missing 'path' in config")
             result.add_warning("Bootstrap script: missing 'path'")
@@ -82,7 +82,7 @@ class PythonScriptStrategy(BootstrapStrategy):
                 cwd=str(local_core_root),
                 capture_output=True,
                 text=True,
-                timeout=config.get('timeout', 60)
+                timeout=config.get("timeout", 60),
             )
 
             if process_result.returncode == 0:
@@ -116,12 +116,14 @@ class ContentVaultInitStrategy(BootstrapStrategy):
         cap_dir: Path,
         capability_code: str,
         config: Dict,
-        result
+        result,
     ) -> bool:
-        vault_path = config.get('vault_path')
+        vault_path = config.get("vault_path")
 
         try:
-            script_path = local_core_root / "backend" / "scripts" / "init_content_vault.py"
+            script_path = (
+                local_core_root / "backend" / "scripts" / "init_content_vault.py"
+            )
             if not script_path.exists():
                 logger.warning(f"Content Vault init script not found: {script_path}")
                 result.add_warning("Content Vault init script not found")
@@ -137,7 +139,7 @@ class ContentVaultInitStrategy(BootstrapStrategy):
                 cwd=str(local_core_root),
                 capture_output=True,
                 text=True,
-                timeout=config.get('timeout', 30)
+                timeout=config.get("timeout", 30),
             )
 
             if process_result.returncode == 0:
@@ -145,8 +147,12 @@ class ContentVaultInitStrategy(BootstrapStrategy):
                 result.bootstrap.append("content_vault_initialized")
                 return True
             else:
-                logger.warning(f"Content Vault initialization failed: {process_result.stderr}")
-                result.add_warning(f"Content Vault initialization failed: {process_result.stderr}")
+                logger.warning(
+                    f"Content Vault initialization failed: {process_result.stderr}"
+                )
+                result.add_warning(
+                    f"Content Vault initialization failed: {process_result.stderr}"
+                )
                 return False
 
         except subprocess.TimeoutExpired:
@@ -159,11 +165,11 @@ class ContentVaultInitStrategy(BootstrapStrategy):
             return False
 
 
-class SiteHubRuntimeInitStrategy(BootstrapStrategy):
-    """Strategy for initializing Site-Hub Runtime (conditional execution)"""
+class CloudProviderRuntimeInitStrategy(BootstrapStrategy):
+    """Strategy for initializing cloud provider runtime (conditional execution)"""
 
     def get_type(self) -> str:
-        return "site_hub_runtime_init"
+        return "cloud_provider_runtime_init"
 
     def execute(
         self,
@@ -171,19 +177,23 @@ class SiteHubRuntimeInitStrategy(BootstrapStrategy):
         cap_dir: Path,
         capability_code: str,
         config: Dict,
-        result
+        result,
     ) -> bool:
         """
-        Auto-register Site-Hub runtime if environment variable is set.
+        Auto-register cloud provider runtime if environment variable is set.
         Skip silently if environment variable is not set.
         """
-        site_hub_url = os.getenv("SITE_HUB_API_BASE") or os.getenv("SITE_HUB_URL")
-        if not site_hub_url:
-            logger.debug("SITE_HUB_API_BASE not set, skipping Site-Hub runtime auto-registration")
-            if config.get('warn_if_missing', False):
+        provider_url = os.getenv("CLOUD_PROVIDER_API_BASE") or os.getenv(
+            "CLOUD_PROVIDER_URL"
+        )
+        if not provider_url:
+            logger.debug(
+                "CLOUD_PROVIDER_API_BASE not set, skipping cloud provider runtime auto-registration"
+            )
+            if config.get("warn_if_missing", False):
                 result.add_warning(
-                    "Site-Hub runtime not auto-registered. "
-                    "Set SITE_HUB_API_BASE environment variable or use 'site_hub_setup' playbook to register."
+                    "Cloud provider runtime not auto-registered. "
+                    "Set CLOUD_PROVIDER_API_BASE environment variable or use the setup playbook to register."
                 )
             return True
 
@@ -193,23 +203,38 @@ class SiteHubRuntimeInitStrategy(BootstrapStrategy):
 
             async def check_runtime():
                 try:
-                    local_core_api = os.getenv("LOCAL_CORE_API_BASE", "http://localhost:8200")
+                    local_core_api = os.getenv(
+                        "LOCAL_CORE_API_BASE", "http://localhost:8200"
+                    )
                     async with httpx.AsyncClient(timeout=5.0) as client:
-                        response = await client.get(f"{local_core_api}/api/v1/runtime-environments")
+                        response = await client.get(
+                            f"{local_core_api}/api/v1/runtime-environments"
+                        )
                         if response.status_code == 200:
                             data = response.json()
-                            runtimes = data.get("runtimes", []) if isinstance(data, dict) else data
+                            runtimes = (
+                                data.get("runtimes", [])
+                                if isinstance(data, dict)
+                                else data
+                            )
                             for rt in runtimes:
-                                if rt.get("id") == "site-hub" or (
-                                    isinstance(rt.get("metadata", {}).get("signature", {}), dict) and
-                                    rt.get("metadata", {}).get("signature", {}).get("base_url") == site_hub_url.rstrip("/")
+                                if isinstance(
+                                    rt.get("metadata", {}).get("signature", {}), dict
+                                ) and rt.get("metadata", {}).get("signature", {}).get(
+                                    "base_url"
+                                ) == provider_url.rstrip(
+                                    "/"
                                 ):
-                                    logger.info("Site-Hub runtime already registered")
-                                    result.bootstrap.append("site_hub_runtime_already_registered")
+                                    logger.info(
+                                        "Cloud provider runtime already registered"
+                                    )
+                                    result.bootstrap.append(
+                                        "cloud_provider_runtime_already_registered"
+                                    )
                                     return True
                     return False
                 except Exception as e:
-                    logger.debug(f"Site-Hub runtime check failed: {e}")
+                    logger.debug(f"Cloud provider runtime check failed: {e}")
                     return False
 
             try:
@@ -222,28 +247,32 @@ class SiteHubRuntimeInitStrategy(BootstrapStrategy):
             if already_registered:
                 return True
 
-            logger.info("Site-Hub runtime auto-registration skipped (requires user context)")
-            if config.get('warn_if_missing', True):
+            logger.info(
+                "Cloud provider runtime auto-registration skipped (requires user context)"
+            )
+            if config.get("warn_if_missing", True):
                 result.add_warning(
-                    "Site-Hub runtime auto-registration requires user context. "
-                    "Please use 'site_hub_setup' playbook or call 'site_hub_register_runtime' tool to register."
+                    "Cloud provider runtime auto-registration requires user context. "
+                    "Please use the setup playbook or register tool to register."
                 )
             return True
 
         except ImportError:
-            logger.debug("httpx not available for Site-Hub runtime check")
-            if config.get('warn_if_missing', False):
+            logger.debug("httpx not available for cloud provider runtime check")
+            if config.get("warn_if_missing", False):
                 result.add_warning(
-                    "Site-Hub runtime auto-registration skipped (tools not available). "
-                    "Please use 'site_hub_setup' playbook to register."
+                    "Cloud provider runtime auto-registration skipped (tools not available). "
+                    "Please use the setup playbook to register."
                 )
             return True
         except Exception as e:
-            logger.warning(f"Site-Hub runtime auto-registration check failed: {e}")
-            if config.get('warn_if_missing', False):
+            logger.warning(
+                f"Cloud provider runtime auto-registration check failed: {e}"
+            )
+            if config.get("warn_if_missing", False):
                 result.add_warning(
-                    f"Site-Hub runtime auto-registration skipped: {str(e)}. "
-                    "Please use 'site_hub_setup' playbook to register."
+                    f"Cloud provider runtime auto-registration skipped: {str(e)}. "
+                    "Please use the setup playbook to register."
                 )
             return True
 
@@ -263,7 +292,7 @@ class ConditionalBootstrapStrategy(BootstrapStrategy):
         cap_dir: Path,
         capability_code: str,
         config: Dict,
-        result
+        result,
     ) -> bool:
         """
         Execute sub-strategy based on condition
@@ -280,37 +309,41 @@ class ConditionalBootstrapStrategy(BootstrapStrategy):
             }
         }
         """
-        condition = config.get('condition', {})
-        condition_type = condition.get('type')
-        condition_value = condition.get('value')
+        condition = config.get("condition", {})
+        condition_type = condition.get("type")
+        condition_value = condition.get("value")
 
         should_execute = False
-        if condition_type == 'capability_code_in':
+        if condition_type == "capability_code_in":
             if isinstance(condition_value, list):
                 should_execute = capability_code in condition_value
-        elif condition_type == 'capability_code_match':
+        elif condition_type == "capability_code_match":
             import re
+
             if isinstance(condition_value, str):
                 should_execute = bool(re.match(condition_value, capability_code))
-        elif condition_type == 'env_var_set':
+        elif condition_type == "env_var_set":
             if isinstance(condition_value, str):
                 should_execute = bool(os.getenv(condition_value))
-        elif condition_type == 'always':
+        elif condition_type == "always":
             should_execute = True
         else:
             logger.warning(f"Unknown condition type: {condition_type}")
             return False
 
         if not should_execute:
-            logger.debug(f"Condition not met for bootstrap: {condition_type}={condition_value}")
+            logger.debug(
+                f"Condition not met for bootstrap: {condition_type}={condition_value}"
+            )
             return True
 
-        strategy_config = config.get('strategy', {})
-        strategy_type = strategy_config.get('type')
+        strategy_config = config.get("strategy", {})
+        strategy_type = strategy_config.get("type")
         if not strategy_type:
             logger.warning("Conditional bootstrap: missing strategy type")
             return False
         from .bootstrap_registry import BootstrapRegistry
+
         registry = BootstrapRegistry()
         strategy = registry.get_strategy(strategy_type)
         if not strategy:
@@ -319,11 +352,5 @@ class ConditionalBootstrapStrategy(BootstrapStrategy):
             return False
 
         return strategy.execute(
-            local_core_root,
-            cap_dir,
-            capability_code,
-            strategy_config,
-            result
+            local_core_root, cap_dir, capability_code, strategy_config, result
         )
-
-

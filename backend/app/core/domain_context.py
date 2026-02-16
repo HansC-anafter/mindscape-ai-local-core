@@ -1,15 +1,16 @@
 """
 Local Domain Context - Core domain abstraction for local workspace context
 
-⚠️ This is a LOCAL DOMAIN MODEL, not the execution protocol.
+WARNING: This is a LOCAL DOMAIN MODEL, not the execution protocol.
 It represents workspace/actor/mind-lens state for UI/governance layer.
 
-⚠️ Hard Rule: local-core core does NOT depend on sitehub-execution-protocol.
+Hard Rule: local-core core does NOT depend on cloud-execution-protocol.
 Protocol package is only installed in pack runtime venv (via Pack Installer).
 
-⚠️ Hard Rule: local-core core does NOT directly call site-hub API.
+Hard Rule: local-core core does NOT directly call cloud provider API.
 For cloud handoff/communication, must use external tools (not in local-core repo).
 """
+
 from typing import Dict, Optional, Any
 from pydantic import BaseModel
 
@@ -28,15 +29,14 @@ class LocalDomainContext(BaseModel):
             - Can include: policy_set_id, assets_refs, lens_stack (as metadata)
         mind_lens: Optional resolved Mind Lens for role-based perspective
     """
+
     actor_id: str
     workspace_id: str
     tags: Optional[Dict[str, Any]] = None
     mind_lens: Optional[Dict[str, Any]] = None
 
     class Config:
-        json_encoders = {
-            dict: lambda v: v
-        }
+        json_encoders = {dict: lambda v: v}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -44,8 +44,5 @@ class LocalDomainContext(BaseModel):
             "actor_id": self.actor_id,
             "workspace_id": self.workspace_id,
             "tags": self.tags or {},
-            "mind_lens": self.mind_lens
+            "mind_lens": self.mind_lens,
         }
-
-
-

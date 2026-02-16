@@ -12,6 +12,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from ..models.dashboard import (
     DashboardSummaryDTO,
     DashboardCountsDTO,
@@ -102,7 +103,7 @@ class DashboardAggregator:
         """
         Get inbox items
 
-        Sorting rules (site-hub specification):
+        Sorting rules (cloud specification):
         1. pending_decision (tier 1) - NOT SUPPORTED in Local-Core
         2. assignment (tier 2) - SUPPORTED (from pending tasks)
         3. mention (tier 3) - NOT SUPPORTED in Local-Core
@@ -127,7 +128,7 @@ class DashboardAggregator:
         # When implemented, it should return SetupItem enum values, and we can create alerts
         # For now, system_alert items are not generated (only assignment items exist)
 
-        # 3. Sort (using site-hub specification)
+        # 3. Sort (using cloud specification)
         items.sort(key=self._inbox_sort_key)
 
         # 4. Pagination
@@ -281,7 +282,7 @@ class DashboardAggregator:
 
     def _inbox_sort_key(self, item: InboxItemDTO):
         """
-        Inbox sort key (site-hub specification)
+        Inbox sort key (cloud specification)
 
         1. Priority tier (lower number = higher priority)
         2. due_at ascending (None last)
