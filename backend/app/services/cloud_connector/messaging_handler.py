@@ -268,7 +268,11 @@ class MessagingHandler:
             )
 
             # 2. Call ChatOrchestratorService directly (in-process, no HTTP)
-            from backend.app.services.mindscape_store import MindscapeStore
+            from backend.app.routes.workspace_dependencies import (
+                get_store,
+                get_intent_pipeline,
+                get_playbook_runner,
+            )
             from backend.app.services.conversation_orchestrator import (
                 ConversationOrchestrator,
             )
@@ -277,8 +281,7 @@ class MessagingHandler:
             )
             from backend.app.models.workspace import WorkspaceChatRequest
 
-            loop = asyncio.get_running_loop()
-            store = MindscapeStore()
+            store = get_store()
 
             workspace = await store.get_workspace(workspace_id)
             if not workspace:
@@ -293,8 +296,19 @@ class MessagingHandler:
                 )
                 return
 
+            intent_pipeline = get_intent_pipeline(store)
+            playbook_runner = get_playbook_runner()
+            default_locale = (
+                workspace.default_locale if workspace.default_locale else "zh-TW"
+            )
+
             profile_id = workspace.owner_user_id or "default-user"
-            orchestrator = ConversationOrchestrator(store)
+            orchestrator = ConversationOrchestrator(
+                store=store,
+                intent_pipeline=intent_pipeline,
+                playbook_runner=playbook_runner,
+                default_locale=default_locale,
+            )
             service = ChatOrchestratorService(orchestrator)
 
             chat_request = WorkspaceChatRequest(
@@ -313,7 +327,7 @@ class MessagingHandler:
             # 3. Query DB for the latest assistant reply
             reply_text = ""
             try:
-                events = await loop.run_in_executor(
+                events = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: store.events.get_events_by_thread(
                         workspace_id=workspace_id,
