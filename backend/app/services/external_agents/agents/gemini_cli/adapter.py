@@ -192,25 +192,26 @@ class GeminiCLIAdapter(PollingAgentAdapter):
         return available
 
     def _has_active_polling_runners(self) -> bool:
-        """Check if any runner has active tasks, reserved leases, or recent polls."""
-        try:
-            from backend.app.routes.agent_websocket import (
-                get_agent_dispatch_manager,
-            )
+        """Check if any runner process has recent heartbeats in the DB.
 
-            manager = get_agent_dispatch_manager()
-            # Check inflight tasks (actively executing)
-            if manager._inflight:
+        The runner container talks directly to PostgreSQL via TasksStore,
+        bypassing the backend's in-memory AgentDispatchManager entirely.
+        So we check the DB for running tasks with recent heartbeats.
+        """
+        try:
+            from backend.app.services.stores.tasks_store import TasksStore
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            store = MindscapeStore()
+            tasks_store = TasksStore(db_path=store.db_path)
+            running = tasks_store.list_running_playbook_execution_tasks(
+                workspace_id=None, limit=5
+            )
+            if running:
                 return True
-            # Check reserved tasks (runner polled and has a lease)
-            if hasattr(manager, "_reserved") and manager._reserved:
-                return True
-            # Check if any runner has recently polled (idle but alive)
-            if hasattr(manager, "has_recent_poll_activity"):
-                if manager.has_recent_poll_activity(max_age_seconds=120.0):
-                    return True
             return False
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to check for active polling runners: {e}")
             return False
 
     def _resolve_ws_manager(self) -> None:
