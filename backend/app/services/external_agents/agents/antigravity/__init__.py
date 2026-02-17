@@ -1,1 +1,0 @@
-# Antigravity IDE Agent Adapter
