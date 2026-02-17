@@ -99,22 +99,22 @@ scripts-internal/
 docker-compose.override.yml
 
 # ============================================
-# HARD BARRIER: 禁止 Cloud 组件进入 Local-Core
+# HARD BARRIER: No cloud components in local-core
 # ============================================
-# 这些路径应该永远为空，如果出现文件则说明架构违规
-# 所有通过 CapabilityInstaller 安装的文件都应该被排除
+# These paths should always be empty; files here indicate architecture violations.
+# All files installed via CapabilityInstaller should be excluded.
 /web-console/src/app/capabilities/
 !/web-console/src/app/capabilities/.gitkeep
 /backend/app/capabilities/
 !/backend/app/capabilities/.gitkeep
 
-# Capability-installed playbooks (透過 API 安裝，不應該直接 commit)
+# Capability-installed playbooks (installed via API, not committed directly)
 /backend/i18n/playbooks/
 /backend/playbooks/
 /backend/playbooks/specs/
 /backend/app/playbooks/
 
-# Cloud 特定的模型目录（不应在 local-core 中）
+# Cloud-specific model directories (should not exist in local-core)
 /backend/app/models/sonic_space/
 /backend/app/models/visual_lens/
 /backend/app/models/walkto_lab/

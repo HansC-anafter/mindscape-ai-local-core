@@ -5,8 +5,6 @@ description: Enforce Mindscape AI local-core development rules - architecture bo
 
 # Mindscape AI Local-Core Developer Guide (Agent Skill)
 
-> Source of truth: `docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md`
-> Internal docs language: **Traditional Chinese (zh-TW)**
 > Code / comments / logger messages language: **English only**
 
 ---
@@ -76,7 +74,6 @@ Before committing changes to these files, verify no cross-repo reads:
 | Docstrings | English only |
 | Logger messages | English only, no emoji |
 | Variable / function names | English (snake_case Python, camelCase TS) |
-| Internal docs (`docs-internal/`) | Traditional Chinese (zh-TW) |
 | Commit messages | English, Conventional Commits |
 
 ### 3.2 Forbidden in Code Comments
@@ -127,7 +124,7 @@ def get_workspace_by_id(workspace_id: int) -> Optional[Workspace]:
 
 ### 4.2 Conventional Commits
 
-```
+```text
 <type>(<scope>): <subject>
 ```
 
@@ -257,14 +254,7 @@ mindscape-ai-local-core/
 
 ## 8. Documentation Conventions
 
-### 8.1 Internal Documentation
-
-- Location: `docs-internal/`
-- Language: **Traditional Chinese (zh-TW)**
-- Implementation records: `docs-internal/implementation/{feature}-{date}.md`
-- Architecture decisions: `docs-internal/architecture/change-request-{topic}-{date}.md`
-
-### 8.2 Implementation Document Contents
+### 8.1 Implementation Document Contents
 
 1. Background / motivation
 2. Architecture overview (components, data flow)
@@ -273,31 +263,11 @@ mindscape-ai-local-core/
 5. Verification results
 6. Remaining TODOs
 
-### 8.3 Cross-Referencing
-
-After completing a feature, add links to:
-- `DEVELOPER_GUIDE_MINDSCAPE_AI.md` section "Related Documents"
-- Relevant change request documents
-
----
-
-## 9. Authentication (local-core scope)
-
-### 9.1 GCA Auth (Google Cloud Access)
-
-- Backend endpoint: `GET /api/v1/auth/cli-token` (auto-refreshes expired tokens)
-- Bridge script fetches fresh token before each CLI invocation
-- Env vars: `GOOGLE_GENAI_USE_GCA=true`, `GOOGLE_CLOUD_ACCESS_TOKEN=<token>`
-
-### 9.2 Fernet Encryption
-
-OAuth tokens encrypted at rest using Fernet. Key persisted via Docker volume (`./data/secrets:/root/.mindscape:rw`).
-
 ---
 
 ## Quick Reference: Pre-Commit Checklist
 
-```
+```text
 [ ] No Chinese in code comments / logger messages
 [ ] No emoji in code / logs
 [ ] No hardcoded secrets
