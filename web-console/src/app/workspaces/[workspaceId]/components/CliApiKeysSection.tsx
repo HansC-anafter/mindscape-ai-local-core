@@ -165,10 +165,8 @@ export default function CliApiKeysSection() {
         try {
             const base = getApiBaseUrl();
             // Save the API key
-            const resp = await fetch(`${base}/api/v1/system-settings/${key}`, {
+            const resp = await fetch(`${base}/api/v1/system-settings/${key}?value=${encodeURIComponent(val)}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(val),
             });
 
             if (!resp.ok) {
@@ -181,12 +179,8 @@ export default function CliApiKeysSection() {
             // If Gemini, also set auth_mode
             if (agent.authModeValue) {
                 await fetch(
-                    `${base}/api/v1/system-settings/gemini_cli_auth_mode`,
-                    {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(agent.authModeValue),
-                    }
+                    `${base}/api/v1/system-settings/gemini_cli_auth_mode?value=${encodeURIComponent(agent.authModeValue)}`,
+                    { method: 'PUT' }
                 );
                 setCurrentAuthMode(agent.authModeValue);
             }
@@ -208,12 +202,8 @@ export default function CliApiKeysSection() {
         // Set auth_mode to gca
         try {
             await fetch(
-                `${base}/api/v1/system-settings/gemini_cli_auth_mode`,
-                {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify('gca'),
-                }
+                `${base}/api/v1/system-settings/gemini_cli_auth_mode?value=gca`,
+                { method: 'PUT' }
             );
             setCurrentAuthMode('gca');
         } catch {
