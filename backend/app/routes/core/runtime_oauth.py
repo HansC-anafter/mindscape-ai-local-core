@@ -114,7 +114,9 @@ def _get_oauth_credentials(
 
     # Runtime OAuth always uses its own callback path
     if not redirect_uri:
-        base = os.getenv("RUNTIME_OAUTH_BASE_URL", "http://localhost:8300")
+        base = os.getenv(
+            "RUNTIME_OAUTH_BASE_URL", f"http://localhost:{os.getenv('PORT', '8200')}"
+        )
         redirect_uri = f"{base.rstrip('/')}/api/v1/runtime-oauth/callback"
 
     if not client_id or not client_secret:
@@ -138,11 +140,12 @@ async def authorize(
     """
     Start OAuth2 authorization flow.
 
-    For cloud provider runtimes (with config_url): redirects to the
-    provider's runtime-oauth-initiate endpoint so the OAuth flow stays
-    on the provider domain.
+    GCA mode: always uses local OAuth with Gemini CLI's Client ID.
+    cloudcode-pa.googleapis.com is a restricted API only available on
+    CLI's project (681255809395). Tokens must be obtained using CLI's
+    Client ID so they bind to the correct project.
 
-    For local-only runtimes: redirects directly to Google OAuth.
+    Non-GCA: uses site-hub provider flow if config_url is present.
     """
     # Verify runtime exists and user has access
     runtime = (
@@ -162,7 +165,56 @@ async def authorize(
     runtime.auth_status = "pending"
     db.commit()
 
-    # If this runtime has a config_url, redirect through the provider domain
+    # Determine auth mode — GCA always uses local OAuth with CLI Client ID
+    is_gca = False
+    try:
+        from ...services.system_settings_store import SystemSettingsStore
+
+        auth_mode = SystemSettingsStore().get("gemini_cli_auth_mode", "gca")
+        is_gca = auth_mode == "gca"
+    except Exception:
+        is_gca = True  # Default to GCA
+
+    if is_gca:
+        # GCA mode: direct Google OAuth with CLI's Client ID.
+        # CLI's OAuth app is installed-app type, only allows localhost
+        # redirect URIs. Site-hub's domain would cause redirect_uri_mismatch.
+        from .gca_constants import (
+            GCA_OAUTH_CLIENT_ID,
+            GCA_OAUTH_SCOPES_STRING,
+        )
+
+        base = os.getenv(
+            "RUNTIME_OAUTH_BASE_URL", f"http://localhost:{os.getenv('PORT', '8200')}"
+        )
+        redirect_uri = f"{base.rstrip('/')}/api/v1/runtime-oauth/callback"
+
+        state = secrets.token_urlsafe(32)
+        _pending_states[state] = {
+            "runtime_id": runtime_id,
+            "user_id": current_user.id,
+            "created_at": time.time(),
+            "flow": "gca",
+        }
+
+        auth_url = (
+            "https://accounts.google.com/o/oauth2/v2/auth"
+            f"?client_id={GCA_OAUTH_CLIENT_ID}"
+            f"&redirect_uri={redirect_uri}"
+            f"&response_type=code"
+            f"&scope={GCA_OAUTH_SCOPES_STRING}"
+            f"&state={state}"
+            f"&access_type=offline"
+            f"&prompt=consent"
+        )
+
+        logger.info(
+            "GCA mode: local OAuth with CLI Client ID for runtime %s",
+            runtime_id,
+        )
+        return RedirectResponse(url=auth_url)
+
+    # Non-GCA: if runtime has config_url, redirect through site-hub
     if runtime.config_url:
         # Get site_key from workspace config or runtime metadata
         site_key = ""
@@ -220,7 +272,7 @@ async def authorize(
         logger.info(f"Cloud provider runtime detected, redirecting to: {initiate_url}")
         return RedirectResponse(url=initiate_url)
 
-    # Local-only runtime: redirect directly to Google OAuth
+    # Local-only, non-GCA runtime: redirect directly to Google OAuth
     client_id, _, redirect_uri = _get_oauth_credentials(runtime)
 
     state = secrets.token_urlsafe(32)
@@ -230,7 +282,6 @@ async def authorize(
         "created_at": time.time(),
     }
 
-    # Use GCA scopes for Code Assist compatibility
     from .gca_constants import GCA_OAUTH_SCOPES_STRING
 
     scopes = GCA_OAUTH_SCOPES_STRING
@@ -258,9 +309,8 @@ async def callback(
     """
     OAuth2 callback handler.
 
-    Receives authorization code from Google, sends it to the cloud
-    provider's runtime-token-exchange endpoint to get a provider JWT,
-    encrypts and stores the JWT, then returns HTML that closes the popup.
+    GCA flow: exchanges code directly with Google using CLI credentials.
+    Non-GCA flow: sends code to site-hub for provider JWT exchange.
     """
     if error:
         logger.warning(f"OAuth callback received error: {error}")
@@ -282,6 +332,7 @@ async def callback(
 
     runtime_id = state_data["runtime_id"]
     user_id = state_data["user_id"]
+    is_gca_flow = state_data.get("flow") == "gca"
 
     # Load runtime
     runtime = (
@@ -295,6 +346,101 @@ async def callback(
     if not runtime:
         return _popup_close_response(success=False, error="Runtime not found")
 
+    if is_gca_flow:
+        return await _handle_gca_callback(code, runtime_id, runtime, db)
+
+    # Non-GCA: exchange via site-hub provider
+    return await _handle_provider_callback(code, runtime_id, runtime, db)
+
+
+async def _handle_gca_callback(code, runtime_id, runtime, db):
+    """Exchange Google auth code directly using CLI credentials.
+
+    Tokens obtained with CLI's Client ID bind to project 681255809395
+    where cloudcode-pa.googleapis.com is enabled.
+    """
+    import httpx
+    from .gca_constants import GCA_OAUTH_CLIENT_ID, GCA_OAUTH_CLIENT_SECRET
+
+    base = os.getenv(
+        "RUNTIME_OAUTH_BASE_URL", f"http://localhost:{os.getenv('PORT', '8200')}"
+    )
+    redirect_uri = f"{base.rstrip('/')}/api/v1/runtime-oauth/callback"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Exchange code directly with Google (not via site-hub)
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": GCA_OAUTH_CLIENT_ID,
+                    "client_secret": GCA_OAUTH_CLIENT_SECRET,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+            if token_resp.status_code != 200:
+                logger.error(
+                    "GCA token exchange failed: status=%s body=%s",
+                    token_resp.status_code,
+                    token_resp.text,
+                )
+                runtime.auth_status = "error"
+                db.commit()
+                return _popup_close_response(
+                    success=False, error="Google token exchange failed"
+                )
+
+            google_tokens = token_resp.json()
+
+            # Fetch user email for identity display
+            identity = ""
+            access_token = google_tokens.get("access_token", "")
+            if access_token:
+                userinfo_resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if userinfo_resp.status_code == 200:
+                    identity = userinfo_resp.json().get("email", "")
+
+    except Exception as e:
+        logger.error("GCA OAuth exchange error: %s", e)
+        runtime.auth_status = "error"
+        db.commit()
+        return _popup_close_response(success=False, error="GCA token exchange failed")
+
+    expires_in = google_tokens.get("expires_in", 3600)
+    token_data = {
+        "access_token": "",  # No site-hub JWT needed for GCA
+        "refresh_token": "",
+        "expiry": 0,
+        "identity": identity,
+        "token_source": "gca_direct",
+        # IDP tokens obtained with CLI's Client ID
+        "idp_access_token": google_tokens.get("access_token"),
+        "idp_refresh_token": google_tokens.get("refresh_token"),
+        "idp_token_expiry": time.time() + expires_in,
+    }
+
+    encrypted = auth_service.encrypt_token_blob(token_data)
+
+    runtime.auth_type = "oauth2"
+    runtime.auth_config = encrypted
+    runtime.auth_status = "connected"
+    db.commit()
+
+    logger.info(
+        "GCA OAuth completed for runtime %s, identity: %s",
+        runtime_id,
+        identity,
+    )
+    return _popup_close_response(success=True)
+
+
+async def _handle_provider_callback(code, runtime_id, runtime, db):
+    """Exchange code via site-hub provider for a Site-Hub JWT."""
     import httpx
 
     client_id, client_secret, redirect_uri = _get_oauth_credentials(runtime)
@@ -327,7 +473,6 @@ async def callback(
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # Exchange Google code via cloud provider to get a provider JWT
             resp = await client.post(
                 f"{provider_base}/api/v1/oidc/binding/runtime-token-exchange",
                 json={
@@ -359,23 +504,17 @@ async def callback(
 
     identity = tokens.get("identity")
 
-    # Build token data and encrypt
-    # tokens now contains a provider RS256 JWT (not a Google opaque token)
     token_data = {
         "access_token": tokens["access_token"],
         "refresh_token": tokens.get("refresh_token"),
         "expiry": time.time() + tokens.get("expires_in", 900),
         "identity": identity,
-        "token_source": "oidc",  # Mark as provider OIDC JWT for refresh logic
-        # Raw IDP tokens for CLI agent authentication
+        "token_source": "oidc",
         "idp_access_token": tokens.get("idp_access_token"),
         "idp_refresh_token": tokens.get("idp_refresh_token"),
         "idp_token_expiry": time.time() + tokens.get("idp_token_expiry", 3600),
     }
 
-    # Do NOT preserve site-hub client credentials in local storage.
-    # GCA token refresh uses Gemini CLI's public OAuth credentials
-    # defined in gca_constants.py — no need to store provider secrets.
     encrypted = auth_service.encrypt_token_blob(token_data)
 
     runtime.auth_type = "oauth2"
