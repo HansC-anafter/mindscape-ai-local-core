@@ -718,6 +718,35 @@ class TasksStore(PostgresStoreBase):
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             return [self._row_to_task(row) for row in rows]
 
+    def list_runnable_agent_dispatch_tasks(
+        self, workspace_id: Optional[str] = None, limit: int = 5
+    ) -> List[Task]:
+        """List pending agent_dispatch tasks for the runner to consume."""
+        query_parts = [
+            """
+            SELECT *
+            FROM tasks
+            WHERE task_type = :task_type
+            AND status = :status
+            """
+        ]
+        params: Dict[str, Any] = {
+            "task_type": "agent_dispatch",
+            "status": TaskStatus.PENDING.value,
+        }
+
+        if workspace_id:
+            query_parts.append("AND workspace_id = :workspace_id")
+            params["workspace_id"] = workspace_id
+
+        query_parts.append("ORDER BY created_at ASC")
+        query_parts.append("LIMIT :limit")
+        params["limit"] = limit
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            return [self._row_to_task(row) for row in rows]
+
     def list_running_playbook_execution_tasks(
         self, workspace_id: Optional[str] = None, limit: int = 200
     ) -> List[Task]:

@@ -1,10 +1,14 @@
 import asyncio
+import json
 import logging
 import multiprocessing as mp
 import os
 import random
 import socket
+import subprocess
 import threading
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -355,8 +359,53 @@ async def _heartbeat_loop(
 
 
 def _is_ig_playbook(playbook_code: str) -> bool:
+    """Legacy IG playbook detection. Retained for auto-resume logic."""
     code = (playbook_code or "").strip().lower()
     return code.startswith("ig_") or code.startswith("ig.")
+
+
+def _resolve_lock_key(
+    task_ctx: Optional[Dict[str, Any]],
+    pack_id: str,
+) -> Optional[str]:
+    """Resolve the concurrency lock key for a task.
+
+    Priority:
+      1. Explicit: execution_context.concurrency.lock_key_input → read from inputs
+      2. Legacy fallback: IG playbooks auto-lock by user_data_dir
+
+    Returns a lock_key string (e.g. "concurrency:user_data_dir:/path/to/profile"),
+    or None if the task has no concurrency constraint.
+    """
+    if not isinstance(task_ctx, dict):
+        return None
+
+    inputs = task_ctx.get("inputs")
+    if not isinstance(inputs, dict):
+        inputs = {}
+
+    # --- Explicit concurrency policy (preferred) ---
+    concurrency = task_ctx.get("concurrency")
+    if isinstance(concurrency, dict):
+        lock_key_input = concurrency.get("lock_key_input")
+        lock_scope = concurrency.get("lock_scope", "input")
+        if lock_key_input and lock_scope == "input":
+            val = inputs.get(lock_key_input)
+            if isinstance(val, str) and val.strip():
+                return f"concurrency:{lock_key_input}:{val.strip()}"
+        elif lock_scope == "playbook":
+            return f"concurrency:playbook:{pack_id}"
+        elif lock_scope == "workspace":
+            ws = task_ctx.get("workspace_id", "")
+            return f"concurrency:workspace:{ws}" if ws else None
+
+    # --- Legacy fallback: IG playbooks lock by user_data_dir ---
+    if _is_ig_playbook(pack_id):
+        val = inputs.get("user_data_dir")
+        if isinstance(val, str) and val.strip():
+            return f"ig_profile:{val.strip()}"
+
+    return None
 
 
 def _try_auto_resume_ig_task(
@@ -443,7 +492,7 @@ def _try_auto_resume_ig_task(
     new_ctx.pop("failed_at", None)
     new_ctx.pop("error", None)
 
-    # CRITICAL: _build_inputs reads from execution_context.inputs,
+    # _build_inputs reads from execution_context.inputs,
     # so we must inject run_mode and allow_partial_resume there.
     ctx_inputs = new_ctx.get("inputs", {})
     if not isinstance(ctx_inputs, dict):
@@ -469,12 +518,13 @@ def _try_auto_resume_ig_task(
     )
     tasks_store.create_task(new_task)
     logger.info(
-        f"Auto-resume #{retry_count + 1} queued for IG task {task.id} → new task {new_task.id}"
+        f"Auto-resume #{retry_count + 1} queued for IG task {task.id} -> new task {new_task.id}"
     )
     return True
 
 
 def _extract_user_data_dir(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Legacy helper, retained for compatibility."""
     if not isinstance(task_ctx, dict):
         return None
     inputs = task_ctx.get("inputs")
@@ -490,6 +540,7 @@ def _extract_user_data_dir(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
 def _has_conflicting_ig_profile_lock(
     tasks_store: TasksStore, workspace_id: str, user_data_dir: str, self_task_id: str
 ) -> bool:
+    """Legacy helper, retained for external compatibility."""
     if not user_data_dir:
         return False
     try:
@@ -511,6 +562,7 @@ def _has_conflicting_ig_profile_lock(
 
 
 def _lock_key_for_ig_profile(user_data_dir: str) -> str:
+    """Legacy helper, retained for external compatibility."""
     return f"ig_profile:{user_data_dir}"
 
 
@@ -524,6 +576,203 @@ def _build_inputs(
     if "execution_id" not in inputs:
         inputs["execution_id"] = task_execution_id
     return inputs
+
+
+# ============================================================
+#  Agent dispatch task handler (Gemini CLI inference)
+# ============================================================
+
+
+async def _run_agent_dispatch_task(
+    tasks_store: TasksStore, runner_id: str, task_id: str
+) -> None:
+    """Execute an agent_dispatch task via gemini_cli_runtime_bridge.py.
+
+    Flow:
+      1. Read dispatch payload from task.params
+      2. Claim task and mark running
+      3. Run gemini_cli_runtime_bridge.py as subprocess (stdin=payload, stdout=result)
+      4. POST result to backend /api/v1/mcp/agent/result to resolve waiting Future
+      5. Update task status in DB
+    """
+    task = tasks_store.get_task(task_id)
+    if not task:
+        return
+    if task.status == TaskStatus.CANCELLED_BY_USER:
+        return
+
+    params = task.params if isinstance(task.params, dict) else {}
+    execution_id = task.execution_id or task.id
+    workspace_id = task.workspace_id or ""
+
+    # Extract the actual task prompt from params
+    dispatch_task = params.get("task", "")
+    if not dispatch_task:
+        logger.warning(f"Agent dispatch task {task_id} has no task prompt, skipping")
+        return
+
+    # Mark task as running
+    try:
+        tasks_store.update_task(
+            task_id,
+            status=TaskStatus.RUNNING,
+            started_at=_utc_now(),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to mark agent dispatch task running: {e}")
+
+    # Build bridge payload (same format as gemini_cli_runtime_bridge.py expects)
+    bridge_payload = {
+        "execution_id": execution_id,
+        "workspace_id": workspace_id,
+        "task": dispatch_task,
+        "max_duration": params.get("max_duration_seconds", 600),
+        "context": params.get("agent_config", {}),
+        "allowed_tools": params.get("allowed_tools", []),
+    }
+
+    bridge_script = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+        "scripts",
+        "gemini_cli_runtime_bridge.py",
+    )
+    if not os.path.exists(bridge_script):
+        bridge_script = "/app/scripts/gemini_cli_runtime_bridge.py"
+
+    env = os.environ.copy()
+    backend_port = os.environ.get("PORT", "8200")
+    env.setdefault("MINDSCAPE_BACKEND_API_URL", f"http://localhost:{backend_port}")
+
+    logger.info(
+        f"Agent dispatch: executing task {execution_id} "
+        f"via bridge, prompt={dispatch_task[:80]}"
+    )
+
+    start_time = _utc_now()
+    result_data = {}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3",
+            bridge_script,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        payload_bytes = json.dumps(bridge_payload).encode()
+        timeout = bridge_payload.get("max_duration", 600)
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(input=payload_bytes),
+            timeout=timeout + 30,  # grace period
+        )
+
+        stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+
+        if stderr_text:
+            logger.debug(f"Agent dispatch bridge stderr: {stderr_text[:500]}")
+
+        try:
+            result_data = json.loads(stdout_text) if stdout_text else {}
+        except json.JSONDecodeError:
+            result_data = {
+                "status": "completed" if proc.returncode == 0 else "failed",
+                "output": stdout_text[:2000] if stdout_text else "",
+                "error": (
+                    f"Bridge returned non-JSON output" if stdout_text else "No output"
+                ),
+            }
+
+        if proc.returncode != 0 and result_data.get("status") != "failed":
+            result_data["status"] = "failed"
+            if not result_data.get("error"):
+                result_data["error"] = f"Bridge exited with code {proc.returncode}"
+
+    except asyncio.TimeoutError:
+        result_data = {
+            "status": "failed",
+            "output": "",
+            "error": f"Agent dispatch task timed out after {timeout}s",
+        }
+    except Exception as e:
+        result_data = {
+            "status": "failed",
+            "output": "",
+            "error": f"Bridge execution failed: {e}",
+        }
+
+    elapsed = (_utc_now() - start_time).total_seconds()
+    result_data.setdefault("status", "completed")
+    result_data["duration_seconds"] = elapsed
+    result_data["execution_id"] = execution_id
+
+    # POST result back to backend to resolve the waiting Future
+    _submit_dispatch_result(execution_id, result_data, runner_id)
+
+    # Update task status in DB
+    try:
+        status = result_data.get("status", "completed")
+        task_status = (
+            TaskStatus.SUCCEEDED if status == "completed" else TaskStatus.FAILED
+        )
+        tasks_store.update_task_status(
+            task_id=task_id,
+            status=task_status,
+            result=result_data,
+            error=result_data.get("error"),
+            completed_at=_utc_now(),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to update agent dispatch task status: {e}")
+
+    logger.info(
+        f"Agent dispatch: task {execution_id} completed "
+        f"status={result_data.get('status')} elapsed={elapsed:.1f}s"
+    )
+
+
+def _submit_dispatch_result(
+    execution_id: str, result_data: dict, client_id: str
+) -> None:
+    """POST result to backend /api/v1/mcp/agent/result to resolve waiting Future."""
+    backend_url = os.environ.get(
+        "MINDSCAPE_BACKEND_API_URL",
+        f"http://localhost:{os.environ.get('PORT', '8200')}",
+    )
+    # Inside the runner container, backend is at backend:8200
+    if not backend_url or backend_url.startswith("http://localhost"):
+        backend_url = os.environ.get("BACKEND_INTERNAL_URL", "http://backend:8200")
+
+    url = f"{backend_url.rstrip('/')}/api/v1/mcp/agent/result"
+    body = {
+        "execution_id": execution_id,
+        "status": result_data.get("status", "completed"),
+        "output": result_data.get("output", "")[:500],
+        "error": result_data.get("error"),
+        "duration_seconds": result_data.get("duration_seconds", 0),
+        "client_id": client_id,
+        "files_modified": result_data.get("files_modified", []),
+        "files_created": result_data.get("files_created", []),
+        "tool_calls": result_data.get("tool_calls", []),
+        "metadata": {"executor_location": "runner", "transport": "worker_dispatch"},
+    }
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info(
+                f"Agent dispatch result submitted for {execution_id}: "
+                f"HTTP {resp.status}"
+            )
+    except Exception as e:
+        logger.warning(
+            f"Failed to submit agent dispatch result for {execution_id}: {e}"
+        )
 
 
 async def _run_single_task(
@@ -540,46 +789,45 @@ async def _run_single_task(
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
     locks_store = None
-    lock_key = None
+    lock_key = _resolve_lock_key(ctx, task.pack_id)
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600)
-    if _is_ig_playbook(task.pack_id):
-        ud = _extract_user_data_dir(ctx)
-        if ud:
-            lock_key = _lock_key_for_ig_profile(ud)
-            try:
-                store = MindscapeStore()
-                locks_store = RunnerLocksStore(db_path=store.db_path)
-                acquired = locks_store.try_acquire(
-                    lock_key=lock_key, owner_id=runner_id, ttl_seconds=lock_ttl_seconds
-                )
-                if not acquired:
-                    owner = None
-                    try:
-                        owner = locks_store.get_owner(lock_key)
-                    except Exception:
-                        pass
-                    logger.warning(
-                        f"Runner skipped task due to IG profile lock task_id={task.id} owner={owner}"
-                    )
-                    try:
-                        ctx2 = dict(ctx) if isinstance(ctx, dict) else {}
-                        ctx2["runner_skip_reason"] = "ig_profile_locked"
-                        ctx2["runner_skip_owner"] = owner
-                        tasks_store.update_task(task.id, execution_context=ctx2)
-                    except Exception:
-                        pass
-                    return
-                # Lock acquired successfully. Clear any stale skip markers from previous runner attempts.
+    if lock_key:
+        try:
+            store = MindscapeStore()
+            locks_store = RunnerLocksStore(db_path=store.db_path)
+            acquired = locks_store.try_acquire(
+                lock_key=lock_key, owner_id=runner_id, ttl_seconds=lock_ttl_seconds
+            )
+            if not acquired:
+                owner = None
                 try:
-                    ctx2 = dict(ctx) if isinstance(ctx, dict) else {}
-                    if ctx2.get("runner_skip_reason") or ctx2.get("runner_skip_owner"):
-                        ctx2.pop("runner_skip_reason", None)
-                        ctx2.pop("runner_skip_owner", None)
-                        tasks_store.update_task(task.id, execution_context=ctx2)
+                    owner = locks_store.get_owner(lock_key)
                 except Exception:
                     pass
-            except Exception as e:
-                logger.warning(f"Runner lock acquire failed task_id={task.id}: {e}")
+                logger.warning(
+                    f"Runner skipped task due to concurrency lock task_id={task.id} lock_key={lock_key} owner={owner}"
+                )
+                try:
+                    ctx2 = dict(ctx)
+                    ctx2["runner_skip_reason"] = "concurrency_locked"
+                    ctx2["runner_skip_lock_key"] = lock_key
+                    ctx2["runner_skip_owner"] = owner
+                    tasks_store.update_task(task.id, execution_context=ctx2)
+                except Exception:
+                    pass
+                return
+            # Lock acquired. Clear stale skip markers from previous attempts.
+            try:
+                ctx2 = dict(ctx)
+                if ctx2.get("runner_skip_reason") or ctx2.get("runner_skip_owner"):
+                    ctx2.pop("runner_skip_reason", None)
+                    ctx2.pop("runner_skip_owner", None)
+                    ctx2.pop("runner_skip_lock_key", None)
+                    tasks_store.update_task(task.id, execution_context=ctx2)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"Runner lock acquire failed task_id={task.id}: {e}")
     inputs = _build_inputs(task.execution_id or task.id, ctx)
 
     hb_interval_ms = _env_int("LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS", 15000)
@@ -843,7 +1091,7 @@ async def _run_single_task(
 
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
-    max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
+    max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 3)
     # Poll a bit more than inflight so we can quickly fill capacity.
     batch_limit = _env_int(
         "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(1, max_inflight * 2)
@@ -911,7 +1159,16 @@ async def run_forever() -> None:
         except Exception as e:
             logger.warning(f"Runner poll failed: {e}")
 
-        if not tasks:
+        # Also poll agent_dispatch tasks (Gemini CLI inference from chat)
+        dispatch_tasks = []
+        try:
+            dispatch_tasks = tasks_store.list_runnable_agent_dispatch_tasks(
+                limit=batch_limit
+            )
+        except Exception as e:
+            logger.warning(f"Runner agent dispatch poll failed: {e}")
+
+        if not tasks and not dispatch_tasks:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
@@ -921,44 +1178,56 @@ async def run_forever() -> None:
                     break
                 if t.status == TaskStatus.CANCELLED_BY_USER:
                     continue
-                if _is_ig_playbook(t.pack_id):
-                    ctx = (
-                        t.execution_context
-                        if isinstance(t.execution_context, dict)
-                        else {}
+                lock_ctx = (
+                    t.execution_context if isinstance(t.execution_context, dict) else {}
+                )
+                lock_key = _resolve_lock_key(lock_ctx, t.pack_id)
+                if lock_key:
+                    lock_ttl_seconds = _env_int(
+                        "LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600
                     )
-                    ud = _extract_user_data_dir(ctx)
-                    if ud:
-                        lock_key = _lock_key_for_ig_profile(ud)
-                        lock_ttl_seconds = _env_int(
-                            "LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600
-                        )
-                        acquired = locks_store.try_acquire(
-                            lock_key=lock_key,
-                            owner_id=runner_id,
-                            ttl_seconds=lock_ttl_seconds,
-                        )
-                        if not acquired:
-                            owner = locks_store.get_owner(lock_key)
-                            try:
-                                ctx2 = dict(ctx) if isinstance(ctx, dict) else {}
-                                ctx2["runner_skip_reason"] = "ig_profile_locked"
-                                ctx2["runner_skip_owner"] = owner
-                                tasks_store.update_task(t.id, execution_context=ctx2)
-                            except Exception:
-                                pass
-                            continue
+                    acquired = locks_store.try_acquire(
+                        lock_key=lock_key,
+                        owner_id=runner_id,
+                        ttl_seconds=lock_ttl_seconds,
+                    )
+                    if not acquired:
+                        owner = locks_store.get_owner(lock_key)
                         try:
-                            locks_store.release(lock_key=lock_key, owner_id=runner_id)
+                            ctx2 = dict(lock_ctx)
+                            ctx2["runner_skip_reason"] = "concurrency_locked"
+                            ctx2["runner_skip_lock_key"] = lock_key
+                            ctx2["runner_skip_owner"] = owner
+                            tasks_store.update_task(t.id, execution_context=ctx2)
                         except Exception:
                             pass
+                        continue
+                    try:
+                        locks_store.release(lock_key=lock_key, owner_id=runner_id)
+                    except Exception:
+                        pass
                 claimed = tasks_store.try_claim_task(t.id, runner_id=runner_id)
                 if not claimed:
                     continue
                 task_coro = _run_single_task(tasks_store, runner_id, t.id)
                 inflight.add(asyncio.create_task(task_coro))
             except Exception as e:
-                logger.error(f"Runner task failed task_id={t.id}: {e}", exc_info=True)
+                logger.warning(f"Runner task dispatch error: {e}", exc_info=True)
+
+        # Dispatch agent_dispatch tasks (Gemini CLI inference)
+        for t in dispatch_tasks:
+            try:
+                if len(inflight) >= max_inflight:
+                    break
+                if t.status == TaskStatus.CANCELLED_BY_USER:
+                    continue
+                claimed = tasks_store.try_claim_task(t.id, runner_id=runner_id)
+                if not claimed:
+                    continue
+                task_coro = _run_agent_dispatch_task(tasks_store, runner_id, t.id)
+                inflight.add(asyncio.create_task(task_coro))
+            except Exception as e:
+                logger.warning(f"Runner agent dispatch error: {e}", exc_info=True)
                 try:
                     ctx = (
                         t.execution_context

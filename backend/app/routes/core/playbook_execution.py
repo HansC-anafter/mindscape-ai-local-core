@@ -279,6 +279,19 @@ async def start_playbook_execution(
                     else playbook_code
                 )
 
+                # Extract concurrency policy from playbook.json (if declared)
+                concurrency_config = None
+                if (
+                    playbook_run.playbook_json
+                    and playbook_run.playbook_json.concurrency
+                ):
+                    c = playbook_run.playbook_json.concurrency
+                    concurrency_config = {
+                        "lock_key_input": c.lock_key_input,
+                        "max_parallel": c.max_parallel,
+                        "lock_scope": c.lock_scope,
+                    }
+
                 await asyncio.to_thread(
                     tasks_store.create_task,
                     Task(
@@ -304,6 +317,11 @@ async def start_playbook_execution(
                             "profile_id": profile_id,
                             "total_steps": total_steps,
                             "current_step_index": 0,
+                            **(
+                                {"concurrency": concurrency_config}
+                                if concurrency_config
+                                else {}
+                            ),
                         },
                         created_at=_utc_now(),
                         started_at=None,
