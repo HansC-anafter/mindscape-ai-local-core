@@ -130,8 +130,8 @@ async def list_runtime_environments(
             {
                 "id": "local-core",
                 "name": "Local-Core Runtime",
-                "description": "本地執行環境，預設啟用",
-                "icon": "💻",
+                "description": "Local execution environment, enabled by default",
+                "icon": "desktop",
                 "status": "active",
                 "is_default": True,
                 "config_url": None,
@@ -246,8 +246,8 @@ async def get_runtime_environment(
             return {
                 "id": "local-core",
                 "name": "Local-Core Runtime",
-                "description": "本地執行環境，預設啟用",
-                "icon": "💻",
+                "description": "Local execution environment, enabled by default",
+                "icon": "desktop",
                 "status": "active",
                 "is_default": True,
                 "config_url": None,
@@ -417,8 +417,7 @@ async def delete_runtime_environment(
                 status_code=404, detail=f"Runtime environment '{runtime_id}' not found"
             )
 
-        # TODO: Check if runtime is in use by any workspace
-        # If so, prevent deletion or require confirmation
+        # Consider checking workspace references before deletion
 
         db.delete(runtime)
         db.commit()

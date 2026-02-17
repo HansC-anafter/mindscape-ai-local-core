@@ -181,7 +181,7 @@ export function RuntimeEnvironmentsSettings() {
             id: 'local-core',
             name: 'Local-Core Runtime',
             description: 'Local execution environment, enabled by default',
-            icon: '🖥',
+            icon: 'desktop',
             status: 'active',
             isDefault: true,
             supportsDispatch: true,
@@ -200,7 +200,7 @@ export function RuntimeEnvironmentsSettings() {
 
   const getStatusInfo = (runtime: RuntimeEnvironment) => {
     if (runtime.isDefault) {
-      return { status: 'connected' as const, label: t('default' as any) || 'Default', icon: '✓' };
+      return { status: 'connected' as const, label: t('default' as any) || 'Default', icon: 'check' };
     }
     // Show OAuth auth_status badge when available
     if (runtime.auth_type === 'oauth2' && runtime.auth_status) {
@@ -209,25 +209,25 @@ export function RuntimeEnvironmentsSettings() {
           return {
             status: 'connected' as const,
             label: runtime.auth_identity ? `Connected as ${runtime.auth_identity}` : 'Connected',
-            icon: '✓',
+            icon: 'check',
           };
         case 'pending':
           return { status: 'not_configured' as const, label: 'Connecting...', icon: '⌛' };
         case 'error':
-          return { status: 'inactive' as const, label: 'Auth Error', icon: '✗' };
+          return { status: 'inactive' as const, label: 'Auth Error', icon: 'cross' };
         case 'disconnected':
-          return { status: 'not_configured' as const, label: 'Not Connected', icon: '⚠' };
+          return { status: 'not_configured' as const, label: 'Not Connected', icon: 'warning' };
       }
     }
     switch (runtime.status) {
       case 'active':
-        return { status: 'connected' as const, label: t('enabled' as any) || 'Enabled', icon: '✓' };
+        return { status: 'connected' as const, label: t('enabled' as any) || 'Enabled', icon: 'check' };
       case 'configured':
-        return { status: 'connected' as const, label: t('configured' as any) || 'Configured', icon: '⚙' };
+        return { status: 'connected' as const, label: t('configured' as any) || 'Configured', icon: 'gear' };
       case 'not_configured':
-        return { status: 'not_configured' as const, label: t('notConfigured' as any) || 'Not Configured', icon: '⚠' };
+        return { status: 'not_configured' as const, label: t('notConfigured' as any) || 'Not Configured', icon: 'warning' };
       default:
-        return { status: 'inactive' as const, label: t('disabled' as any) || 'Disabled', icon: '✗' };
+        return { status: 'inactive' as const, label: t('disabled' as any) || 'Disabled', icon: 'cross' };
     }
   };
 

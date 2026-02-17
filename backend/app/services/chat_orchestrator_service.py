@@ -57,11 +57,11 @@ class ChatOrchestratorService:
         )
 
         try:
-            # 1. Setup Context (Profile, Thread, Project)
+            # Setup context (profile, thread, project)
             profile = None
             try:
                 if profile_id:
-                    # [FIX] Offload blocking DB call
+                    # Offload blocking DB call
                     loop = asyncio.get_running_loop()
                     profile = await loop.run_in_executor(
                         None, lambda: self.orchestrator.store.get_profile(profile_id)
@@ -91,7 +91,7 @@ class ChatOrchestratorService:
                     workspace_id, self.orchestrator.store
                 )
 
-            # 2. Create User Event (Persist immediately)
+            # Create user event (persist immediately)
             event_id = user_event_id or str(uuid.uuid4())
             user_event = MindEvent(
                 id=event_id,
@@ -111,7 +111,7 @@ class ChatOrchestratorService:
                 entity_ids=[],
                 metadata={"async_processed": True},
             )
-            # [FIX] Offload blocking DB call
+            # Offload blocking DB call
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, lambda: self.orchestrator.store.create_event(user_event)
@@ -120,7 +120,7 @@ class ChatOrchestratorService:
 
             # Update thread stats
             try:
-                # [FIX] Offload blocking DB calls to thread pool
+                # Offload blocking DB calls to thread pool
                 loop = asyncio.get_running_loop()
                 message_count = await loop.run_in_executor(
                     None,
@@ -139,7 +139,7 @@ class ChatOrchestratorService:
             except Exception as e:
                 logger.warning(f"Failed to update thread stats: {e}")
 
-            # 3. Pipeline Stages (Persist as events)
+            # Pipeline stages (persist as events)
 
             # Determine Mode
             runtime_profile_store = WorkspaceRuntimeProfileStore(
@@ -169,7 +169,7 @@ class ChatOrchestratorService:
                 intent_message = load_i18n_string(
                     "workspace.pipeline_stage.intent_extraction",
                     locale=locale,
-                    default=f"分析中：理解你的需求「{user_message_preview}」，尋找適合的 Playbook。",
+                    default=f"Analyzing: understanding your request '{user_message_preview}', finding a suitable Playbook.",
                 ).format(user_message=user_message_preview)
 
                 await self._create_pipeline_event(
@@ -189,7 +189,7 @@ class ChatOrchestratorService:
             context_message = load_i18n_string(
                 "workspace.pipeline_stage.context_building",
                 locale=locale,
-                default="準備背景資訊：正在整理相關的文件與專案上下文。",
+                default="Preparing context: gathering relevant documents and project context.",
             )
             await self._create_pipeline_event(
                 workspace_id,
@@ -201,7 +201,7 @@ class ChatOrchestratorService:
                 user_event.id,
             )
 
-            # 4. Check if workspace has preferred_agent (e.g., openclaw)
+            # Check if workspace has preferred_agent
             # If so, route to WorkspaceAgentExecutor instead of LLM
             preferred_agent = getattr(workspace, "preferred_agent", None)
 
@@ -305,7 +305,7 @@ class ChatOrchestratorService:
                     f"[AsyncChat] Background task completed for {user_event.id}"
                 )
 
-            # 5. Generate Response (Consume Stream) - Default LLM path
+            # Generate response (consume stream) via default LLM path
 
             # Setup dependencies for stream_llm_response
             from backend.features.workspace.chat.streaming.llm_streaming import (
@@ -443,7 +443,7 @@ class ChatOrchestratorService:
             entity_ids=[],
             metadata={},
         )
-        # [FIX] Offload blocking DB call
+        # Offload blocking DB call
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

@@ -35,21 +35,21 @@ interface WorkspaceSettingsProps {
 }
 
 const EXECUTION_MODE_OPTIONS: { value: ExecutionMode; label: string; icon: string; description: string }[] = [
-  { value: 'qa', label: '對話優先', icon: '💬', description: '討論為主，執行為輔' },
-  { value: 'execution', label: '執行優先', icon: '⚡', description: '行動為主，直接產出' },
-  { value: 'hybrid', label: '邊做邊聊', icon: '🔄', description: '邊聊邊執行，平衡對話與行動' },
+  { value: 'qa', label: 'Chat First', icon: 'chat', description: 'Conversation-oriented, execution as supplement' },
+  { value: 'execution', label: 'Execution First', icon: 'zap', description: 'Action-oriented, direct output' },
+  { value: 'hybrid', label: 'Chat & Execute', icon: 'refresh', description: 'Balance conversation with action' },
 ];
 
 const EXECUTION_PRIORITY_OPTIONS: { value: ExecutionPriority; label: string; description: string }[] = [
-  { value: 'low', label: '保守', description: '高信心度才執行 (90%)' },
-  { value: 'medium', label: '平衡', description: '中等信心度 (80%)' },
-  { value: 'high', label: '積極', description: '低門檻快速執行 (60%)' },
+  { value: 'low', label: 'Conservative', description: 'Execute only at high confidence (90%)' },
+  { value: 'medium', label: 'Balanced', description: 'Medium confidence threshold (80%)' },
+  { value: 'high', label: 'Aggressive', description: 'Low threshold, fast execution (60%)' },
 ];
 
 const PROJECT_ASSIGNMENT_MODE_OPTIONS: { value: ProjectAssignmentMode; label: string; description: string }[] = [
-  { value: 'auto_silent', label: '自動歸類', description: '自動歸類，僅顯示標籤，除非很不確定' },
-  { value: 'assistive', label: '輔助確認', description: '自動歸類，中低信心時彈出確認提示' },
-  { value: 'manual_first', label: '手動選擇', description: '預設需手動選擇，AI 只當候選參考' },
+  { value: 'auto_silent', label: 'Auto Classify', description: 'Auto classify with labels, prompt only when uncertain' },
+  { value: 'assistive', label: 'Assisted', description: 'Auto classify, prompt for confirmation at medium-low confidence' },
+  { value: 'manual_first', label: 'Manual', description: 'Manual selection required, AI provides suggestions only' },
 ];
 
 const COMMON_ARTIFACTS = ['docx', 'pptx', 'xlsx', 'pdf', 'md', 'html'];
@@ -193,7 +193,7 @@ export default function WorkspaceSettings({
         onUpdate();
       }
     } catch (err: any) {
-      setExecutionError(err.message || '儲存失敗');
+      setExecutionError(err.message || 'Save failed');
       console.error('Failed to save execution settings:', err);
     } finally {
       setSavingExecution(false);
@@ -202,7 +202,7 @@ export default function WorkspaceSettings({
 
   const handleOpenFolder = async () => {
     if (!storageBasePath) {
-      alert('請先設定基礎存儲路徑');
+      alert('Please configure the base storage path first');
       return;
     }
 
@@ -224,13 +224,13 @@ export default function WorkspaceSettings({
     } catch (err) {
       console.error('Failed to open folder:', err);
       // Fallback: Show path in alert
-      alert(`路徑: ${storageBasePath}\n\n請手動在檔案管理器中開啟此路徑。`);
+      alert(`Path: ${storageBasePath}\n\nPlease open this path manually in your file manager.`);
     }
   };
 
   const handleSaveStorageSettings = async () => {
     if (!storageBasePath.trim()) {
-      setError('請輸入基礎存儲路徑');
+      setError('Please enter a base storage path');
       return;
     }
 
@@ -280,7 +280,7 @@ export default function WorkspaceSettings({
         onUpdate();
       }
     } catch (err: any) {
-      setError(err.message || '儲存失敗，請稍後再試');
+      setError(err.message || 'Save failed, please try again later');
       console.error('Failed to save storage settings:', err);
     } finally {
       setSaving(false);
@@ -290,7 +290,7 @@ export default function WorkspaceSettings({
   if (!workspace) {
     return (
       <div className="p-6">
-        <div className="text-gray-500">載入中...</div>
+        <div className="text-gray-500">Loading...</div>
       </div>
     );
   }
@@ -312,16 +312,16 @@ export default function WorkspaceSettings({
         {/* Execution Mode Settings */}
         <div className="space-y-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">執行模式</h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Execution Mode</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              設定 AI 助手的行為模式，決定對話與執行的平衡。
+              Configure the AI assistant behavior mode to balance conversation and execution.
             </p>
           </div>
 
           {/* Execution Mode Selector */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              行為模式
+              Behavior Mode
             </label>
             <div className="grid grid-cols-3 gap-3">
               {EXECUTION_MODE_OPTIONS.map((option) => (
@@ -352,7 +352,7 @@ export default function WorkspaceSettings({
           {executionMode !== 'qa' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                任務自動觸發（信心度）
+                Auto-Trigger Threshold
               </label>
               <div className="flex gap-2">
                 {EXECUTION_PRIORITY_OPTIONS.map((option) => (
@@ -381,7 +381,7 @@ export default function WorkspaceSettings({
           {/* Project Assignment Mode */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              專案歸類模式
+              Project Classification Mode
             </label>
             <div className="flex gap-2">
               {PROJECT_ASSIGNMENT_MODE_OPTIONS.map((option) => (
@@ -409,7 +409,7 @@ export default function WorkspaceSettings({
           {/* Intent Extraction Auto-Execution */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Intent 提取自動執行
+              Intent Extraction Auto-Execute
             </label>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
@@ -421,13 +421,13 @@ export default function WorkspaceSettings({
                   className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
                 />
                 <label htmlFor="intent-extraction-auto-execute" className="text-sm text-gray-700 dark:text-gray-300">
-                  自動執行 Intent 提取（當信心度達到閾值時）
+                  Auto-execute intent extraction when confidence meets threshold
                 </label>
               </div>
               {intentExtractionAutoExecute && (
                 <div className="ml-7 space-y-2">
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                    <span>信心度閾值</span>
+                    <span>Confidence Threshold</span>
                     <span className="text-purple-700 dark:text-purple-300 font-bold">
                       {intentExtractionThreshold.toFixed(1)}
                     </span>
@@ -447,7 +447,7 @@ export default function WorkspaceSettings({
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    當 Intent 提取的信心度 ≥ {intentExtractionThreshold.toFixed(1)} 時，將自動執行而不需要手動確認
+                    When intent extraction confidence >= {intentExtractionThreshold.toFixed(1)}, auto-execute without manual confirmation
                   </p>
                 </div>
               )}
@@ -489,7 +489,7 @@ export default function WorkspaceSettings({
                     intentExtractionThreshold === originalIntentExtractionThreshold)}
                 className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
               >
-                {savingIntentExtraction ? '儲存中...' : '儲存 Intent 提取設定'}
+                {savingIntentExtraction ? 'Saving...' : 'Save Intent Extraction Settings'}
               </button>
               {intentExtractionError && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2">
@@ -498,7 +498,7 @@ export default function WorkspaceSettings({
               )}
               {intentExtractionSuccess && (
                 <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2">
-                  <p className="text-xs text-green-700 dark:text-green-300">Intent 提取設定已儲存</p>
+                  <p className="text-xs text-green-700 dark:text-green-300">Intent extraction settings saved</p>
                 </div>
               )}
             </div>
@@ -507,7 +507,7 @@ export default function WorkspaceSettings({
           {/* Expected Artifacts */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              預期產出類型
+              Expected Output Types
             </label>
             <div className="flex flex-wrap gap-2">
               {COMMON_ARTIFACTS.map((artifact) => (
@@ -527,7 +527,7 @@ export default function WorkspaceSettings({
               ))}
             </div>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              選擇此 Workspace 預期產出的檔案類型，AI 會優先嘗試產出這些類型的文件
+              Select the output file types for this workspace. AI will prioritize producing these document types.
             </p>
           </div>
 
@@ -541,7 +541,7 @@ export default function WorkspaceSettings({
           {/* Execution Settings Success */}
           {executionSuccess && (
             <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
-              <p className="text-sm text-green-700 dark:text-green-300">執行模式設定已儲存</p>
+              <p className="text-sm text-green-700 dark:text-green-300">Execution mode settings saved</p>
             </div>
           )}
 
@@ -552,7 +552,7 @@ export default function WorkspaceSettings({
               disabled={savingExecution || !executionSettingsChanged}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
-              {savingExecution ? '儲存中...' : '儲存執行模式'}
+              {savingExecution ? 'Saving...' : 'Save Execution Mode'}
             </button>
           </div>
         </div>
@@ -562,9 +562,9 @@ export default function WorkspaceSettings({
 
         {/* Storage Settings */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">存儲設定</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Storage Settings</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            設定 Workspace 的檔案存儲路徑，所有 Playbook 產物將存儲在此路徑下。
+            Configure the workspace file storage path. All Playbook artifacts will be stored under this path.
           </p>
         </div>
 
@@ -578,11 +578,11 @@ export default function WorkspaceSettings({
                 </svg>
               </div>
               <div className="ml-3 flex-1">
-                <h3 className="text-sm font-medium text-yellow-800">警告：尚未設定存儲路徑</h3>
+                <h3 className="text-sm font-medium text-yellow-800">Warning: Storage path not configured</h3>
                 <p className="mt-1 text-sm text-yellow-700">
-                  Workspace 尚未設定儲存路徑。請設定儲存路徑，或前往{' '}
-                  <a href="/settings" className="underline font-medium">系統設定</a>{' '}
-                  開啟 Local File System 權限。
+                  Storage path not configured for this workspace. Please set a path, or go to{' '}
+                  <a href="/settings" className="underline font-medium">System Settings</a>{' '}
+                  to enable Local File System access.
                 </p>
               </div>
             </div>
@@ -594,7 +594,7 @@ export default function WorkspaceSettings({
           {/* Storage Base Path */}
           <div>
             <label htmlFor="storage-base-path" className="block text-sm font-medium text-gray-700 mb-1">
-              基礎存儲路徑
+              Base Storage Path
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -609,21 +609,21 @@ export default function WorkspaceSettings({
                 <button
                   onClick={handleOpenFolder}
                   className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
-                  title="開啟所在資料夾"
+                  title="Open containing folder"
                 >
-                  開啟資料夾
+                  Open Folder
                 </button>
               )}
             </div>
             <p className="mt-1 text-xs text-gray-500">
-              所有 Playbook 產物將存儲在此路徑下的子目錄中
+              All Playbook artifacts will be stored in subdirectories under this path
             </p>
           </div>
 
           {/* Artifacts Directory */}
           <div>
             <label htmlFor="artifacts-dir" className="block text-sm font-medium text-gray-700 mb-1">
-              產物目錄
+              Artifacts Directory
             </label>
             <input
               id="artifacts-dir"
@@ -634,7 +634,7 @@ export default function WorkspaceSettings({
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
             <p className="mt-1 text-xs text-gray-500">
-              產物將存儲在「基礎存儲路徑」下的此目錄中（預設：artifacts）
+              Artifacts will be stored in this subdirectory under the base path (default: artifacts)
             </p>
           </div>
 
@@ -648,10 +648,10 @@ export default function WorkspaceSettings({
                   </svg>
                 </div>
                 <div className="ml-3 flex-1">
-                  <h3 className="text-sm font-medium text-yellow-800">變更存儲路徑警告</h3>
+                  <h3 className="text-sm font-medium text-yellow-800">Storage Path Change Warning</h3>
                   <p className="mt-1 text-sm text-yellow-700">
-                    變更存儲路徑會影響後續檔案歸檔，舊檔案可能無法自動找到。
-                    請確認您了解此變更的影響。
+                    Changing storage path affects future file archiving. Existing files may not be found automatically.
+                    Please confirm you understand the impact of this change.
                   </p>
                 </div>
               </div>
@@ -684,7 +684,7 @@ export default function WorkspaceSettings({
                   </svg>
                 </div>
                 <div className="ml-3 flex-1">
-                  <p className="text-sm text-green-700">存儲設定已成功儲存</p>
+                  <p className="text-sm text-green-700">Storage settings saved successfully</p>
                 </div>
               </div>
             </div>
@@ -697,7 +697,7 @@ export default function WorkspaceSettings({
               disabled={saving || !storagePathChanged}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
-              {saving ? '儲存中...' : '儲存'}
+              {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
