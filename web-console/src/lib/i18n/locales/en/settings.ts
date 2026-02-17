@@ -675,4 +675,13 @@ export const settingsEn = {
   scanning: 'Scanning...',
   scan: 'Start Scan',
   token: 'Token',
+
+  // Runtime Environments
+  runtimeEnvironments: 'Runtime Environments',
+  runtimeEnvironmentsDescription: 'Configure runtime environments for Playbooks and tasks',
+  addRuntime: 'Add Runtime',
+  addRuntimeDescription: 'Add a custom runtime environment',
+  runtimeConfiguration: 'Runtime Configuration',
+  runtimeConfigurationUpdated: 'Runtime configuration updated',
+  runtimeAddedSuccessfully: 'Runtime "{name}" added successfully',
 } as const satisfies Partial<Record<MessageKey, string>>;

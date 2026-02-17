@@ -53,8 +53,8 @@ export function MindscapeCanvasWithPanel({
     });
 
     // Handle node selection
-    const handleNodeSelect = useCallback((nodeId: string, node: MindscapeNode) => {
-        setSelectedNodeId(nodeId);
+    const handleNodeSelect = useCallback((node: MindscapeNode | null) => {
+        setSelectedNodeId(node?.id ?? null);
     }, []);
 
     // Handle graph updates from side panel
@@ -74,7 +74,7 @@ export function MindscapeCanvasWithPanel({
             {/* Main Canvas Area */}
             <div className="flex-1 relative">
                 <MindscapeCanvas
-                    workspaceId={workspaceId}
+                    workspaceId={workspaceId || ''}
                     workspaceGroupId={workspaceGroupId}
                     onNodeSelect={handleNodeSelect}
                     className="w-full h-full"

@@ -13,7 +13,7 @@ import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '..
 import { getApiBaseUrl } from '../../../../lib/api-url';
 // Use require.context to load capability components (webpack feature)
 // Wrapped in try-catch: directory may be empty on fresh installs
-let rawCapabilityComponentsContext: ReturnType<typeof require.context>;
+let rawCapabilityComponentsContext: any;
 try {
   // @ts-ignore - require.context is a webpack feature, not standard TypeScript
   rawCapabilityComponentsContext = require.context('../../../capabilities', true, /\.tsx$/, 'sync');
@@ -44,7 +44,12 @@ interface RuntimeEnvironment {
   icon: string;
   status: 'active' | 'inactive' | 'configured' | 'not_configured';
   isDefault?: boolean;
+  is_default?: boolean;
   config_url?: string;
+  auth_type?: string;
+  auth_status?: 'disconnected' | 'pending' | 'connected' | 'error';
+  auth_identity?: string | null;
+  metadata?: Record<string, any>;
   supportsDispatch?: boolean;
   supportsCell?: boolean;
   recommendedForDispatch?: boolean;
@@ -70,10 +75,21 @@ export function RuntimeEnvironmentsSettings() {
   const [showAddRuntimeModal, setShowAddRuntimeModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [settingsPanels, setSettingsPanels] = useState<SettingsPanel[]>([]);
+  const [workflowPanels, setWorkflowPanels] = useState<SettingsPanel[]>([]);
 
   useEffect(() => {
     loadRuntimes();
     loadSettingsPanels();
+    loadWorkflowPanels();
+
+    // Listen for OAuth popup result
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'RUNTIME_OAUTH_RESULT') {
+        loadRuntimes(); // Refresh to pick up new auth_status
+      }
+    };
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
   const loadSettingsPanels = async () => {
@@ -91,6 +107,34 @@ export function RuntimeEnvironmentsSettings() {
       }
     } catch (error) {
       console.error('[Site-Hub Debug] Failed to load settings panels:', error);
+    }
+  };
+
+  const loadWorkflowPanels = async () => {
+    try {
+      const apiUrl = getApiBaseUrl();
+      const response = await fetch(
+        `${apiUrl}/api/v1/settings/extensions?section=workflow-engines`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const panels: SettingsPanel[] = data.map((ext: any) => ({
+          capabilityCode: ext.capability_code,
+          componentCode: ext.component_code,
+          title: ext.title,
+          description: ext.description,
+          requiresWorkspaceId: ext.requires_workspace_id,
+          showWhen: ext.show_when ? {
+            runtimeCodes: ext.show_when.runtime_codes,
+          } : undefined,
+          propsSchema: ext.props_schema,
+          importPath: ext.import_path,
+          export: ext.export || 'default',
+        }));
+        setWorkflowPanels(panels);
+      }
+    } catch (error) {
+      console.error('Failed to load workflow panels:', error);
     }
   };
 
@@ -158,6 +202,23 @@ export function RuntimeEnvironmentsSettings() {
     if (runtime.isDefault) {
       return { status: 'connected' as const, label: t('default' as any) || 'Default', icon: '✓' };
     }
+    // Show OAuth auth_status badge when available
+    if (runtime.auth_type === 'oauth2' && runtime.auth_status) {
+      switch (runtime.auth_status) {
+        case 'connected':
+          return {
+            status: 'connected' as const,
+            label: runtime.auth_identity ? `Connected as ${runtime.auth_identity}` : 'Connected',
+            icon: '✓',
+          };
+        case 'pending':
+          return { status: 'not_configured' as const, label: 'Connecting...', icon: '⌛' };
+        case 'error':
+          return { status: 'inactive' as const, label: 'Auth Error', icon: '✗' };
+        case 'disconnected':
+          return { status: 'not_configured' as const, label: 'Not Connected', icon: '⚠' };
+      }
+    }
     switch (runtime.status) {
       case 'active':
         return { status: 'connected' as const, label: t('enabled' as any) || 'Enabled', icon: '✓' };
@@ -189,19 +250,65 @@ export function RuntimeEnvironmentsSettings() {
           {runtimes.map((runtime) => {
             const statusInfo = getStatusInfo(runtime);
             return (
-              <ToolCard
-                key={runtime.id}
-                toolType={runtime.id}
-                name={runtime.name}
-                description={runtime.description}
-                icon={runtime.icon}
-                status={statusInfo}
-                onConfigure={
-                  runtime.isDefault
-                    ? () => { } // No-op for default runtime
-                    : () => setSelectedRuntime(runtime.id)
-                }
-              />
+              <div key={runtime.id} className="relative">
+                <ToolCard
+                  toolType={runtime.id}
+                  name={runtime.name}
+                  description={runtime.description}
+                  icon={runtime.icon}
+                  status={statusInfo}
+                  onConfigure={
+                    runtime.isDefault
+                      ? () => { } // No-op for default runtime
+                      : () => setSelectedRuntime(runtime.id)
+                  }
+                />
+                {/* OAuth Connect / Disconnect buttons */}
+                {!runtime.isDefault && runtime.auth_type === 'oauth2' && (
+                  <div className="mt-2 flex gap-2 px-1">
+                    {runtime.auth_status === 'connected' ? (
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const apiUrl = getApiBaseUrl();
+                          try {
+                            await fetch(
+                              `${apiUrl}/api/v1/runtime-oauth/${runtime.id}/disconnect`,
+                              { method: 'POST' }
+                            );
+                            loadRuntimes();
+                          } catch (err) {
+                            console.error('Disconnect failed:', err);
+                          }
+                        }}
+                        className="text-xs px-3 py-1 rounded-md border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const apiUrl = getApiBaseUrl();
+                          const w = 500, h = 600;
+                          const left = window.screenX + (window.innerWidth - w) / 2;
+                          const top = window.screenY + (window.innerHeight - h) / 2;
+                          window.open(
+                            `${apiUrl}/api/v1/runtime-oauth/${runtime.id}/authorize`,
+                            'oauth-popup',
+                            `width=${w},height=${h},left=${left},top=${top},popup=true`
+                          );
+                        }}
+                        className="text-xs px-3 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                      >
+                        Connect with Google
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
 
@@ -218,28 +325,44 @@ export function RuntimeEnvironmentsSettings() {
       </Section>
 
       {/* Runtime Configuration Modal */}
-      {selectedRuntime && (
-        <BaseModal
-          isOpen={true}
-          onClose={() => setSelectedRuntime(null)}
-          title={runtimes.find(r => r.id === selectedRuntime)?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration'}
-          maxWidth="max-w-4xl"
-        >
-          <ExternalSettingsEmbed
-            title={runtimes.find(r => r.id === selectedRuntime)?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration'}
-            description={runtimes.find(r => r.id === selectedRuntime)?.description || ''}
-            embedPath={getRuntimeConfigPath(selectedRuntime)}
-            height="700px"
-            onMessage={(event) => {
-              if (event.data.type === 'RUNTIME_CONFIG_UPDATED') {
-                setSelectedRuntime(null);
-                loadRuntimes();
-                showNotification('success', t('runtimeConfigurationUpdated' as any) || 'Runtime configuration updated');
-              }
-            }}
-          />
-        </BaseModal>
-      )}
+      {selectedRuntime && (() => {
+        const runtime = runtimes.find(r => r.id === selectedRuntime);
+        const isSiteHub = selectedRuntime === 'site-hub' || runtime?.config_url?.includes('anafter.co');
+        return (
+          <BaseModal
+            isOpen={true}
+            onClose={() => setSelectedRuntime(null)}
+            title={runtime?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration'}
+            maxWidth="max-w-2xl"
+          >
+            {isSiteHub ? (
+              <SiteHubSettingsForm
+                runtime={runtime!}
+                onSave={() => {
+                  setSelectedRuntime(null);
+                  loadRuntimes();
+                  showNotification('success', t('runtimeConfigurationUpdated' as any) || 'Runtime configuration updated');
+                }}
+                onCancel={() => setSelectedRuntime(null)}
+              />
+            ) : (
+              <ExternalSettingsEmbed
+                title={runtime?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration'}
+                description={runtime?.description || ''}
+                embedPath={getRuntimeConfigPath(selectedRuntime)}
+                height="700px"
+                onMessage={(event) => {
+                  if (event.data.type === 'RUNTIME_CONFIG_UPDATED') {
+                    setSelectedRuntime(null);
+                    loadRuntimes();
+                    showNotification('success', t('runtimeConfigurationUpdated' as any) || 'Runtime configuration updated');
+                  }
+                }}
+              />
+            )}
+          </BaseModal>
+        );
+      })()}
 
       {/* Add Runtime Modal */}
       {showAddRuntimeModal && (
@@ -308,6 +431,189 @@ export function RuntimeEnvironmentsSettings() {
         );
       })}
 
+      {/* Workflow Engines (third-party workflow tools like ComfyUI) */}
+      {workflowPanels.length > 0 && (
+        <>
+          {workflowPanels.map((panel) => {
+            const ExtensionComponent = loadExtensionComponent(panel);
+            const props = { ...panel.propsSchema };
+
+            return (
+              <Section
+                key={`${panel.capabilityCode}:${panel.componentCode}`}
+                title={panel.title}
+                description={panel.description}
+              >
+                <Suspense fallback={
+                  <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
+                    {t('loading' as any) || 'Loading'} {panel.title}...
+                  </div>
+                }>
+                  <ExtensionComponent {...props} />
+                </Suspense>
+              </Section>
+            );
+          })}
+        </>
+      )}
+
+    </div>
+  );
+}
+
+/** Inline settings form for Site-Hub runtime (replaces iframe ExternalSettingsEmbed) */
+function SiteHubSettingsForm({
+  runtime,
+  onSave,
+  onCancel,
+}: {
+  runtime: RuntimeEnvironment;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const meta = runtime.metadata || {};
+  const [configUrl, setConfigUrl] = useState(runtime.config_url || '');
+  const [siteKey, setSiteKey] = useState(meta.site_key || '');
+  const [chainagentId, setChainagentId] = useState(meta.chainagent_id || '');
+  const [authToken, setAuthToken] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const apiUrl = getApiBaseUrl();
+      const body: Record<string, any> = {
+        config_url: configUrl || undefined,
+        metadata: {
+          site_key: siteKey || undefined,
+          chainagent_id: chainagentId || undefined,
+        },
+      };
+
+      // Update auth if token provided
+      if (authToken) {
+        body.auth_type = 'api_key';
+        body.auth_config = { api_key: authToken };
+      }
+
+      const res = await fetch(
+        `${apiUrl}/api/v1/runtime-environments/${runtime.id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Save failed (${res.status}): ${detail}`);
+      }
+
+      onSave();
+    } catch (e: any) {
+      setError(e.message || 'Unknown error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputClass =
+    'w-full rounded-lg border border-gray-300 dark:border-gray-600 ' +
+    'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 ' +
+    'px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+  const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1';
+
+  return (
+    <div className="space-y-5 p-2">
+      {/* Config URL */}
+      <div>
+        <label className={labelClass}>Config URL</label>
+        <input
+          type="url"
+          className={inputClass}
+          value={configUrl}
+          onChange={e => setConfigUrl(e.target.value)}
+          placeholder="https://agent.anafter.co"
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          Site-Hub registry API base URL
+        </p>
+      </div>
+
+      {/* Site Key */}
+      <div>
+        <label className={labelClass}>Site Key</label>
+        <input
+          type="text"
+          className={inputClass}
+          value={siteKey}
+          onChange={e => setSiteKey(e.target.value)}
+          placeholder="openseo-basic-anafter-co-an-after-ux-..."
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          From Site-Hub Console → Channel settings
+        </p>
+      </div>
+
+      {/* ChainAgent ID */}
+      <div>
+        <label className={labelClass}>ChainAgent ID</label>
+        <input
+          type="text"
+          className={inputClass}
+          value={chainagentId}
+          onChange={e => setChainagentId(e.target.value)}
+          placeholder="UUID of the ChainAgent"
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          Required for fetching channels — find in Site-Hub Console
+        </p>
+      </div>
+
+      {/* Auth Token */}
+      <div>
+        <label className={labelClass}>Auth Token (optional)</label>
+        <input
+          type="password"
+          className={inputClass}
+          value={authToken}
+          onChange={e => setAuthToken(e.target.value)}
+          placeholder="Leave empty to keep current token"
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          API key or bearer token for Site-Hub authentication
+        </p>
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex justify-end gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        >
+          {t('cancel' as any) || 'Cancel'}
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'Saving...' : t('save' as any) || 'Save'}
+        </button>
+      </div>
     </div>
   );
 }

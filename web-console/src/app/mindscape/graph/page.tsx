@@ -18,7 +18,7 @@ export default function GraphPage() {
   const workspaceId = searchParams?.get('workspaceId') || searchParams?.get('workspace_id') || '';
 
   const [activeLens, setActiveLens] = useState<'all' | 'direction' | 'action'>('all');
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
   const [editingNode, setEditingNode] = useState<GraphNode | undefined>(undefined);
   const [isCreatingNode, setIsCreatingNode] = useState(false);
   const [deletingNodeId, setDeletingNodeId] = useState<string | null>(null);
@@ -150,9 +150,6 @@ export default function GraphPage() {
             <NodeDetailPanel
               node={selectedNode}
               onClose={() => setSelectedNode(null)}
-              onOpenWorkspace={handleOpenWorkspace}
-              onEdit={handleEdit}
-              onDelete={handleDeleteClick}
             />
 
             {(editingNode !== undefined || isCreatingNode) && (
