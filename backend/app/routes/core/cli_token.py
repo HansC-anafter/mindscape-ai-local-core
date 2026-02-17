@@ -47,18 +47,20 @@ def _get_gca_token() -> dict:
 
     db = next(get_db())
     try:
+        # Use the dedicated gca-local runtime for GCA token storage
         runtime = (
             db.query(RuntimeEnvironment)
             .filter(
+                RuntimeEnvironment.id == "gca-local",
                 RuntimeEnvironment.auth_status == "connected",
-                RuntimeEnvironment.auth_type == "oauth2",
             )
             .first()
         )
         if not runtime:
             return {
-                "error": "No OAuth-connected runtime found. "
-                "Connect a runtime via Web Console > Settings > Runtimes."
+                "error": "GCA not connected. "
+                "Connect via Web Console > Settings > CLI Agent Keys > "
+                "Google Account tab."
             }
 
         auth_service = RuntimeAuthService()

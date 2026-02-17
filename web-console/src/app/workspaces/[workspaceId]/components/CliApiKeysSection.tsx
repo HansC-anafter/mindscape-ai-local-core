@@ -114,7 +114,7 @@ export default function CliApiKeysSection() {
         }
     }, []);
 
-    // Load GCA auth status from runtimes
+    // Load GCA auth status from dedicated gca-local runtime
     const loadGcaStatus = useCallback(async () => {
         try {
             const base = getApiBaseUrl();
@@ -122,14 +122,17 @@ export default function CliApiKeysSection() {
             if (!resp.ok) return;
             const data = await resp.json();
             const runtimes: Array<Record<string, any>> = data.runtimes || [];
-            // Find an oauth2-type runtime (used for GCA auth)
-            const oauthRuntime = runtimes.find(
-                (r: Record<string, any>) => r.auth_type === 'oauth2'
+            // Use the dedicated gca-local runtime (never touch site-hub)
+            const gcaRuntime = runtimes.find(
+                (r: Record<string, any>) => r.id === 'gca-local'
             );
-            if (oauthRuntime) {
-                setGcaRuntimeId(oauthRuntime.id);
-                setGcaStatus(oauthRuntime.auth_status || 'disconnected');
-                setGcaEmail(oauthRuntime.auth_identity || null);
+            if (gcaRuntime) {
+                setGcaRuntimeId(gcaRuntime.id);
+                setGcaStatus(gcaRuntime.auth_status || 'disconnected');
+                setGcaEmail(gcaRuntime.auth_identity || null);
+            } else {
+                setGcaRuntimeId('gca-local');
+                setGcaStatus('disconnected');
             }
         } catch {
             // Ignore — GCA section will show disconnected
@@ -211,35 +214,9 @@ export default function CliApiKeysSection() {
             return;
         }
 
-        // Find or determine the runtime_id for OAuth
-        let runtimeId = gcaRuntimeId;
-        if (!runtimeId) {
-            // Try to find any oauth2 runtime
-            try {
-                const resp = await fetch(`${base}/api/v1/runtime-environments`);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    const runtimes: Array<Record<string, any>> = data.runtimes || [];
-                    const oauthRuntime = runtimes.find(
-                        (r: Record<string, any>) => r.auth_type === 'oauth2'
-                    );
-                    if (oauthRuntime) {
-                        runtimeId = oauthRuntime.id;
-                        setGcaRuntimeId(runtimeId);
-                    }
-                }
-            } catch {
-                // Fall through
-            }
-        }
-
-        if (!runtimeId) {
-            setError(
-                'No OAuth2 runtime found. Add a runtime with OAuth2 auth type first ' +
-                '(e.g., a Site-Hub runtime) and then connect.'
-            );
-            return;
-        }
+        // Open OAuth popup for the dedicated gca-local runtime
+        const runtimeId = 'gca-local';
+        setGcaRuntimeId(runtimeId);
 
         // Open OAuth popup
         const w = 500, h = 600;
