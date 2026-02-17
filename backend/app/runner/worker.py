@@ -7,8 +7,6 @@ import random
 import socket
 import subprocess
 import threading
-import urllib.error
-import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -583,198 +581,6 @@ def _build_inputs(
 # ============================================================
 
 
-async def _run_agent_dispatch_task(
-    tasks_store: TasksStore, runner_id: str, task_id: str
-) -> None:
-    """Execute an agent_dispatch task via gemini_cli_runtime_bridge.py.
-
-    Flow:
-      1. Read dispatch payload from task.params
-      2. Claim task and mark running
-      3. Run gemini_cli_runtime_bridge.py as subprocess (stdin=payload, stdout=result)
-      4. POST result to backend /api/v1/mcp/agent/result to resolve waiting Future
-      5. Update task status in DB
-    """
-    task = tasks_store.get_task(task_id)
-    if not task:
-        return
-    if task.status == TaskStatus.CANCELLED_BY_USER:
-        return
-
-    params = task.params if isinstance(task.params, dict) else {}
-    execution_id = task.execution_id or task.id
-    workspace_id = task.workspace_id or ""
-
-    # Extract the actual task prompt from params
-    dispatch_task = params.get("task", "")
-    if not dispatch_task:
-        logger.warning(f"Agent dispatch task {task_id} has no task prompt, skipping")
-        return
-
-    # Mark task as running
-    try:
-        tasks_store.update_task(
-            task_id,
-            status=TaskStatus.RUNNING,
-            started_at=_utc_now(),
-        )
-    except Exception as e:
-        logger.warning(f"Failed to mark agent dispatch task running: {e}")
-
-    # Build bridge payload (same format as gemini_cli_runtime_bridge.py expects)
-    bridge_payload = {
-        "execution_id": execution_id,
-        "workspace_id": workspace_id,
-        "task": dispatch_task,
-        "max_duration": params.get("max_duration_seconds", 600),
-        "context": params.get("agent_config", {}),
-        "allowed_tools": params.get("allowed_tools", []),
-    }
-
-    bridge_script = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "scripts",
-        "gemini_cli_runtime_bridge.py",
-    )
-    if not os.path.exists(bridge_script):
-        bridge_script = "/app/scripts/gemini_cli_runtime_bridge.py"
-
-    env = os.environ.copy()
-    backend_port = os.environ.get("PORT", "8200")
-    env.setdefault("MINDSCAPE_BACKEND_API_URL", f"http://localhost:{backend_port}")
-
-    logger.info(
-        f"Agent dispatch: executing task {execution_id} "
-        f"via bridge, prompt={dispatch_task[:80]}"
-    )
-
-    start_time = _utc_now()
-    result_data = {}
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "python3",
-            bridge_script,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        payload_bytes = json.dumps(bridge_payload).encode()
-        timeout = bridge_payload.get("max_duration", 600)
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(input=payload_bytes),
-            timeout=timeout + 30,  # grace period
-        )
-
-        stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
-
-        if stderr_text:
-            logger.debug(f"Agent dispatch bridge stderr: {stderr_text[:500]}")
-
-        try:
-            result_data = json.loads(stdout_text) if stdout_text else {}
-        except json.JSONDecodeError:
-            result_data = {
-                "status": "completed" if proc.returncode == 0 else "failed",
-                "output": stdout_text[:2000] if stdout_text else "",
-                "error": (
-                    f"Bridge returned non-JSON output" if stdout_text else "No output"
-                ),
-            }
-
-        if proc.returncode != 0 and result_data.get("status") != "failed":
-            result_data["status"] = "failed"
-            if not result_data.get("error"):
-                result_data["error"] = f"Bridge exited with code {proc.returncode}"
-
-    except asyncio.TimeoutError:
-        result_data = {
-            "status": "failed",
-            "output": "",
-            "error": f"Agent dispatch task timed out after {timeout}s",
-        }
-    except Exception as e:
-        result_data = {
-            "status": "failed",
-            "output": "",
-            "error": f"Bridge execution failed: {e}",
-        }
-
-    elapsed = (_utc_now() - start_time).total_seconds()
-    result_data.setdefault("status", "completed")
-    result_data["duration_seconds"] = elapsed
-    result_data["execution_id"] = execution_id
-
-    # POST result back to backend to resolve the waiting Future
-    _submit_dispatch_result(execution_id, result_data, runner_id)
-
-    # Update task status in DB
-    try:
-        status = result_data.get("status", "completed")
-        task_status = (
-            TaskStatus.SUCCEEDED if status == "completed" else TaskStatus.FAILED
-        )
-        tasks_store.update_task_status(
-            task_id=task_id,
-            status=task_status,
-            result=result_data,
-            error=result_data.get("error"),
-            completed_at=_utc_now(),
-        )
-    except Exception as e:
-        logger.warning(f"Failed to update agent dispatch task status: {e}")
-
-    logger.info(
-        f"Agent dispatch: task {execution_id} completed "
-        f"status={result_data.get('status')} elapsed={elapsed:.1f}s"
-    )
-
-
-def _submit_dispatch_result(
-    execution_id: str, result_data: dict, client_id: str
-) -> None:
-    """POST result to backend /api/v1/mcp/agent/result to resolve waiting Future."""
-    backend_url = os.environ.get(
-        "MINDSCAPE_BACKEND_API_URL",
-        f"http://localhost:{os.environ.get('PORT', '8200')}",
-    )
-    # Inside the runner container, backend is at backend:8200
-    if not backend_url or backend_url.startswith("http://localhost"):
-        backend_url = os.environ.get("BACKEND_INTERNAL_URL", "http://backend:8200")
-
-    url = f"{backend_url.rstrip('/')}/api/v1/mcp/agent/result"
-    body = {
-        "execution_id": execution_id,
-        "status": result_data.get("status", "completed"),
-        "output": result_data.get("output", "")[:500],
-        "error": result_data.get("error"),
-        "duration_seconds": result_data.get("duration_seconds", 0),
-        "client_id": client_id,
-        "files_modified": result_data.get("files_modified", []),
-        "files_created": result_data.get("files_created", []),
-        "tool_calls": result_data.get("tool_calls", []),
-        "metadata": {"executor_location": "runner", "transport": "worker_dispatch"},
-    }
-
-    try:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            logger.info(
-                f"Agent dispatch result submitted for {execution_id}: "
-                f"HTTP {resp.status}"
-            )
-    except Exception as e:
-        logger.warning(
-            f"Failed to submit agent dispatch result for {execution_id}: {e}"
-        )
-
-
 async def _run_single_task(
     tasks_store: TasksStore, runner_id: str, task_id: str
 ) -> None:
@@ -1091,7 +897,7 @@ async def _run_single_task(
 
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
-    max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 3)
+    max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
     # Poll a bit more than inflight so we can quickly fill capacity.
     batch_limit = _env_int(
         "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(1, max_inflight * 2)
@@ -1159,16 +965,7 @@ async def run_forever() -> None:
         except Exception as e:
             logger.warning(f"Runner poll failed: {e}")
 
-        # Also poll agent_dispatch tasks (Gemini CLI inference from chat)
-        dispatch_tasks = []
-        try:
-            dispatch_tasks = tasks_store.list_runnable_agent_dispatch_tasks(
-                limit=batch_limit
-            )
-        except Exception as e:
-            logger.warning(f"Runner agent dispatch poll failed: {e}")
-
-        if not tasks and not dispatch_tasks:
+        if not tasks:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
@@ -1213,41 +1010,6 @@ async def run_forever() -> None:
                 inflight.add(asyncio.create_task(task_coro))
             except Exception as e:
                 logger.warning(f"Runner task dispatch error: {e}", exc_info=True)
-
-        # Dispatch agent_dispatch tasks (Gemini CLI inference)
-        for t in dispatch_tasks:
-            try:
-                if len(inflight) >= max_inflight:
-                    break
-                if t.status == TaskStatus.CANCELLED_BY_USER:
-                    continue
-                claimed = tasks_store.try_claim_task(t.id, runner_id=runner_id)
-                if not claimed:
-                    continue
-                task_coro = _run_agent_dispatch_task(tasks_store, runner_id, t.id)
-                inflight.add(asyncio.create_task(task_coro))
-            except Exception as e:
-                logger.warning(f"Runner agent dispatch error: {e}", exc_info=True)
-                try:
-                    ctx = (
-                        t.execution_context
-                        if isinstance(t.execution_context, dict)
-                        else {}
-                    )
-                    ctx = dict(ctx)
-                    ctx["status"] = "failed"
-                    ctx["error"] = str(e)
-                    ctx["runner_id"] = runner_id
-                    ctx["failed_at"] = _utc_now().isoformat()
-                    tasks_store.update_task(
-                        t.id,
-                        execution_context=ctx,
-                        status=TaskStatus.FAILED,
-                        completed_at=_utc_now(),
-                        error=str(e),
-                    )
-                except Exception:
-                    pass
 
         await asyncio.sleep(poll_interval_ms / 1000)
 
