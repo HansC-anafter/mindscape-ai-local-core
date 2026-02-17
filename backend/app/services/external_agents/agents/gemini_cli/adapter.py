@@ -330,7 +330,18 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             )
 
             raw_result.setdefault("metadata", {})["transport"] = "ws_push"
-            return parse_dispatch_response(raw_result, start_time)
+            response = parse_dispatch_response(raw_result, start_time)
+            if not response.success:
+                logger.warning(
+                    f"[GeminiCLI] DIAGNOSTIC: WS dispatch returned failure "
+                    f"for exec={execution_id}. "
+                    f"parsed_error={response.error!r}, "
+                    f"parsed_output={str(response.output)[:500]!r}, "
+                    f"raw_status={raw_result.get('status')!r}, "
+                    f"raw_error={raw_result.get('error')!r}, "
+                    f"raw_output={str(raw_result.get('output', ''))[:500]!r}"
+                )
+            return response
 
         except asyncio.TimeoutError:
             elapsed = time.monotonic() - start_time

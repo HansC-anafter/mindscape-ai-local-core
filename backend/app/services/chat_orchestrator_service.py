@@ -293,6 +293,12 @@ class ChatOrchestratorService:
                         f"[AsyncChat] External agent {preferred_agent} failed: "
                         f"{error_msg}"
                     )
+                    logger.warning(
+                        f"[AsyncChat] DIAGNOSTIC: agent_response details: "
+                        f"error={agent_response.error!r}, "
+                        f"output={str(agent_response.output)[:500]!r}, "
+                        f"trace_id={agent_response.trace_id}"
+                    )
                     return
 
                 logger.info(

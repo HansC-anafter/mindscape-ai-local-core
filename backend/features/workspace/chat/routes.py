@@ -88,11 +88,57 @@ async def workspace_chat(
             f"WorkspaceChat: Received message request, message={request.message[:50]}..."
         )
 
-        # All requests go through the async job queue path.
-        # This ensures preferred_agent routing and SSE feedback always work.
         user_event_id = str(uuid.uuid4())
         service = ChatOrchestratorService(orchestrator)
 
+        # stream=False: await synchronously and return display_events
+        # (used by messaging_handler for LINE reply delivery)
+        if not getattr(request, "stream", True):
+            await service.run_background_chat(
+                request=request,
+                workspace=workspace,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                user_event_id=user_event_id,
+            )
+
+            # Fetch the generated events from DB to return to caller
+            try:
+                import asyncio
+
+                loop = asyncio.get_running_loop()
+                events = await loop.run_in_executor(
+                    None,
+                    lambda: orchestrator.store.events.get_events_by_thread(
+                        workspace_id=workspace_id,
+                        thread_id=None,
+                        limit=5,
+                    ),
+                )
+                display_events = [
+                    {
+                        "id": e.id,
+                        "actor": e.actor.value if hasattr(e.actor, "value") else str(e.actor),
+                        "payload": e.payload,
+                        "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                    }
+                    for e in (events or [])
+                ]
+            except Exception as fetch_err:
+                logger.warning(f"WorkspaceChat: Failed to fetch display_events: {fetch_err}")
+                display_events = []
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "completed",
+                    "event_id": user_event_id,
+                    "workspace_id": workspace_id,
+                    "display_events": display_events,
+                },
+            )
+
+        # stream=True (default): fire-and-forget for web UI with SSE feedback
         if background_tasks:
             background_tasks.add_task(
                 service.run_background_chat,

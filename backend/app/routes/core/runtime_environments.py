@@ -61,10 +61,13 @@ class CreateRuntimeEnvironmentRequest(BaseModel):
     config_url: str = Field(..., description="Configuration page URL")
     auth_type: str = Field(
         default="none",
-        description="Authentication type: 'api_key', 'oauth2', or 'none'",
+        description="Authentication type: 'api_key', 'oauth2', 'token', or 'none'",
     )
     auth_config: Optional[Dict[str, Any]] = Field(
         None, description="Authentication configuration"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Custom metadata (e.g. site_key, chainagent_id)"
     )
     supports_dispatch: bool = Field(
         default=True, description="Support Dispatch Workspace"
@@ -84,6 +87,7 @@ class UpdateRuntimeEnvironmentRequest(BaseModel):
     config_url: Optional[str] = None
     auth_type: Optional[str] = None
     auth_config: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
     supports_dispatch: Optional[bool] = None
     supports_cell: Optional[bool] = None
@@ -195,6 +199,7 @@ async def create_runtime_environment(
             config_url=request.config_url,
             auth_type=request.auth_type,
             auth_config=encrypted_auth_config,
+            extra_metadata=request.metadata or {},
             status="not_configured",
             is_default=False,
             supports_dispatch=request.supports_dispatch,
@@ -334,6 +339,12 @@ async def update_runtime_environment(
             runtime.supports_cell = request.supports_cell
         if request.recommended_for_dispatch is not None:
             runtime.recommended_for_dispatch = request.recommended_for_dispatch
+
+        # Update metadata (merge with existing)
+        if request.metadata is not None:
+            existing_meta = runtime.extra_metadata or {}
+            existing_meta.update(request.metadata)
+            runtime.extra_metadata = existing_meta
 
         # Update authentication if provided
         if request.auth_type is not None:

@@ -57,6 +57,8 @@ class MessagingHandler:
         # Dedup guard: track in-progress request_ids to prevent duplicate LLM calls
         self._processed_requests: Dict[str, float] = {}
         self._dedup_ttl_seconds = 120  # 2 minute TTL
+        # Supersede: track latest request per workspace to suppress stale replies
+        self._latest_workspace_request: Dict[str, str] = {}
 
     def _is_duplicate_request(self, request_id: str) -> bool:
         """Check if request_id was already processed or is in-progress."""
@@ -261,6 +263,9 @@ class MessagingHandler:
             channel = original_payload.get("channel", "unknown")
             user_event_id = str(uuid.uuid4())
 
+            # Mark this request as the latest for this workspace
+            self._latest_workspace_request[workspace_id] = request_id
+
             logger.info(
                 f"[MessagingHandler] Dispatching to workspace chat: "
                 f"workspace={workspace_id}, channel={channel}, "
@@ -357,6 +362,16 @@ class MessagingHandler:
                 f"[MessagingHandler] Workspace chat completed: "
                 f"reply_text_length={len(reply_text)}"
             )
+
+            # Supersede check: skip reply if a newer request arrived
+            latest = self._latest_workspace_request.get(workspace_id)
+            if latest and latest != request_id:
+                logger.info(
+                    f"[MessagingHandler] Suppressing stale reply for "
+                    f"{request_id} (superseded by {latest})"
+                )
+                return
+
             await self._send_reply(
                 request_id,
                 original_payload,

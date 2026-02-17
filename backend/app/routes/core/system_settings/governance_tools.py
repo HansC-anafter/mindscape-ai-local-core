@@ -113,6 +113,72 @@ aider --version
 ```
 """,
     },
+    "codex_cli": {
+        "command": "codex",
+        "package": "codex-cli",
+        "install_methods": [
+            {"method": "npm", "command": "npm install -g @openai/codex"},
+        ],
+        "install_guide": """
+## Install Codex CLI
+
+OpenAI Codex CLI is an AI coding agent.
+
+### Install via npm
+```bash
+npm install -g @openai/codex
+```
+
+### Verify installation
+```bash
+codex --version
+```
+""",
+    },
+    "claude_code_cli": {
+        "command": "claude",
+        "package": "claude-code",
+        "install_methods": [
+            {"method": "npm", "command": "npm install -g @anthropic-ai/claude-code"},
+        ],
+        "install_guide": """
+## Install Claude Code CLI
+
+Anthropic Claude Code CLI is an AI coding agent.
+
+### Install via npm
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### Verify installation
+```bash
+claude --version
+```
+""",
+    },
+    "gemini_cli": {
+        "command": "gemini",
+        "package": "@anthropic-ai/gemini-cli",
+        "install_methods": [
+            {"method": "npm", "command": "npm install -g @anthropic-ai/gemini-cli"},
+        ],
+        "install_guide": """
+## Install Gemini CLI
+
+Google Gemini CLI is an AI coding agent.
+
+### Install via npm
+```bash
+npm install -g @google/gemini-cli
+```
+
+### Verify installation
+```bash
+gemini --version
+```
+""",
+    },
 }
 
 

@@ -142,9 +142,13 @@ async def get_browser_profile_status(
 ):
     """
     Check the status of a browser profile for IG automation.
-    Checks if Instagram sessionid cookie exists (actual login state).
+
+    Reads session state from storage_state.json (the file Playwright actually
+    uses at runtime). Validates that a sessionid cookie is present and has
+    not expired.
     """
-    import sqlite3
+    import json
+    import time
 
     if profile_path:
         if not profile_path.startswith("/"):
@@ -178,54 +182,24 @@ async def get_browser_profile_status(
             "ig_cookies": [],
         }
 
-    # Find cookies database
-    cookie_paths = [
-        profile_dir / "Default" / "Cookies",
-        profile_dir / "Cookies",
-    ]
+    # Read storage_state.json — the sole source of truth for Playwright sessions
+    storage_state_path = profile_dir / "storage_state.json"
 
-    cookie_db = None
-    for p in cookie_paths:
-        if p.exists():
-            cookie_db = p
-            break
-
-    if not cookie_db:
+    if not storage_state_path.exists():
         return {
             "exists": True,
             "ready": False,
             "logged_in": False,
             "profile_path": str(profile_dir),
             "path_source": path_source,
-            "message": "No cookies database found",
+            "storage_state_path": str(storage_state_path),
+            "message": "No storage_state.json found (not logged in)",
             "ig_cookies": [],
         }
 
-    # Check Instagram cookies in database
-    ig_cookies = []
-    has_sessionid = False
-    sessionid_cookie = None
-
     try:
-        conn = sqlite3.connect(str(cookie_db))
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT host_key, name, expires_utc, is_persistent FROM cookies WHERE host_key LIKE '%instagram%'"
-        )
-        results = cursor.fetchall()
-
-        for row in results:
-            ig_cookies.append({"host": row[0], "name": row[1]})
-            if row[1] == "sessionid":
-                has_sessionid = True
-                sessionid_cookie = {
-                    "host": row[0],
-                    "name": row[1],
-                    "expires_utc": row[2],
-                    "is_persistent": row[3],
-                }
-
-        conn.close()
+        with open(storage_state_path, "r", encoding="utf-8") as f:
+            storage_state = json.load(f)
     except Exception as e:
         return {
             "exists": True,
@@ -233,49 +207,56 @@ async def get_browser_profile_status(
             "logged_in": False,
             "profile_path": str(profile_dir),
             "path_source": path_source,
-            "message": f"Error reading cookies: {str(e)}",
+            "storage_state_path": str(storage_state_path),
+            "message": f"Error reading storage_state.json: {e}",
             "ig_cookies": [],
         }
 
-    # Fallback to storage_state if session-only cookie was cleared
-    storage_state_path = profile_dir / "storage_state.json"
-    storage_state_sessionid = None
-    if storage_state_path.exists():
-        try:
-            import json
+    all_cookies = storage_state.get("cookies", [])
+    ig_cookies = [
+        {"name": c.get("name"), "domain": c.get("domain")}
+        for c in all_cookies
+        if "instagram" in c.get("domain", "")
+    ]
 
-            with open(storage_state_path, "r", encoding="utf-8") as f:
-                storage_state = json.load(f)
-            for cookie in storage_state.get("cookies", []):
-                if cookie.get("name") == "sessionid":
-                    storage_state_sessionid = cookie
-                    break
-        except Exception:
-            storage_state_sessionid = None
+    sessionid_cookie = None
+    for c in all_cookies:
+        if c.get("name") == "sessionid" and "instagram" in c.get("domain", ""):
+            sessionid_cookie = c
+            break
 
-    effective_sessionid = has_sessionid or bool(storage_state_sessionid)
-    session_source = (
-        "cookie_db"
-        if has_sessionid
-        else ("storage_state" if storage_state_sessionid else "none")
-    )
+    has_sessionid = sessionid_cookie is not None
+    session_expired = False
+
+    if has_sessionid:
+        expires = sessionid_cookie.get("expires", 0)
+        if expires and expires > 0 and expires < time.time():
+            session_expired = True
+
+    logged_in = has_sessionid and not session_expired
+
+    if logged_in:
+        message = "Logged in and ready"
+    elif session_expired:
+        message = "Session expired — sessionid cookie past expiry. Please re-login."
+    else:
+        message = (
+            f"Profile exists with {len(ig_cookies)} IG cookies "
+            f"but NO sessionid (not logged in)"
+        )
 
     return {
         "exists": True,
-        "ready": effective_sessionid,
-        "logged_in": effective_sessionid,
+        "ready": logged_in,
+        "logged_in": logged_in,
         "profile_path": str(profile_dir),
         "path_source": path_source,
-        "has_sessionid": effective_sessionid,
+        "has_sessionid": has_sessionid,
         "sessionid_cookie": sessionid_cookie,
+        "session_expired": session_expired,
         "storage_state_path": str(storage_state_path),
-        "storage_state_sessionid": storage_state_sessionid,
-        "session_source": session_source,
+        "session_source": "storage_state" if has_sessionid else "none",
         "ig_cookie_count": len(ig_cookies),
         "ig_cookies": ig_cookies,
-        "message": (
-            "Logged in and ready"
-            if effective_sessionid
-            else f"Profile exists with {len(ig_cookies)} cookies but NO sessionid (not logged in)"
-        ),
+        "message": message,
     }

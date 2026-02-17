@@ -34,7 +34,7 @@ class ExternalAgentExecuteTool(MindscapeTool):
                 properties={
                     "agent": {
                         "type": "string",
-                        "description": "Agent name (e.g., 'antigravity', 'openclaw')",
+                        "description": "Agent name (e.g., 'gemini_cli', 'openclaw')",
                     },
                     "task": {
                         "type": "string",

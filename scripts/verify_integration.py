@@ -1,84 +1,88 @@
-import asyncio
-import uuid
-import json
-import httpx
+import sys
 import time
-from backend.app.services.external_agents.agents.antigravity.ide_ws_client import (
-    AntigravityWSClient,
+import subprocess
+import requests
+import os
+
+# Set PYTHONPATH to include current directory
+env = os.environ.copy()
+env["PYTHONPATH"] = os.getcwd()
+
+print("Starting verification script...")
+
+# 1. Start Client
+client_cmd = [
+    sys.executable,
+    "-u",
+    "backend/app/services/external_agents/agents/antigravity/ide_ws_client.py",
+    "--workspace-id",
+    "bac7ce63-e768-454d-96f3-3a00e8e1df69",
+    "--host",
+    "localhost:8200",
+    "--client-id",
+    "mock-ide-002",
+]
+print(f"Executing: {' '.join(client_cmd)}")
+client = subprocess.Popen(
+    client_cmd,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    env=env,
+    bufsize=0,  # Unbuffered
 )
 
-# Configuration
-API_BASE = "http://localhost:8200"
-WS_URL = "ws://localhost:8200/ws/agent/test-workspace"
-AGENT_ID = "antigravity"
-TOKEN = "test-token"
+# 2. Wait for connection
+print("Waiting for client to connect...")
+max_retries = 10
+connected = False
+for i in range(max_retries):
+    try:
+        r = requests.get("http://localhost:8200/api/v1/mcp/agent/status")
+        status = r.json()
+        print(f"Status check {i+1}: {status}")
 
+        # Check if our workspace has clients
+        workspaces = status.get("workspaces", {})
+        ws_info = workspaces.get("bac7ce63-e768-454d-96f3-3a00e8e1df69", {})
+        clients = ws_info.get("clients", [])
 
-async def run_verification():
-    print(f"🚀 Starting Antigravity Integration Verification...")
+        if clients:
+            print(f"Client connected: {clients}")
+            connected = True
+            break
+    except Exception as e:
+        print(f"Status check failed: {e}")
 
-    # 1. Start Mock IDE Client
-    client = AntigravityWSClient(
-        workspace_id="test-workspace",
-        host="localhost:8200",
-        auth_secret=TOKEN,
-        surface=AGENT_ID,
-    )
-    print(f"🔌 Connecting IDE Client to {WS_URL}...")
+    time.sleep(1)
 
-    # Start client in background
-    client_task = asyncio.create_task(client.run())
+if not connected:
+    print("ERROR: Client failed to connect within timeout.")
+    client.terminate()
+    sys.exit(1)
 
-    # Wait for connection
-    await asyncio.sleep(2)
-    if not client._ws:
-        print("❌ Failed to connect IDE Client (Timeout)")
-        return
+# 3. Dispatch
+try:
+    print("Sending dispatch request...")
+    url = "http://localhost:8200/ws/agent/test/dispatch/bac7ce63-e768-454d-96f3-3a00e8e1df69"
+    # Set timeout to avoid hanging indefinitely if backend blocks
+    r = requests.post(url, json={"task": "Direct verification task"}, timeout=10)
+    print(f"Dispatch Response: {r.status_code}")
+    print(f"Dispatch Body: {r.text}")
+except Exception as e:
+    print(f"Dispatch failed: {e}")
 
-    print("✅ IDE Client Connected!")
-
-    # 2. Trigger Playbook Execution (using the installed antigravity playbook)
-    print("📢 Triggering Playbook: antigravity_single_task...")
-    async with httpx.AsyncClient() as api:
-        # Correct Endpoint: POST /api/v1/playbooks/execute/start
-        response = await api.post(
-            f"{API_BASE}/api/v1/playbooks/execute/start",
-            params={
-                "playbook_code": "antigravity_single_task",
-                "workspace_id": "test-workspace",
-            },
-            json={
-                "inputs": {
-                    "task_description": "Verify Antigravity Integration from Verification Script"
-                }
-            },
-            timeout=10.0,
-        )
-
-        if response.status_code != 200:
-            print(f"❌ Failed to trigger playbook: {response.text}")
-            await client.stop()
-            return
-
-        execution_data = response.json()
-        execution_id = execution_data.get("execution_id")
-        print(f"✅ Playbook triggered! Execution ID: {execution_id}")
-
-    # 3. Wait for result (IDE Client automatically handles dispatch and sends result)
-    print("⏳ Waiting for execution result...")
-
-    # Wait for the cycle to complete (Dispatch -> Ack -> Progress -> Result)
-    # The default handler sends progress updates, so we wait enough time for them
-    await asyncio.sleep(5)
-
-    print(
-        "✅ Verification Check Completed (Check logs above for 'Task completed' or 'Result received')"
-    )
-
-    # Cleanup
-    await client.stop()
-    await client_task
-
-
-if __name__ == "__main__":
-    asyncio.run(run_verification())
+# 4. Cleanup & Logs
+print("Terminating client...")
+client.terminate()
+try:
+    outs, _ = client.communicate(timeout=2)
+    print("\n=== Client Logs ===")
+    print(outs)
+    print("===================")
+except subprocess.TimeoutExpired:
+    client.kill()
+    outs, _ = client.communicate()
+    print("\n=== Client Logs (Killed) ===")
+    print(outs)
+    print("============================")

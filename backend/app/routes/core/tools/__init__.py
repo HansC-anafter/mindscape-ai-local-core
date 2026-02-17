@@ -9,6 +9,7 @@ This module integrates all tool-related routers:
 - Connections router: connection CRUD operations
 - Status router: tool status checking
 """
+
 from fastapi import APIRouter
 
 from .base import router as base_router
@@ -24,6 +25,7 @@ from .providers import wordpress
 from .providers import notion
 from .providers import canva
 from . import tool_slots
+from .rag_search import router as rag_search_router
 from .providers import google_drive
 from .providers import langchain
 from .providers import mcp
@@ -49,6 +51,9 @@ router.include_router(execution_router)
 
 # Include registration router (enhanced tool registration)
 router.include_router(registration_router)
+
+# Include RAG search router (tool embedding search for pack filtering)
+router.include_router(rag_search_router)
 
 # Include tool slots router (tool slot mapping management)
 router.include_router(tool_slots.router)

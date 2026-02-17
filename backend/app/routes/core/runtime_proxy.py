@@ -35,7 +35,7 @@ except ImportError:
 
     async def get_current_user() -> Any:
         """Placeholder for development"""
-        return type('User', (), {'id': 'dev-user'})()
+        return type("User", (), {"id": "dev-user"})()
 
     User = Any
 
@@ -47,9 +47,7 @@ auth_service = RuntimeAuthService()
 
 
 async def get_runtime_for_user(
-    runtime_id: str,
-    user_id: str,
-    db: Session = Depends(get_db)
+    runtime_id: str, user_id: str, db: Session = Depends(get_db)
 ) -> RuntimeEnvironment:
     """
     Get runtime environment for a user, verifying ownership.
@@ -65,25 +63,19 @@ async def get_runtime_for_user(
     Raises:
         HTTPException: If runtime not found or user doesn't have access
     """
-    # Query runtime - allow matching user_id or fallback to any if user_id matches common patterns
-    runtime = db.query(RuntimeEnvironment).filter(
-        RuntimeEnvironment.id == runtime_id,
-        RuntimeEnvironment.user_id == user_id
-    ).first()
-
-    # Fallback: if not found with exact user_id match, try without user_id filter
-    # This handles cases where runtime was created with different user_id
-    if not runtime:
-        runtime = db.query(RuntimeEnvironment).filter(
-            RuntimeEnvironment.id == runtime_id
-        ).first()
-        if runtime:
-            logger.warning(f"Runtime {runtime_id} found but user_id mismatch: expected '{user_id}', got '{runtime.user_id}'")
+    # Strict user_id match — no fallback query to prevent cross-user access
+    runtime = (
+        db.query(RuntimeEnvironment)
+        .filter(
+            RuntimeEnvironment.id == runtime_id, RuntimeEnvironment.user_id == user_id
+        )
+        .first()
+    )
 
     if not runtime:
         raise HTTPException(
             status_code=404,
-            detail=f"Runtime environment '{runtime_id}' not found or access denied"
+            detail=f"Runtime environment '{runtime_id}' not found or access denied",
         )
 
     return runtime
@@ -99,7 +91,7 @@ async def proxy_runtime_settings(
     path: str,
     request: Request,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Proxy requests to external runtime configuration pages.
@@ -132,7 +124,7 @@ async def proxy_runtime_settings(
             target_url = config_url
 
         # Get authentication headers
-        auth_headers = auth_service.get_auth_headers(runtime)
+        auth_headers = await auth_service.get_auth_headers(runtime, db=db)
 
         # Prepare request headers
         headers = {
@@ -159,22 +151,25 @@ async def proxy_runtime_settings(
                     content=body if body else None,
                 )
             except httpx.TimeoutException:
-                logger.error(f"Timeout connecting to runtime {runtime_id} at {target_url}")
+                logger.error(
+                    f"Timeout connecting to runtime {runtime_id} at {target_url}"
+                )
                 raise HTTPException(
-                    status_code=504,
-                    detail="Timeout connecting to external runtime"
+                    status_code=504, detail="Timeout connecting to external runtime"
                 )
             except httpx.ConnectError as e:
-                logger.error(f"Connection error to runtime {runtime_id} at {target_url}: {e}")
+                logger.error(
+                    f"Connection error to runtime {runtime_id} at {target_url}: {e}"
+                )
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Cannot connect to external runtime: {str(e)}"
+                    detail=f"Cannot connect to external runtime: {str(e)}",
                 )
             except Exception as e:
                 logger.error(f"Error proxying request to runtime {runtime_id}: {e}")
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Error connecting to external runtime: {str(e)}"
+                    detail=f"Error connecting to external runtime: {str(e)}",
                 )
 
         # Prepare response headers (filter out sensitive headers)
@@ -196,7 +191,7 @@ async def proxy_runtime_settings(
             content=response.content,
             status_code=response.status_code,
             headers=response_headers,
-            media_type=response.headers.get("content-type")
+            media_type=response.headers.get("content-type"),
         )
 
     except HTTPException:
@@ -204,8 +199,7 @@ async def proxy_runtime_settings(
     except Exception as e:
         logger.error(f"Unexpected error in runtime proxy: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail="Internal error while proxying request"
+            status_code=500, detail="Internal error while proxying request"
         )
 
 
@@ -214,7 +208,7 @@ async def proxy_runtime_settings_root(
     runtime_id: str,
     request: Request,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Proxy requests to external runtime configuration root (no path).
@@ -226,6 +220,5 @@ async def proxy_runtime_settings_root(
         path="",
         request=request,
         current_user=current_user,
-        db=db
+        db=db,
     )
-
