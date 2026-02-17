@@ -230,7 +230,10 @@ async def authorize(
         "created_at": time.time(),
     }
 
-    scopes = "openid email profile"
+    # Use GCA scopes for Code Assist compatibility
+    from .gca_constants import GCA_OAUTH_SCOPES_STRING
+
+    scopes = GCA_OAUTH_SCOPES_STRING
     auth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
         f"?client_id={client_id}"
@@ -370,13 +373,10 @@ async def callback(
         "idp_token_expiry": time.time() + tokens.get("idp_token_expiry", 3600),
     }
 
-    # Preserve per-runtime client_id/client_secret if they exist
-    existing_config = runtime.auth_config or {}
+    # Do NOT preserve site-hub client credentials in local storage.
+    # GCA token refresh uses Gemini CLI's public OAuth credentials
+    # defined in gca_constants.py — no need to store provider secrets.
     encrypted = auth_service.encrypt_token_blob(token_data)
-    if existing_config.get("client_id"):
-        encrypted["client_id"] = existing_config["client_id"]
-    if existing_config.get("client_secret"):
-        encrypted["client_secret"] = existing_config["client_secret"]
 
     runtime.auth_type = "oauth2"
     runtime.auth_config = encrypted
@@ -559,8 +559,8 @@ async def store_token(
     }
 
 
-@router.post("/sitehub-jwt-landing")
-async def sitehub_jwt_landing(
+@router.post("/provider-jwt-landing")
+async def provider_jwt_landing(
     request: Request,
     db: Session = Depends(get_db),
 ):
@@ -586,6 +586,9 @@ async def sitehub_jwt_landing(
     idp_access_token = form.get("idp_access_token", "")
     idp_refresh_token = form.get("idp_refresh_token", "")
     idp_token_expiry_str = form.get("idp_token_expiry", "")
+    # NOTE: google_client_id / google_client_secret are intentionally NOT
+    # read from the form. GCA token refresh uses Gemini CLI's public
+    # OAuth credentials (gca_constants.py) instead of provider secrets.
 
     print(
         f"[JWT-LANDING-DEBUG] runtime_id={runtime_id}, has_token={bool(access_token)}, has_refresh={bool(refresh_token)}, email={email}, has_nonce={bool(landing_nonce)}"
@@ -643,16 +646,12 @@ async def sitehub_jwt_landing(
             token_data["idp_access_token"] = idp_access_token
             token_data["idp_refresh_token"] = idp_refresh_token
             token_data["idp_token_expiry"] = _time.time() + idp_expiry_secs
-
-        existing = runtime.auth_config or {}
-        preserved = {}
-        if existing.get("client_id"):
-            preserved["client_id"] = existing["client_id"]
-        if existing.get("client_secret"):
-            preserved["client_secret"] = existing["client_secret"]
+            # NOTE: site-hub Client ID/Secret are intentionally NOT stored.
+            # GCA token refresh uses Gemini CLI's public OAuth credentials
+            # (gca_constants.py). Storing provider secrets on user machines
+            # is a security anti-pattern for web-application-type OAuth.
 
         encrypted = auth_service.encrypt_token_blob(token_data)
-        encrypted.update(preserved)
 
         runtime.auth_config = encrypted
         runtime.auth_type = "oauth2"

@@ -366,44 +366,14 @@ class RuntimeAuthService:
                 return None
 
         # Legacy: Refresh against Google's token endpoint
-        config = runtime.auth_config or {}
-        client_id = config.get("client_id")
-        client_secret = config.get("client_secret")
+        # Use Gemini CLI's public OAuth credentials (installed app, safe to embed)
+        from app.routes.core.gca_constants import (
+            GCA_OAUTH_CLIENT_ID,
+            GCA_OAUTH_CLIENT_SECRET,
+        )
 
-        # Decrypt per-runtime client_secret (stored encrypted)
-        if client_secret:
-            try:
-                decrypted_config = self.decrypt_credentials(config)
-                client_secret = decrypted_config.get("client_secret", client_secret)
-            except Exception:
-                pass  # Use as-is if decryption fails
-
-        # Fallback to System Settings (global settings page)
-        if not client_id or not client_secret:
-            try:
-                from app.services.system_settings_store import SystemSettingsStore
-
-                settings = SystemSettingsStore()
-                if not client_id:
-                    s = settings.get_setting("google_oauth_client_id")
-                    if s and s.value:
-                        client_id = str(s.value)
-                if not client_secret:
-                    s = settings.get_setting("google_oauth_client_secret")
-                    if s and s.value:
-                        client_secret = str(s.value)
-            except Exception:
-                pass
-
-        # Fallback to env vars
-        if not client_id:
-            client_id = os.getenv("GOOGLE_CLIENT_ID")
-        if not client_secret:
-            client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-
-        if not client_id or not client_secret:
-            logger.error(f"Missing OAuth client credentials for runtime {runtime.id}")
-            return None
+        client_id = GCA_OAUTH_CLIENT_ID
+        client_secret = GCA_OAUTH_CLIENT_SECRET
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:

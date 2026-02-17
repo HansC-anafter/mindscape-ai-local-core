@@ -1,176 +1,277 @@
 """
 CLI Token Endpoint
 
-Provides a fresh OAuth access_token for CLI bridge processes.
-Uses RuntimeAuthService auto-refresh to return a valid token
-from the connected OAuth runtime in the database.
+Returns auth environment variables for CLI bridge processes.
+Reads the configured auth mode and credentials from system_settings,
+returning them as env-var key-value pairs that the bridge script
+injects into the Gemini CLI subprocess.
+
+Supported modes:
+  - gca           : returns GOOGLE_CLOUD_ACCESS_TOKEN + GOOGLE_GENAI_USE_GCA
+                    (reads stored Google IDP token from runtime auth_config)
+  - gemini_api_key: returns GEMINI_API_KEY
+  - vertex_ai     : returns GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
 """
 
 import logging
+import os
 import time
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-
-from ...models.runtime_environment import RuntimeEnvironment
-from ...services.runtime_auth_service import RuntimeAuthService
-
-try:
-    from ...database.session import get_db_postgres as get_db
-except ImportError:
-    try:
-        from ...database import get_db_postgres as get_db
-    except ImportError:
-        from mindscape.di.providers import get_db_session as get_db
+from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-_auth_service = RuntimeAuthService()
 
+def _get_gca_token() -> dict:
+    """Retrieve Google IDP access token from the first connected runtime.
 
-@router.get("/cli-token")
-async def get_cli_token(db: Session = Depends(get_db)):
+    Looks up the first runtime with auth_status='connected' and
+    decrypts idp_access_token from the encrypted token blob.
+    Refreshes the token if expired using idp_refresh_token.
+
+    Returns:
+        dict with env vars or error details.
     """
-    Return a fresh IDP access_token for CLI agent authentication.
+    try:
+        from ...database.session import get_db_postgres as get_db
+    except ImportError:
+        try:
+            from ...database import get_db_postgres as get_db
+        except ImportError:
+            from mindscape.di.providers import get_db_session as get_db
 
-    Looks up the first connected OAuth runtime, extracts the raw IDP
-    access_token (e.g. Google ya29.xxx), auto-refreshes if expired,
-    and returns it for injection into CLI env vars.
-    No user auth required (called from local bridge process).
-    """
+    from ...models.runtime_environment import RuntimeEnvironment
+    from ...services.runtime_auth_service import RuntimeAuthService
+
+    db = next(get_db())
     try:
         runtime = (
             db.query(RuntimeEnvironment)
             .filter(
-                RuntimeEnvironment.auth_type == "oauth2",
                 RuntimeEnvironment.auth_status == "connected",
+                RuntimeEnvironment.auth_type == "oauth2",
             )
             .first()
         )
+        if not runtime:
+            return {
+                "error": "No OAuth-connected runtime found. "
+                "Connect a runtime via Web Console > Settings > Runtimes."
+            }
 
-        if not runtime or not runtime.auth_config:
-            return JSONResponse(
-                status_code=200,
-                content={"access_token": None, "error": "no_connected_runtime"},
-            )
+        auth_service = RuntimeAuthService()
+        token_data = auth_service.decrypt_token_blob(runtime.auth_config or {})
+        if not token_data:
+            return {"error": "Failed to decrypt token blob from runtime"}
 
-        # Decrypt token blob
-        token_data = _auth_service.decrypt_token_blob(runtime.auth_config)
-
-        # CLI needs raw IDP token (e.g. Google access_token),
-        # not the provider's RS256 JWT
-        idp_token = token_data.get("idp_access_token")
+        idp_access_token = token_data.get("idp_access_token")
+        idp_refresh_token = token_data.get("idp_refresh_token")
         idp_expiry = token_data.get("idp_token_expiry", 0)
 
-        # Auto-refresh IDP token if expired
-        if idp_token and idp_expiry < time.time():
-            idp_refresh = token_data.get("idp_refresh_token")
-            if idp_refresh:
-                logger.info("IDP token expired, refreshing against IDP endpoint")
-                idp_token = await _refresh_idp_token(runtime, token_data, db=db)
+        if not idp_access_token:
+            return {"error": "No IDP access token stored in runtime auth_config"}
 
-        if not idp_token:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "access_token": None,
-                    "error": "no_idp_token",
-                    "detail": "Re-authenticate runtime to obtain IDP tokens",
-                },
+        # Refresh if expired (with 60s buffer)
+        if idp_expiry and time.time() > (idp_expiry - 60):
+            logger.info("IDP token expired, refreshing via Google OAuth")
+            refreshed = _refresh_google_token(
+                idp_refresh_token, runtime, auth_service, token_data, db
             )
+            if refreshed:
+                idp_access_token = refreshed
+            else:
+                return {"error": "IDP token expired and refresh failed"}
 
-        # Compute remaining TTL from IDP expiry
-        idp_expiry = token_data.get("idp_token_expiry", 0)
-        expires_in = max(0, int(float(idp_expiry) - time.time()))
-        if expires_in == 0:
-            expires_in = 3600  # Fallback if expiry unknown
+        # Resolve GCP project ID (required by cloudcode-pa)
+        gcp_project = token_data.get("gcp_project") or ""
+        if not gcp_project:
+            try:
+                from ...services.system_settings_store import SystemSettingsStore
 
-        return {
-            "access_token": idp_token,
-            "expires_in": expires_in,
+                s = SystemSettingsStore()
+                gcp_project = s.get("google_cloud_project", "")
+            except Exception:
+                pass
+        if not gcp_project:
+            gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+
+        env = {
+            "GOOGLE_GENAI_USE_GCA": "true",
+            "GOOGLE_CLOUD_ACCESS_TOKEN": idp_access_token,
         }
+        if gcp_project:
+            env["GOOGLE_CLOUD_PROJECT"] = gcp_project
 
-    except Exception as e:
-        logger.error(f"Failed to retrieve CLI token: {e}")
-        return JSONResponse(
-            status_code=200,
-            content={"access_token": None, "error": f"{type(e).__name__}: {e}"},
-        )
+        return {"env": env}
+    finally:
+        db.close()
 
 
-async def _refresh_idp_token(runtime, token_data, db=None):
+def _refresh_google_token(refresh_token, runtime, auth_service, token_data, db):
+    """Refresh Google IDP token using Gemini CLI's public OAuth credentials.
+
+    Uses the CLI's installed-application Client ID/Secret (public by
+    design) to refresh the access token via Google's OAuth2 endpoint.
+
+    Returns new access_token string on success, None on failure.
     """
-    Refresh the raw IDP access_token using IDP refresh_token.
-
-    Uses google_oauth_client_id/secret from system_settings to refresh
-    against Google's token endpoint. Returns new access_token or None.
-    """
-    import httpx
-
-    idp_refresh = token_data.get("idp_refresh_token")
-    if not idp_refresh:
+    if not refresh_token:
+        logger.warning("No IDP refresh token available")
         return None
 
-    # Get Google OAuth credentials from system settings
+    # Use Gemini CLI's public OAuth credentials (installed app type).
+    # These are intentionally public and safe to embed in client code.
+    from .gca_constants import GCA_OAUTH_CLIENT_ID, GCA_OAUTH_CLIENT_SECRET
+
+    client_id = GCA_OAUTH_CLIENT_ID
+    client_secret = GCA_OAUTH_CLIENT_SECRET
+
+    import urllib.request
+    import urllib.parse
+    import json
+
+    try:
+        data = urllib.parse.urlencode(
+            {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            }
+        ).encode()
+
+        req = urllib.request.Request(
+            "https://oauth2.googleapis.com/token",
+            data=data,
+            method="POST",
+        )
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode())
+
+        new_access_token = result.get("access_token")
+        expires_in = result.get("expires_in", 3600)
+
+        if not new_access_token:
+            logger.error("Google token refresh returned no access_token")
+            return None
+
+        # Update stored token data
+        token_data["idp_access_token"] = new_access_token
+        token_data["idp_token_expiry"] = time.time() + expires_in
+
+        # Remove any leaked site-hub credentials from stored data
+        token_data.pop("google_client_id", None)
+        token_data.pop("google_client_secret", None)
+
+        encrypted = auth_service.encrypt_token_blob(token_data)
+
+        runtime.auth_config = encrypted
+        db.commit()
+
+        logger.info("IDP token refreshed successfully, expires_in=%s", expires_in)
+        return new_access_token
+
+    except Exception as e:
+        logger.error("Google IDP token refresh failed: %s", e)
+        return None
+
+
+@router.get("/cli-token")
+async def get_cli_token():
+    """Return auth env vars for CLI bridge processes.
+
+    Queries system_settings for gemini_cli_auth_mode and the
+    corresponding credentials.  Falls back to host environment
+    variables when system_settings is unavailable or empty.
+
+    Returns:
+        JSON with auth_mode and env dict, or error details.
+    """
     try:
         from ...services.system_settings_store import SystemSettingsStore
 
         settings = SystemSettingsStore()
-        client_id_setting = settings.get_setting("google_oauth_client_id")
-        client_secret_setting = settings.get_setting("google_oauth_client_secret")
 
-        if not (
-            client_id_setting
-            and client_id_setting.value
-            and client_secret_setting
-            and client_secret_setting.value
-        ):
-            logger.error("Missing google_oauth_client_id/secret in system_settings")
-            return None
+        auth_mode = settings.get("gemini_cli_auth_mode", "gca")
 
-        client_id = str(client_id_setting.value)
-        client_secret = str(client_secret_setting.value)
-    except Exception as e:
-        logger.error(f"Failed to load OAuth credentials from system_settings: {e}")
-        return None
+        # ── GCA mode: return stored Google IDP token ──
+        if auth_mode == "gca":
+            result = _get_gca_token()
+            if "error" in result:
+                logger.warning("GCA token retrieval failed: %s", result["error"])
+                return {
+                    "auth_mode": "gca",
+                    "env": {},
+                    "error": result["error"],
+                }
+            return {
+                "auth_mode": "gca",
+                "env": result["env"],
+            }
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": idp_refresh,
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                },
+        # ── API key mode ──
+        if auth_mode == "gemini_api_key":
+            api_key = settings.get("gemini_api_key", "")
+            if not api_key:
+                api_key = os.environ.get("GEMINI_API_KEY", "")
+            if not api_key:
+                return {
+                    "auth_mode": auth_mode,
+                    "env": {},
+                    "error": "gemini_api_key not configured in system_settings",
+                }
+            return {
+                "auth_mode": auth_mode,
+                "env": {"GEMINI_API_KEY": api_key},
+            }
+
+        # ── Vertex AI mode ──
+        if auth_mode == "vertex_ai":
+            project = settings.get(
+                "google_cloud_project",
+                os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
             )
-            resp.raise_for_status()
-            new_tokens = resp.json()
+            location = settings.get(
+                "google_cloud_location",
+                os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
+            )
+            if not project:
+                return {
+                    "auth_mode": auth_mode,
+                    "env": {},
+                    "error": "google_cloud_project not configured",
+                }
+            return {
+                "auth_mode": auth_mode,
+                "env": {
+                    "GOOGLE_GENAI_USE_VERTEXAI": "true",
+                    "GOOGLE_CLOUD_PROJECT": project,
+                    "GOOGLE_CLOUD_LOCATION": location,
+                },
+            }
 
-        token_data["idp_access_token"] = new_tokens["access_token"]
-        token_data["idp_token_expiry"] = time.time() + new_tokens.get(
-            "expires_in", 3600
-        )
-
-        # Persist updated token data
-        runtime.auth_config = _auth_service.encrypt_token_blob(token_data)
-        if db:
-            try:
-                db.add(runtime)
-                db.commit()
-                logger.info(
-                    "IDP token refreshed and persisted for runtime %s", runtime.id
-                )
-            except Exception as commit_err:
-                logger.error(f"Failed to persist refreshed IDP token: {commit_err}")
-                db.rollback()
-
-        return new_tokens["access_token"]
+        return {
+            "auth_mode": auth_mode,
+            "env": {},
+            "error": f"Unknown auth_mode: {auth_mode}",
+        }
 
     except Exception as e:
-        logger.error(f"IDP token refresh failed: {e}")
-        return None
+        logger.error("Failed to retrieve CLI auth config: %s", e)
+        # Graceful fallback: check host env vars directly
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if api_key:
+            return {
+                "auth_mode": "gemini_api_key",
+                "env": {"GEMINI_API_KEY": api_key},
+                "warning": f"system_settings unavailable ({e}), using env fallback",
+            }
+        return {
+            "auth_mode": "unknown",
+            "env": {},
+            "error": f"system_settings unavailable and no env fallback: {e}",
+        }
