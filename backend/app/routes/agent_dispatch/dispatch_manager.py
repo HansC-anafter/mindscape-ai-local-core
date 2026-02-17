@@ -114,6 +114,9 @@ class AgentDispatchManager(
         # bridge_id -> AgentControlClient (control channel)
         self._bridge_controls: Dict[str, AgentControlClient] = {}
 
+        # Background consumer task for cross-worker dispatch
+        self._consumer_task: Optional[asyncio.Task] = None
+
     # ============================================================
     #  Status / diagnostics
     # ============================================================
@@ -152,6 +155,24 @@ class AgentDispatchManager(
                 for b in self._bridge_controls.values()
             ],
         }
+
+    def start_dispatch_consumer(self) -> None:
+        """Start the pending dispatch consumer if not already running."""
+        if self._consumer_task and not self._consumer_task.done():
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            self._consumer_task = loop.create_task(self.consume_pending_dispatches())
+            logger.info("[AgentWS] Dispatch consumer background task started")
+        except Exception:
+            logger.exception("[AgentWS] Failed to start dispatch consumer task")
+
+    def stop_dispatch_consumer(self) -> None:
+        """Stop the pending dispatch consumer."""
+        if self._consumer_task and not self._consumer_task.done():
+            self._consumer_task.cancel()
+            logger.info("[AgentWS] Dispatch consumer stopped")
+            self._consumer_task = None
 
 
 # ============================================================

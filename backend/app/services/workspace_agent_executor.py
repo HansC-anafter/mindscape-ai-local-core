@@ -82,6 +82,36 @@ class WorkspaceAgentExecutor:
         self.preflight = PlaybookPreflight()
         self.trace_service = ExecutionTraceService()
 
+    async def check_agent_available(self, agent_id: Optional[str] = None) -> bool:
+        """
+        Check if the specified agent runtime is currently connected.
+
+        Args:
+            agent_id: Agent to check (default: workspace.preferred_agent)
+
+        Returns:
+            True if the agent runtime is connected and available
+        """
+        agent_id = agent_id or getattr(self.workspace, "preferred_agent", None)
+        if not agent_id:
+            return False
+
+        try:
+            from backend.app.services.external_agents.core.registry import (
+                get_agent_registry,
+            )
+
+            registry = get_agent_registry()
+            adapter = registry.get_adapter(agent_id)
+            if not adapter:
+                logger.debug(f"No adapter found for agent {agent_id}")
+                return False
+
+            return await adapter.is_available()
+        except Exception as e:
+            logger.warning(f"Failed to check agent availability: {e}")
+            return False
+
     async def execute(
         self,
         task: str,
@@ -196,6 +226,7 @@ class WorkspaceAgentExecutor:
             return AgentExecutionResponse(
                 success=result.success,
                 output=result.output,
+                error=result.error,
                 artifacts=result_artifacts,
                 trace_id=trace.trace_id,
                 execution_time_seconds=execution_time,

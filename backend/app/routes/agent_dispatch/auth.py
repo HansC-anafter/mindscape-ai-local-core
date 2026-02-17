@@ -93,6 +93,11 @@ class AuthMixin:
 
         if self.verify_auth(client.client_id, token, nonce_response):
             client.authenticated = True
+            # Mark as authenticated in PostgreSQL for cross-worker visibility
+            try:
+                self._db_mark_authenticated(client.client_id)
+            except Exception:
+                pass
             logger.info(f"[AgentWS] Client {client.client_id} authenticated")
 
             # Flush any pending tasks

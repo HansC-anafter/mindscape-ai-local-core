@@ -8,10 +8,12 @@ and incoming message routing (ack, progress, result).
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
 from .models import AgentClient, InflightTask, PendingTask
+from .connection_manager import _get_core_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,27 @@ class TaskDispatchMixin:
                     }
                 )
         else:
-            # No client available — queue for later
+            # No local client — check for remote WS connections
+            has_remote = False
+            try:
+                has_remote = self.has_connections(workspace_id) and True
+            except Exception:
+                pass
+
+            if has_remote:
+                # Cross-worker dispatch: write to DB, poll for result
+                logger.info(
+                    f"[AgentWS] No local client for {workspace_id}, "
+                    f"dispatching cross-worker for {execution_id}"
+                )
+                return await self._cross_worker_dispatch(
+                    workspace_id=workspace_id,
+                    message=message,
+                    execution_id=execution_id,
+                    timeout=timeout,
+                )
+
+            # No client available anywhere — queue for later
             pending = PendingTask(
                 execution_id=execution_id,
                 workspace_id=workspace_id,
@@ -90,7 +112,7 @@ class TaskDispatchMixin:
                 workspace_id=workspace_id,
                 client_id="pending",
                 result_future=result_future,
-                payload=message,  # retain for re-queue
+                payload=message,
             )
             self._inflight[execution_id] = inflight
 
@@ -238,6 +260,11 @@ class TaskDispatchMixin:
             return self._handle_result(client, data)
         elif msg_type == "ping":
             client.last_heartbeat = time.monotonic()
+            # Update cross-worker heartbeat in PostgreSQL
+            try:
+                self._db_update_heartbeat(client.client_id)
+            except Exception:
+                pass
             return {"type": "pong", "ts": time.time()}
         else:
             logger.warning(
@@ -302,7 +329,7 @@ class TaskDispatchMixin:
         client: AgentClient,
         data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Handle progress update from IDE."""
+        """Handle progress update from IDE and persist to inflight state."""
         execution_id = data.get("execution_id", "")
 
         err = self._verify_ownership(client, execution_id)
@@ -310,11 +337,38 @@ class TaskDispatchMixin:
             return err
 
         progress = data.get("progress", {})
-        logger.debug(
-            f"[AgentWS] Progress for {execution_id}: "
-            f"{progress.get('percent', '?')}% - {progress.get('message', '')}"
+        percent = progress.get("percent", 0)
+        message = progress.get("message", "")
+
+        # Update inflight task metadata
+        inflight = self._inflight.get(execution_id)
+        if inflight:
+            inflight.last_progress_pct = percent
+            inflight.last_progress_msg = message
+
+        logger.info(
+            f"[AgentWS] Progress for {execution_id}: " f"{percent}% - {message}"
         )
-        # Progress could be forwarded to the UI via graph_websocket or SSE
+
+        # Best-effort: update task status in DB
+        try:
+            from backend.app.services.stores.tasks_store import TasksStore
+            from backend.app.models.workspace import TaskStatus
+
+            tasks_store = TasksStore()
+            db_task = tasks_store.get_task(execution_id)
+            if db_task and db_task.status in (
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+            ):
+                if db_task.status == TaskStatus.PENDING:
+                    tasks_store.update_task_status(
+                        task_id=execution_id,
+                        status=TaskStatus.RUNNING,
+                    )
+        except Exception:
+            pass  # Non-blocking, best-effort
+
         return None
 
     def _handle_result(
@@ -325,7 +379,9 @@ class TaskDispatchMixin:
         """
         Handle task execution result from IDE.
 
-        Resolves the Future for dispatch_and_wait callers.
+        Persists result to DB (source of truth), resolves the in-memory
+        Future for dispatch_and_wait callers, and lands the result to
+        workspace filesystem.
         """
         execution_id = data.get("execution_id", "")
 
@@ -361,6 +417,70 @@ class TaskDispatchMixin:
             },
         }
 
+        result_status = data.get("status", "unknown")
+
+        # Persist result to DB (source of truth)
+        workspace_id = inflight.workspace_id
+        try:
+            from backend.app.services.stores.tasks_store import TasksStore
+            from backend.app.models.workspace import TaskStatus
+
+            tasks_store = TasksStore()
+            db_task = tasks_store.get_task(execution_id)
+            if db_task and db_task.status in (
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+            ):
+                task_status = (
+                    TaskStatus.SUCCEEDED
+                    if result_status == "completed"
+                    else TaskStatus.FAILED
+                )
+                from datetime import datetime, timezone
+
+                tasks_store.update_task_status(
+                    task_id=execution_id,
+                    status=task_status,
+                    result=result,
+                    error=data.get("error"),
+                    completed_at=datetime.now(timezone.utc),
+                )
+                logger.info(
+                    f"[AgentWS] DB persisted WS result for {execution_id} "
+                    f"(status={task_status.value})"
+                )
+        except Exception:
+            logger.exception(f"[AgentWS] DB write failed for WS result {execution_id}")
+
+        # Land result to workspace filesystem (best-effort)
+        try:
+            from app.services.task_result_landing import TaskResultLandingService
+            from app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
+
+            if workspace_id:
+                ws_store = PostgresWorkspacesStore()
+                # Use sync wrapper since this handler is sync
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Schedule as a background task
+                    asyncio.ensure_future(
+                        self._land_ws_result(workspace_id, execution_id, result)
+                    )
+                else:
+                    logger.warning(
+                        f"[AgentWS] No running loop for result landing "
+                        f"{execution_id}"
+                    )
+        except Exception:
+            logger.exception(
+                f"[AgentWS] Result landing setup failed for {execution_id} "
+                f"(non-blocking)"
+            )
+
         # Resolve the future
         if inflight.result_future and not inflight.result_future.done():
             inflight.result_future.set_result(result)
@@ -371,11 +491,399 @@ class TaskDispatchMixin:
             self._completed.popitem(last=False)  # FIFO eviction
 
         logger.info(
-            f"[AgentWS] Result received for {execution_id}: "
-            f"status={data.get('status', 'unknown')}"
+            f"[AgentWS] Result received for {execution_id}: " f"status={result_status}"
         )
+        if result_status not in ("completed", "dispatched_to_ide"):
+            logger.warning(
+                f"[AgentWS] DIAGNOSTIC: Non-success result for {execution_id}. "
+                f"error={data.get('error')!r}, "
+                f"output={str(data.get('output', ''))[:500]!r}, "
+                f"client_id={client.client_id}, "
+                f"surface_type={client.surface_type}, "
+                f"raw_keys={list(data.keys())}"
+            )
 
         return {
             "type": "result_ack",
             "execution_id": execution_id,
         }
+
+    async def _land_ws_result(
+        self,
+        workspace_id: str,
+        execution_id: str,
+        result: Dict[str, Any],
+    ) -> None:
+        """Land WS result to workspace filesystem (async helper)."""
+        try:
+            from app.services.task_result_landing import TaskResultLandingService
+            from app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
+
+            ws_store = PostgresWorkspacesStore()
+            ws = await ws_store.get_workspace(workspace_id)
+            storage_base = getattr(ws, "storage_base_path", None) if ws else None
+            artifacts_dir = getattr(ws, "artifacts_dir", None) or "artifacts"
+
+            landing = TaskResultLandingService()
+            landing.land_result(
+                workspace_id=workspace_id,
+                execution_id=execution_id,
+                result_data=result,
+                storage_base_path=storage_base,
+                artifacts_dirname=artifacts_dir,
+            )
+            logger.info(
+                f"[AgentWS] WS result landed for {execution_id} "
+                f"(storage={storage_base or 'DB-only'})"
+            )
+        except Exception:
+            logger.exception(
+                f"[AgentWS] WS result landing failed for {execution_id} "
+                f"(non-blocking)"
+            )
+
+    # ============================================================
+    #  Cross-worker dispatch (DB-mediated)
+    # ============================================================
+
+    async def _cross_worker_dispatch(
+        self,
+        workspace_id: str,
+        message: Dict[str, Any],
+        execution_id: str,
+        timeout: float = 120.0,
+    ) -> Dict[str, Any]:
+        """Dispatch a task via PostgreSQL for a remote worker to pick up.
+
+        Flow:
+          1. INSERT into pending_dispatch (status='pending')
+          2. Poll pending_dispatch.result_data for completed result
+          3. Return result or timeout error
+        """
+        # Write task to pending_dispatch
+        try:
+            await asyncio.to_thread(
+                self._db_insert_pending_dispatch,
+                execution_id,
+                workspace_id,
+                message,
+            )
+        except Exception as e:
+            logger.exception(
+                f"[AgentWS] Failed to insert pending_dispatch " f"for {execution_id}"
+            )
+            return {
+                "execution_id": execution_id,
+                "status": "failed",
+                "error": f"Cross-worker dispatch failed: {e}",
+            }
+
+        # Poll pending_dispatch for result written by consumer worker
+        poll_interval = 0.5
+        start = time.monotonic()
+        while (time.monotonic() - start) < timeout:
+            try:
+                result = await asyncio.to_thread(
+                    self._db_poll_pending_result, execution_id
+                )
+                if result is not None:
+                    logger.info(
+                        f"[AgentWS] Cross-worker result received " f"for {execution_id}"
+                    )
+                    return result
+            except Exception:
+                pass
+            await asyncio.sleep(poll_interval)
+
+        # Timeout
+        try:
+            await asyncio.to_thread(
+                self._db_update_pending_status, execution_id, "timeout"
+            )
+        except Exception:
+            pass
+
+        logger.error(
+            f"[AgentWS] Cross-worker dispatch timed out "
+            f"for {execution_id} after {timeout}s"
+        )
+        return {
+            "execution_id": execution_id,
+            "status": "timeout",
+            "error": f"No result received within {timeout}s (cross-worker)",
+        }
+
+    async def consume_pending_dispatches(self) -> None:
+        """Background task: poll pending_dispatch and dispatch locally.
+
+        Run this only on workers that have local WS connections.
+        Picks pending tasks, dispatches them via local WS, awaits
+        the result future, and writes result back to pending_dispatch.
+        """
+        logger.info(
+            f"[AgentWS] Starting pending dispatch consumer "
+            f"(worker pid={os.getpid()})"
+        )
+        while True:
+            try:
+                # Only consume if this worker has local WS connections
+                if not self.has_local_connections():
+                    await asyncio.sleep(1.0)
+                    continue
+
+                rows = await asyncio.to_thread(
+                    self._db_pick_pending_dispatches, limit=5
+                )
+                if not rows:
+                    await asyncio.sleep(0.5)
+                    continue
+
+                for row in rows:
+                    exec_id = row["execution_id"]
+                    ws_id = row["workspace_id"]
+                    payload = row["payload"]
+
+                    logger.info(
+                        f"[AgentWS] Consumer picked cross-worker task "
+                        f"{exec_id} for workspace {ws_id}"
+                    )
+
+                    # Dispatch via local WS (get_client will find local)
+                    client = self.get_client(ws_id)
+                    if not client:
+                        logger.warning(
+                            f"[AgentWS] No local client for {ws_id} "
+                            f"despite having connections"
+                        )
+                        await asyncio.to_thread(
+                            self._db_update_pending_status, exec_id, "pending"
+                        )
+                        continue
+
+                    # Create inflight entry for this task
+                    loop = asyncio.get_event_loop()
+                    result_future: asyncio.Future = loop.create_future()
+                    inflight = InflightTask(
+                        execution_id=exec_id,
+                        workspace_id=ws_id,
+                        client_id=client.client_id,
+                        result_future=result_future,
+                        payload=payload,
+                    )
+                    self._inflight[exec_id] = inflight
+
+                    try:
+                        await client.websocket.send_text(json.dumps(payload))
+                        logger.info(
+                            f"[AgentWS] Consumer dispatched {exec_id} to "
+                            f"client {client.client_id}"
+                        )
+                    except Exception as e:
+                        self._inflight.pop(exec_id, None)
+                        logger.error(
+                            f"[AgentWS] Consumer failed to send " f"{exec_id}: {e}"
+                        )
+                        # Write failure result to pending_dispatch
+                        fail_result = {
+                            "execution_id": exec_id,
+                            "status": "failed",
+                            "error": f"Consumer dispatch failed: {e}",
+                        }
+                        await asyncio.to_thread(
+                            self._db_write_pending_result,
+                            exec_id,
+                            fail_result,
+                        )
+                        continue
+
+                    # Await the result from _handle_result
+                    try:
+                        result = await asyncio.wait_for(result_future, timeout=120.0)
+                        logger.info(
+                            f"[AgentWS] Consumer got result for "
+                            f"{exec_id}: status={result.get('status')}"
+                        )
+                        # Write result to pending_dispatch for
+                        # the originating worker to pick up
+                        await asyncio.to_thread(
+                            self._db_write_pending_result,
+                            exec_id,
+                            result,
+                        )
+                    except asyncio.TimeoutError:
+                        self._inflight.pop(exec_id, None)
+                        logger.error(
+                            f"[AgentWS] Consumer timed out waiting "
+                            f"for result on {exec_id}"
+                        )
+                        timeout_result = {
+                            "execution_id": exec_id,
+                            "status": "timeout",
+                            "error": "Consumer-side timeout (120s)",
+                        }
+                        await asyncio.to_thread(
+                            self._db_write_pending_result,
+                            exec_id,
+                            timeout_result,
+                        )
+
+            except Exception:
+                logger.exception("[AgentWS] Error in pending dispatch consumer")
+                await asyncio.sleep(2.0)
+
+    # ============================================================
+    #  DB helpers for cross-worker dispatch
+    # ============================================================
+
+    @staticmethod
+    def _db_insert_pending_dispatch(
+        execution_id: str,
+        workspace_id: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Insert a task into pending_dispatch table."""
+        conn = _get_core_db_connection()
+        if not conn:
+            raise RuntimeError("No core DB connection")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pending_dispatch "
+                    "(execution_id, workspace_id, payload, status) "
+                    "VALUES (%s, %s, %s, 'pending') "
+                    "ON CONFLICT (execution_id) DO NOTHING",
+                    (execution_id, workspace_id, json.dumps(payload)),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_poll_pending_result(
+        execution_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Poll pending_dispatch.result_data for a completed result."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return None
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT result_data, status FROM pending_dispatch "
+                    "WHERE execution_id = %s",
+                    (execution_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                result_data, status = row
+                if status == "done" and result_data is not None:
+                    if isinstance(result_data, str):
+                        return json.loads(result_data)
+                    return result_data
+                return None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_write_pending_result(
+        execution_id: str,
+        result: Dict[str, Any],
+    ) -> None:
+        """Write result_data to pending_dispatch for cross-worker retrieval."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pending_dispatch "
+                    "SET result_data = %s, status = 'done', "
+                    "completed_at = NOW() "
+                    "WHERE execution_id = %s",
+                    (json.dumps(result), execution_id),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception(
+                f"[AgentWS] Failed to write result to "
+                f"pending_dispatch for {execution_id}"
+            )
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_update_pending_status(execution_id: str, status: str) -> None:
+        """Update pending_dispatch status."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pending_dispatch SET status = %s "
+                    "WHERE execution_id = %s",
+                    (status, execution_id),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_pick_pending_dispatches(limit: int = 5) -> List[Dict[str, Any]]:
+        """Pick pending tasks atomically using FOR UPDATE SKIP LOCKED."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return []
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, execution_id, workspace_id, payload "
+                    "FROM pending_dispatch "
+                    "WHERE status = 'pending' "
+                    "ORDER BY created_at ASC "
+                    "LIMIT %s "
+                    "FOR UPDATE SKIP LOCKED",
+                    (limit,),
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    conn.rollback()
+                    return []
+
+                result = []
+                for row in rows:
+                    row_id, exec_id, ws_id, payload_data = row
+                    cur.execute(
+                        "UPDATE pending_dispatch "
+                        "SET status = 'picked', picked_by_pid = %s, "
+                        "picked_at = NOW() "
+                        "WHERE id = %s",
+                        (os.getpid(), row_id),
+                    )
+                    # Parse payload
+                    if isinstance(payload_data, str):
+                        payload_data = json.loads(payload_data)
+                    result.append(
+                        {
+                            "execution_id": exec_id,
+                            "workspace_id": ws_id,
+                            "payload": payload_data,
+                        }
+                    )
+
+                conn.commit()
+                return result
+        except Exception:
+            conn.rollback()
+            return []
+        finally:
+            conn.close()

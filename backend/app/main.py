@@ -34,6 +34,9 @@ from .routes.core.artifacts import router as artifacts_router
 from .routes.core.resources import router as resources_router
 from .routes.core.system_settings import router as system_settings_router
 from .routes.core.settings_extensions import router as settings_extensions_router
+from .routes.core.workspace_runtime_config import (
+    router as workspace_runtime_config_router,
+)
 from .routes.core.runtime_environments import router as runtime_environments_router
 from .routes.core.data_sources import router as data_sources_router
 from .routes.core.workspace_resource_bindings import (
@@ -203,6 +206,37 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(system_settings_router, tags=["system"])
     app.include_router(settings_extensions_router)
     app.include_router(runtime_environments_router, tags=["runtime-environments"])
+    app.include_router(
+        workspace_runtime_config_router, tags=["workspace-runtime-config"]
+    )
+
+    # Runtime proxy routes (proxied external runtime settings)
+    try:
+        from .routes.core.runtime_proxy import router as runtime_proxy_router
+
+        app.include_router(runtime_proxy_router, tags=["runtime-proxy"])
+        logger.info("Runtime Proxy routes registered")
+    except Exception as e:
+        logger.debug(f"Runtime Proxy routes not registered: {e}")
+
+    # Runtime OAuth routes (OAuth2 authorization flow)
+    try:
+        from .routes.core.runtime_oauth import router as runtime_oauth_router
+
+        app.include_router(runtime_oauth_router, tags=["runtime-oauth"])
+        logger.info("Runtime OAuth routes registered")
+    except Exception as e:
+        logger.debug(f"Runtime OAuth routes not registered: {e}")
+
+    # CLI token endpoint (GCA auth token for bridge processes)
+    try:
+        from .routes.core.cli_token import router as cli_token_router
+
+        app.include_router(cli_token_router, tags=["auth"])
+        logger.info("CLI token routes registered")
+    except Exception as e:
+        logger.debug(f"CLI token routes not registered: {e}")
+
     app.include_router(tools.router, tags=["tools"])
     app.include_router(sandbox.router, tags=["sandboxes"])
     app.include_router(deployment.router, tags=["deployment"])
@@ -645,6 +679,35 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"SQLite auto migration failed (non-blocking): {e}")
 
+    # Reap zombie tasks on startup and start periodic background reaper
+    try:
+        from backend.app.services.stores.tasks_store import TasksStore as _ReaperStore
+        import asyncio
+
+        _reaper_store = _ReaperStore()
+        reaped = _reaper_store.reap_zombie_tasks()
+        if reaped:
+            logger.info(
+                "Startup zombie reaper: cleaned %d zombie tasks: %s",
+                len(reaped),
+                reaped[:5],
+            )
+
+        async def _zombie_reaper_loop():
+            """Background loop that reaps zombie tasks every 5 minutes."""
+            while True:
+                await asyncio.sleep(300)  # 5 minutes
+                try:
+                    store = _ReaperStore()
+                    store.reap_zombie_tasks()
+                except Exception as exc:
+                    logger.warning("Periodic zombie reaper error: %s", exc)
+
+        asyncio.create_task(_zombie_reaper_loop())
+        logger.info("Zombie task reaper started (interval: 5 minutes)")
+    except Exception as e:
+        logger.warning(f"Failed to start zombie task reaper: {e}", exc_info=True)
+
     # Verify critical tables exist (last safety net)
     try:
         from sqlalchemy import text, create_engine
@@ -868,6 +931,19 @@ except Exception as e:
         logger.info(f"Tool embeddings: {count} tools indexed")
     except Exception as e:
         logger.warning(f"Tool embedding bootstrap failed (non-blocking): {e}")
+
+    # Create cross-worker dispatch tables (ws_connections, pending_dispatch)
+    try:
+        from backend.app.routes.agent_dispatch.connection_manager import (
+            ConnectionMixin,
+        )
+
+        ConnectionMixin.ensure_cross_worker_tables()
+        ConnectionMixin._cleanup_stale_connections()
+    except Exception as e:
+        logger.warning(
+            f"Cross-worker dispatch table bootstrap failed (non-blocking): {e}"
+        )
 
     # Register filesystem tools
     try:

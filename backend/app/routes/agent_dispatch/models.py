@@ -67,6 +67,8 @@ class InflightTask:
     acked: bool = False
     result_future: Optional[asyncio.Future] = None
     payload: Optional[Dict[str, Any]] = None  # retained for re-queue on disconnect
+    last_progress_pct: int = 0
+    last_progress_msg: str = ""
 
 
 @dataclass

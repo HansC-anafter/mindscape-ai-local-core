@@ -109,6 +109,36 @@ async def reject_task(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{workspace_id}/tasks/{task_id}/cancel")
+async def cancel_task(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    task_id: str = PathParam(..., description="Task ID"),
+):
+    """Cancel a pending or running task"""
+    try:
+        tasks_store = TasksStore(db_path=store.db_path)
+        task = tasks_store.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403, detail="Task does not belong to this workspace"
+            )
+
+        success = tasks_store.cancel_task(task_id)
+        if not success:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Task cannot be cancelled (status: {task.status})",
+            )
+        return {"success": True, "message": "Task cancelled"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{workspace_id}/fix-task-status")
 async def fix_task_status(
     workspace_id: str = PathParam(..., description="Workspace ID"),
@@ -118,13 +148,14 @@ async def fix_task_status(
     limit: Optional[int] = Query(None, description="Maximum number of tasks to fix"),
 ):
     """
-    Fix tasks with inconsistent status
+    Fix tasks with inconsistent status and reap zombie tasks.
 
     Finds and fixes tasks where:
-    - task.status = "running"
-    - execution_context.status = "completed" or "failed"
+    - task.status = "running" but execution_context.status = "completed" or "failed"
+    - task.status = "running" but heartbeat is stale (zombie reaper)
 
-    This happens when PlaybookRunExecutor didn't properly update task status.
+    This happens when PlaybookRunExecutor didn't properly update task status,
+    or when a runner crashes without marking the task as failed.
     """
     try:
         fix_service = TaskStatusFixService()
@@ -133,6 +164,13 @@ async def fix_task_status(
             create_timeline_items=create_timeline_items,
             limit=limit,
         )
+
+        # Also run zombie reaper
+        tasks_store = TasksStore(db_path=store.db_path)
+        reaped_ids = tasks_store.reap_zombie_tasks()
+        result["zombie_tasks_reaped"] = len(reaped_ids)
+        result["zombie_task_ids"] = reaped_ids
+
         return result
     except Exception as e:
         logger.error(f"Failed to fix task status: {e}", exc_info=True)

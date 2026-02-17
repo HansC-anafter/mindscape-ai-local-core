@@ -61,6 +61,9 @@ async def agent_websocket(
         surface_type=surface,
     )
 
+    # Start cross-worker dispatch consumer on this worker
+    manager.start_dispatch_consumer()
+
     try:
         # Send auth challenge if auth is enabled
         if not client.authenticated:
