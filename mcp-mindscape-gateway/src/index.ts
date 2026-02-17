@@ -57,22 +57,26 @@ mindscapeClient.listPacks().then(packs => {
 // ============================================
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    const tools = await mindscapeClient.listTools({
-      enabled_only: true
-    });
-    const playbooks = await mindscapeClient.listPlaybooks({
-      scope: "system"
-    });
-    const packs = await mindscapeClient.listPacks();
+    // Parallel fetch to stay within Gemini CLI's MCP discovery timeout
+    const [tools, playbooks, packs] = await Promise.all([
+      mindscapeClient.listTools({ enabled_only: true }),
+      mindscapeClient.listPlaybooks({ scope: "system" }),
+      mindscapeClient.listPacks()
+    ]);
 
     toolNameResolver.updateKnownPacks(packs.map(p => p.code));
 
     const mcpTools: any[] = [];
+    const wl = config.packWhitelist; // per-task pack filter
 
     // ============================================
     // Layer 2: Macro Tools (Playbooks)
     // ============================================
     for (const pb of playbooks) {
+      // Skip playbooks outside pack whitelist when filtering is active
+      if (wl.length > 0 && pb.capability && !wl.includes(pb.capability)) {
+        continue;
+      }
       const mcpTool = playbookMapper.toMcpTool(pb);
       const decision = toolAccessPolicy.getAccessLevel(mcpTool.name);
 
@@ -115,6 +119,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         provider: "capability"
       });
 
+      // Skip pack tools outside whitelist when filtering is active
+      if (wl.length > 0 && identity.pack && !wl.includes(identity.pack)) {
+        continue;
+      }
+
       const primitiveName = toolNameResolver.toMcpName(identity, "tool");
       const decision = toolAccessPolicy.getAccessLevel(primitiveName);
 
@@ -156,6 +165,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           }
         });
       }
+    }
+
+    if (wl.length > 0) {
+      console.error(`Pack whitelist active: [${wl.join(", ")}] → ${mcpTools.length} tools served`);
     }
 
     return { tools: mcpTools };
@@ -501,7 +514,8 @@ async function main() {
   console.error(`Mindscape MCP Gateway started (MVP)
   - Workspace: ${config.workspaceId}
   - Mode: ${config.gatewayMode}
-  - Base URL: ${config.mindscapeBaseUrl}`);
+  - Base URL: ${config.mindscapeBaseUrl}
+  - Pack filter: ${config.packWhitelist.length > 0 ? config.packWhitelist.join(", ") : "(none, serving all)"}`);
 }
 
 main().catch(console.error);

@@ -62,7 +62,7 @@ class ChatSyncRequest(BaseModel):
     workspace_id: str
     conversation_id: str
     surface_type: str = Field(
-        default="ide", description="cursor | windsurf | copilot | antigravity"
+        default="ide", description="cursor | windsurf | copilot | gemini_cli"
     )
     trace_id: Optional[str] = None
     profile_id: Optional[str] = None

@@ -73,6 +73,7 @@ export class MindscapeClient {
     this.client = axios.create({
       baseURL: customConfig?.mindscapeBaseUrl || config.mindscapeBaseUrl,
       timeout: customConfig?.timeout || config.timeout || 30000,
+      maxRedirects: 5,
       headers: customConfig?.apiKey
         ? { "Authorization": `Bearer ${customConfig.apiKey}` }
         : {}
@@ -87,7 +88,7 @@ export class MindscapeClient {
     category?: string;
     enabled_only?: boolean;
   }): Promise<Tool[]> {
-    const { data } = await this.client.get("/api/v1/tools", {
+    const { data } = await this.client.get("/api/v1/tools/", {
       params: {
         site_id: params?.site_id,
         category: params?.category,
@@ -128,7 +129,7 @@ export class MindscapeClient {
     profile_id?: string;
     workspace_id?: string;
   }): Promise<Playbook[]> {
-    const { data } = await this.client.get("/api/v1/playbooks", {
+    const { data } = await this.client.get("/api/v1/playbooks/", {
       params: {
         scope: params?.scope || "system",
         profile_id: params?.profile_id || this.profileId,
@@ -175,7 +176,7 @@ export class MindscapeClient {
   // Packs API - GET /api/v1/capability-packs
   // ============================================
   async listPacks(): Promise<Pack[]> {
-    const { data } = await this.client.get("/api/v1/capability-packs");
+    const { data } = await this.client.get("/api/v1/capability-packs/");
 
     return (Array.isArray(data) ? data : []).map((p: any) => ({
       code: p.id,
@@ -268,7 +269,7 @@ export class MindscapeClient {
    */
   async getLensSchema(role: string): Promise<any> {
     try {
-      const { data } = await this.client.get(`/api/v1/lenses/schemas/${role}`);
+      const { data } = await this.client.get(`/api/v1/lenses/schemas/${role}/`);
       return data;
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -299,7 +300,7 @@ export class MindscapeClient {
     workspace_id?: string;
     session_id?: string;
   }): Promise<any> {
-    const { data } = await this.client.get("/api/v1/mindscape/lens/effective", {
+    const { data } = await this.client.get("/api/v1/mindscape/lens/effective/", {
       params: {
         profile_id: params.profile_id,
         workspace_id: params.workspace_id,

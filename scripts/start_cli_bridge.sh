@@ -165,6 +165,10 @@ export PYTHONPATH="$PROJECT_DIR:$PROJECT_DIR/backend:${PYTHONPATH:-}"
 export GEMINI_CLI_RUNTIME_CMD="python3 $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$PROJECT_DIR}"
 
+# --- GCA auth (Google Workspace subscription quota) ---
+export GOOGLE_GENAI_USE_GCA=true
+export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_HOST}"
+
 # --- Start bridge ---
 log_info "Connecting to backend at ws://$BACKEND_HOST"
 log_info "Workspace: $WORKSPACE_ID"
