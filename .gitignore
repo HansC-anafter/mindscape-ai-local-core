@@ -97,6 +97,9 @@ scripts-internal/
 # Content vault (user-generated content, not for open source)
 content-vault/
 
+# Blueprints (workspace seed data, not for open source)
+blueprints/
+
 # Monitoring config (local development only)
 docker-compose.monitoring.yml
 
