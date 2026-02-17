@@ -1,61 +1,82 @@
 #!/bin/bash
-# Pre-push hook to prevent pushing files that should be installed via CapabilityInstaller
+# Pre-push hook: ULTIMATE guard against protected content reaching remote.
+# Reads blocked/whitelisted paths from .protected-paths config file.
+#
+# This hook catches commits that bypassed pre-commit with --no-verify.
+# The ONLY way past this is: git push --no-verify
 
-# Get the commits being pushed
-while read local_ref local_sha remote_ref remote_sha
-do
-    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
-        # Branch is being deleted, skip
-        continue
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CONFIG="$REPO_ROOT/.protected-paths"
+
+# --- Load config ---
+blocked_dirs=()
+whitelist=()
+
+if [ -f "$CONFIG" ]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        line="${line## }"
+
+        if [[ "$line" == !* ]]; then
+            whitelist+=("${line#!}")
+        else
+            blocked_dirs+=("$line")
+        fi
+    done < "$CONFIG"
+fi
+
+is_whitelisted() {
+    local file="$1"
+    for w in "${whitelist[@]}"; do
+        [ "$file" = "$w" ] && return 0
+    done
+    return 1
+}
+
+# --- Inspect commits being pushed ---
+zero="0000000000000000000000000000000000000000"
+
+while read local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue
+
+    if [ "$remote_sha" = "$zero" ]; then
+        range="$local_sha --not --remotes=origin"
+    else
+        range="$remote_sha..$local_sha"
     fi
-    
-    blocked_files=""
-    blocked_reason=""
-    
-    # Get all files in the commit
-    files=$(git diff-tree --no-commit-id --name-only -r $local_sha)
-    
-    # Check for docs-internal files
-    docs_internal=$(echo "$files" | grep "^docs-internal/")
-    if [ -n "$docs_internal" ]; then
-        blocked_files="${blocked_files}${docs_internal}\n"
-        blocked_reason="docs-internal files"
-    fi
-    
-    # Check for capability-installed playbooks
-    sonic_playbooks=$(echo "$files" | grep -E "backend/playbooks/specs/sonic_.*\.json|backend/i18n/playbooks/.*/sonic_.*\.md")
-    yoga_playbooks=$(echo "$files" | grep -E "backend/playbooks/specs/yoga_.*\.json|backend/i18n/playbooks/.*/yoga_.*\.md")
-    if [ -n "$sonic_playbooks" ] || [ -n "$yoga_playbooks" ]; then
-        blocked_files="${blocked_files}${sonic_playbooks}${yoga_playbooks}\n"
-        blocked_reason="Feature-specific playbooks (should be installed via CapabilityInstaller)"
-    fi
-    
-    # Check for capability-installed models
-    feature_models=$(echo "$files" | grep -E "backend/app/models/sonic_space/|backend/app/models/yogacoach/")
-    if [ -n "$feature_models" ]; then
-        blocked_files="${blocked_files}${feature_models}\n"
-        blocked_reason="Feature-specific models (should be installed via CapabilityInstaller)"
-    fi
-    
-    # Check for capabilities directory
-    capability_files=$(echo "$files" | grep -E "backend/app/capabilities/|web-console/src/app/capabilities/")
-    if [ -n "$capability_files" ]; then
-        blocked_files="${blocked_files}${capability_files}\n"
-        blocked_reason="Capability files (should be installed via CapabilityInstaller)"
-    fi
-    
-    if [ -n "$blocked_files" ]; then
-        echo "❌ Error: Attempting to push files that should be installed via CapabilityInstaller"
+
+    # Only check added/modified files — deletions of protected files are allowed
+    files=$(git diff --diff-filter=d --name-only $range 2>/dev/null)
+    [ -z "$files" ] && continue
+
+    blocked=""
+    for file in $files; do
+        is_whitelisted "$file" && continue
+        for dir in "${blocked_dirs[@]}"; do
+            if [[ "$file" == ${dir}* ]]; then
+                blocked="${blocked}   - ${file}\n"
+                break
+            fi
+        done
+    done
+
+    if [ -n "$blocked" ]; then
         echo ""
-        echo "   Reason: ${blocked_reason}"
+        echo "============================================================"
+        echo "  PUSH REJECTED: Protected path violation"
+        echo "============================================================"
         echo ""
-        echo "   The following files are being pushed:"
-        echo -e "$blocked_files" | sed 's/^/   - /'
+        echo "  Config: .protected-paths"
         echo ""
-        echo "   These files should not be in the repository."
-        echo "   Please remove them from the commit history:"
-        echo "   git revert <commit-hash>  # to revert specific commit"
-        echo "   git reset HEAD~<n>        # to undo commits"
+        echo "  Blocked files:"
+        echo -e "$blocked"
+        echo "  To fix:"
+        echo "    git reset HEAD~1          (undo the commit)"
+        echo "    git checkout -- <files>    (discard changes)"
+        echo "============================================================"
         echo ""
         exit 1
     fi

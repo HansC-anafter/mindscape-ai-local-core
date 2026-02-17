@@ -1,71 +1,84 @@
 #!/bin/bash
-# Pre-commit hook to prevent committing files that should be installed via CapabilityInstaller
+# Pre-commit hook: Block commits touching protected directories.
+# Reads blocked/whitelisted paths from .protected-paths config file.
+#
+# Can be bypassed with: git commit --no-verify
+# The pre-push hook provides a second guard that catches bypasses.
 
-# Check if any staged files match .gitignore patterns
-staged_files=$(git diff --cached --name-only 2>/dev/null)
+set -e
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CONFIG="$REPO_ROOT/.protected-paths"
+
+# Only check added/modified files — deletions of protected files are allowed
+staged_files=$(git diff --cached --diff-filter=d --name-only 2>/dev/null)
 if [ -z "$staged_files" ]; then
     exit 0
 fi
 
-blocked_files=""
-blocked_reason=""
+# --- Load config ---
+blocked_dirs=()
+whitelist=()
 
-# Check for docs-internal files
+if [ -f "$CONFIG" ]; then
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        line="${line## }"  # trim leading spaces
+
+        if [[ "$line" == !* ]]; then
+            whitelist+=("${line#!}")
+        else
+            blocked_dirs+=("$line")
+        fi
+    done < "$CONFIG"
+fi
+
+is_whitelisted() {
+    local file="$1"
+    for w in "${whitelist[@]}"; do
+        [ "$file" = "$w" ] && return 0
+    done
+    return 1
+}
+
+# --- Check staged files ---
+blocked=""
 for file in $staged_files; do
-    if [[ "$file" == docs-internal/* ]]; then
-        blocked_files="${blocked_files}${file}\n"
-        blocked_reason="docs-internal files"
-    fi
+    is_whitelisted "$file" && continue
+    for dir in "${blocked_dirs[@]}"; do
+        if [[ "$file" == ${dir}* ]]; then
+            blocked="${blocked}   - ${file}\n"
+            break
+        fi
+    done
 done
 
-# Check for capability-installed playbooks (specific feature playbooks)
-for file in $staged_files; do
-    # Sonic Space playbooks
-    if [[ "$file" == backend/playbooks/specs/sonic_*.json ]] || [[ "$file" == backend/i18n/playbooks/**/sonic_*.md ]]; then
-        blocked_files="${blocked_files}${file}\n"
-        blocked_reason="Sonic Space playbooks (should be installed via CapabilityInstaller)"
-    fi
-    # Yoga Coach playbooks
-    if [[ "$file" == backend/playbooks/specs/yoga_*.json ]] || [[ "$file" == backend/i18n/playbooks/**/yoga_*.md ]]; then
-        blocked_files="${blocked_files}${file}\n"
-        blocked_reason="Yoga Coach playbooks (should be installed via CapabilityInstaller)"
-    fi
-done
+if [ -n "$blocked" ]; then
+    echo ""
+    echo "============================================================"
+    echo "  COMMIT BLOCKED: Protected path violation"
+    echo "============================================================"
+    echo ""
+    echo "  Config: .protected-paths"
+    echo ""
+    echo "  Blocked files:"
+    echo -e "$blocked"
+    echo "  To unstage:  git reset HEAD <file>"
+    echo "  To bypass:   git commit --no-verify"
+    echo "               (pre-push hook will still block the push)"
+    echo "============================================================"
+    echo ""
+    exit 1
+fi
 
-# Check for capability-installed models (specific feature models)
-for file in $staged_files; do
-    if [[ "$file" == backend/app/models/sonic_space/* ]] || [[ "$file" == backend/app/models/yogacoach/* ]]; then
-        blocked_files="${blocked_files}${file}\n"
-        blocked_reason="Feature-specific models (should be installed via CapabilityInstaller)"
-    fi
-done
-
-# Check for capabilities directory (already in .gitignore, but double-check)
-for file in $staged_files; do
-    if [[ "$file" == backend/app/capabilities/* ]] || [[ "$file" == web-console/src/app/capabilities/* ]]; then
-        blocked_files="${blocked_files}${file}\n"
-        blocked_reason="Capability files (should be installed via CapabilityInstaller)"
-    fi
-done
-
-if [ -n "$blocked_files" ]; then
-    echo "❌ Error: Attempting to commit files that should be installed via CapabilityInstaller"
-    echo ""
-    echo "   Reason: ${blocked_reason}"
-    echo ""
-    echo "   The following files are blocked:"
-    echo -e "$blocked_files" | grep -v "^$" | sed 's/^/   - /'
-    echo ""
-    echo "   These files should be installed via CapabilityInstaller, not committed directly."
-    echo "   They are intentionally ignored by .gitignore."
-    echo ""
-    echo "   To unstage these files, run:"
-    echo "   git reset HEAD <file>"
-    echo ""
-    echo "   To install via CapabilityInstaller, use:"
-    echo "   python -m backend.app.services.capability_installer install <pack-file>"
-    echo ""
+# --- Check staged file count (prevent accidental mass commits) ---
+staged_count=$(echo "$staged_files" | wc -l | tr -d ' ')
+if [ "$staged_count" -gt 50 ] && [ -z "$ALLOW_ADD_ALL" ]; then
+    echo "  COMMIT BLOCKED: ${staged_count} files staged (threshold: 50)"
+    echo "  Use precise pathspec:  git add src/feature-x/"
+    echo "  Override:  ALLOW_ADD_ALL=1 git commit -m '...'"
     exit 1
 fi
 

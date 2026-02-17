@@ -125,11 +125,9 @@ docker-compose.override.yml
 /backend/playbooks/specs/
 /backend/app/playbooks/
 
-# Cloud-specific model directories (should not exist in local-core)
-/backend/app/models/sonic_space/
-/backend/app/models/visual_lens/
-/backend/app/models/walkto_lab/
-/backend/app/models/yogacoach/
+# Capability-installed model directories (auto-ignored; whitelist core subdirs)
+/backend/app/models/*/
+!/backend/app/models/workspace/
 
 # Ignore nested backend/backend/ directory (should not exist)
 /backend/backend/

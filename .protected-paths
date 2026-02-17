@@ -22,11 +22,8 @@ backend/app/playbooks/
 backend/app/capabilities/
 web-console/src/app/capabilities/
 
-# Cloud-specific model directories
-backend/app/models/sonic_space/
-backend/app/models/visual_lens/
-backend/app/models/walkto_lab/
-backend/app/models/yogacoach/
+# Capability-installed model directories (all subdirs blocked; whitelist core)
+backend/app/models/*/
 
 # Internal documentation
 docs-internal/
