@@ -582,9 +582,16 @@ async def sitehub_jwt_landing(
     email = form.get("email", "")
     landing_nonce = form.get("landing_nonce", "")
     runtime_id = form.get("runtime_id", "")
+    # Raw IDP tokens passed through from cloud provider
+    idp_access_token = form.get("idp_access_token", "")
+    idp_refresh_token = form.get("idp_refresh_token", "")
+    idp_token_expiry_str = form.get("idp_token_expiry", "")
 
     print(
         f"[JWT-LANDING-DEBUG] runtime_id={runtime_id}, has_token={bool(access_token)}, has_refresh={bool(refresh_token)}, email={email}, has_nonce={bool(landing_nonce)}"
+    )
+    print(
+        f"[JWT-LANDING-DEBUG] idp_access_token={bool(idp_access_token)}, idp_refresh_token={bool(idp_refresh_token)}"
     )
 
     # Validate required fields (nonce validation removed — in-memory dict
@@ -627,6 +634,15 @@ async def sitehub_jwt_landing(
             "expiry": _time.time() + expires_in,
             "token_source": "oidc",
         }
+
+        # Store raw IDP tokens for CLI agent authentication
+        if idp_access_token:
+            idp_expiry_secs = (
+                int(idp_token_expiry_str) if idp_token_expiry_str else 3600
+            )
+            token_data["idp_access_token"] = idp_access_token
+            token_data["idp_refresh_token"] = idp_refresh_token
+            token_data["idp_token_expiry"] = _time.time() + idp_expiry_secs
 
         existing = runtime.auth_config or {}
         preserved = {}
