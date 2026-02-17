@@ -94,6 +94,17 @@ docs-internal/
 # Internal scripts (not for open source)
 scripts-internal/
 
+# Content vault (user-generated content, not for open source)
+content-vault/
+
+# Monitoring config (local development only)
+docker-compose.monitoring.yml
+
+# Root-level debug/test scripts (should be in scripts/ or tests/)
+diagnose_ws.py
+hello_antigravity.txt
+verify_integration.py
+verify_playbook_execution.py
 
 # Local development overrides
 docker-compose.override.yml
