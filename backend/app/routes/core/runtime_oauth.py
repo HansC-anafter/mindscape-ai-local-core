@@ -364,6 +364,10 @@ async def callback(
         "expiry": time.time() + tokens.get("expires_in", 900),
         "identity": identity,
         "token_source": "oidc",  # Mark as provider OIDC JWT for refresh logic
+        # Raw IDP tokens for CLI agent authentication
+        "idp_access_token": tokens.get("idp_access_token"),
+        "idp_refresh_token": tokens.get("idp_refresh_token"),
+        "idp_token_expiry": time.time() + tokens.get("idp_token_expiry", 3600),
     }
 
     # Preserve per-runtime client_id/client_secret if they exist
@@ -524,6 +528,7 @@ async def store_token(
         "refresh_token": refresh_token,
         "token_type": "Bearer",
         "expiry": _time.time() + expires_in,
+        "token_source": "oidc",
     }
 
     # Preserve existing per-runtime OAuth client credentials
@@ -620,6 +625,7 @@ async def sitehub_jwt_landing(
             "refresh_token": refresh_token,
             "token_type": "Bearer",
             "expiry": _time.time() + expires_in,
+            "token_source": "oidc",
         }
 
         existing = runtime.auth_config or {}
