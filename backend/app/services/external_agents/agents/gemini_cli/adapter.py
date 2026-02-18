@@ -252,10 +252,27 @@ class GeminiCLIAdapter(PollingAgentAdapter):
         execution_id = str(uuid.uuid4())
 
         try:
-            logger.info(f"GeminiCLIAdapter: strategy={self.strategy}")
+            effective_strategy = self.strategy
+            # WS→polling fallback: if strategy is 'ws' but no WS client
+            # is connected, fall back to polling if runners are active.
+            # Without this, tasks queue in memory with no consumer and
+            # always timeout after 120s.
             if self.strategy == "ws":
+                ws_connected = self.ws_manager is not None and (
+                    hasattr(self.ws_manager, "has_connections")
+                    and self.ws_manager.has_connections()
+                )
+                if not ws_connected and self._has_active_polling_runners():
+                    effective_strategy = "polling"
+                    logger.info(
+                        "GeminiCLIAdapter: no WS client, falling back to "
+                        "polling strategy (runner heartbeat active)"
+                    )
+
+            logger.info(f"GeminiCLIAdapter: strategy={effective_strategy}")
+            if effective_strategy == "ws":
                 response = await self._execute_via_ws(request, execution_id)
-            elif self.strategy == "polling":
+            elif effective_strategy == "polling":
                 response = await self._execute_via_polling(request, execution_id)
             elif self.strategy == "sampling":
                 response = await self._execute_via_sampling(request, execution_id)
