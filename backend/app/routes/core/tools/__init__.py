@@ -26,6 +26,7 @@ from .providers import notion
 from .providers import canva
 from . import tool_slots
 from .rag_search import router as rag_search_router
+from .filtered import router as filtered_router
 from .providers import google_drive
 from .providers import langchain
 from .providers import mcp
@@ -54,6 +55,9 @@ router.include_router(registration_router)
 
 # Include RAG search router (tool embedding search for pack filtering)
 router.include_router(rag_search_router)
+
+# Include filtered tools router (server-side tool selection for MCP gateway)
+router.include_router(filtered_router)
 
 # Include tool slots router (tool slot mapping management)
 router.include_router(tool_slots.router)

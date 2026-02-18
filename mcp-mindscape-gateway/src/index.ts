@@ -57,26 +57,25 @@ mindscapeClient.listPacks().then(packs => {
 // ============================================
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    // Parallel fetch to stay within Gemini CLI's MCP discovery timeout
-    const [tools, playbooks, packs] = await Promise.all([
-      mindscapeClient.listTools({ enabled_only: true }),
-      mindscapeClient.listPlaybooks({ scope: "system" }),
-      mindscapeClient.listPacks()
+    // Server-side filtered fetch: RAG + safe defaults + deterministic ordering
+    const [filtered, packs] = await Promise.all([
+      mindscapeClient.fetchFilteredTools({
+        task_hint: config.taskHint,
+        max_tools: config.maxTools,
+        include_playbooks: true,
+        enabled_only: true,
+      }),
+      mindscapeClient.listPacks(),
     ]);
 
     toolNameResolver.updateKnownPacks(packs.map(p => p.code));
 
     const mcpTools: any[] = [];
-    const wl = config.packWhitelist; // per-task pack filter
 
     // ============================================
-    // Layer 2: Macro Tools (Playbooks)
+    // Layer 2: Macro Tools (Playbooks) - pre-filtered by backend
     // ============================================
-    for (const pb of playbooks) {
-      // Skip playbooks outside pack whitelist when filtering is active
-      if (wl.length > 0 && pb.capability && !wl.includes(pb.capability)) {
-        continue;
-      }
+    for (const pb of filtered.playbooks) {
       const mcpTool = playbookMapper.toMcpTool(pb);
       const decision = toolAccessPolicy.getAccessLevel(mcpTool.name);
 
@@ -86,21 +85,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     }
 
     // ============================================
-    // Mind-Lens Tools (Built-in)
+    // Mind-Lens Tools (Built-in, always served)
     // ============================================
     for (const lensTool of lensTools) {
       mcpTools.push(lensTool);
     }
 
     // ============================================
-    // Confirm Tools (Built-in)
+    // Confirm Tools (Built-in, always served)
     // ============================================
     for (const confirmTool of confirmTools) {
       mcpTools.push(confirmTool);
     }
 
     // ============================================
-    // MCP Bridge Tools (Intent, Chat Sync, Project)
+    // MCP Bridge Tools (Intent, Chat Sync, Project - always served)
     // ============================================
     for (const tool of [...intentTools, ...chatSyncTools, ...projectTools]) {
       const decision = toolAccessPolicy.getAccessLevel(tool.name);
@@ -110,19 +109,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     }
 
     // ============================================
-    // Layer 1 & 3: Primitive / Governed Tools
+    // Layer 1 & 3: Primitive / Governed Tools - pre-filtered by backend
     // ============================================
-    for (const tool of tools) {
+    for (const tool of filtered.tools) {
       const identity = toolNameResolver.resolve({
         name: tool.name,
         pack: tool.pack,
         provider: "capability"
       });
-
-      // Skip pack tools outside whitelist when filtering is active
-      if (wl.length > 0 && identity.pack && !wl.includes(identity.pack)) {
-        continue;
-      }
 
       const primitiveName = toolNameResolver.toMcpName(identity, "tool");
       const decision = toolAccessPolicy.getAccessLevel(primitiveName);
@@ -167,9 +161,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       }
     }
 
-    if (wl.length > 0) {
-      console.error(`Pack whitelist active: [${wl.join(", ")}] → ${mcpTools.length} tools served`);
-    }
+    const meta = filtered.meta;
+    console.error(
+      `tools/list: ${meta.tool_count} tools, ${meta.playbook_count} playbooks, ` +
+      `rag=${meta.rag_status}, packs=[${meta.pack_codes.join(", ")}], ` +
+      `total_served=${mcpTools.length}`
+    );
 
     return { tools: mcpTools };
   } catch (error: any) {
@@ -177,6 +174,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     throw error;
   }
 });
+
 
 // ============================================
 // tools/call - Execute tool (Access Policy check)
@@ -515,7 +513,8 @@ async function main() {
   - Workspace: ${config.workspaceId}
   - Mode: ${config.gatewayMode}
   - Base URL: ${config.mindscapeBaseUrl}
-  - Pack filter: ${config.packWhitelist.length > 0 ? config.packWhitelist.join(", ") : "(none, serving all)"}`);
+  - Task hint: ${config.taskHint ? "set" : "(none)"}
+  - Max tools: ${config.maxTools}`);
 }
 
 main().catch(console.error);

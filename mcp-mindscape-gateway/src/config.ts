@@ -10,7 +10,8 @@ export interface GatewayConfig {
   gatewayMode?: "single_workspace" | "multi_workspace";
   autoProvision: boolean;
   defaultWorkspaceTitle: string;
-  packWhitelist: string[];
+  taskHint: string;
+  maxTools: number;
 }
 
 export function loadConfig(): GatewayConfig {
@@ -24,11 +25,9 @@ export function loadConfig(): GatewayConfig {
   const autoProvision = process.env.MINDSCAPE_AUTO_PROVISION !== "false";
   const defaultWorkspaceTitle = process.env.MINDSCAPE_DEFAULT_WORKSPACE_TITLE || "MCP Gateway Workspace";
 
-  // Per-task pack filtering: comma-separated pack codes from runner
-  const packWhitelistRaw = process.env.MINDSCAPE_PACK_WHITELIST || "";
-  const packWhitelist = packWhitelistRaw
-    ? packWhitelistRaw.split(",").map(s => s.trim()).filter(Boolean)
-    : [];
+  // Server-side tool filtering: task hint for Tool RAG
+  const taskHint = (process.env.MINDSCAPE_TASK_HINT || "").slice(0, 500);
+  const maxTools = Math.min(100, Math.max(1, parseInt(process.env.MINDSCAPE_MAX_TOOLS || "30", 10)));
 
   return {
     mindscapeBaseUrl: baseUrl,
@@ -39,7 +38,8 @@ export function loadConfig(): GatewayConfig {
     gatewayMode,
     autoProvision,
     defaultWorkspaceTitle,
-    packWhitelist
+    taskHint,
+    maxTools,
   };
 }
 

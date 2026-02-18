@@ -197,6 +197,9 @@ def main():
     auth_env = _fetch_auth_env()
     sub_env.update(auth_env)
 
+    # Server-side tool filtering: pass task hint to MCP gateway
+    sub_env["MINDSCAPE_TASK_HINT"] = task[:500]
+
     start = time.monotonic()
     try:
         result = subprocess.run(
