@@ -146,8 +146,14 @@ export default function CliApiKeysSection() {
         // Listen for OAuth popup result
         const handleOAuthMessage = (event: MessageEvent) => {
             if (event.data?.type === 'RUNTIME_OAUTH_RESULT') {
-                loadGcaStatus();
-                loadSettings();
+                if (event.data.success) {
+                    loadGcaStatus();
+                    loadSettings();
+                } else {
+                    // OAuth failed — reset from 'pending' so user can retry
+                    setGcaStatus('disconnected');
+                    setError(event.data.error || 'Google authentication failed');
+                }
             }
         };
         window.addEventListener('message', handleOAuthMessage);
@@ -229,12 +235,36 @@ export default function CliApiKeysSection() {
         );
 
         setGcaStatus('pending');
-        // Poll for auth completion
+        // Poll for auth completion — also handle backend-side error/disconnect
         const pollInterval = setInterval(async () => {
-            await loadGcaStatus();
+            try {
+                const base2 = getApiBaseUrl();
+                const resp = await fetch(`${base2}/api/v1/runtime-environments`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const runtimes: Array<Record<string, any>> = data.runtimes || [];
+                const rt = runtimes.find((r: Record<string, any>) => r.id === 'gca-local');
+                if (!rt) return;
+                const status = rt.auth_status || 'disconnected';
+                if (status === 'connected') {
+                    setGcaStatus('connected');
+                    setGcaEmail(rt.auth_identity || null);
+                    clearInterval(pollInterval);
+                } else if (status === 'error' || status === 'disconnected') {
+                    setGcaStatus('disconnected');
+                    if (status === 'error') setError('Google authentication failed');
+                    clearInterval(pollInterval);
+                }
+                // still 'pending' — keep polling
+            } catch {
+                // Network error — keep polling
+            }
         }, 2000);
-        // Stop polling after 5 minutes
-        setTimeout(() => clearInterval(pollInterval), 300000);
+        // Safety: stop polling and reset after 2 minutes
+        setTimeout(() => {
+            clearInterval(pollInterval);
+            setGcaStatus((prev) => (prev === 'pending' ? 'disconnected' : prev));
+        }, 120000);
     };
 
     /** Disconnect GCA auth */

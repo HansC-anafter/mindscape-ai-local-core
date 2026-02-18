@@ -161,10 +161,6 @@ async def authorize(
             status_code=404, detail="Runtime not found or access denied"
         )
 
-    # Update status to pending
-    runtime.auth_status = "pending"
-    db.commit()
-
     # Determine auth mode — GCA always uses local OAuth with CLI Client ID
     is_gca = False
     try:
@@ -190,12 +186,19 @@ async def authorize(
         redirect_uri = f"{base.rstrip('/')}/api/v1/runtime-oauth/callback"
 
         state = secrets.token_urlsafe(32)
-        _pending_states[state] = {
-            "runtime_id": runtime_id,
+
+        # Store state in DB (not in-memory) so all uvicorn workers can access it
+        meta = dict(runtime.extra_metadata or {})
+        meta["oauth_state"] = {
+            "token": state,
             "user_id": current_user.id,
             "created_at": time.time(),
             "flow": "gca",
         }
+        runtime.extra_metadata = meta
+        runtime.auth_status = "pending"
+        db.commit()
+        logger.info("GCA authorize: state stored in DB for runtime %s", runtime_id)
 
         auth_url = (
             "https://accounts.google.com/o/oauth2/v2/auth"
@@ -249,11 +252,17 @@ async def authorize(
 
         # Generate a one-time nonce for the landing endpoint
         landing_nonce = secrets.token_urlsafe(32)
-        _pending_states[f"landing_{landing_nonce}"] = {
-            "runtime_id": runtime_id,
+
+        # Store landing state in DB for cross-worker access
+        meta = dict(runtime.extra_metadata or {})
+        meta["oauth_state"] = {
+            "token": f"landing_{landing_nonce}",
             "user_id": current_user.id,
             "created_at": time.time(),
         }
+        runtime.extra_metadata = meta
+        runtime.auth_status = "pending"
+        db.commit()
 
         from urllib.parse import urlencode
 
@@ -276,11 +285,17 @@ async def authorize(
     client_id, _, redirect_uri = _get_oauth_credentials(runtime)
 
     state = secrets.token_urlsafe(32)
-    _pending_states[state] = {
-        "runtime_id": runtime_id,
+
+    # Store state in DB for cross-worker access
+    meta = dict(runtime.extra_metadata or {})
+    meta["oauth_state"] = {
+        "token": state,
         "user_id": current_user.id,
         "created_at": time.time(),
     }
+    runtime.extra_metadata = meta
+    runtime.auth_status = "pending"
+    db.commit()
 
     from .gca_constants import GCA_OAUTH_SCOPES_STRING
 
@@ -319,32 +334,60 @@ async def callback(
     if not code or not state:
         return _popup_close_response(success=False, error="Missing code or state")
 
-    # Validate state token
-    state_data = _pending_states.pop(state, None)
-    if not state_data:
+    # Validate state token from DB (supports multi-worker uvicorn)
+    # Find the runtime whose extra_metadata.oauth_state.token matches
+    all_pending = (
+        db.query(RuntimeEnvironment)
+        .filter(RuntimeEnvironment.auth_status == "pending")
+        .all()
+    )
+
+    runtime = None
+    state_data = None
+    for rt in all_pending:
+        meta = rt.extra_metadata or {}
+        oauth_state = meta.get("oauth_state", {})
+        if oauth_state.get("token") == state:
+            # Check expiry (10 minutes)
+            if time.time() - oauth_state.get("created_at", 0) > 600:
+                logger.warning("OAuth state expired for runtime %s", rt.id)
+                rt.auth_status = "disconnected"
+                db.commit()
+                return _popup_close_response(
+                    success=False, error="State expired, please try again"
+                )
+            runtime = rt
+            state_data = oauth_state
+            break
+
+    if not runtime or not state_data:
+        logger.warning("OAuth callback: no matching state found in DB")
+        # Reset stale pending runtimes
+        cutoff = time.time() - 600
+        for rt in all_pending:
+            meta = rt.extra_metadata or {}
+            created = meta.get("oauth_state", {}).get("created_at", 0)
+            if created and created < cutoff:
+                rt.auth_status = "disconnected"
+                logger.info("Reset stale pending runtime %s", rt.id)
+        db.commit()
         return _popup_close_response(success=False, error="Invalid or expired state")
 
-    # Expire stale states (older than 10 minutes)
-    cutoff = time.time() - 600
-    stale = [k for k, v in _pending_states.items() if v["created_at"] < cutoff]
-    for k in stale:
-        _pending_states.pop(k, None)
-
-    runtime_id = state_data["runtime_id"]
-    user_id = state_data["user_id"]
+    runtime_id = runtime.id
+    user_id = state_data.get("user_id", "")
     is_gca_flow = state_data.get("flow") == "gca"
 
-    # Load runtime
-    runtime = (
-        db.query(RuntimeEnvironment)
-        .filter(
-            RuntimeEnvironment.id == runtime_id,
-            RuntimeEnvironment.user_id == user_id,
-        )
-        .first()
+    logger.info(
+        "OAuth callback: matched state to runtime %s, flow=%s",
+        runtime_id,
+        "gca" if is_gca_flow else "provider",
     )
-    if not runtime:
-        return _popup_close_response(success=False, error="Runtime not found")
+
+    # Clear the oauth_state from metadata now that it's consumed
+    meta = dict(runtime.extra_metadata or {})
+    meta.pop("oauth_state", None)
+    runtime.extra_metadata = meta
+    db.commit()
 
     if is_gca_flow:
         return await _handle_gca_callback(code, runtime_id, runtime, db)
@@ -367,6 +410,12 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
     )
     redirect_uri = f"{base.rstrip('/')}/api/v1/runtime-oauth/callback"
 
+    logger.info(
+        "GCA callback: starting token exchange for runtime %s, redirect_uri=%s",
+        runtime_id,
+        redirect_uri,
+    )
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             # Exchange code directly with Google (not via site-hub)
@@ -379,6 +428,10 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
+            )
+            logger.info(
+                "GCA callback: Google token response status=%s",
+                token_resp.status_code,
             )
             if token_resp.status_code != 200:
                 logger.error(
@@ -393,6 +446,11 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
                 )
 
             google_tokens = token_resp.json()
+            logger.info(
+                "GCA callback: got tokens, has_access=%s has_refresh=%s",
+                bool(google_tokens.get("access_token")),
+                bool(google_tokens.get("refresh_token")),
+            )
 
             # Fetch user email for identity display
             identity = ""
@@ -404,32 +462,67 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
                 )
                 if userinfo_resp.status_code == 200:
                     identity = userinfo_resp.json().get("email", "")
+                    logger.info("GCA callback: user identity=%s", identity)
 
     except Exception as e:
-        logger.error("GCA OAuth exchange error: %s", e)
+        logger.error("GCA OAuth exchange error: %s", e, exc_info=True)
         runtime.auth_status = "error"
         db.commit()
         return _popup_close_response(success=False, error="GCA token exchange failed")
 
-    expires_in = google_tokens.get("expires_in", 3600)
-    token_data = {
-        "access_token": "",  # No site-hub JWT needed for GCA
-        "refresh_token": "",
-        "expiry": 0,
-        "identity": identity,
-        "token_source": "gca_direct",
-        # IDP tokens obtained with CLI's Client ID
-        "idp_access_token": google_tokens.get("access_token"),
-        "idp_refresh_token": google_tokens.get("refresh_token"),
-        "idp_token_expiry": time.time() + expires_in,
-    }
+    # Store tokens and update runtime status
+    try:
+        expires_in = google_tokens.get("expires_in", 3600)
+        token_data = {
+            "access_token": "",  # No site-hub JWT needed for GCA
+            "refresh_token": "",
+            "expiry": 0,
+            "identity": identity,
+            "token_source": "gca_direct",
+            # IDP tokens obtained with CLI's Client ID
+            "idp_access_token": google_tokens.get("access_token"),
+            "idp_refresh_token": google_tokens.get("refresh_token"),
+            "idp_token_expiry": time.time() + expires_in,
+        }
 
-    encrypted = auth_service.encrypt_token_blob(token_data)
+        logger.info("GCA callback: encrypting token blob")
+        encrypted = auth_service.encrypt_token_blob(token_data)
+        logger.info(
+            "GCA callback: encrypted blob length=%s",
+            len(encrypted) if encrypted else 0,
+        )
 
-    runtime.auth_type = "oauth2"
-    runtime.auth_config = encrypted
-    runtime.auth_status = "connected"
-    db.commit()
+        runtime.auth_type = "oauth2"
+        runtime.auth_config = encrypted
+        runtime.auth_status = "connected"
+        logger.info(
+            "GCA callback: set runtime fields, about to commit. "
+            "runtime.id=%s auth_status=%s",
+            runtime.id,
+            runtime.auth_status,
+        )
+
+        db.commit()
+        logger.info("GCA callback: DB commit successful")
+
+        # Verify the commit persisted
+        db.refresh(runtime)
+        logger.info(
+            "GCA callback: post-commit verify auth_status=%s has_config=%s",
+            runtime.auth_status,
+            bool(runtime.auth_config),
+        )
+
+    except Exception as e:
+        logger.error("GCA callback: failed to store tokens: %s", e, exc_info=True)
+        try:
+            runtime.auth_status = "error"
+            db.commit()
+        except Exception:
+            pass
+        return _popup_close_response(
+            success=False, error=f"Failed to store tokens: {e}"
+        )
 
     logger.info(
         "GCA OAuth completed for runtime %s, identity: %s",
