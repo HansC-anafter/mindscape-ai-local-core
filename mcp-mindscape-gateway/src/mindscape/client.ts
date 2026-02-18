@@ -41,6 +41,20 @@ export interface PlaybookExecutionResult {
   error?: string;
 }
 
+export interface FilteredToolsMeta {
+  tool_count: number;
+  playbook_count: number;
+  rag_status: "hit" | "miss" | "error" | "skipped";
+  pack_codes: string[];
+  safe_default_used: boolean;
+}
+
+export interface FilteredToolsResponse {
+  tools: Tool[];
+  playbooks: Playbook[];
+  meta: FilteredToolsMeta;
+}
+
 export interface ToolResult {
   status: "completed" | "failed" | "pending" | "confirmation_required";
   inputs: Record<string, any>;
@@ -104,6 +118,54 @@ export class MindscapeClient {
       requires_governance: t.danger_level === "high",
       input_schema: t.input_schema || {}
     }));
+  }
+
+  /**
+   * Fetch filtered tools via server-side RAG + safe defaults.
+   * Replaces client-side pack filtering.
+   */
+  async fetchFilteredTools(params: {
+    task_hint?: string;
+    max_tools?: number;
+    include_playbooks?: boolean;
+    enabled_only?: boolean;
+  }): Promise<FilteredToolsResponse> {
+    const { data } = await this.client.post("/api/v1/tools/filtered", {
+      task_hint: params.task_hint || "",
+      max_tools: params.max_tools || 30,
+      include_playbooks: params.include_playbooks ?? true,
+      enabled_only: params.enabled_only ?? true,
+    });
+
+    const tools: Tool[] = (data.tools || []).map((t: any) => ({
+      name: t.tool_id,
+      description: t.description || "",
+      pack: this._inferPack(t.tool_id, t.provider),
+      danger_level: (t.danger_level || "safe") as "safe" | "moderate" | "high",
+      requires_governance: t.danger_level === "high",
+      input_schema: t.input_schema || {},
+    }));
+
+    const playbooks: Playbook[] = (data.playbooks || []).map((p: any) => ({
+      playbook_code: p.playbook_code,
+      display_name: p.display_name || p.playbook_code,
+      description: p.description || "",
+      capability: p.capability_code || p.capability || "",
+      pack: p.capability_code || p.capability,
+      input_schema: p.input_schema || {},
+    }));
+
+    return {
+      tools,
+      playbooks,
+      meta: data.meta || {
+        tool_count: tools.length,
+        playbook_count: playbooks.length,
+        rag_status: "skipped" as const,
+        pack_codes: [],
+        safe_default_used: false,
+      },
+    };
   }
 
   async executeTool(toolName: string, args: Record<string, any>): Promise<ToolResult> {
