@@ -720,7 +720,9 @@ async def startup_event():
     # Verify critical tables exist (last safety net)
     # First ensure auxiliary tables (reasoning_traces, meeting_sessions)
     try:
-        from app.services.stores.reasoning_traces_store import ReasoningTracesStore
+        from backend.app.services.stores.reasoning_traces_store import (
+            ReasoningTracesStore,
+        )
 
         _rt_store = ReasoningTracesStore()
         _rt_store.ensure_table()
@@ -729,7 +731,9 @@ async def startup_event():
         logger.warning(f"Reasoning traces table bootstrap failed (non-blocking): {e}")
 
     try:
-        from app.services.stores.meeting_session_store import MeetingSessionStore
+        from backend.app.services.stores.meeting_session_store import (
+            MeetingSessionStore,
+        )
 
         _ms_store = MeetingSessionStore()
         _ms_store.ensure_table()

@@ -164,6 +164,7 @@ def create_assistant_event(
     thread_id: Optional[str],
     store: MindscapeStore,
     execution_id: Optional[str] = None,
+    meeting_session_id: Optional[str] = None,
 ) -> MindEvent:
     """
     Create assistant event from response text
@@ -177,6 +178,7 @@ def create_assistant_event(
         thread_id: Thread ID (optional)
         store: MindscapeStore instance
         execution_id: Execution context ID (optional, for SGR trace binding)
+        meeting_session_id: Meeting session ID (optional, for trace linking)
 
     Returns:
         Created MindEvent
@@ -191,6 +193,7 @@ def create_assistant_event(
             response_text=full_text,
             workspace_id=workspace_id,
             execution_id=execution_id,
+            meeting_session_id=meeting_session_id,
         )
         if reasoning_graph_id:
             logger.info(
