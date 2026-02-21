@@ -1,5 +1,5 @@
 """
-Agent Dispatch — Task dispatch and WebSocket message handling mixin.
+Agent Dispatch -- Task dispatch and WebSocket message handling mixin.
 
 Covers dispatch_and_wait, pending queue management, flush,
 and incoming message routing (ack, progress, result).
@@ -27,7 +27,7 @@ class TaskDispatchMixin:
         message: Dict[str, Any],
         execution_id: str,
         target_client_id: Optional[str] = None,
-        timeout: float = 120.0,
+        timeout: float = 600.0,
     ) -> Dict[str, Any]:
         """
         Dispatch a task to an IDE client and wait for the result.
@@ -39,7 +39,7 @@ class TaskDispatchMixin:
             message: Dispatch message payload
             execution_id: Unique execution ID
             target_client_id: Optional specific client to target
-            timeout: Max seconds to wait for result (default 120s)
+            timeout: Max seconds to wait for result (default 600s)
 
         Returns:
             Raw result dict from the IDE
@@ -76,7 +76,7 @@ class TaskDispatchMixin:
                     }
                 )
         else:
-            # No local client — check for remote WS connections
+            # No local client -- check for remote WS connections
             has_remote = False
             try:
                 has_remote = self.has_connections(workspace_id) and True
@@ -96,7 +96,7 @@ class TaskDispatchMixin:
                     timeout=timeout,
                 )
 
-            # No client available anywhere — queue for later
+            # No client available anywhere -- queue for later
             pending = PendingTask(
                 execution_id=execution_id,
                 workspace_id=workspace_id,
@@ -553,7 +553,7 @@ class TaskDispatchMixin:
         workspace_id: str,
         message: Dict[str, Any],
         execution_id: str,
-        timeout: float = 120.0,
+        timeout: float = 600.0,
     ) -> Dict[str, Any]:
         """Dispatch a task via PostgreSQL for a remote worker to pick up.
 
@@ -700,7 +700,7 @@ class TaskDispatchMixin:
 
                     # Await the result from _handle_result
                     try:
-                        result = await asyncio.wait_for(result_future, timeout=120.0)
+                        result = await asyncio.wait_for(result_future, timeout=600.0)
                         logger.info(
                             f"[AgentWS] Consumer got result for "
                             f"{exec_id}: status={result.get('status')}"

@@ -90,8 +90,56 @@ class GeminiCLIWSClient:
     #  Main lifecycle
     # ============================================================
 
+    def _preflight_check(self) -> None:
+        """Validate runtime env before connecting.
+
+        If GEMINI_CLI_RUNTIME_CMD is missing or incomplete, or auth
+        env is not configured, raise immediately so the process
+        never registers as "connected" in the backend.
+        """
+        runtime_cmd = os.environ.get("GEMINI_CLI_RUNTIME_CMD", "").strip()
+        if not runtime_cmd:
+            raise RuntimeError(
+                "GEMINI_CLI_RUNTIME_CMD is not set. "
+                "Start this client via scripts/start_ws_bridge.sh "
+                "which sets all required environment variables."
+            )
+
+        import shlex as _shlex
+
+        argv = _shlex.split(runtime_cmd)
+        # Must have at least 2 tokens: interpreter + script path
+        if len(argv) < 2:
+            raise RuntimeError(
+                f"GEMINI_CLI_RUNTIME_CMD is incomplete ('{runtime_cmd}'). "
+                f"Expected format: 'python3 /path/to/gemini_cli_runtime_bridge.py'. "
+                f"Start this client via scripts/start_ws_bridge.sh."
+            )
+
+        has_api_key = bool(os.environ.get("GEMINI_API_KEY", "").strip())
+        has_vertex = (
+            os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() == "true"
+        )
+        has_gca = os.environ.get("GOOGLE_GENAI_USE_GCA", "").strip().lower() == "true"
+        has_backend = bool(os.environ.get("MINDSCAPE_BACKEND_API_URL", "").strip())
+        if not has_api_key and not has_vertex and not has_gca and not has_backend:
+            raise RuntimeError(
+                "No Gemini auth configured. Set GEMINI_API_KEY, "
+                "GOOGLE_GENAI_USE_VERTEXAI=true, or configure auth "
+                "via Web Console system settings. "
+                "Use scripts/start_ws_bridge.sh which handles this."
+            )
+
+        mode = (
+            "api_key"
+            if has_api_key
+            else "vertex_ai" if has_vertex else "gca" if has_gca else "backend_api"
+        )
+        logger.info(f"Preflight OK: runtime_cmd='{runtime_cmd}', auth_mode={mode}")
+
     async def run(self) -> None:
-        """Main entry point — connect with auto-reconnect."""
+        """Main entry point -- connect with auto-reconnect."""
+        self._preflight_check()
         self._running = True
         logger.info(f"Starting IDE WS client (workspace={self.workspace_id})")
 
@@ -272,6 +320,17 @@ class GeminiCLIWSClient:
                 f"status={result.get('status', 'completed')}"
             )
 
+            # Auth failure = runtime is broken, disconnect so UI
+            # shows unavailable instead of a false "connected".
+            error_str = result.get("error", "") or ""
+            if "Exit code 41" in error_str or "auth not set" in error_str.lower():
+                logger.error(
+                    "AUTH FAILURE detected (exit 41). "
+                    "Disconnecting so status shows unavailable. "
+                    "Restart with scripts/start_ws_bridge.sh to fix."
+                )
+                await self.stop()
+
         except Exception as e:
             duration = time.monotonic() - start_time
             logger.error(f"Task failed: {e}")
@@ -304,7 +363,7 @@ class GeminiCLIWSClient:
         dispatch_msg: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Default task handler — logs the task and returns a stub result.
+        Default task handler -- logs the task and returns a stub result.
 
         Replace this with actual Gemini CLI agent invocation in production.
         """
@@ -353,8 +412,8 @@ def main():
     )
     parser.add_argument(
         "--host",
-        default=os.environ.get("MINDSCAPE_WS_HOST", "localhost:8000"),
-        help="Backend host (default: localhost:8000)",
+        default=os.environ.get("MINDSCAPE_WS_HOST"),
+        help="Backend host:port (auto-resolved from port config if omitted)",
     )
     parser.add_argument(
         "--auth-secret",
@@ -377,6 +436,49 @@ def main():
         help="Workspace root directory for task execution",
     )
     args = parser.parse_args()
+
+    # Auto-resolve host from PortConfigService if not provided
+    if not args.host:
+        try:
+            from backend.app.services.port_config_service import port_config_service
+
+            url = port_config_service.get_service_url("backend_api")
+            # url = "http://host:port" -> extract "host:port"
+            args.host = url.split("://", 1)[-1]
+            logger.info(f"Host resolved from port config: {args.host}")
+        except Exception:
+            # DB unavailable -- use centralized default port constant
+            try:
+                from backend.app.services.port_config_service import PortConfigService
+
+                port = PortConfigService.DEFAULT_PORTS["backend_api"]
+                args.host = f"localhost:{port}"
+            except Exception:
+                args.host = "localhost:8200"
+            logger.warning(f"Port config DB unavailable, using default: {args.host}")
+
+    # Auto-derive env vars from CLI args so this works without
+    # start_ws_bridge.sh -- everything needed comes from --host.
+    if not os.environ.get("MINDSCAPE_BACKEND_API_URL"):
+        os.environ["MINDSCAPE_BACKEND_API_URL"] = f"http://{args.host}"
+    if not os.environ.get("MINDSCAPE_WS_HOST"):
+        os.environ["MINDSCAPE_WS_HOST"] = args.host
+    # Auth mode is resolved dynamically by the bridge via /api/v1/auth/cli-token.
+    # Do NOT force any auth mode here; the backend endpoint handles it.
+
+    # Auto-discover bridge script if GEMINI_CLI_RUNTIME_CMD not set
+    if not os.environ.get("GEMINI_CLI_RUNTIME_CMD"):
+        # Walk up from this file to find project root containing the bridge
+        _dir = os.path.dirname(os.path.abspath(__file__))
+        for _ in range(10):
+            bridge_path = os.path.join(_dir, "scripts", "gemini_cli_runtime_bridge.py")
+            if os.path.isfile(bridge_path):
+                os.environ["GEMINI_CLI_RUNTIME_CMD"] = f"python3 {bridge_path}"
+                break
+            parent = os.path.dirname(_dir)
+            if parent == _dir:
+                break
+            _dir = parent
 
     # Use the real TaskExecutor instead of the default stub handler.
     from backend.app.services.external_agents.agents.gemini_cli.task_executor import (

@@ -29,6 +29,7 @@ SAFE_DEFAULT_TOOL_IDS = [
     "workspace_list_executions",
     "workspace_get_execution",
     "workspace_get_execution_steps",
+    "workspace_query_database",
     "filesystem_list_files",
     "filesystem_read_file",
 ]

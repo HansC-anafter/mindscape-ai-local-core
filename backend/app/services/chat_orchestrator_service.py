@@ -235,11 +235,44 @@ class ChatOrchestratorService:
                     )
                     return
                 else:
-                    # Agent is available — dispatch to it
+                    # Agent is available -- emit progress event before dispatch
+                    await self._create_pipeline_event(
+                        workspace_id,
+                        profile_id,
+                        thread_id,
+                        project_id,
+                        "agent_dispatching",
+                        f"Dispatching task to agent {preferred_agent}...",
+                        user_event_id or event_id,
+                    )
+
                     agent_response: AgentExecutionResponse = await executor.execute(
                         task=request.message,
                         agent_id=preferred_agent,
                     )
+
+                    # Emit completion/failure progress event
+                    exec_time = agent_response.execution_time_seconds
+                    if agent_response.success:
+                        await self._create_pipeline_event(
+                            workspace_id,
+                            profile_id,
+                            thread_id,
+                            project_id,
+                            "agent_completed",
+                            f"Agent completed in {exec_time:.0f}s",
+                            user_event_id or event_id,
+                        )
+                    else:
+                        await self._create_pipeline_event(
+                            workspace_id,
+                            profile_id,
+                            thread_id,
+                            project_id,
+                            "agent_failed",
+                            f"Agent execution failed after {exec_time:.0f}s",
+                            user_event_id or event_id,
+                        )
 
                     # Create assistant event with agent response
                     if agent_response.success:
@@ -278,7 +311,7 @@ class ChatOrchestratorService:
                         )
                         return  # Agent succeeded, done
 
-                    # Agent execution failed — report error, never silent fallback
+                    # Agent execution failed -- report error, never silent fallback
                     error_msg = (
                         agent_response.error or "External agent execution failed"
                     )

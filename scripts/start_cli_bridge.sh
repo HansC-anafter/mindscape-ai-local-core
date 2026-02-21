@@ -110,7 +110,7 @@ fi
 BACKEND_HTTP="http://$BACKEND_HOST"
 if ! curl -s --connect-timeout 3 "$BACKEND_HTTP/health" &>/dev/null; then
     log_warn "Backend at $BACKEND_HTTP may not be ready (health check failed)"
-    log_warn "Proceeding anyway — the client will retry with backoff"
+    log_warn "Proceeding anyway -- the client will retry with backoff"
 fi
 
 # 5. Auto-detect workspace ID if not provided
@@ -165,8 +165,9 @@ export PYTHONPATH="$PROJECT_DIR:$PROJECT_DIR/backend:${PYTHONPATH:-}"
 export GEMINI_CLI_RUNTIME_CMD="python3 $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$PROJECT_DIR}"
 
-# --- GCA auth (Google Workspace subscription quota) ---
-export GOOGLE_GENAI_USE_GCA=true
+# --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
+# GEMINI_API_KEY can also be set here as env-level override.
+export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_HOST}"
 
 # --- Start bridge ---

@@ -132,14 +132,24 @@ class GeminiCLIAdapter(PollingAgentAdapter):
         """
         Check if Gemini CLI runtime is actually connected.
 
-        Checks primary strategy first, then falls through to polling
-        when WS has no connections — matching execute() fallback logic.
-
-        - ws: True if ws_manager has active connections, else try polling
-        - polling: True only if runners have active tasks or reserved leases
-        - sampling: True only if mcp_server is injected
+        Strict transport semantics:
+        - ws: True ONLY if ws_manager has active WS connections.
+              Runner heartbeat alone does NOT count -- the runner
+              handles playbook DB polling, not chat WS dispatch.
+        - polling: True only if runners have active heartbeat.
+        - sampling: True only if mcp_server is injected.
         """
-        # Time-bounded cache (30s) instead of permanent cache
+        detail = self.get_availability_detail()
+        return detail["available"]
+
+    def get_availability_detail(self) -> dict:
+        """
+        Return structured availability info for API responses.
+
+        Returns:
+            dict with keys: available (bool), transport (str|None),
+            reason (str).
+        """
         import time
 
         now = time.monotonic()
@@ -147,13 +157,17 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             self._available_cache is not None
             and hasattr(self, "_available_cache_time")
             and (now - self._available_cache_time) < 30.0
+            and hasattr(self, "_available_detail_cache")
         ):
-            return self._available_cache
+            return self._available_detail_cache
 
         # Lazy-resolve ws_manager from global singleton
         self._resolve_ws_manager()
 
-        effective_strategy = self.strategy
+        available = False
+        transport = None
+        reason = "unknown"
+
         if self.strategy == "ws":
             ws_connected = self.ws_manager is not None and (
                 hasattr(self.ws_manager, "has_connections")
@@ -161,35 +175,41 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             )
             if ws_connected:
                 available = True
+                transport = "ws"
+                reason = "ws_connected"
             else:
-                # Fallback: check if polling runners are active.
-                # execute() already falls back to polling when WS is empty,
-                # so is_available() should reflect the same.
-                available = self._has_active_polling_runners()
-                if available:
-                    effective_strategy = "polling-fallback"
+                available = False
+                transport = None
+                reason = "no_ws_client"
         elif self.strategy == "polling":
             available = self._has_active_polling_runners()
+            transport = "polling" if available else None
+            reason = "runner_heartbeat_active" if available else "no_active_runner"
         elif self.strategy == "sampling":
             available = self.sampling_gate is not None and self.mcp_server is not None
+            transport = "sampling" if available else None
+            reason = "mcp_server_injected" if available else "no_mcp_server"
         else:
             logger.warning(f"Unknown strategy: {self.strategy}")
-            available = False
+            reason = f"unknown_strategy_{self.strategy}"
+
+        detail = {
+            "available": available,
+            "transport": transport,
+            "reason": reason,
+        }
 
         self._available_cache = available
         self._available_cache_time = now
+        self._available_detail_cache = detail
 
         if available:
             self._version_cache = "runtime-connected"
-            logger.info(
-                f"Gemini CLI adapter available via '{effective_strategy}' strategy"
-            )
+            logger.info(f"Gemini CLI adapter available via '{transport}' transport")
         else:
-            logger.debug(
-                f"Gemini CLI adapter not available via '{self.strategy}' strategy"
-            )
+            logger.debug(f"Gemini CLI adapter not available: {reason}")
 
-        return available
+        return detail
 
     def _has_active_polling_runners(self) -> bool:
         """Check if the runner container is alive via its PostgreSQL heartbeat.
@@ -252,27 +272,32 @@ class GeminiCLIAdapter(PollingAgentAdapter):
         execution_id = str(uuid.uuid4())
 
         try:
-            effective_strategy = self.strategy
-            # WS→polling fallback: if strategy is 'ws' but no WS client
-            # is connected, fall back to polling if runners are active.
-            # Without this, tasks queue in memory with no consumer and
-            # always timeout after 120s.
+            logger.info(f"GeminiCLIAdapter: strategy={self.strategy}")
+
             if self.strategy == "ws":
+                # Fail-fast: if no WS client is connected, return an
+                # immediate error instead of queuing and timing out.
                 ws_connected = self.ws_manager is not None and (
                     hasattr(self.ws_manager, "has_connections")
                     and self.ws_manager.has_connections()
                 )
-                if not ws_connected and self._has_active_polling_runners():
-                    effective_strategy = "polling"
-                    logger.info(
-                        "GeminiCLIAdapter: no WS client, falling back to "
-                        "polling strategy (runner heartbeat active)"
+                if not ws_connected:
+                    logger.warning(
+                        "GeminiCLIAdapter: no WS client connected, "
+                        "failing fast instead of queuing"
                     )
-
-            logger.info(f"GeminiCLIAdapter: strategy={effective_strategy}")
-            if effective_strategy == "ws":
+                    return AgentResponse(
+                        success=False,
+                        output="",
+                        duration_seconds=0,
+                        error=(
+                            "No WebSocket client connected. "
+                            "Run scripts/start_ws_bridge.sh to connect "
+                            "the Gemini CLI agent."
+                        ),
+                    )
                 response = await self._execute_via_ws(request, execution_id)
-            elif effective_strategy == "polling":
+            elif self.strategy == "polling":
                 response = await self._execute_via_polling(request, execution_id)
             elif self.strategy == "sampling":
                 response = await self._execute_via_sampling(request, execution_id)
@@ -365,7 +390,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             logger.warning(
                 f"WS dispatch timed out after {elapsed:.1f}s " f"(exec={execution_id})"
             )
-            # Return running status — IDE may still complete and call /agent/result
+            # Return running status -- IDE may still complete and call /agent/result
             return AgentResponse(
                 success=False,
                 output="",

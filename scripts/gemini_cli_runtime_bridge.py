@@ -58,7 +58,7 @@ def _fetch_auth_env():
                 mode = data.get("auth_mode", "unknown")
                 log(f"Auth env injected (mode={mode}, keys={list(env_vars.keys())})")
                 return env_vars
-            # Backend returned empty env — check for auth error
+            # Backend returned empty env -- check for auth error
             auth_mode = data.get("auth_mode", "unknown")
             error = data.get("error", "no env vars returned")
             log(f"Backend auth returned empty: mode={auth_mode}, error={error}")
@@ -66,7 +66,7 @@ def _fetch_auth_env():
             fallback = _env_fallback()
             if fallback:
                 return fallback
-            # No fallback available — fail with clear message
+            # No fallback available -- fail with clear message
             _fail_auth(auth_mode, error)
     except urllib.error.URLError as e:
         log(f"Failed to fetch auth env: {e}")
@@ -143,6 +143,34 @@ def _looks_like_auth_error(stderr_text: str) -> bool:
     return any(p in lower for p in auth_patterns)
 
 
+def _extract_response(raw_stdout: str) -> tuple:
+    """Extract the final response and error from Gemini CLI JSON output.
+
+    When using --output-format json, the CLI returns:
+        Success: {"session_id": "...", "response": "final answer", "stats": {...}}
+        Error:   {"error": {"type": "...", "message": "...", "code": "..."}}
+
+    Returns:
+        (response_text, json_error_msg) - json_error_msg is None on success
+    """
+    if not raw_stdout:
+        return (raw_stdout, None)
+    try:
+        parsed = json.loads(raw_stdout)
+        # Check for error field
+        error = parsed.get("error")
+        error_msg = None
+        if isinstance(error, dict):
+            error_msg = error.get("message") or str(error)
+        elif isinstance(error, str):
+            error_msg = error
+
+        response = parsed.get("response", raw_stdout)
+        return (response, error_msg)
+    except (json.JSONDecodeError, TypeError):
+        return (raw_stdout, None)
+
+
 def main():
     # Read dispatch payload from stdin
     try:
@@ -181,11 +209,13 @@ def main():
     # Determine working directory
     cwd = sandbox_path if sandbox_path and os.path.isdir(sandbox_path) else os.getcwd()
 
-    # Build gemini CLI command
+    # Build gemini CLI command with JSON output for structured response
     cmd = [
         GEMINI_CLI,
         "-p",
         prompt,
+        "-o",
+        "json",
     ]
 
     log(f"Executing: {' '.join(cmd[:3])}... (cwd={cwd})")
@@ -212,11 +242,15 @@ def main():
         )
 
         duration = time.monotonic() - start
-        stdout = (result.stdout or "")[:MAX_OUTPUT].strip()
+        raw_stdout = (result.stdout or "")[:MAX_OUTPUT].strip()
+        stdout, json_error = _extract_response(raw_stdout)
         stderr = (result.stderr or "")[:MAX_OUTPUT].strip()
 
         # Retry once with fresh auth on auth-related failure
-        if result.returncode != 0 and _looks_like_auth_error(stderr):
+        # Check both stderr AND stdout JSON error for auth indicators
+        auth_in_stderr = _looks_like_auth_error(stderr)
+        auth_in_json = _looks_like_auth_error(json_error or "")
+        if result.returncode != 0 and (auth_in_stderr or auth_in_json):
             log("Auth error detected, retrying with fresh auth env")
             fresh_env = _fetch_auth_env()
             if fresh_env:
@@ -231,19 +265,38 @@ def main():
                         timeout=int(remaining),
                         env=sub_env,
                     )
-                    stdout = (result.stdout or "")[:MAX_OUTPUT].strip()
+                    raw_stdout = (result.stdout or "")[:MAX_OUTPUT].strip()
+                    stdout, json_error = _extract_response(raw_stdout)
                     stderr = (result.stderr or "")[:MAX_OUTPUT].strip()
 
         if result.returncode == 0:
-            emit_result(
-                "completed",
-                output=stdout or "Task completed successfully",
-            )
+            # Even on exit 0, check for JSON error (CLI may still report issues)
+            if json_error:
+                emit_result(
+                    "completed",
+                    output=stdout or json_error,
+                )
+            else:
+                emit_result(
+                    "completed",
+                    output=stdout or "Task completed successfully",
+                )
         else:
+            # Build error message from both stderr and JSON error
+            error_parts = []
+            if json_error:
+                error_parts.append(json_error)
+            if stderr:
+                error_parts.append(stderr[:500])
+            error_msg = (
+                " | ".join(error_parts)
+                if error_parts
+                else f"Exit code {result.returncode}"
+            )
             emit_result(
                 "failed",
                 output=stdout,
-                error=f"Exit code {result.returncode}: {stderr[:500]}",
+                error=f"Exit code {result.returncode}: {error_msg}",
             )
 
     except subprocess.TimeoutExpired:
