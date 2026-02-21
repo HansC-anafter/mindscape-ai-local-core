@@ -260,7 +260,18 @@ def main():
     if agent_ctx.get("data_guidance"):
         instruction_parts.append(f"\nIMPORTANT: {agent_ctx['data_guidance']}")
     tables = agent_ctx.get("tables", [])
-    if tables:
+    table_schemas = agent_ctx.get("table_schemas", {})
+    if table_schemas:
+        # Format with full column schemas so model never guesses columns
+        schema_lines = []
+        for tname in sorted(table_schemas.keys()):
+            cols = table_schemas[tname]
+            schema_lines.append(f"- {tname}: {', '.join(cols)}")
+        instruction_parts.append(
+            f"\nAvailable database tables and columns:\n" + "\n".join(schema_lines)
+        )
+    elif tables:
+        # Fallback: table names only (no schema available)
         table_lines = "\n".join(f"- {t}" for t in tables)
         instruction_parts.append(f"\nAvailable database tables:\n{table_lines}")
 
