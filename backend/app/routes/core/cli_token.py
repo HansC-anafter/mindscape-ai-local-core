@@ -125,10 +125,10 @@ def _refresh_google_token(refresh_token, runtime, auth_service, token_data, db):
 
     # Use Gemini CLI's public OAuth credentials (installed app type).
     # These are intentionally public and safe to embed in client code.
-    from .gca_constants import GCA_OAUTH_CLIENT_ID, GCA_OAUTH_CLIENT_SECRET
+    from .gca_constants import get_gca_client_id, get_gca_client_secret
 
-    client_id = GCA_OAUTH_CLIENT_ID
-    client_secret = GCA_OAUTH_CLIENT_SECRET
+    client_id = get_gca_client_id()
+    client_secret = get_gca_client_secret()
 
     import urllib.request
     import urllib.parse

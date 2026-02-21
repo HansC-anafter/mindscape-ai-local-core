@@ -175,10 +175,9 @@ async def authorize(
         # GCA mode: direct Google OAuth with CLI's Client ID.
         # CLI's OAuth app is installed-app type, only allows localhost
         # redirect URIs. Site-hub's domain would cause redirect_uri_mismatch.
-        from .gca_constants import (
-            GCA_OAUTH_CLIENT_ID,
-            GCA_OAUTH_SCOPES_STRING,
-        )
+        from .gca_constants import get_gca_client_id, GCA_OAUTH_SCOPES_STRING
+
+        GCA_OAUTH_CLIENT_ID = get_gca_client_id()
 
         base = os.getenv(
             "RUNTIME_OAUTH_BASE_URL", f"http://localhost:{os.getenv('PORT', '8200')}"
@@ -403,7 +402,10 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
     where cloudcode-pa.googleapis.com is enabled.
     """
     import httpx
-    from .gca_constants import GCA_OAUTH_CLIENT_ID, GCA_OAUTH_CLIENT_SECRET
+    from .gca_constants import get_gca_client_id, get_gca_client_secret
+
+    GCA_OAUTH_CLIENT_ID = get_gca_client_id()
+    GCA_OAUTH_CLIENT_SECRET = get_gca_client_secret()
 
     base = os.getenv(
         "RUNTIME_OAUTH_BASE_URL", f"http://localhost:{os.getenv('PORT', '8200')}"

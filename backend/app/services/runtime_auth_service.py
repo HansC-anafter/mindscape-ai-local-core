@@ -368,12 +368,12 @@ class RuntimeAuthService:
         # Legacy: Refresh against Google's token endpoint
         # Use Gemini CLI's public OAuth credentials (installed app, safe to embed)
         from app.routes.core.gca_constants import (
-            GCA_OAUTH_CLIENT_ID,
-            GCA_OAUTH_CLIENT_SECRET,
+            get_gca_client_id,
+            get_gca_client_secret,
         )
 
-        client_id = GCA_OAUTH_CLIENT_ID
-        client_secret = GCA_OAUTH_CLIENT_SECRET
+        client_id = get_gca_client_id()
+        client_secret = get_gca_client_secret()
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
