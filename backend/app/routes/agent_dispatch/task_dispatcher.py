@@ -287,6 +287,10 @@ class TaskDispatchMixin:
         """
         Check client owns the inflight task.
 
+        Relaxed ownership: allows same-workspace clients to submit
+        results for re-queued ('pending') or orphaned tasks after
+        a client disconnect/reconnect cycle.
+
         Returns error dict if ownership fails, None if verified.
         """
         inflight = self._inflight.get(execution_id)
@@ -295,16 +299,38 @@ class TaskDispatchMixin:
                 "type": "error",
                 "error": f"Unknown execution {execution_id}",
             }
-        if inflight.client_id != client.client_id:
-            logger.warning(
-                f"[AgentWS] Unauthorized: expected={inflight.client_id}, "
-                f"got={client.client_id} for {execution_id}"
+
+        # Exact match — original client still owns the task
+        if inflight.client_id == client.client_id:
+            return None
+
+        # Re-queued task ('pending') — any authenticated client may claim
+        if inflight.client_id == "pending":
+            logger.info(
+                f"[AgentWS] Accepting result from {client.client_id} "
+                f"for re-queued task {execution_id}"
             )
-            return {
-                "type": "error",
-                "error": "Not the assigned client",
-            }
-        return None  # ownership verified
+            return None
+
+        # Same workspace — allow result from sibling client
+        # (handles reconnect with new client_id)
+        if inflight.workspace_id == client.workspace_id:
+            logger.info(
+                f"[AgentWS] Accepting result from {client.client_id} "
+                f"for task {execution_id} originally assigned to "
+                f"{inflight.client_id} (same workspace)"
+            )
+            return None
+
+        logger.warning(
+            f"[AgentWS] Unauthorized: expected={inflight.client_id}, "
+            f"got={client.client_id} for {execution_id} "
+            f"(workspace mismatch: {inflight.workspace_id} vs {client.workspace_id})"
+        )
+        return {
+            "type": "error",
+            "error": "Not the assigned client",
+        }
 
     def _handle_ack(
         self,
