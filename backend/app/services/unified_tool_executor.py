@@ -15,13 +15,18 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from pathlib import Path
 import importlib
 import inspect
 
 from backend.app.models.playbook import ToolDependency
 from backend.app.services.tools.base import MindscapeTool
-from backend.app.services.tools.registry import get_mindscape_tool, register_mindscape_tool
+from backend.app.services.tools.registry import (
+    get_mindscape_tool,
+    register_mindscape_tool,
+)
 from backend.app.services.tools.schemas import (
     ToolMetadata,
     ToolInputSchema,
@@ -43,6 +48,7 @@ try:
 except Exception:  # pragma: no cover
     yaml = None
 
+
 class ToolExecutionResult:
     """
     Tool execution result
@@ -58,7 +64,7 @@ class ToolExecutionResult:
         result: Any = None,
         error: Optional[str] = None,
         execution_time: Optional[float] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         self.success = success
         self.tool_name = tool_name
@@ -79,7 +85,7 @@ class ToolExecutionResult:
             "error": self.error,
             "execution_time": self.execution_time,
             "metadata": self.metadata,
-            "timestamp": self.timestamp.isoformat()
+            "timestamp": self.timestamp.isoformat(),
         }
 
 
@@ -93,7 +99,7 @@ class UnifiedToolExecutor:
     def __init__(
         self,
         mcp_manager: Optional[MCPServerManager] = None,
-        tool_resolver: Optional[ToolDependencyResolver] = None
+        tool_resolver: Optional[ToolDependencyResolver] = None,
     ):
         """
         Initialize executor
@@ -118,10 +124,7 @@ class UnifiedToolExecutor:
         self._execution_history: List[ToolExecutionResult] = []
 
     async def execute_tool(
-        self,
-        tool_name: str,
-        arguments: Dict[str, Any],
-        timeout: Optional[float] = 30.0
+        self, tool_name: str, arguments: Dict[str, Any], timeout: Optional[float] = 30.0
     ) -> ToolExecutionResult:
         """
         Execute tool (unified interface)
@@ -148,7 +151,7 @@ class UnifiedToolExecutor:
                     success=False,
                     tool_name=tool_name,
                     tool_type=tool_type,
-                    error=f"Tool {tool_name} not found or not registered"
+                    error=f"Tool {tool_name} not found or not registered",
                 )
 
             logger.info(f"Executing tool: {tool_name}, arguments: {arguments}")
@@ -167,7 +170,7 @@ class UnifiedToolExecutor:
                     "tool_description": getattr(tool, "description", ""),
                     "tool_source": getattr(tool.metadata, "source_type", tool_type),
                     **(tool_result.metadata or {}),
-                }
+                },
             )
 
             self._execution_history.append(execution_result)
@@ -190,7 +193,7 @@ class UnifiedToolExecutor:
                 tool_name=tool_name,
                 tool_type=tool_type or "unknown",
                 error=error_msg,
-                execution_time=execution_time
+                execution_time=execution_time,
             )
 
             self._execution_history.append(execution_result)
@@ -211,13 +214,15 @@ class UnifiedToolExecutor:
             parts = tool_name.split(".", 1)
             if parts[0] in ["builtin", "langchain", "mcp"]:
                 return parts[0], parts[1]
+            # MCP gateway uses "default." prefix for builtin tools;
+            # strip it so the registry lookup matches the bare name.
+            if parts[0] == "default":
+                return "builtin", parts[1]
 
         return "builtin", tool_name
 
     async def _get_tool(
-        self,
-        tool_type: str,
-        tool_name: str
+        self, tool_type: str, tool_name: str
     ) -> Optional[MindscapeTool]:
         """
         Get tool instance
@@ -328,8 +333,12 @@ class UnifiedToolExecutor:
                 def __init__(self, _fn):
                     metadata = ToolMetadata(
                         name=tool_code,
-                        description=(tool_desc or f"Capability tool '{tool_id}' wrapper."),
-                        input_schema=ToolInputSchema(type="object", properties={}, required=[]),
+                        description=(
+                            tool_desc or f"Capability tool '{tool_id}' wrapper."
+                        ),
+                        input_schema=ToolInputSchema(
+                            type="object", properties={}, required=[]
+                        ),
                         category=ToolCategory.AUTOMATION,
                         source_type=ToolSourceType.CUSTOM,
                         provider=cap_code,
@@ -350,14 +359,16 @@ class UnifiedToolExecutor:
 
             return CapabilityToolWrapper(fn)
         except Exception as e:
-            logger.debug(f"Capability tool resolve failed for {tool_id}: {e}", exc_info=True)
+            logger.debug(
+                f"Capability tool resolve failed for {tool_id}: {e}", exc_info=True
+            )
             return None
 
     async def execute_tool_dependency(
         self,
         tool_dep: ToolDependency,
         arguments: Dict[str, Any],
-        env_overrides: Optional[Dict[str, str]] = None
+        env_overrides: Optional[Dict[str, str]] = None,
     ) -> ToolExecutionResult:
         """
         Execute tool dependency (from Playbook configuration)
@@ -377,13 +388,11 @@ class UnifiedToolExecutor:
         """
         tool_dep_resolved = tool_dep.copy(deep=True)
         tool_dep_resolved.config = self.tool_resolver.substitute_env_vars(
-            tool_dep.config,
-            env_overrides
+            tool_dep.config, env_overrides
         )
 
         check_result = await self.tool_resolver.check_tool_availability(
-            tool_dep_resolved,
-            env_overrides
+            tool_dep_resolved, env_overrides
         )
 
         if not check_result["available"] and tool_dep.fallback:
@@ -395,13 +404,11 @@ class UnifiedToolExecutor:
                 type=tool_dep.type,
                 name=tool_dep.fallback,
                 source=tool_dep.source,
-                required=tool_dep.required
+                required=tool_dep.required,
             )
 
             return await self.execute_tool_dependency(
-                fallback_dep,
-                arguments,
-                env_overrides
+                fallback_dep, arguments, env_overrides
             )
 
         if check_result["available"] and check_result["tool"]:
@@ -419,7 +426,7 @@ class UnifiedToolExecutor:
                     tool_type=tool_dep.type,
                     result=tool_result.result,
                     error=tool_result.error,
-                    execution_time=execution_time
+                    execution_time=execution_time,
                 )
 
             except Exception as e:
@@ -430,7 +437,7 @@ class UnifiedToolExecutor:
                     tool_name=tool_dep.name,
                     tool_type=tool_dep.type,
                     error=str(e),
-                    execution_time=execution_time
+                    execution_time=execution_time,
                 )
 
         else:
@@ -438,12 +445,11 @@ class UnifiedToolExecutor:
                 success=False,
                 tool_name=tool_dep.name,
                 tool_type=tool_dep.type,
-                error=check_result["error"] or "Tool unavailable"
+                error=check_result["error"] or "Tool unavailable",
             )
 
     def get_execution_history(
-        self,
-        limit: Optional[int] = None
+        self, limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Get execution history
@@ -479,7 +485,7 @@ class UnifiedToolExecutor:
                 "success_count": 0,
                 "failure_count": 0,
                 "success_rate": 0.0,
-                "avg_execution_time": 0.0
+                "avg_execution_time": 0.0,
             }
 
         total = len(self._execution_history)
@@ -492,7 +498,9 @@ class UnifiedToolExecutor:
             if r.execution_time is not None
         ]
 
-        avg_time = sum(execution_times) / len(execution_times) if execution_times else 0.0
+        avg_time = (
+            sum(execution_times) / len(execution_times) if execution_times else 0.0
+        )
 
         return {
             "total_executions": total,
@@ -500,7 +508,7 @@ class UnifiedToolExecutor:
             "failure_count": failure_count,
             "success_rate": success_count / total if total > 0 else 0.0,
             "avg_execution_time": avg_time,
-            "tool_type_distribution": self._get_tool_type_distribution()
+            "tool_type_distribution": self._get_tool_type_distribution(),
         }
 
     def _get_tool_type_distribution(self) -> Dict[str, int]:
@@ -512,6 +520,3 @@ class UnifiedToolExecutor:
             distribution[tool_type] = distribution.get(tool_type, 0) + 1
 
         return distribution
-
-
-
