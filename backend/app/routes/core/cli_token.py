@@ -284,10 +284,12 @@ async def get_agent_context():
     """Return dynamic context for agent system instruction.
 
     Reads available tables from WorkspaceQueryTool.ALLOWED_TABLES
-    so the bridge can build system instructions without hardcoding.
+    and dynamically fetches their column schemas from the DB.
+    This auto-scales: any new capability pack that adds tables to
+    ALLOWED_TABLES will have its schema included automatically.
 
     Returns:
-        JSON with schema_hints (table names) and role description.
+        JSON with table schemas, role, data_tool, and data_guidance.
     """
     try:
         from ...services.tools.workspace_tools import WorkspaceQueryDatabaseTool
@@ -297,8 +299,46 @@ async def get_agent_context():
         logger.warning("Failed to read ALLOWED_TABLES: %s", e)
         tables = []
 
+    # Dynamically fetch column schemas from the database
+    table_schemas = {}
+    if tables:
+        try:
+            import psycopg2
+            import psycopg2.extras
+            import os
+
+            db_url = (
+                os.environ.get("DATABASE_URL_CORE")
+                or os.environ.get("DATABASE_URL")
+                or "postgresql://mindscape:mindscape_password@postgres:5432/mindscape_core"
+            )
+            conn = psycopg2.connect(db_url)
+            try:
+                conn.set_session(readonly=True, autocommit=True)
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Single query for all allowed tables
+                placeholders = ",".join(["%s"] * len(tables))
+                cur.execute(
+                    f"SELECT table_name, column_name, data_type "
+                    f"FROM information_schema.columns "
+                    f"WHERE table_name IN ({placeholders}) "
+                    f"ORDER BY table_name, ordinal_position",
+                    tuple(tables),
+                )
+                for row in cur.fetchall():
+                    tname = row["table_name"]
+                    col = row["column_name"]
+                    dtype = row["data_type"]
+                    table_schemas.setdefault(tname, []).append(f"{col} ({dtype})")
+                cur.close()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning("Failed to fetch column schemas: %s", e)
+
     return {
         "tables": tables,
+        "table_schemas": table_schemas,
         "role": (
             "You are a Mindscape AI workspace assistant. "
             "You have access to MCP tools to query and manage workspace data."
@@ -308,6 +348,7 @@ async def get_agent_context():
             "For any question about data, analytics, accounts, targets, "
             "posts, or personas, use the mindscape_tool_default_workspace_query_database "
             "tool to query the PostgreSQL database. Do NOT browse files to find data. "
-            "Always provide the actual data in your response."
+            "Always provide the actual data in your response. "
+            "IMPORTANT: Always reply in the same language the user used."
         ),
     }
