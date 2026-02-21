@@ -114,7 +114,7 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="例如：Site-Hub、Semantic-Hub、Custom Runtime"
+            placeholder="e.g. My-Cloud-Runner, Custom Runtime"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             required
           />

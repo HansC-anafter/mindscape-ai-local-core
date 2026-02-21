@@ -1,7 +1,7 @@
 """
 Runtime Environments API Routes
 
-CRUD endpoints for managing runtime environments (e.g., Site-Hub, Semantic-Hub).
+CRUD endpoints for managing runtime environments.
 Supports user-defined runtime configurations with authentication.
 """
 

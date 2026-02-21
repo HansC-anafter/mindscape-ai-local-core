@@ -28,6 +28,8 @@ class AgentInfo(BaseModel):
     version: str
     risk_level: str
     cli_command: Optional[str] = None
+    transport: Optional[str] = None  # 'ws', 'polling', 'sampling', None
+    reason: Optional[str] = None  # 'ws_connected', 'no_ws_client', etc.
 
 
 class AgentListResponse(BaseModel):
@@ -52,12 +54,22 @@ async def list_agents():
         if not registry._adapters:
             registry.discover_agents()
 
-        # Get availability for all agents
-        availability = await registry.check_availability()
-
         agents = []
         for agent_name, manifest in registry.get_all_manifests().items():
-            is_available = availability.get(agent_name, False)
+            adapter = registry.get_adapter(agent_name)
+
+            # Use structured detail if adapter supports it
+            transport = None
+            reason = None
+            if adapter and hasattr(adapter, "get_availability_detail"):
+                detail = adapter.get_availability_detail()
+                is_available = detail["available"]
+                transport = detail.get("transport")
+                reason = detail.get("reason")
+            elif adapter:
+                is_available = await adapter.is_available()
+            else:
+                is_available = False
 
             agents.append(
                 AgentInfo(
@@ -68,6 +80,8 @@ async def list_agents():
                     version=manifest.version,
                     risk_level=manifest.risk_level,
                     cli_command=manifest.cli_command,
+                    transport=transport,
+                    reason=reason,
                 )
             )
 
@@ -108,7 +122,19 @@ async def get_agent(agent_id: str):
             raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
 
         adapter = registry.get_adapter(agent_id)
-        is_available = await adapter.is_available() if adapter else False
+
+        # Use structured detail if adapter supports it
+        transport = None
+        reason = None
+        if adapter and hasattr(adapter, "get_availability_detail"):
+            detail = adapter.get_availability_detail()
+            is_available = detail["available"]
+            transport = detail.get("transport")
+            reason = detail.get("reason")
+        elif adapter:
+            is_available = await adapter.is_available()
+        else:
+            is_available = False
 
         return AgentInfo(
             id=agent_id,
@@ -118,6 +144,8 @@ async def get_agent(agent_id: str):
             version=manifest.version,
             risk_level=manifest.risk_level,
             cli_command=manifest.cli_command,
+            transport=transport,
+            reason=reason,
         )
 
     except HTTPException:
