@@ -277,3 +277,37 @@ async def get_cli_token():
             "env": {},
             "error": f"system_settings unavailable and no env fallback: {e}",
         }
+
+
+@router.get("/agent-context")
+async def get_agent_context():
+    """Return dynamic context for agent system instruction.
+
+    Reads available tables from WorkspaceQueryTool.ALLOWED_TABLES
+    so the bridge can build system instructions without hardcoding.
+
+    Returns:
+        JSON with schema_hints (table names) and role description.
+    """
+    try:
+        from ...services.tools.workspace_tools import WorkspaceQueryDatabaseTool
+
+        tables = sorted(WorkspaceQueryDatabaseTool.ALLOWED_TABLES)
+    except Exception as e:
+        logger.warning("Failed to read ALLOWED_TABLES: %s", e)
+        tables = []
+
+    return {
+        "tables": tables,
+        "role": (
+            "You are a Mindscape AI workspace assistant. "
+            "You have access to MCP tools to query and manage workspace data."
+        ),
+        "data_tool": "workspace_query_database",
+        "data_guidance": (
+            "For any question about data, analytics, accounts, targets, "
+            "posts, or personas, use the workspace_query_database tool to "
+            "query the PostgreSQL database. Do NOT browse files to find data. "
+            "Always provide the actual data in your response."
+        ),
+    }
