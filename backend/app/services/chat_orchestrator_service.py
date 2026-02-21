@@ -246,9 +246,36 @@ class ChatOrchestratorService:
                         user_event_id or event_id,
                     )
 
+                    # Build conversation context (same pipeline as LLM path)
+                    from backend.features.workspace.chat.streaming.context_builder import (
+                        build_streaming_context,
+                    )
+                    from backend.app.services.stores.timeline_items_store import (
+                        TimelineItemsStore,
+                    )
+
+                    timeline_items_store = TimelineItemsStore(
+                        self.orchestrator.store.db_path
+                    )
+                    conversation_context = await build_streaming_context(
+                        workspace_id=workspace_id,
+                        message=request.message,
+                        profile_id=profile_id,
+                        workspace=workspace,
+                        store=self.orchestrator.store,
+                        timeline_items_store=timeline_items_store,
+                        model_name=None,
+                        thread_id=thread_id,
+                    )
+
                     agent_response: AgentExecutionResponse = await executor.execute(
                         task=request.message,
                         agent_id=preferred_agent,
+                        context_overrides={
+                            "conversation_context": conversation_context or "",
+                            "thread_id": thread_id,
+                            "project_id": project_id,
+                        },
                     )
 
                     # Emit completion/failure progress event
@@ -321,6 +348,10 @@ class ChatOrchestratorService:
                         thread_id,
                         f"Agent {preferred_agent} execution failed: {error_msg}. "
                         f"Check the CLI bridge logs or switch to Mindscape LLM.",
+                        retry_data={
+                            "message": request.message,
+                            "agent_id": preferred_agent,
+                        },
                     )
                     logger.error(
                         f"[AsyncChat] External agent {preferred_agent} failed: "
@@ -450,8 +481,14 @@ class ChatOrchestratorService:
 
         except Exception as e:
             logger.error(f"[AsyncChat] Error in background task: {e}", exc_info=True)
-            # Create Error Event
-            await self._create_error_event(workspace_id, profile_id, thread_id, str(e))
+            # Create Error Event with retry data so frontend can offer retry
+            await self._create_error_event(
+                workspace_id,
+                profile_id,
+                thread_id,
+                str(e),
+                retry_data={"message": request.message},
+            )
 
     async def _create_pipeline_event(
         self, workspace_id, profile_id, thread_id, project_id, stage, message, run_id
@@ -488,7 +525,12 @@ class ChatOrchestratorService:
         )
         logger.info(f"[AsyncChat] Persisted pipeline event: {stage}")
 
-    async def _create_error_event(self, workspace_id, profile_id, thread_id, error_msg):
+    async def _create_error_event(
+        self, workspace_id, profile_id, thread_id, error_msg, retry_data=None
+    ):
+        metadata = {"is_error": True}
+        if retry_data:
+            metadata["retry_data"] = retry_data
         event = MindEvent(
             id=str(uuid.uuid4()),
             timestamp=_utc_now(),
@@ -503,7 +545,7 @@ class ChatOrchestratorService:
                 "type": "error",
             },
             entity_ids=[],
-            metadata={"is_error": True},
+            metadata=metadata,
         )
         # Offload blocking DB call
         try:

@@ -39,6 +39,8 @@ export interface ChatMessage {
   };
   // Project Assignment support
   project_assignment?: ProjectAssignment;
+  // Retry data for failed agent messages
+  retry_data?: { message: string; agent_id?: string };
 }
 
 export interface UseChatEventsOptions {
@@ -158,6 +160,7 @@ export function useChatEvents(
             message: e.payload.message
           } : undefined,
           project_assignment: e.metadata?.project_assignment || undefined,
+          retry_data: e.metadata?.retry_data || undefined,
           _originalEvent: e  // Store original event for metadata access
         }));
 
