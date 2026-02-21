@@ -10,6 +10,7 @@ interface MessageWithSuggestionsProps {
   message: ChatMessage;
   suggestions?: Suggestion[];
   onExecuteSuggestion: (suggestion: Suggestion) => void;
+  onRetry?: (retryData: { message: string; agent_id?: string }) => void;
   workspaceId?: string;
   apiUrl?: string;
 }
@@ -18,6 +19,7 @@ export function MessageWithSuggestions({
   message,
   suggestions,
   onExecuteSuggestion,
+  onRetry,
   workspaceId,
   apiUrl = ''
 }: MessageWithSuggestionsProps) {
@@ -87,18 +89,17 @@ export function MessageWithSuggestions({
 
       {/* Project Chip - Display current project */}
       {projectAssignment?.project_id && (
-        <div className={`mb-2 px-2 py-1 text-xs rounded transition-colors ${
-          chipStyle === 'normal'
+        <div className={`mb-2 px-2 py-1 text-xs rounded transition-colors ${chipStyle === 'normal'
             ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
             : chipStyle === 'subtle'
-            ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 opacity-75'
-            : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700'
-        }`}>
+              ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 opacity-75'
+              : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700'
+          }`}>
           <div className="flex items-center justify-between gap-2">
             <span>
               正在為：{projectAssignment.project_title ||
-                       projectAssignment.candidates?.[0]?.project?.title ||
-                       projectAssignment.project_id} 工作
+                projectAssignment.candidates?.[0]?.project?.title ||
+                projectAssignment.project_id} 工作
             </span>
             {chipStyle !== 'warning' && (
               <button
@@ -113,7 +114,7 @@ export function MessageWithSuggestions({
         </div>
       )}
 
-      <MessageItem message={message} />
+      <MessageItem message={message} onRetry={onRetry} />
 
       {message.role === 'assistant' && suggestions && suggestions.length > 0 && (
         <div className="inline-suggestions">

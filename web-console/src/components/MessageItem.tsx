@@ -9,6 +9,7 @@ import { t } from '@/lib/i18n';
 interface MessageItemProps {
   message: ChatMessage;
   onCopy?: (content: string) => void;
+  onRetry?: (retryData: { message: string; agent_id?: string }) => void;
 }
 
 const markdownComponents = {
@@ -44,7 +45,7 @@ const markdownComponents = {
   ),
 };
 
-function MessageItemComponent({ message, onCopy }: MessageItemProps) {
+function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [showCopyButton, setShowCopyButton] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -112,21 +113,19 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
       onMouseLeave={() => setShowCopyButton(false)}
     >
       <div
-        className={`flex ${
-          message.role === 'user' ? 'justify-end' : 'justify-start'
-        }`}
+        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'
+          }`}
       >
         <div
           ref={messageContainerRef}
-          className={`relative max-w-[80%] min-w-[200px] rounded-lg px-6 py-3 ${
-            message.event_type === 'error'
+          className={`relative max-w-[80%] min-w-[200px] rounded-lg px-6 py-3 ${message.event_type === 'error'
               ? 'bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-700 text-red-900 dark:text-red-200'
               : message.role === 'user'
-              ? 'bg-accent dark:bg-blue-700 text-white'
-              : message.is_welcome
-              ? 'bg-blue-50 dark:bg-blue-950/50 border-2 border-blue-200 dark:border-blue-800 text-gray-900 dark:text-gray-100'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-          }`}
+                ? 'bg-accent dark:bg-blue-700 text-white'
+                : message.is_welcome
+                  ? 'bg-blue-50 dark:bg-blue-950/50 border-2 border-blue-200 dark:border-blue-800 text-gray-900 dark:text-gray-100'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            }`}
           style={{
             wordBreak: 'break-word',
             overflowWrap: 'break-word',
@@ -188,28 +187,28 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
                   components={{
                     ...markdownComponents,
                     a: ({ href, children }: any) => (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={
-                        message.event_type === 'error'
-                          ? 'text-red-700 hover:text-red-900 underline break-all font-medium'
-                          : message.role === 'user'
-                          ? 'text-white/80 hover:text-white underline break-all'
-                          : 'text-accent dark:text-blue-600 hover:text-accent/80 dark:hover:text-blue-800 underline break-all'
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {message.is_welcome && (message.content.startsWith('welcome.') || message.content.includes('.'))
-                  ? (t(message.content as any) || message.content)
-                  : message.content}
-              </ReactMarkdown>
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={
+                          message.event_type === 'error'
+                            ? 'text-red-700 hover:text-red-900 underline break-all font-medium'
+                            : message.role === 'user'
+                              ? 'text-white/80 hover:text-white underline break-all'
+                              : 'text-accent dark:text-blue-600 hover:text-accent/80 dark:hover:text-blue-800 underline break-all'
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {children}
+                      </a>
+                    ),
+                  }}
+                >
+                  {message.is_welcome && (message.content.startsWith('welcome.') || message.content.includes('.'))
+                    ? (t(message.content as any) || message.content)
+                    : message.content}
+                </ReactMarkdown>
               )
             ) : (
               <div className="text-gray-400 dark:text-gray-300 text-xs">Loading...</div>
@@ -217,9 +216,8 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
           </div>
 
           {message.triggered_playbook && (
-            <div className={`mt-2 text-xs ${
-              message.role === 'user' ? 'text-white/80' : 'text-accent'
-            }`}>
+            <div className={`mt-2 text-xs ${message.role === 'user' ? 'text-white/80' : 'text-accent'
+              }`}>
               <div className="font-medium">Playbook: {message.triggered_playbook.playbook_code}</div>
               <div>Status: {message.triggered_playbook.status}</div>
               {message.triggered_playbook.execution_id && (
@@ -228,18 +226,25 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
             </div>
           )}
 
+          {message.event_type === 'error' && message.retry_data && onRetry && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRetry(message.retry_data!); }}
+              className="mt-2 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            >
+              {t('retry' as any) || 'Retry'}
+            </button>
+          )}
+
           {message.event_type && message.event_type !== 'message' && (
-            <div className={`mt-1 text-xs ${
-              message.role === 'user' ? 'text-white/80' : 'text-secondary dark:text-gray-300'
-            }`}>
+            <div className={`mt-1 text-xs ${message.role === 'user' ? 'text-white/80' : 'text-secondary dark:text-gray-300'
+              }`}>
               {message.event_type === 'playbook_step' && '📋 Playbook Step'}
               {message.event_type === 'tool_call' && '🔧 Tool Call'}
             </div>
           )}
 
-          <div className={`flex items-center justify-between mt-1 gap-2 ${
-            message.role === 'user' ? 'text-white/80' : 'text-secondary dark:text-gray-300'
-          }`} style={{ minWidth: 0, width: '100%' }}>
+          <div className={`flex items-center justify-between mt-1 gap-2 ${message.role === 'user' ? 'text-white/80' : 'text-secondary dark:text-gray-300'
+            }`} style={{ minWidth: 0, width: '100%' }}>
             <div className="flex items-center gap-1 flex-shrink-0 text-xs whitespace-nowrap">
               <span>{formattedDate}</span>
               <span>{formattedTime}</span>
@@ -247,11 +252,10 @@ function MessageItemComponent({ message, onCopy }: MessageItemProps) {
             {showCopyButton && (
               <button
                 onClick={handleCopy}
-                className={`flex-shrink-0 p-1 rounded-md transition-all ${
-                  message.role === 'user'
+                className={`flex-shrink-0 p-1 rounded-md transition-all ${message.role === 'user'
                     ? 'bg-accent/80 hover:bg-accent dark:bg-blue-700 dark:hover:bg-blue-800 text-white'
                     : 'bg-surface-secondary hover:bg-surface-accent text-primary'
-                }`}
+                  }`}
                 style={{ flexShrink: 0 }}
                 title={copied ? t('copied' as any) : t('copyMessage' as any)}
               >
@@ -285,7 +289,9 @@ export const MessageItem = React.memo(MessageItemComponent, (prevProps, nextProp
     prev.is_welcome === next.is_welcome &&
     JSON.stringify(prev.triggered_playbook) === JSON.stringify(next.triggered_playbook) &&
     prev.timestamp.getTime() === next.timestamp.getTime() &&
-    prevProps.onCopy === nextProps.onCopy
+    prevProps.onCopy === nextProps.onCopy &&
+    prevProps.onRetry === nextProps.onRetry &&
+    JSON.stringify(prev.retry_data) === JSON.stringify(next.retry_data)
   );
 });
 

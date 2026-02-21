@@ -20,6 +20,7 @@ interface MessagesContainerProps {
   executionMode?: 'qa' | 'execution' | 'hybrid';
   expectedArtifacts?: string[];
   onExecuteSuggestion?: (suggestion: Suggestion) => Promise<void>;
+  onRetry?: (retryData: { message: string; agent_id?: string }) => void;
   currentExecution?: any;
   onViewDetail?: () => void;
 }
@@ -42,6 +43,7 @@ export function MessagesContainer({
   executionMode,
   expectedArtifacts,
   onExecuteSuggestion,
+  onRetry,
   currentExecution,
   onViewDetail,
 }: MessagesContainerProps) {
@@ -123,6 +125,7 @@ export function MessagesContainer({
                   message={message}
                   suggestions={suggestions}
                   onExecuteSuggestion={handleExecuteSuggestion}
+                  onRetry={onRetry}
                   workspaceId={workspaceId}
                   apiUrl={apiUrl}
                 />

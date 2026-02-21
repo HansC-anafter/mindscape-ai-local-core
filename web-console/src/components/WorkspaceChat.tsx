@@ -161,6 +161,18 @@ function WorkspaceChatContent({
     }
   };
 
+  const handleRetry = useCallback(async (retryData: { message: string; agent_id?: string }) => {
+    try {
+      await sendMessage({
+        message: retryData.message,
+        mode: 'auto',
+        stream: true,
+      });
+    } catch (err) {
+      console.error('Retry failed:', err);
+    }
+  }, [sendMessage]);
+
   useWorkspaceData(workspaceId, apiUrl, {
     enabled: true,
   });
@@ -476,6 +488,7 @@ function WorkspaceChatContent({
           executionMode={executionMode || undefined}
           expectedArtifacts={expectedArtifacts}
           onExecuteSuggestion={handleExecuteSuggestion}
+          onRetry={handleRetry}
           currentExecution={currentExecution}
           onViewDetail={currentExecution ? () => handleViewDetail(currentExecution.executionId) : undefined}
         />
@@ -491,9 +504,9 @@ function WorkspaceChatContent({
       {/* Current Execution Bar - Above input box */}
       <CurrentExecutionBar
         execution={currentExecution}
-        onViewDetail={currentExecution ? () => handleViewDetail(currentExecution.executionId) : () => {}}
-        onPause={currentExecution ? () => handlePause(currentExecution.executionId) : () => {}}
-        onCancel={currentExecution ? () => handleCancel(currentExecution.executionId) : () => {}}
+        onViewDetail={currentExecution ? () => handleViewDetail(currentExecution.executionId) : () => { }}
+        onPause={currentExecution ? () => handlePause(currentExecution.executionId) : () => { }}
+        onCancel={currentExecution ? () => handleCancel(currentExecution.executionId) : () => { }}
       />
 
       {/* Data Prompt Card - Show when task requires additional data */}
@@ -575,8 +588,8 @@ function WorkspaceChatContent({
 
 export default function WorkspaceChat(props: WorkspaceChatProps) {
   return (
-    <WorkspaceChatProvider 
-      workspaceId={props.workspaceId} 
+    <WorkspaceChatProvider
+      workspaceId={props.workspaceId}
       apiUrl={props.apiUrl || ''}
       threadId={props.threadId}  // 🆕 傳遞 threadId
     >
