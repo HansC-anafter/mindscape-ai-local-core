@@ -26,6 +26,9 @@ GEMINI_CLI = os.environ.get(
     "gemini",
 )
 
+# Model to use for Gemini CLI execution
+GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-2.5-pro")
+
 # Maximum output to capture (characters)
 MAX_OUTPUT = 100_000
 
@@ -308,8 +311,11 @@ def main():
 
     # Build gemini CLI command with JSON output for structured response
     # --yolo: auto-approve all tool calls (required for headless -p mode)
+    # --model: explicitly set model (default from GEMINI_CLI_MODEL env)
     cmd = [
         GEMINI_CLI,
+        "--model",
+        GEMINI_CLI_MODEL,
         "--yolo",
         "-p",
         prompt,
