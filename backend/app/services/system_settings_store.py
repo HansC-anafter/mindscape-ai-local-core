@@ -233,6 +233,24 @@ class SystemSettingsStore(PostgresStoreBase):
                 },
             },
             {
+                "key": "agent_cli_model",
+                "value": "gemini-3-pro",
+                "value_type": SettingType.STRING,
+                "category": "gemini_cli",
+                "description": "Model for Gemini CLI agent execution (e.g. gemini-3-pro, gemini-3-flash, gemini-2.5-pro)",
+                "is_sensitive": False,
+                "is_user_editable": True,
+                "default_value": "gemini-3-pro",
+                "metadata": {
+                    "allowed_values": [
+                        "gemini-3-pro",
+                        "gemini-3-flash",
+                        "gemini-2.5-pro",
+                        "gemini-2.5-flash",
+                    ],
+                },
+            },
+            {
                 "key": "gemini_api_key",
                 "value": "",
                 "value_type": SettingType.STRING,

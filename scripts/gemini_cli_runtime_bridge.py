@@ -27,7 +27,7 @@ GEMINI_CLI = os.environ.get(
 )
 
 # Model to use for Gemini CLI execution
-GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-2.5-pro")
+GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-3-pro")
 
 # Maximum output to capture (characters)
 MAX_OUTPUT = 100_000
@@ -37,18 +37,18 @@ _bridge_backend_url = ""
 
 
 def _fetch_auth_env():
-    """Fetch auth env vars from backend /api/v1/auth/cli-token.
+    """Fetch auth env vars and model from backend /api/v1/auth/cli-token.
 
-    Returns a dict of env vars to inject into subprocess, e.g.:
-      {"GEMINI_API_KEY": "xxx"}
-    or {"GOOGLE_GENAI_USE_VERTEXAI": "true", ...}
+    Returns a tuple of (env_vars, model):
+      env_vars: dict of env vars to inject into subprocess
+      model: agent CLI model from system settings (or None for default)
 
     Falls back to host env vars if the backend is unreachable.
     Raises SystemExit with clear message if auth is configured but broken.
     """
     api_url = _bridge_backend_url or os.environ.get("MINDSCAPE_BACKEND_API_URL", "")
     if not api_url:
-        return _env_fallback()
+        return _env_fallback(), None
 
     url = f"{api_url.rstrip('/')}/api/v1/auth/cli-token"
     try:
@@ -57,10 +57,13 @@ def _fetch_auth_env():
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode())
             env_vars = data.get("env", {})
+            api_model = data.get("model") or None
             if env_vars:
                 mode = data.get("auth_mode", "unknown")
-                log(f"Auth env injected (mode={mode}, keys={list(env_vars.keys())})")
-                return env_vars
+                log(
+                    f"Auth env injected (mode={mode}, model={api_model}, keys={list(env_vars.keys())})"
+                )
+                return env_vars, api_model
             # Backend returned empty env -- check for auth error
             auth_mode = data.get("auth_mode", "unknown")
             error = data.get("error", "no env vars returned")
@@ -68,15 +71,15 @@ def _fetch_auth_env():
             # Try host env fallback
             fallback = _env_fallback()
             if fallback:
-                return fallback
+                return fallback, api_model
             # No fallback available -- fail with clear message
             _fail_auth(auth_mode, error)
     except urllib.error.URLError as e:
         log(f"Failed to fetch auth env: {e}")
-        return _env_fallback()
+        return _env_fallback(), None
     except Exception as e:
         log(f"Auth env fetch error: {e}")
-        return _env_fallback()
+        return _env_fallback(), None
 
 
 def _env_fallback():
@@ -309,13 +312,19 @@ def main():
     # Determine working directory
     cwd = sandbox_path if sandbox_path and os.path.isdir(sandbox_path) else os.getcwd()
 
+    # Fetch auth env vars + model from system settings
+    auth_env, api_model = _fetch_auth_env()
+
+    # Use model from system settings if available, else fall back to env/default
+    effective_model = api_model or GEMINI_CLI_MODEL
+
     # Build gemini CLI command with JSON output for structured response
     # --yolo: auto-approve all tool calls (required for headless -p mode)
-    # --model: explicitly set model (default from GEMINI_CLI_MODEL env)
+    # --model: explicitly set model (from system settings or GEMINI_CLI_MODEL env)
     cmd = [
         GEMINI_CLI,
         "--model",
-        GEMINI_CLI_MODEL,
+        effective_model,
         "--yolo",
         "-p",
         prompt,
@@ -323,13 +332,10 @@ def main():
         "json",
     ]
 
-    log(f"Executing: {' '.join(cmd[:3])}... (cwd={cwd})")
+    log(f"Executing: {' '.join(cmd[:5])}... (model={effective_model}, cwd={cwd})")
 
     # Build subprocess environment with auth injection
     sub_env = {**os.environ, "GEMINI_CLI_EXECUTION_ID": execution_id}
-
-    # Fetch and inject auth env vars
-    auth_env = _fetch_auth_env()
     sub_env.update(auth_env)
 
     # Server-side tool filtering: pass task hint to MCP gateway

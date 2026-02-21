@@ -199,6 +199,7 @@ async def get_cli_token():
         settings = SystemSettingsStore()
 
         auth_mode = settings.get("gemini_cli_auth_mode", "gca")
+        agent_model = settings.get("agent_cli_model", "gemini-3-pro")
 
         # ── GCA mode: return stored Google IDP token ──
         if auth_mode == "gca":
@@ -209,10 +210,12 @@ async def get_cli_token():
                     "auth_mode": "gca",
                     "env": {},
                     "error": result["error"],
+                    "model": agent_model,
                 }
             return {
                 "auth_mode": "gca",
                 "env": result["env"],
+                "model": agent_model,
             }
 
         # ── API key mode ──
@@ -229,6 +232,7 @@ async def get_cli_token():
             return {
                 "auth_mode": auth_mode,
                 "env": {"GEMINI_API_KEY": api_key},
+                "model": agent_model,
             }
 
         # ── Vertex AI mode ──
@@ -254,12 +258,14 @@ async def get_cli_token():
                     "GOOGLE_CLOUD_PROJECT": project,
                     "GOOGLE_CLOUD_LOCATION": location,
                 },
+                "model": agent_model,
             }
 
         return {
             "auth_mode": auth_mode,
             "env": {},
             "error": f"Unknown auth_mode: {auth_mode}",
+            "model": agent_model,
         }
 
     except Exception as e:
