@@ -370,7 +370,7 @@ class ConversationOrchestrator:
                 # Fetch display_events from DB (matching legacy contract)
                 display_events_dicts = []
                 try:
-                    recent_events = self.store.get_recent_events(
+                    recent_events = self.store.get_events_by_workspace(
                         workspace_id,
                         limit=20,
                     )

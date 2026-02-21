@@ -389,6 +389,7 @@ async def stream_llm_response(
     context_token_count: int,
     execution_playbook_result: Optional[Dict[str, Any]] = None,
     openai_key: Optional[str] = None,
+    meeting_session_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Stream LLM response based on provider type and handle post-processing
@@ -448,6 +449,7 @@ async def stream_llm_response(
             workspace_id,
             thread_id,
             store,
+            meeting_session_id=meeting_session_id,
         )
 
         # Handle hybrid mode
@@ -510,6 +512,7 @@ async def stream_llm_response(
             workspace_id,
             thread_id,
             store,
+            meeting_session_id=meeting_session_id,
         )
 
         # Handle hybrid mode
