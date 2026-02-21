@@ -247,8 +247,10 @@ def main():
     cwd = sandbox_path if sandbox_path and os.path.isdir(sandbox_path) else os.getcwd()
 
     # Build gemini CLI command with JSON output for structured response
+    # --yolo: auto-approve all tool calls (required for headless -p mode)
     cmd = [
         GEMINI_CLI,
+        "--yolo",
         "-p",
         prompt,
         "-o",
