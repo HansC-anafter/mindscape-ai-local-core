@@ -171,6 +171,9 @@ def _extract_response(raw_stdout: str) -> tuple:
         Success: {"session_id": "...", "response": "final answer", "stats": {...}}
         Error:   {"error": {"type": "...", "message": "...", "code": "..."}}
 
+    When response is empty but tool calls succeeded, builds a summary
+    from the stats instead of falling back to the raw JSON dump.
+
     Returns:
         (response_text, json_error_msg) - json_error_msg is None on success
     """
@@ -186,8 +189,41 @@ def _extract_response(raw_stdout: str) -> tuple:
         elif isinstance(error, str):
             error_msg = error
 
-        response = parsed.get("response") or raw_stdout
-        return (response, error_msg)
+        response = parsed.get("response", "") or ""
+        if response:
+            return (response, error_msg)
+
+        # response is empty -- check if tools were used successfully
+        stats = parsed.get("stats", {})
+        tool_stats = stats.get("tools", {})
+        total_calls = tool_stats.get("totalCalls", 0)
+        total_success = tool_stats.get("totalSuccess", 0)
+
+        if total_calls > 0 and total_success > 0:
+            # Build a structured summary from tool stats
+            by_name = tool_stats.get("byName", {})
+            tool_lines = []
+            for name, info in by_name.items():
+                calls = info.get("count", 0)
+                ok = info.get("success", 0)
+                fail = info.get("fail", 0)
+                tool_lines.append(f"- {name}: {calls} calls ({ok} ok, {fail} fail)")
+            summary_parts = [
+                f"Agent completed {total_calls} tool call(s) "
+                f"({total_success} succeeded) but did not produce "
+                f"a final text response.",
+            ]
+            if tool_lines:
+                summary_parts.append("Tool usage:")
+                summary_parts.extend(tool_lines)
+            summary_parts.append(
+                "\nPlease re-run the query or ask a follow-up question "
+                "to get a text summary of the results."
+            )
+            return ("\n".join(summary_parts), error_msg)
+
+        # No tools called, truly empty response
+        return ("", error_msg)
     except (json.JSONDecodeError, TypeError):
         return (raw_stdout, None)
 
@@ -240,6 +276,13 @@ def main():
     if conversation_context:
         prompt_parts.append(f"\n## Conversation Context\n{conversation_context}")
     prompt_parts.append(task)
+
+    # Require a final text summary so the CLI always produces a response
+    prompt_parts.append(
+        "\n\nIMPORTANT: After using any tools, you MUST provide a final "
+        "text summary of your findings. Never end your response with "
+        "only tool calls and no text output."
+    )
 
     # Inject execution metadata so the agent can ack/submit via MCP tools
     prompt_parts.append(
@@ -326,9 +369,14 @@ def main():
                     log(
                         f"WARNING: empty response from CLI. raw_stdout={raw_stdout[:500]}"
                     )
+                # Defensive: never send raw CLI stats JSON as output.
+                # _extract_response already handles tool-stats extraction,
+                # so stdout should be a proper summary. If still empty,
+                # prefer a clear fallback over dumping raw JSON.
+                output = stdout or "(no response from agent)"
                 emit_result(
                     "completed",
-                    output=stdout or raw_stdout or "(no response)",
+                    output=output,
                 )
         else:
             # Build error message from both stderr and JSON error
