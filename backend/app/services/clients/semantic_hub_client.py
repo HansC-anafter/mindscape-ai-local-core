@@ -55,7 +55,7 @@ class SemanticHubClient:
         agent_type: str,
         task: str,
         context: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute agent task
@@ -81,7 +81,7 @@ class SemanticHubClient:
             "agent_type": agent_type,
             "task": task,
             "context": context or {},
-            "tenant_id": tenant_id
+            "tenant_id": tenant_id,
         }
 
         try:
@@ -90,7 +90,7 @@ class SemanticHubClient:
                 url,
                 json=payload,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=120)
+                timeout=aiohttp.ClientTimeout(total=120),
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -104,10 +104,7 @@ class SemanticHubClient:
             logger.error(f"Semantic-Hub connection error: {e}")
             raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
 
-    async def get_execution_result(
-        self,
-        execution_id: str
-    ) -> Dict[str, Any]:
+    async def get_execution_result(self, execution_id: str) -> Dict[str, Any]:
         """
         Get execution result
 
@@ -143,9 +140,7 @@ class SemanticHubClient:
             raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
 
     async def continue_execution(
-        self,
-        execution_id: str,
-        user_message: str
+        self, execution_id: str, user_message: str
     ) -> Dict[str, Any]:
         """
         Continue execution with multi-turn dialogue
@@ -160,7 +155,9 @@ class SemanticHubClient:
         Raises:
             Exception: Execution failed
         """
-        url = urljoin(self.base_url, f"/api/v1/orchestrator/executions/{execution_id}/continue")
+        url = urljoin(
+            self.base_url, f"/api/v1/orchestrator/executions/{execution_id}/continue"
+        )
         headers = {"Content-Type": "application/json"}
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
@@ -173,7 +170,7 @@ class SemanticHubClient:
                 url,
                 json=payload,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=120)
+                timeout=aiohttp.ClientTimeout(total=120),
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -188,9 +185,7 @@ class SemanticHubClient:
             raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
 
     async def subscribe_events(
-        self,
-        execution_id: str,
-        callback: Callable[[Dict[str, Any]], None]
+        self, execution_id: str, callback: Callable[[Dict[str, Any]], None]
     ):
         """
         Subscribe to execution events via WebSocket
@@ -203,7 +198,9 @@ class SemanticHubClient:
             Long-lived connection until execution completes or manually closed
         """
         ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws_url = urljoin(ws_url, f"/api/v1/orchestrator/executions/{execution_id}/events")
+        ws_url = urljoin(
+            ws_url, f"/api/v1/orchestrator/executions/{execution_id}/events"
+        )
 
         headers = {}
         if self.api_token:
@@ -224,7 +221,10 @@ class SemanticHubClient:
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.error(f"WebSocket error: {ws.exception()}")
                         break
-                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+                    elif msg.type in (
+                        aiohttp.WSMsgType.CLOSED,
+                        aiohttp.WSMsgType.CLOSING,
+                    ):
                         logger.info("WebSocket connection closed")
                         break
 
@@ -243,7 +243,9 @@ class SemanticHubClient:
 
         try:
             session = await self._get_session()
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=5)
+            ) as response:
                 return response.status == 200
         except Exception:
             return False
@@ -251,176 +253,3 @@ class SemanticHubClient:
     def is_configured(self) -> bool:
         """Check if client is configured"""
         return bool(self.base_url and self.api_token)
-
-    async def start_voice_training(
-        self,
-        profile_id: str,
-        sample_paths: List[str],
-        training_config: Dict[str, Any],
-        priority: str = "normal"
-    ) -> Dict[str, Any]:
-        """
-        Start voice profile training on Semantic Hub
-
-        Args:
-            profile_id: Voice profile ID
-            sample_paths: List of sample file paths
-            training_config: Training configuration
-            priority: Job priority (low/normal/high)
-
-        Returns:
-            Training job information including job_id
-        """
-        url = urljoin(self.base_url, "/api/v1/course-production/voice-training/start")
-        headers = {"Content-Type": "application/json"}
-        if self.api_token:
-            headers["Authorization"] = f"Bearer {self.api_token}"
-
-        payload = {
-            "profile_id": profile_id,
-            "sample_paths": sample_paths,
-            "training_config": training_config,
-            "priority": priority
-        }
-
-        try:
-            session = await self._get_session()
-            async with session.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status != 202:
-                    error_text = await response.text()
-                    raise Exception(
-                        f"Semantic-Hub training start failed: {response.status} - {error_text}"
-                    )
-
-                return await response.json()
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Semantic-Hub connection error: {e}")
-            raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
-
-    async def get_training_job_status(
-        self,
-        job_id: str
-    ) -> Dict[str, Any]:
-        """
-        Get training job status from Semantic Hub
-
-        Args:
-            job_id: Training job ID
-
-        Returns:
-            Job status information
-        """
-        url = urljoin(self.base_url, f"/api/v1/course-production/voice-training/jobs/{job_id}/status")
-        headers = {}
-        if self.api_token:
-            headers["Authorization"] = f"Bearer {self.api_token}"
-
-        try:
-            session = await self._get_session()
-            async with session.get(url, headers=headers) as response:
-                if response.status == 404:
-                    raise Exception(f"Training job not found: {job_id}")
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(
-                        f"Failed to get training status: {response.status} - {error_text}"
-                    )
-
-                return await response.json()
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Semantic-Hub connection error: {e}")
-            raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
-
-    async def cancel_training_job(
-        self,
-        job_id: str
-    ) -> Dict[str, Any]:
-        """
-        Cancel training job on Semantic Hub
-
-        Args:
-            job_id: Training job ID
-
-        Returns:
-            Cancellation result
-        """
-        url = urljoin(self.base_url, f"/api/v1/course-production/voice-training/jobs/{job_id}/cancel")
-        headers = {"Content-Type": "application/json"}
-        if self.api_token:
-            headers["Authorization"] = f"Bearer {self.api_token}"
-
-        try:
-            session = await self._get_session()
-            async with session.post(url, headers=headers) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(
-                        f"Failed to cancel training job: {response.status} - {error_text}"
-                    )
-
-                return await response.json()
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Semantic-Hub connection error: {e}")
-            raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
-
-    async def batch_analyze_video(
-        self,
-        video_path: str,
-        script_lines: Optional[List[Dict[str, Any]]] = None,
-        instructor_id: str = "",
-        course_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Trigger batch video analysis (SmartCut) on Semantic Hub
-
-        Args:
-            video_path: Path to video file
-            script_lines: Optional script lines for alignment
-            instructor_id: Instructor ID
-            course_id: Optional course ID
-
-        Returns:
-            Analysis job information including job_id and candidate segments
-        """
-        url = urljoin(self.base_url, "/api/v1/course-production/smartcut/batch-analyze")
-        headers = {"Content-Type": "application/json"}
-        if self.api_token:
-            headers["Authorization"] = f"Bearer {self.api_token}"
-
-        payload = {
-            "video_path": video_path,
-            "script_lines": script_lines or [],
-            "instructor_id": instructor_id,
-            "course_id": course_id
-        }
-
-        try:
-            session = await self._get_session()
-            async with session.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=60)
-            ) as response:
-                if response.status != 202:
-                    error_text = await response.text()
-                    raise Exception(
-                        f"Semantic-Hub batch analysis failed: {response.status} - {error_text}"
-                    )
-
-                return await response.json()
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Semantic-Hub connection error: {e}")
-            raise Exception(f"Failed to connect to Semantic-Hub: {str(e)}")
-
-
-
