@@ -21,6 +21,7 @@ interface ToolCardProps {
     totalWorkspaces?: number;
     statusText?: string;
   };
+  children?: React.ReactNode;
 }
 
 interface PlaybookInfo {
@@ -38,6 +39,7 @@ export function ToolCard({
   onTest,
   testing = false,
   extraInfo,
+  children,
 }: ToolCardProps) {
   const [playbookCount, setPlaybookCount] = useState<number | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
@@ -116,6 +118,8 @@ export function ToolCard({
           </div>
         </div>
       </div>
+
+      {children && <div className="flex-shrink-0">{children}</div>}
 
       <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
         <StatusPill
