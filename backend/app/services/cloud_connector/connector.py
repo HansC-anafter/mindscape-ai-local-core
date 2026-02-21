@@ -119,9 +119,10 @@ class CloudConnector:
 
     def _get_runtime_oauth_token(self) -> str | None:
         """
-        Read OAuth access_token from the first connected OAuth runtime in DB.
+        Read OAuth access_token from a connected OAuth runtime in DB.
 
-        Looks up the first runtime with auth_type='oauth2' and auth_status='connected'.
+        Iterates all runtimes with auth_type='oauth2' and auth_status='connected',
+        returning the first one with a non-empty access_token.
 
         Returns:
             Access token string, or None if unavailable.
@@ -132,26 +133,38 @@ class CloudConnector:
             from app.services.runtime_auth_service import RuntimeAuthService
 
             db = next(get_db_postgres())
-            runtime = (
+            runtimes = (
                 db.query(RuntimeEnvironment)
                 .filter(
                     RuntimeEnvironment.auth_type == "oauth2",
                     RuntimeEnvironment.auth_status == "connected",
                 )
-                .first()
+                .all()
             )
-            if not runtime or not runtime.auth_config:
-                logger.debug("No connected OAuth runtime or auth_config found in DB")
+            if not runtimes:
+                logger.debug("No connected OAuth runtimes found in DB")
                 return None
 
             svc = RuntimeAuthService()
-            token_data = svc.decrypt_token_blob(runtime.auth_config)
-            access_token = token_data.get("access_token")
-            if access_token:
-                logger.debug("Retrieved OAuth token from cloud provider runtime")
-                return access_token
+            for runtime in runtimes:
+                if not runtime.auth_config:
+                    continue
+                try:
+                    token_data = svc.decrypt_token_blob(runtime.auth_config)
+                    access_token = token_data.get("access_token")
+                    if access_token:
+                        logger.debug(
+                            "Retrieved OAuth token from runtime %s", runtime.id
+                        )
+                        return access_token
+                except Exception as e:
+                    logger.warning(
+                        "Failed to decrypt token from runtime %s: %s",
+                        runtime.id,
+                        e,
+                    )
 
-            logger.debug("Cloud provider runtime auth_config has no access_token")
+            logger.debug("All connected runtimes have empty access_token")
             return None
         except Exception as e:
             logger.warning(f"Failed to read runtime OAuth token: {e}")
