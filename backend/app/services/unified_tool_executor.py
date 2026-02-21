@@ -122,6 +122,7 @@ class UnifiedToolExecutor:
             self.tool_resolver = tool_resolver
 
         self._execution_history: List[ToolExecutionResult] = []
+        self._workspace_tools_loaded = False
 
     async def execute_tool(
         self, tool_name: str, arguments: Dict[str, Any], timeout: Optional[float] = 30.0
@@ -238,6 +239,25 @@ class UnifiedToolExecutor:
             tool = get_mindscape_tool(tool_name)
             if tool:
                 return tool
+
+            # Lazy-register workspace/filesystem tools on first miss.
+            # In-memory registry may be empty if this worker hasn't run
+            # the startup registration yet.
+            if not self._workspace_tools_loaded:
+                self._workspace_tools_loaded = True
+                try:
+                    from backend.app.services.tools.registry import (
+                        register_workspace_tools,
+                        register_filesystem_tools,
+                    )
+
+                    register_workspace_tools()
+                    register_filesystem_tools()
+                except Exception:
+                    pass
+                tool = get_mindscape_tool(tool_name)
+                if tool:
+                    return tool
 
             # Fallback: capability tools (installed packs) can be executed directly by tool_id
             # using manifest backend resolution. This makes `/api/v1/tools/execute` usable for
