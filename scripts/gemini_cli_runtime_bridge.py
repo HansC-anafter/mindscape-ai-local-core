@@ -230,9 +230,15 @@ def main():
 
     system_instruction = "\n".join(instruction_parts) if instruction_parts else ""
 
+    # Inject conversation context from dispatch payload (thread history,
+    # active intents, current tasks, timeline activity)
+    conversation_context = context.get("conversation_context", "")
+
     prompt_parts = []
     if system_instruction:
         prompt_parts.append(system_instruction)
+    if conversation_context:
+        prompt_parts.append(f"\n## Conversation Context\n{conversation_context}")
     prompt_parts.append(task)
 
     # Inject execution metadata so the agent can ack/submit via MCP tools

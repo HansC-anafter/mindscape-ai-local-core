@@ -57,6 +57,7 @@ class TaskDispatchMixin:
                 client_id=client.client_id,
                 result_future=result_future,
                 payload=message,  # retain for re-queue on disconnect
+                thread_id=(message.get("context") or {}).get("thread_id"),
             )
             self._inflight[execution_id] = inflight
 
@@ -113,6 +114,7 @@ class TaskDispatchMixin:
                 client_id="pending",
                 result_future=result_future,
                 payload=message,
+                thread_id=(message.get("context") or {}).get("thread_id"),
             )
             self._inflight[execution_id] = inflight
 
@@ -468,7 +470,12 @@ class TaskDispatchMixin:
                 if loop.is_running():
                     # Schedule as a background task
                     asyncio.ensure_future(
-                        self._land_ws_result(workspace_id, execution_id, result)
+                        self._land_ws_result(
+                            workspace_id,
+                            execution_id,
+                            result,
+                            thread_id=inflight.thread_id,
+                        )
                     )
                 else:
                     logger.warning(
@@ -513,6 +520,7 @@ class TaskDispatchMixin:
         workspace_id: str,
         execution_id: str,
         result: Dict[str, Any],
+        thread_id: Optional[str] = None,
     ) -> None:
         """Land WS result to workspace filesystem (async helper)."""
         try:
@@ -533,10 +541,12 @@ class TaskDispatchMixin:
                 result_data=result,
                 storage_base_path=storage_base,
                 artifacts_dirname=artifacts_dir,
+                thread_id=thread_id,
             )
             logger.info(
                 f"[AgentWS] WS result landed for {execution_id} "
-                f"(storage={storage_base or 'DB-only'})"
+                f"(storage={storage_base or 'DB-only'}, "
+                f"thread_id={thread_id or 'none'})"
             )
         except Exception:
             logger.exception(
