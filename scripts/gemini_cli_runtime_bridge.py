@@ -124,6 +124,27 @@ def _fail_auth(auth_mode: str, error: str):
     sys.exit(1)
 
 
+def _fetch_agent_context():
+    """Fetch agent context (tables, role, guidance) from backend.
+
+    Returns:
+        Dict with role, tables, data_tool, data_guidance keys.
+        Returns empty dict on failure.
+    """
+    api_url = _bridge_backend_url or os.environ.get("MINDSCAPE_BACKEND_API_URL", "")
+    if not api_url:
+        return {}
+    url = f"{api_url.rstrip('/')}/api/v1/auth/agent-context"
+    try:
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("Accept", "application/json")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        log(f"Failed to fetch agent context: {e}")
+        return {}
+
+
 def _looks_like_auth_error(stderr_text: str) -> bool:
     """Detect auth-related errors in subprocess stderr."""
     if not stderr_text:
@@ -165,7 +186,7 @@ def _extract_response(raw_stdout: str) -> tuple:
         elif isinstance(error, str):
             error_msg = error
 
-        response = parsed.get("response", raw_stdout)
+        response = parsed.get("response") or raw_stdout
         return (response, error_msg)
     except (json.JSONDecodeError, TypeError):
         return (raw_stdout, None)
@@ -195,8 +216,24 @@ def main():
         emit_result("failed", error="Empty task")
         return
 
-    # Build the prompt with execution context
-    prompt_parts = [task]
+    # Build the prompt with dynamic system instruction
+    agent_ctx = _fetch_agent_context()
+    instruction_parts = []
+    if agent_ctx.get("role"):
+        instruction_parts.append(agent_ctx["role"])
+    if agent_ctx.get("data_guidance"):
+        instruction_parts.append(f"\nIMPORTANT: {agent_ctx['data_guidance']}")
+    tables = agent_ctx.get("tables", [])
+    if tables:
+        table_lines = "\n".join(f"- {t}" for t in tables)
+        instruction_parts.append(f"\nAvailable database tables:\n{table_lines}")
+
+    system_instruction = "\n".join(instruction_parts) if instruction_parts else ""
+
+    prompt_parts = []
+    if system_instruction:
+        prompt_parts.append(system_instruction)
+    prompt_parts.append(task)
 
     # Inject execution metadata so the agent can ack/submit via MCP tools
     prompt_parts.append(
@@ -277,9 +314,13 @@ def main():
                     output=stdout or json_error,
                 )
             else:
+                if not stdout:
+                    log(
+                        f"WARNING: empty response from CLI. raw_stdout={raw_stdout[:500]}"
+                    )
                 emit_result(
                     "completed",
-                    output=stdout or "Task completed successfully",
+                    output=stdout or raw_stdout or "(no response)",
                 )
         else:
             # Build error message from both stderr and JSON error
