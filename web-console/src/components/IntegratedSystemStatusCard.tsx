@@ -9,6 +9,8 @@ interface AgentInfo {
   id: string;
   name: string;
   status: 'available' | 'unavailable';
+  transport?: string | null;  // 'ws', 'polling', 'sampling'
+  reason?: string | null;     // 'ws_connected', 'no_ws_client', etc.
   cli_command?: string | null;
 }
 
@@ -138,37 +140,50 @@ export default function IntegratedSystemStatusCard({
         <div className="mt-2 pt-2 border-t dark:border-gray-700">
           <div className="flex items-center justify-between mb-1">
             <div className="text-[10px] text-secondary dark:text-gray-400">
-              本地 Agent CLI
+              Local Agent CLI
             </div>
             <button
               onClick={() => setShowBridgeDialog(true)}
               className="text-[10px] text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 underline cursor-pointer"
             >
-              如何連線？
+              How to connect?
             </button>
           </div>
           <div className="space-y-1">
-            {agents.map((agent) => (
-              <div key={agent.id} className="flex items-center justify-between text-xs">
-                <span className="text-secondary dark:text-gray-400">{agent.name}</span>
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${agent.status === 'available'
-                    ? 'bg-green-500'
-                    : 'bg-gray-400 dark:bg-gray-500'
-                    }`} />
-                  <span className={`text-xs ${agent.status === 'available'
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-gray-400 dark:text-gray-500'
-                    }`}>
-                    {agent.status === 'available' ? '已連線' : '未連線'}
-                  </span>
+            {agents.map((agent) => {
+              const isWsConnected = agent.status === 'available' && agent.transport === 'ws';
+              const noWsClient = agent.status === 'unavailable' && agent.reason === 'no_ws_client';
+
+              let dotColor = 'bg-gray-400 dark:bg-gray-500';
+              let textColor = 'text-gray-400 dark:text-gray-500';
+              let label = 'Disconnected';
+
+              if (isWsConnected) {
+                dotColor = 'bg-green-500';
+                textColor = 'text-green-600 dark:text-green-400';
+                label = 'Connected (WS)';
+              } else if (noWsClient) {
+                dotColor = 'bg-yellow-500';
+                textColor = 'text-yellow-600 dark:text-yellow-400';
+                label = 'Disconnected -- Start Bridge';
+              }
+
+              return (
+                <div key={agent.id} className="flex items-center justify-between text-xs">
+                  <span className="text-secondary dark:text-gray-400">{agent.name}</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+                    <span className={`text-xs ${textColor}`}>
+                      {label}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {availableCount === 0 && (
             <div className="mt-1.5 px-2 py-1 bg-yellow-50 dark:bg-yellow-900/20 rounded text-[10px] text-yellow-700 dark:text-yellow-400">
-              尚無 Agent 連線。請執行 Bridge 腳本以啟動。
+              No agents connected. Run the Bridge script to get started.
             </div>
           )}
         </div>
@@ -223,7 +238,7 @@ export default function IntegratedSystemStatusCard({
             <div className="p-5 border-b dark:border-gray-700 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                  連接本地 Agent CLI
+                  Connect Local Agent CLI
                 </h3>
                 <button
                   onClick={() => setShowBridgeDialog(false)}
@@ -235,8 +250,8 @@ export default function IntegratedSystemStatusCard({
                 </button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Mindscape 可以調度本地安裝的 CLI Agent（如 Gemini CLI）來執行任務。
-                由於 CLI 工具裝在你的電腦上，需要透過 Bridge 腳本將它們連接到系統。
+                Mindscape can dispatch locally installed CLI agents (e.g. Gemini CLI) to execute tasks.
+                Since CLI tools are installed on your machine, a Bridge script is needed to connect them to the system.
               </p>
             </div>
 
@@ -246,7 +261,7 @@ export default function IntegratedSystemStatusCard({
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">確認已安裝至少一個 CLI Agent</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Make sure at least one CLI Agent is installed</span>
                 </div>
                 <div className="ml-7 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 space-y-1.5">
                   {[
@@ -267,7 +282,7 @@ export default function IntegratedSystemStatusCard({
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">在終端機執行 Bridge 腳本</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Run the Bridge script in your terminal</span>
                 </div>
                 <div className="ml-7 relative">
                   <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
@@ -294,11 +309,11 @@ export default function IntegratedSystemStatusCard({
                         : 'bg-gray-800 text-gray-500 cursor-not-allowed'
                       }`}
                   >
-                    {copied ? '已複製 ✓' : '複製'}
+                    {copied ? 'Copied ✓' : 'Copy'}
                   </button>
                 </div>
                 <p className="ml-7 text-[10px] text-gray-500 dark:text-gray-400 mt-1.5">
-                  腳本會自動偵測你電腦上已安裝的 CLI，並建立 WebSocket 連線到 Mindscape 後端。
+                  The script auto-detects installed CLIs on your machine and establishes a WebSocket connection to the Mindscape backend.
                 </p>
               </div>
 
@@ -306,20 +321,20 @@ export default function IntegratedSystemStatusCard({
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">3</span>
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">連線成功後</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Once connected</span>
                 </div>
                 <div className="ml-7 text-xs text-gray-600 dark:text-gray-400 space-y-1">
                   <div className="flex items-center gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                    <span>上方的 Agent 狀態會自動變為「<span className="text-green-600 dark:text-green-400 font-medium">已連線</span>」</span>
+                    <span>The agent status above will automatically change to "<span className="text-green-600 dark:text-green-400 font-medium">Connected</span>"</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                    <span>Mindscape 後續的任務會自動分配給已連線的 Agent 執行</span>
+                    <span>Mindscape will automatically dispatch tasks to connected agents</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                    <span>Bridge 執行中請保持終端機視窗開啟</span>
+                    <span>Keep the terminal window open while the Bridge is running</span>
                   </div>
                 </div>
               </div>

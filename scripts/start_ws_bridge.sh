@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =========================================================
-# start_ws_bridge.sh — Mac-side WS bridge for Gemini CLI
+# start_ws_bridge.sh -- Mac-side WS bridge for Gemini CLI
 #
 # Starts ide_ws_client.py as a persistent daemon on Mac.
 # The client connects to backend WebSocket, receives task
@@ -33,7 +33,13 @@ if ! python3 -c "import websockets" 2>/dev/null; then
 fi
 
 # ---- Configuration ----
-export MINDSCAPE_WS_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
+# Resolve backend host:port from PortConfigService (DB-backed)
+_RESOLVED_HOST=$(PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" python3 -c "
+from backend.app.services.port_config_service import port_config_service
+url = port_config_service.get_service_url('backend_api')
+print(url.split('://', 1)[-1])
+" 2>/dev/null)
+export MINDSCAPE_WS_HOST="${MINDSCAPE_WS_HOST:-${_RESOLVED_HOST:-localhost:8200}}"
 export MINDSCAPE_WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-bac7ce63-e768-454d-96f3-3a00e8e1df69}"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-/Users/shock/Projects_local/workspace}"
 
@@ -43,14 +49,17 @@ export GEMINI_CLI_RUNTIME_CMD="python3 ${PROJECT_ROOT}/scripts/gemini_cli_runtim
 # Ensure Python path covers backend modules
 export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend:${PYTHONPATH:-}"
 
-# --- GCA auth (Google Workspace subscription quota) ---
-export GOOGLE_GENAI_USE_GCA=true
+# --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
+# GEMINI_API_KEY can also be set here as env-level override.
+export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$MINDSCAPE_WS_HOST}"
 
 # ---- Database connection (needed by TaskExecutor for MCP tools) ----
-export DATABASE_URL_CORE="${DATABASE_URL_CORE:-postgresql://mindscape:mindscape_password@localhost:5432/mindscape_core}"
+# Host-side accesses Docker-mapped port (5433 by default, not container-internal 5432)
+_DB_HOST_PORT=$(docker compose port postgres 5432 2>/dev/null | sed 's/.*://' || echo "5433")
+export DATABASE_URL_CORE="${DATABASE_URL_CORE:-postgresql://mindscape:mindscape_password@localhost:${_DB_HOST_PORT}/mindscape_core}"
 export POSTGRES_CORE_HOST="${POSTGRES_CORE_HOST:-localhost}"
-export POSTGRES_CORE_PORT="${POSTGRES_CORE_PORT:-5432}"
+export POSTGRES_CORE_PORT="${POSTGRES_CORE_PORT:-${_DB_HOST_PORT}}"
 export POSTGRES_CORE_DB="${POSTGRES_CORE_DB:-mindscape_core}"
 export POSTGRES_CORE_USER="${POSTGRES_CORE_USER:-mindscape}"
 export POSTGRES_CORE_PASSWORD="${POSTGRES_CORE_PASSWORD:-mindscape_password}"
