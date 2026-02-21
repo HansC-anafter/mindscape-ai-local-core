@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ToolInfo:
     """Unified tool information"""
+
     tool_id: str
     name: str
     description: str
@@ -48,7 +49,7 @@ class ToolListService:
         self,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
-        enabled_only: bool = True
+        enabled_only: bool = True,
     ) -> List[ToolInfo]:
         """
         Get all available tools from all sources
@@ -65,9 +66,7 @@ class ToolListService:
 
         # 1. Get tools from ToolRegistryService (dynamically discovered)
         discovered_tools = self._get_discovered_tools(
-            workspace_id=workspace_id,
-            profile_id=profile_id,
-            enabled_only=enabled_only
+            workspace_id=workspace_id, profile_id=profile_id, enabled_only=enabled_only
         )
         for tool in discovered_tools:
             all_tools[tool.tool_id] = tool
@@ -98,7 +97,7 @@ class ToolListService:
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
         enabled_only: bool = True,
-        max_description_length: int = 100
+        max_description_length: int = 100,
     ) -> Optional[str]:
         """
         Get formatted tools string for LLM prompts
@@ -113,9 +112,7 @@ class ToolListService:
             Formatted tools string or None if no tools found
         """
         tools = self.get_all_tools(
-            workspace_id=workspace_id,
-            profile_id=profile_id,
-            enabled_only=enabled_only
+            workspace_id=workspace_id, profile_id=profile_id, enabled_only=enabled_only
         )
 
         if not tools:
@@ -123,8 +120,10 @@ class ToolListService:
 
         tools_list = []
         for tool in tools:
-            desc = tool.description[:max_description_length] if tool.description else ''
-            tools_list.append(f"- {tool.tool_id}: {tool.name} ({tool.category}) - {desc}")
+            desc = tool.description[:max_description_length] if tool.description else ""
+            tools_list.append(
+                f"- {tool.tool_id}: {tool.name} ({tool.category}) - {desc}"
+            )
 
         return "\n".join(tools_list)
 
@@ -132,7 +131,7 @@ class ToolListService:
         self,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
-        enabled_only: bool = True
+        enabled_only: bool = True,
     ) -> List[ToolInfo]:
         """Get tools from ToolRegistryService"""
         try:
@@ -142,13 +141,19 @@ class ToolListService:
 
             # Register external extensions
             try:
-                from backend.app.extensions.console_kit import register_console_kit_tools
+                from backend.app.extensions.console_kit import (
+                    register_console_kit_tools,
+                )
+
                 register_console_kit_tools(tool_registry)
             except ImportError:
                 pass
 
             try:
-                from backend.app.extensions.community import register_community_extensions
+                from backend.app.extensions.community import (
+                    register_community_extensions,
+                )
+
                 register_community_extensions(tool_registry)
             except ImportError:
                 pass
@@ -156,79 +161,102 @@ class ToolListService:
             tools = tool_registry.get_tools(
                 workspace_id=workspace_id,
                 profile_id=profile_id,
-                enabled_only=enabled_only
+                enabled_only=enabled_only,
             )
 
             result = []
             for tool in tools:
-                tool_id = getattr(tool, 'tool_id', None) or getattr(tool, 'id', 'unknown')
-                name = getattr(tool, 'display_name', None) or getattr(tool, 'name', None) or tool_id
-                desc = getattr(tool, 'description', None) or ''
-                category = getattr(tool, 'category', None) or 'general'
-                enabled = getattr(tool, 'enabled', True)
+                tool_id = getattr(tool, "tool_id", None) or getattr(
+                    tool, "id", "unknown"
+                )
+                name = (
+                    getattr(tool, "display_name", None)
+                    or getattr(tool, "name", None)
+                    or tool_id
+                )
+                desc = getattr(tool, "description", None) or ""
+                category = getattr(tool, "category", None) or "general"
+                enabled = getattr(tool, "enabled", True)
 
-                result.append(ToolInfo(
-                    tool_id=tool_id,
-                    name=name,
-                    description=desc,
-                    category=category,
-                    source='discovered',
-                    enabled=enabled,
-                    metadata={'tool': tool}
-                ))
+                result.append(
+                    ToolInfo(
+                        tool_id=tool_id,
+                        name=name,
+                        description=desc,
+                        category=category,
+                        source="discovered",
+                        enabled=enabled,
+                        metadata={"tool": tool},
+                    )
+                )
 
             return result
 
         except Exception as e:
-            logger.warning(f"ToolListService: Failed to get discovered tools: {e}", exc_info=True)
+            logger.warning(
+                f"ToolListService: Failed to get discovered tools: {e}", exc_info=True
+            )
             return []
 
     def _get_builtin_tools(self) -> List[ToolInfo]:
         """Get built-in tools from registry.py"""
         try:
-            from backend.app.services.tools.registry import get_all_mindscape_tools, register_workspace_tools, register_filesystem_tools
+            from backend.app.services.tools.registry import (
+                get_all_mindscape_tools,
+                register_workspace_tools,
+                register_filesystem_tools,
+            )
 
-            # Ensure tools are registered (in case module was reloaded)
-            # Unsplash tools are provided by cloud capability pack, not local-core
-            # They are loaded via capabilities/registry from cloud capabilities/unsplash/manifest.yaml
+            # Ensure both workspace and filesystem tools are registered.
+            # Note: filesystem tools may be pre-registered via import side effect
+            # (local_filesystem/__init__.py), but workspace tools are not. Check
+            # each group independently instead of relying on a single empty check.
 
             builtin_tools = get_all_mindscape_tools()
-            if len(builtin_tools) == 0:
-                logger.debug("ToolListService: No built-in tools found, registering...")
+            if "workspace_query_database" not in builtin_tools:
                 register_workspace_tools()
+            if "filesystem_list_files" not in builtin_tools:
                 register_filesystem_tools()
-                builtin_tools = get_all_mindscape_tools()
+            builtin_tools = get_all_mindscape_tools()
 
             result = []
             for tool_id, tool in builtin_tools.items():
-                name = tool.metadata.name if hasattr(tool, 'metadata') else tool_id
-                desc = tool.metadata.description if hasattr(tool, 'metadata') else ''
+                name = tool.metadata.name if hasattr(tool, "metadata") else tool_id
+                desc = tool.metadata.description if hasattr(tool, "metadata") else ""
                 category = (
                     tool.metadata.category.value
-                    if hasattr(tool, 'metadata') and hasattr(tool.metadata.category, 'value')
-                    else 'general'
+                    if hasattr(tool, "metadata")
+                    and hasattr(tool.metadata.category, "value")
+                    else "general"
                 )
 
-                result.append(ToolInfo(
-                    tool_id=tool_id,
-                    name=name,
-                    description=desc,
-                    category=category,
-                    source='builtin',
-                    enabled=True,
-                    metadata={'tool': tool}
-                ))
+                result.append(
+                    ToolInfo(
+                        tool_id=tool_id,
+                        name=name,
+                        description=desc,
+                        category=category,
+                        source="builtin",
+                        enabled=True,
+                        metadata={"tool": tool},
+                    )
+                )
 
             return result
 
         except Exception as e:
-            logger.warning(f"ToolListService: Failed to get built-in tools: {e}", exc_info=True)
+            logger.warning(
+                f"ToolListService: Failed to get built-in tools: {e}", exc_info=True
+            )
             return []
 
     def _get_capability_tools(self) -> List[ToolInfo]:
         """Get capability pack tools from capabilities/registry"""
         try:
-            from backend.app.capabilities.registry import get_registry, load_capabilities
+            from backend.app.capabilities.registry import (
+                get_registry,
+                load_capabilities,
+            )
             from pathlib import Path
 
             capability_registry = get_registry()
@@ -239,7 +267,9 @@ class ToolListService:
             # through proper installer/configuration process. Direct file system access
             # to cloud capabilities is prohibited to maintain architecture boundaries.
             if len(capability_tool_names) == 0:
-                logger.debug("ToolListService: No capability tools found, reloading local capabilities...")
+                logger.debug(
+                    "ToolListService: No capability tools found, reloading local capabilities..."
+                )
                 app_dir = Path(__file__).parent.parent.parent
                 capabilities_dir = app_dir / "capabilities"
                 if capabilities_dir.exists():
@@ -251,25 +281,31 @@ class ToolListService:
                 if not tool_info:
                     continue
 
-                tool_meta = tool_info.get('tool_info', {})
-                name = tool_meta.get('name', tool_name.split('.')[-1] if '.' in tool_name else tool_name)
-                desc = tool_meta.get('description', '')
-                category = tool_meta.get('category', 'capability')
+                tool_meta = tool_info.get("tool_info", {})
+                name = tool_meta.get(
+                    "name", tool_name.split(".")[-1] if "." in tool_name else tool_name
+                )
+                desc = tool_meta.get("description", "")
+                category = tool_meta.get("category", "capability")
 
-                result.append(ToolInfo(
-                    tool_id=tool_name,
-                    name=name,
-                    description=desc,
-                    category=category,
-                    source='capability',
-                    enabled=True,
-                    metadata={'tool_info': tool_info}
-                ))
+                result.append(
+                    ToolInfo(
+                        tool_id=tool_name,
+                        name=name,
+                        description=desc,
+                        category=category,
+                        source="capability",
+                        enabled=True,
+                        metadata={"tool_info": tool_info},
+                    )
+                )
 
             return result
 
         except Exception as e:
-            logger.warning(f"ToolListService: Failed to get capability tools: {e}", exc_info=True)
+            logger.warning(
+                f"ToolListService: Failed to get capability tools: {e}", exc_info=True
+            )
             return []
 
     def get_tool_by_id(self, tool_id: str) -> Optional[ToolInfo]:
@@ -333,4 +369,3 @@ def get_tool_list_service(data_dir: Optional[str] = None) -> ToolListService:
     if _tool_list_service is None:
         _tool_list_service = ToolListService(data_dir=data_dir)
     return _tool_list_service
-
