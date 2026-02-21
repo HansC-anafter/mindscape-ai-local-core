@@ -718,6 +718,26 @@ async def startup_event():
         logger.warning(f"Failed to start zombie task reaper: {e}", exc_info=True)
 
     # Verify critical tables exist (last safety net)
+    # First ensure auxiliary tables (reasoning_traces, meeting_sessions)
+    try:
+        from app.services.stores.reasoning_traces_store import ReasoningTracesStore
+
+        _rt_store = ReasoningTracesStore()
+        _rt_store.ensure_table()
+        logger.info("reasoning_traces table ensured (startup)")
+    except Exception as e:
+        logger.warning(f"Reasoning traces table bootstrap failed (non-blocking): {e}")
+
+    try:
+        from app.services.stores.meeting_session_store import MeetingSessionStore
+
+        _ms_store = MeetingSessionStore()
+        _ms_store.ensure_table()
+        logger.info("meeting_sessions table ensured (startup)")
+    except Exception as e:
+        logger.warning(f"Meeting session table bootstrap failed (non-blocking): {e}")
+
+    # Verify critical tables exist (last safety net)
     try:
         from sqlalchemy import text, create_engine
 
@@ -941,25 +961,8 @@ except Exception as e:
     except Exception as e:
         logger.warning(f"Tool embedding bootstrap failed (non-blocking): {e}")
 
-    # Bootstrap SGR reasoning_traces table
-    try:
-        from app.services.stores.reasoning_traces_store import ReasoningTracesStore
-
-        _rt_store = ReasoningTracesStore()
-        _rt_store.ensure_table()
-        logger.info("SGR reasoning_traces table ensured")
-    except Exception as e:
-        logger.warning(f"Reasoning traces table bootstrap failed (non-blocking): {e}")
-
-    # Bootstrap meeting_sessions table
-    try:
-        from app.services.stores.meeting_session_store import MeetingSessionStore
-
-        _ms_store = MeetingSessionStore()
-        _ms_store.ensure_table()
-        logger.info("meeting_sessions table ensured")
-    except Exception as e:
-        logger.warning(f"Meeting session table bootstrap failed (non-blocking): {e}")
+    # NOTE: reasoning_traces and meeting_sessions ensure_table calls
+    # moved to startup_event() (L720-739) for reliable execution.
 
     # Create cross-worker dispatch tables (ws_connections, pending_dispatch)
     try:
