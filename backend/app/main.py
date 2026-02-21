@@ -250,6 +250,15 @@ def register_core_routes(app: FastAPI) -> None:
 
     app.include_router(dashboard_router, tags=["dashboard"])
 
+    # Meeting session routes (Phase 2 - pipeline unification)
+    try:
+        from .routes.meeting_sessions import router as meeting_sessions_router
+
+        app.include_router(meeting_sessions_router, tags=["meeting-sessions"])
+        logger.info("Meeting session routes registered")
+    except Exception as e:
+        logger.debug(f"Meeting session routes not registered: {e}")
+
     # Admin reload routes (pre-restart validation, reload trigger)
     try:
         from .routes.core.admin_reload import router as admin_reload_router
@@ -931,6 +940,26 @@ except Exception as e:
         logger.info(f"Tool embeddings: {count} tools indexed")
     except Exception as e:
         logger.warning(f"Tool embedding bootstrap failed (non-blocking): {e}")
+
+    # Bootstrap SGR reasoning_traces table
+    try:
+        from app.services.stores.reasoning_traces_store import ReasoningTracesStore
+
+        _rt_store = ReasoningTracesStore()
+        _rt_store.ensure_table()
+        logger.info("SGR reasoning_traces table ensured")
+    except Exception as e:
+        logger.warning(f"Reasoning traces table bootstrap failed (non-blocking): {e}")
+
+    # Bootstrap meeting_sessions table
+    try:
+        from app.services.stores.meeting_session_store import MeetingSessionStore
+
+        _ms_store = MeetingSessionStore()
+        _ms_store.ensure_table()
+        logger.info("meeting_sessions table ensured")
+    except Exception as e:
+        logger.warning(f"Meeting session table bootstrap failed (non-blocking): {e}")
 
     # Create cross-worker dispatch tables (ws_connections, pending_dispatch)
     try:

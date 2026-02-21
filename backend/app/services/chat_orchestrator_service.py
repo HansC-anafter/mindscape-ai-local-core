@@ -160,6 +160,60 @@ class ChatOrchestratorService:
                 else (getattr(workspace, "execution_mode", None) or "qa")
             )
 
+            # ADR-002: PipelineCore feature flag routing
+            from backend.app.services.conversation.pipeline_core import (
+                PipelineCore,
+                should_use_pipeline_core,
+            )
+
+            if should_use_pipeline_core(workspace):
+                logger.info(
+                    f"[AsyncChat] PipelineCore enabled for workspace {workspace_id}"
+                )
+                pipeline = PipelineCore(
+                    orchestrator_store=self.orchestrator.store,
+                    workspace=workspace,
+                    profile=profile,
+                    runtime_profile=runtime_profile,
+                )
+                pipeline_result = await pipeline.process(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    thread_id=thread_id,
+                    project_id=project_id,
+                    message=request.message,
+                    user_event_id=user_event.id,
+                    execution_mode=execution_mode,
+                    model_name=request.model_name,
+                    request=request,
+                )
+                if not pipeline_result.success:
+                    await self._create_error_event(
+                        workspace_id,
+                        profile_id,
+                        thread_id,
+                        pipeline_result.error or "Pipeline processing failed",
+                        retry_data={"message": request.message},
+                    )
+                # Update thread stats
+                try:
+                    message_count = (
+                        self.orchestrator.store.events.count_messages_by_thread(
+                            workspace_id=workspace_id, thread_id=thread_id
+                        )
+                    )
+                    self.orchestrator.store.conversation_threads.update_thread(
+                        thread_id=thread_id,
+                        last_message_at=datetime.now(timezone.utc),
+                        message_count=message_count,
+                    )
+                except Exception:
+                    pass
+                logger.info(f"[AsyncChat] PipelineCore completed for {user_event.id}")
+                return  # PipelineCore handled everything
+
+            # --- Legacy path (feature flag off) ---
+
             # Intent Extraction Stage
             if execution_mode in ("execution", "hybrid"):
                 locale = get_locale_from_context(profile=profile, workspace=workspace)
@@ -436,6 +490,21 @@ class ChatOrchestratorService:
             if context_str:
                 messages.append({"role": "system", "content": context_str})
             messages.append({"role": "user", "content": request.message})
+
+            # SGR prompt injection (feature-gated via workspace.metadata)
+            sgr_enabled = False
+            try:
+                ws_metadata = workspace.metadata or {}
+                sgr_enabled = ws_metadata.get("sgr_enabled", False)
+            except Exception:
+                pass
+
+            if sgr_enabled:
+                from app.services.sgr_reasoning_service import SGRReasoningService
+
+                sgr_service = SGRReasoningService()
+                messages = sgr_service.inject_sgr_prompt(messages)
+                logger.info("[AsyncChat] SGR prompt injected into messages")
 
             # Estimate token count (approx 4 chars per token)
             context_token_count = len(context_str) // 4 if context_str else 0

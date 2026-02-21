@@ -163,6 +163,7 @@ def create_assistant_event(
     workspace_id: str,
     thread_id: Optional[str],
     store: MindscapeStore,
+    execution_id: Optional[str] = None,
 ) -> MindEvent:
     """
     Create assistant event from response text
@@ -175,10 +176,29 @@ def create_assistant_event(
         workspace_id: Workspace ID
         thread_id: Thread ID (optional)
         store: MindscapeStore instance
+        execution_id: Execution context ID (optional, for SGR trace binding)
 
     Returns:
         Created MindEvent
     """
+    # SGR: Extract reasoning graph if present and persist trace
+    reasoning_graph_id = None
+    try:
+        from backend.app.services.sgr_reasoning_service import SGRReasoningService
+
+        sgr_service = SGRReasoningService()
+        full_text, reasoning_graph_id = sgr_service.process_response(
+            response_text=full_text,
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+        )
+        if reasoning_graph_id:
+            logger.info(
+                f"[LLMStreaming] SGR reasoning extracted, trace_id={reasoning_graph_id}"
+            )
+    except Exception as e:
+        logger.warning(f"[LLMStreaming] SGR processing failed (non-blocking): {e}")
+
     assistant_event = MindEvent(
         id=str(uuid.uuid4()),
         timestamp=datetime.datetime.utcnow(),
@@ -191,12 +211,24 @@ def create_assistant_event(
         event_type=EventType.MESSAGE,
         payload={"message": full_text, "response_to": user_event_id},
         entity_ids=[],
-        metadata={},
+        metadata=(
+            {"reasoning_graph_id": reasoning_graph_id} if reasoning_graph_id else {}
+        ),
     )
     store.create_event(assistant_event)
     logger.info(
         f"[LLMStreaming] Created assistant event {assistant_event.id}, message length: {len(full_text)} chars, thread_id={thread_id}"
     )
+
+    # Backfill assistant_event_id to reasoning trace (links trace ↔ event)
+    if reasoning_graph_id:
+        try:
+            from backend.app.services.sgr_reasoning_service import SGRReasoningService
+
+            sgr_service = SGRReasoningService()
+            sgr_service.backfill_event_id(reasoning_graph_id, assistant_event.id)
+        except Exception as e:
+            logger.warning(f"[LLMStreaming] Failed to backfill event_id to trace: {e}")
 
     # Update thread statistics
     if thread_id:
@@ -416,22 +448,31 @@ async def stream_llm_response(
         )
 
         # Handle hybrid mode
-        if execution_mode == "hybrid":
+        # [Phase 1] Playbook decisions moved to PipelineCore when enabled.
+        # Functions preserved for legacy path (feature flag off).
+        from backend.app.services.conversation.pipeline_core import (
+            should_use_pipeline_core,
+        )
+
+        _pipeline_active = should_use_pipeline_core(workspace)
+
+        if execution_mode == "hybrid" and not _pipeline_active:
             async for event in handle_hybrid_mode_response(
                 full_text, message, workspace_id, profile_id, profile, store, model_name
             ):
                 yield event
 
         # Handle execution mode playbook trigger
-        async for event in handle_execution_mode_playbook_trigger(
-            full_text,
-            workspace,
-            workspace_id,
-            profile_id,
-            execution_mode,
-            execution_playbook_result,
-        ):
-            yield event
+        if not _pipeline_active:
+            async for event in handle_execution_mode_playbook_trigger(
+                full_text,
+                workspace,
+                workspace_id,
+                profile_id,
+                execution_mode,
+                execution_playbook_result,
+            ):
+                yield event
 
         # Send final completion event (main response is complete)
         yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': model_name == 'gpt-4', 'is_final': True})}\n\n"
@@ -469,22 +510,26 @@ async def stream_llm_response(
         )
 
         # Handle hybrid mode
-        if execution_mode == "hybrid":
+        # [Phase 1] Playbook decisions moved to PipelineCore when enabled.
+        _pipeline_active_vtx = should_use_pipeline_core(workspace)
+
+        if execution_mode == "hybrid" and not _pipeline_active_vtx:
             async for event in handle_hybrid_mode_response(
                 full_text, message, workspace_id, profile_id, profile, store, model_name
             ):
                 yield event
 
         # Handle execution mode playbook trigger
-        async for event in handle_execution_mode_playbook_trigger(
-            full_text,
-            workspace,
-            workspace_id,
-            profile_id,
-            execution_mode,
-            execution_playbook_result,
-        ):
-            yield event
+        if not _pipeline_active_vtx:
+            async for event in handle_execution_mode_playbook_trigger(
+                full_text,
+                workspace,
+                workspace_id,
+                profile_id,
+                execution_mode,
+                execution_playbook_result,
+            ):
+                yield event
 
         # Send final completion event (main response is complete)
         yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': model_name == 'gpt-4', 'is_final': True})}\n\n"
