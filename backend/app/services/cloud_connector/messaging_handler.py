@@ -334,9 +334,8 @@ class MessagingHandler:
             try:
                 events = await asyncio.get_running_loop().run_in_executor(
                     None,
-                    lambda: store.events.get_events_by_thread(
+                    lambda: store.events.get_events_by_workspace(
                         workspace_id=workspace_id,
-                        thread_id=None,
                         limit=5,
                     ),
                 )
