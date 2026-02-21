@@ -83,6 +83,11 @@ export default function CliApiKeysSection() {
     const [showKey, setShowKey] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
 
+    // Agent model state
+    const [agentModel, setAgentModel] = useState<string>('gemini-3-pro');
+    const [savingModel, setSavingModel] = useState(false);
+    const [savedModel, setSavedModel] = useState(false);
+
     // GCA-specific state
     const [gcaStatus, setGcaStatus] = useState<'disconnected' | 'pending' | 'connected' | 'error'>('disconnected');
     const [gcaEmail, setGcaEmail] = useState<string | null>(null);
@@ -102,6 +107,9 @@ export default function CliApiKeysSection() {
             for (const s of settings) {
                 if (s.key === 'gemini_cli_auth_mode') {
                     setCurrentAuthMode(s.value || 'gemini_api_key');
+                }
+                if (s.key === 'agent_cli_model') {
+                    setAgentModel(s.value || 'gemini-3-pro');
                 }
                 // Sensitive values come back as "***" — preserve as placeholder
                 if (s.value && s.value !== '***') {
@@ -316,15 +324,55 @@ export default function CliApiKeysSection() {
                 </p>
             </div>
 
-            {/* Active mode indicator */}
-            <div className="mb-3 flex items-center gap-2 text-xs">
-                <span className="text-gray-500 dark:text-gray-400">Active mode:</span>
-                <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
-                    {currentAuthMode === 'gca' ? 'Google Account (GCA)'
-                        : currentAuthMode === 'gemini_api_key' ? 'Gemini API Key'
-                            : currentAuthMode === 'vertex_ai' ? 'Vertex AI'
-                                : currentAuthMode}
-                </span>
+            {/* Active mode + model indicator */}
+            <div className="mb-3 flex items-center gap-4 text-xs flex-wrap">
+                <div className="flex items-center gap-2">
+                    <span className="text-gray-500 dark:text-gray-400">Active mode:</span>
+                    <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
+                        {currentAuthMode === 'gca' ? 'Google Account (GCA)'
+                            : currentAuthMode === 'gemini_api_key' ? 'Gemini API Key'
+                                : currentAuthMode === 'vertex_ai' ? 'Vertex AI'
+                                    : currentAuthMode}
+                    </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-gray-500 dark:text-gray-400">Agent model:</span>
+                    <select
+                        value={agentModel}
+                        onChange={async (e) => {
+                            const newModel = e.target.value;
+                            setAgentModel(newModel);
+                            setSavingModel(true);
+                            try {
+                                const base = getApiBaseUrl();
+                                const resp = await fetch(
+                                    `${base}/api/v1/system-settings/agent_cli_model?value=${encodeURIComponent(newModel)}`,
+                                    { method: 'PUT' }
+                                );
+                                if (resp.ok) {
+                                    setSavedModel(true);
+                                    setTimeout(() => setSavedModel(false), 2000);
+                                }
+                            } catch { /* ignore */ }
+                            finally { setSavingModel(false); }
+                        }}
+                        disabled={savingModel}
+                        className="px-2 py-0.5 text-xs rounded-md border
+                            border-gray-300 dark:border-gray-600
+                            bg-white dark:bg-gray-700
+                            text-gray-900 dark:text-gray-100
+                            focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                            disabled:opacity-50"
+                    >
+                        <option value="gemini-3-pro">Gemini 3 Pro</option>
+                        <option value="gemini-3-flash">Gemini 3 Flash</option>
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    </select>
+                    {savedModel && (
+                        <span className="text-green-600 dark:text-green-400">✓</span>
+                    )}
+                </div>
             </div>
 
             {/* Tabs */}
