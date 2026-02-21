@@ -13,6 +13,7 @@ Flow:
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
@@ -371,6 +372,9 @@ class MessagingHandler:
                 )
                 return
 
+            # Generate concise summary for LINE rich card
+            summary = await self._generate_reply_summary(reply_text)
+
             await self._send_reply(
                 request_id,
                 original_payload,
@@ -379,6 +383,7 @@ class MessagingHandler:
                     "workspace_id": workspace_id,
                     "event_id": user_event_id,
                     "reply_text": reply_text,
+                    "summary": summary,
                 },
             )
 
@@ -433,3 +438,91 @@ class MessagingHandler:
                 f"[MessagingHandler] Failed to send reply: {e}",
                 exc_info=True,
             )
+
+    async def _generate_reply_summary(self, reply_text: str) -> str:
+        """
+        Generate a concise summary (<=100 chars) for LINE Flex card display.
+
+        Uses LLM (Gemini Flash) for quality summarization.
+        Falls back to smart truncation at sentence boundary on failure.
+
+        Args:
+            reply_text: Full AI response text
+
+        Returns:
+            Concise summary string, max 100 characters
+        """
+        # Short replies don't need summarization
+        if len(reply_text) <= 100:
+            return reply_text
+
+        # Try LLM-based summary
+        try:
+            from backend.app.services.llm_providers.manager import (
+                LLMProviderManager,
+            )
+
+            manager = LLMProviderManager()
+            provider = manager.get_provider("vertex-ai")
+
+            if provider:
+                result = await provider.chat_completion(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                "Summarize the following AI response in one sentence, "
+                                "max 80 characters. Use the same language as the "
+                                "original text. Output ONLY the summary, nothing else."
+                                f"\n\n{reply_text[:2000]}"
+                            ),
+                        }
+                    ],
+                    model="gemini-2.0-flash",
+                    temperature=0.3,
+                    max_tokens=60,
+                )
+
+                if result and result.get("content"):
+                    summary = result["content"].strip()
+                    if len(summary) <= 100:
+                        logger.info(
+                            f"[MessagingHandler] LLM summary generated: "
+                            f"{len(summary)} chars"
+                        )
+                        return summary
+
+        except Exception as llm_err:
+            logger.warning(
+                f"[MessagingHandler] LLM summary failed, using truncation: "
+                f"{llm_err}"
+            )
+
+        # Fallback: smart truncation at sentence boundary
+        return self._truncate_at_boundary(reply_text, max_len=100)
+
+    @staticmethod
+    def _truncate_at_boundary(text: str, max_len: int = 100) -> str:
+        """
+        Truncate text at nearest sentence boundary within max_len.
+
+        Prefers Chinese sentence endings (。！？), then Western (.!?),
+        then last space. Appends ellipsis if truncated.
+        """
+        if len(text) <= max_len:
+            return text
+
+        segment = text[:max_len]
+
+        # Find last sentence boundary (prefer CJK punctuation)
+        for sep in ["。", "！", "？", ".", "!", "?"]:
+            idx = segment.rfind(sep)
+            if idx > max_len // 3:
+                return segment[: idx + 1]
+
+        # Fall back to last space
+        space_idx = segment.rfind(" ")
+        if space_idx > max_len // 3:
+            return segment[:space_idx] + "..."
+
+        return segment[: max_len - 3] + "..."
