@@ -521,7 +521,9 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
         # Strip comments first to prevent injection
         cleaned = self._strip_comments(sql_query)
 
-        # Block multi-statement queries (no semicolons allowed)
+        # Strip trailing semicolon (valid single-statement SQL) before
+        # checking for multi-statement injection attempts
+        cleaned = cleaned.rstrip(";").strip()
         if ";" in cleaned:
             raise ValueError("Multi-statement queries are not allowed")
 
