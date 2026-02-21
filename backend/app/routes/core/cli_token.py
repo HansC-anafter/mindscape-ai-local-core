@@ -303,11 +303,11 @@ async def get_agent_context():
             "You are a Mindscape AI workspace assistant. "
             "You have access to MCP tools to query and manage workspace data."
         ),
-        "data_tool": "workspace_query_database",
+        "data_tool": "mindscape_tool_default_workspace_query_database",
         "data_guidance": (
             "For any question about data, analytics, accounts, targets, "
-            "posts, or personas, use the workspace_query_database tool to "
-            "query the PostgreSQL database. Do NOT browse files to find data. "
+            "posts, or personas, use the mindscape_tool_default_workspace_query_database "
+            "tool to query the PostgreSQL database. Do NOT browse files to find data. "
             "Always provide the actual data in your response."
         ),
     }
