@@ -293,8 +293,31 @@ class ConversationOrchestrator:
                     thread_id = _get_or_create_default_thread(workspace_id, self.store)
 
                 import uuid as _uuid
+                from datetime import datetime as _dt, timezone as _tz
+                from backend.app.models.mindscape import (
+                    MindEvent as _ME,
+                    EventActor as _EA,
+                    EventType as _ET,
+                )
 
                 user_event_id = str(_uuid.uuid4())
+
+                # Persist user event (legacy contract expects event chain)
+                _user_event = _ME(
+                    id=user_event_id,
+                    timestamp=_dt.now(_tz.utc),
+                    actor=_EA.USER,
+                    channel="local_workspace",
+                    profile_id=profile_id,
+                    workspace_id=workspace_id,
+                    thread_id=thread_id,
+                    event_type=_ET.MESSAGE,
+                    payload={"message": message},
+                    entity_ids=[],
+                    metadata={},
+                )
+                self.store.create_event(_user_event)
+
                 pipeline = PipelineCore(
                     orchestrator_store=self.store,
                     workspace=workspace,
@@ -310,11 +333,44 @@ class ConversationOrchestrator:
                     user_event_id=user_event_id,
                     execution_mode=mode,
                 )
+
                 # Map PipelineResult to legacy return contract
+                triggered_playbook = None
+                if result.playbook_code:
+                    triggered_playbook = {
+                        "playbook_code": result.playbook_code,
+                        "execution_id": result.execution_id,
+                        "status": "started" if result.execution_id else "failed",
+                        "context": {},
+                        "message": "",
+                    }
+
+                # Fetch real pending_tasks from tasks_store
+                pending_tasks = []
+                try:
+                    pending_list = self.tasks_store.list_pending_tasks(workspace_id)
+                    running_list = self.tasks_store.list_running_tasks(workspace_id)
+                    for task in pending_list + running_list:
+                        pending_tasks.append(
+                            {
+                                "id": task.id,
+                                "pack_id": task.pack_id,
+                                "task_type": task.task_type,
+                                "status": task.status.value,
+                                "created_at": (
+                                    task.created_at.isoformat()
+                                    if task.created_at
+                                    else None
+                                ),
+                            }
+                        )
+                except Exception as _e:
+                    logger.debug(f"Shim pending_tasks fetch: {_e}")
+
                 return {
                     "display_events": result.events,
-                    "triggered_playbook": result.playbook_code,
-                    "pending_tasks": result.suggestion_cards,
+                    "triggered_playbook": triggered_playbook,
+                    "pending_tasks": pending_tasks,
                     "assistant_response": result.response_text,
                     "execution_id": result.execution_id,
                 }

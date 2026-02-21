@@ -5,7 +5,6 @@ ADR-001: This module is the SOLE decision hub for:
 - Intent extraction
 - Execution plan generation
 - Agent/LLM dispatch
-- Quality gate checks
 - Playbook trigger
 - Meeting session lifecycle
 
@@ -21,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
+from backend.app.models.mindscape import MindEvent, EventActor, EventType
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +34,6 @@ class PipelineResult:
     playbook_code: Optional[str] = None
     execution_id: Optional[str] = None
     suggestion_cards: List[Dict[str, Any]] = field(default_factory=list)
-    quality_gate_result: Optional[Dict[str, Any]] = None
     meeting_session_id: Optional[str] = None
     success: bool = True
     error: Optional[str] = None
@@ -47,7 +47,7 @@ class PipelineCore:
     1. Intent extraction (execution/hybrid modes)
     2. Context building
     3. Agent or LLM dispatch
-    4. Post-response: quality gate, playbook trigger
+    4. Post-response: playbook trigger
     5. Meeting session lifecycle
 
     Feature flag: controlled by ADR-002 priority logic.
@@ -75,7 +75,7 @@ class PipelineCore:
         self.runtime_profile = runtime_profile
 
         # Initialize RecoveryHandler with unified max_retries
-        from app.services.conversation.recovery_handler import RecoveryHandler
+        from backend.app.services.conversation.recovery_handler import RecoveryHandler
 
         stop_cond = runtime_profile.stop_conditions
         self.recovery_handler = RecoveryHandler(
@@ -84,7 +84,9 @@ class PipelineCore:
         )
 
         # MeetingSession persistence (Phase 2)
-        from app.services.stores.meeting_session_store import MeetingSessionStore
+        from backend.app.services.stores.meeting_session_store import (
+            MeetingSessionStore,
+        )
 
         self.session_store = MeetingSessionStore()
 
@@ -139,7 +141,7 @@ class PipelineCore:
                     thread_id,
                     project_id,
                     "intent_extraction",
-                    f"Analyzing request to find suitable approach.",
+                    "Analyzing request to find suitable approach.",
                     user_event_id,
                 )
 
@@ -292,8 +294,6 @@ class PipelineCore:
             )
 
             # Create assistant event
-            from backend.app.models.events import MindEvent, EventActor, EventType
-
             assistant_event = MindEvent(
                 id=str(uuid.uuid4()),
                 timestamp=datetime.now(timezone.utc),
@@ -324,8 +324,8 @@ class PipelineCore:
 
             result.response_text = agent_response.output
             result.events.append(
-                assistant_event.to_dict()
-                if hasattr(assistant_event, "to_dict")
+                assistant_event.dict()
+                if hasattr(assistant_event, "dict")
                 else {"id": assistant_event.id}
             )
         else:
@@ -400,7 +400,9 @@ class PipelineCore:
             pass
 
         if sgr_enabled:
-            from app.services.sgr_reasoning_service import SGRReasoningService
+            from backend.app.services.sgr_reasoning_service import (
+                SGRReasoningService,
+            )
 
             sgr_service = SGRReasoningService()
             messages = sgr_service.inject_sgr_prompt(messages)
@@ -408,7 +410,7 @@ class PipelineCore:
 
         context_token_count = len(context_str) // 4 if context_str else 0
 
-        # Collect full text from stream (stream_llm_response handles SSE + event creation)
+        # Collect full text from stream
         full_text = ""
         async for chunk in stream_llm_response(
             provider=provider,
@@ -493,22 +495,22 @@ class PipelineCore:
         result,
     ) -> PipelineResult:
         """Handle hybrid mode: parse Part1/Part2 and execute playbook."""
-        try:
-            from backend.features.workspace.chat.playbook.response_parser import (
-                parse_agent_mode_response,
-            )
-            from backend.features.workspace.chat.playbook.executor import (
-                execute_playbook_for_hybrid_mode,
-            )
+        from backend.app.services.conversation.response_parser import (
+            parse_agent_mode_response,
+        )
+        from backend.features.workspace.chat.playbook.executor import (
+            execute_playbook_for_hybrid_mode,
+        )
 
-            parsed = parse_agent_mode_response(full_text)
-            logger.info(
-                f"[PipelineCore] Hybrid parse - Part1: {len(parsed['part1'])}, "
-                f"Part2: {len(parsed['part2'])}, "
-                f"Tasks: {len(parsed['executable_tasks'])}"
-            )
+        parsed = parse_agent_mode_response(full_text)
+        logger.info(
+            f"[PipelineCore] Hybrid parse - Part1: {len(parsed['part1'])}, "
+            f"Part2: {len(parsed['part2'])}, "
+            f"Tasks: {len(parsed['executable_tasks'])}"
+        )
 
-            if parsed["executable_tasks"]:
+        if parsed["executable_tasks"]:
+            try:
                 execution_result = await execute_playbook_for_hybrid_mode(
                     message=message,
                     executable_tasks=parsed["executable_tasks"],
@@ -524,8 +526,12 @@ class PipelineCore:
                         f"[PipelineCore] Hybrid playbook executed: "
                         f"{result.playbook_code}"
                     )
-        except Exception as e:
-            logger.warning(f"[PipelineCore] Hybrid playbook error: {e}", exc_info=True)
+            except Exception as e:
+                # Log but do not swallow - caller sees error in result
+                logger.warning(
+                    f"[PipelineCore] Hybrid playbook execution error: {e}",
+                    exc_info=True,
+                )
 
         return result
 
@@ -538,11 +544,11 @@ class PipelineCore:
         result,
     ) -> PipelineResult:
         """Handle execution mode: check for playbook trigger."""
-        try:
-            from backend.features.workspace.chat.playbook.trigger import (
-                check_and_trigger_playbook,
-            )
+        from backend.features.workspace.chat.playbook.trigger import (
+            check_and_trigger_playbook,
+        )
 
+        try:
             trigger_result = await check_and_trigger_playbook(
                 full_text=full_text,
                 workspace=self.workspace,
@@ -580,8 +586,6 @@ class PipelineCore:
         run_id,
     ):
         """Persist a PIPELINE_STAGE event."""
-        from backend.app.models.events import MindEvent, EventActor, EventType
-
         event = MindEvent(
             id=str(uuid.uuid4()),
             timestamp=datetime.now(timezone.utc),
@@ -601,12 +605,7 @@ class PipelineCore:
             entity_ids=[],
             metadata={},
         )
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
             lambda: self.store.create_event(event),
@@ -641,7 +640,7 @@ class PipelineCore:
                 return session
 
             # Create new session
-            from app.models.meeting_session import MeetingSession
+            from backend.app.models.meeting_session import MeetingSession
 
             new_session = MeetingSession.new(
                 workspace_id=workspace_id,
@@ -667,7 +666,7 @@ class PipelineCore:
         """Record pipeline artifacts back to the MeetingSession.
 
         Links playbook execution ID and traces to the session record.
-        Does NOT end the session — that requires an explicit API call
+        Does NOT end the session - that requires an explicit API call
         or idle timeout.
         """
         if not result.meeting_session_id:
