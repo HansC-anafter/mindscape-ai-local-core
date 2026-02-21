@@ -104,6 +104,19 @@ class ConnectionMixin:
         await websocket.accept()
 
         cid = client_id or str(uuid.uuid4())
+
+        # Pre-connect cleanup: if same client_id already exists (reconnect),
+        # call disconnect() first to re-queue any inflight tasks.
+        # Without this, _clients[ws_id][cid] is silently overwritten and
+        # the old connection's inflight Futures are orphaned forever.
+        existing = self._clients.get(workspace_id, {}).get(cid)
+        if existing:
+            logger.warning(
+                f"[AgentWS] Client {cid} reconnecting to {workspace_id}, "
+                f"cleaning up old connection (re-queue inflight tasks)"
+            )
+            self.disconnect(existing)
+
         client = AgentClient(
             websocket=websocket,
             client_id=cid,
