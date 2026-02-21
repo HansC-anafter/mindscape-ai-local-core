@@ -7,7 +7,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   ListToolsRequestSchema,
-  CallToolRequestSchema
+  CallToolRequestSchema,
+  ToolListChangedNotificationSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { MindscapeClient } from "./mindscape/client.js";
 import { PlaybookMapper } from "./mindscape/playbook_mapper.js";
@@ -31,7 +32,7 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {},
+      tools: { listChanged: true },
       experimental: {
         sampling: {}  // Phase 3: Enable server-initiated LLM calls via createMessage
       }
@@ -506,6 +507,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// ============================================
+// Tool list freshness polling
+// ============================================
+
+let lastToolCount = -1;
+const TOOL_POLL_INTERVAL_MS = 60_000; // 60 seconds
+
+async function pollToolListFreshness(): Promise<void> {
+  try {
+    const filtered = await mindscapeClient.fetchFilteredTools({
+      task_hint: config.taskHint,
+      max_tools: config.maxTools,
+      include_playbooks: false,
+      enabled_only: true,
+    });
+    const currentCount = filtered.meta.tool_count;
+    if (lastToolCount >= 0 && currentCount !== lastToolCount) {
+      console.error(
+        `Tool list changed: ${lastToolCount} -> ${currentCount}, ` +
+        `sending notifications/tools/list_changed`
+      );
+      await server.notification({
+        method: "notifications/tools/list_changed",
+      });
+    }
+    lastToolCount = currentCount;
+  } catch (err: any) {
+    console.error(`Tool freshness poll error: ${err.message}`);
+  }
+}
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -514,7 +546,11 @@ async function main() {
   - Mode: ${config.gatewayMode}
   - Base URL: ${config.mindscapeBaseUrl}
   - Task hint: ${config.taskHint ? "set" : "(none)"}
-  - Max tools: ${config.maxTools}`);
+  - Max tools: ${config.maxTools}
+  - Tool list change polling: every ${TOOL_POLL_INTERVAL_MS / 1000}s`);
+
+  // Start periodic tool list freshness check
+  setInterval(pollToolListFreshness, TOOL_POLL_INTERVAL_MS);
 }
 
 main().catch(console.error);
