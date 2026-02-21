@@ -599,7 +599,7 @@ async def startup_event():
     logger.info("Running database migrations...")
     try:
         from pathlib import Path
-        from app.services.migrations import MigrationOrchestrator
+        from backend.app.services.migrations import MigrationOrchestrator
 
         capabilities_root = Path(__file__).parent / "capabilities"
         alembic_configs = {
@@ -665,7 +665,7 @@ async def startup_event():
 
     # Auto-migrate SQLite data if legacy database detected
     try:
-        from app.services.sqlite_auto_migrator import run_auto_migration
+        from backend.app.services.sqlite_auto_migrator import run_auto_migration
 
         migration_result = run_auto_migration()
         if migration_result.get("status") == "migrated":

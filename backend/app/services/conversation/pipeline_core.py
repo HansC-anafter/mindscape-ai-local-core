@@ -430,6 +430,7 @@ class PipelineCore:
             context_token_count=context_token_count,
             execution_playbook_result=None,
             openai_key=None,
+            meeting_session_id=result.meeting_session_id,
         ):
             # Accumulate full text from chunks
             if chunk.startswith("data: "):
