@@ -302,13 +302,19 @@ class TaskExecutor:
         await self._report_progress(ctx.execution_id, 15, "Calling IDE runtime")
         cwd = self.workspace_root if os.path.isdir(self.workspace_root) else os.getcwd()
 
+        # Inject per-task env vars so the MCP gateway can RAG-filter tools
+        # for this specific task (not the parent process's stale env).
+        sub_env = os.environ.copy()
+        sub_env["MINDSCAPE_TASK_HINT"] = ctx.task[:500]
+        sub_env["MINDSCAPE_WORKSPACE_ID"] = ctx.workspace_id
+
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=os.environ.copy(),
+            env=sub_env,
         )
         self._active[ctx.execution_id] = proc
 
