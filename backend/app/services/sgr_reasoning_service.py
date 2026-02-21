@@ -16,14 +16,14 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.models.reasoning_trace import (
+from backend.app.models.reasoning_trace import (
     ReasoningEdge,
     ReasoningGraph,
     ReasoningNode,
     ReasoningTrace,
     SGRMode,
 )
-from app.services.stores.reasoning_traces_store import ReasoningTracesStore
+from backend.app.services.stores.reasoning_traces_store import ReasoningTracesStore
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class SGRReasoningService:
         Prepends or appends the SGR instruction to the system message.
         Returns a new list (does not mutate original).
         """
-        from app.services.sgr_prompts import SGR_SYSTEM_INSTRUCTION
+        from backend.app.services.sgr_prompts import SGR_SYSTEM_INSTRUCTION
 
         injected = list(messages)
 

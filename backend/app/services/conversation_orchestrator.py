@@ -367,8 +367,54 @@ class ConversationOrchestrator:
                 except Exception as _e:
                     logger.debug(f"Shim pending_tasks fetch: {_e}")
 
+                # Fetch display_events from DB (matching legacy contract)
+                display_events_dicts = []
+                try:
+                    recent_events = self.store.get_recent_events(
+                        workspace_id,
+                        limit=20,
+                    )
+                    for event in recent_events:
+                        payload = (
+                            event.payload if isinstance(event.payload, dict) else {}
+                        )
+                        entity_ids = (
+                            event.entity_ids
+                            if isinstance(event.entity_ids, list)
+                            else []
+                        )
+                        metadata = (
+                            event.metadata if isinstance(event.metadata, dict) else {}
+                        )
+                        display_events_dicts.append(
+                            {
+                                "id": event.id,
+                                "timestamp": event.timestamp.isoformat(),
+                                "actor": (
+                                    event.actor.value
+                                    if hasattr(event.actor, "value")
+                                    else str(event.actor)
+                                ),
+                                "channel": event.channel,
+                                "profile_id": event.profile_id,
+                                "project_id": event.project_id,
+                                "workspace_id": event.workspace_id,
+                                "event_type": (
+                                    event.event_type.value
+                                    if hasattr(event.event_type, "value")
+                                    else str(event.event_type)
+                                ),
+                                "payload": payload,
+                                "entity_ids": entity_ids,
+                                "metadata": metadata,
+                            }
+                        )
+                except Exception as _e:
+                    logger.debug(f"Shim display_events fetch: {_e}")
+
                 return {
-                    "display_events": result.events,
+                    "workspace_id": workspace_id,
+                    "display_events": display_events_dicts,
                     "triggered_playbook": triggered_playbook,
                     "pending_tasks": pending_tasks,
                     "assistant_response": result.response_text,

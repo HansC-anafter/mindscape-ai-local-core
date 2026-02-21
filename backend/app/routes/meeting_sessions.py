@@ -14,8 +14,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from app.models.meeting_session import MeetingSession
-from app.services.stores.meeting_session_store import MeetingSessionStore
+from backend.app.models.meeting_session import MeetingSession
+from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 
 logger = logging.getLogger(__name__)
 
