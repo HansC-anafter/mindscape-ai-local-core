@@ -408,7 +408,8 @@ class PlanExecutor:
                                 import asyncio
 
                                 recovery_handler = RecoveryHandler(
-                                    runtime_profile.recovery_policy
+                                    runtime_profile.recovery_policy,
+                                    max_retries=runtime_profile.stop_conditions.max_retries,
                                 )
 
                                 # Create a retry function (if needed)

@@ -36,6 +36,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -259,6 +261,65 @@ class ConversationOrchestrator:
             Response dict with events, triggered_playbook, pending_tasks
         """
         try:
+            # Shim: route through PipelineCore when feature flag is enabled
+            # This preserves the return contract for test scripts
+            if not workspace:
+                workspace = await self.store.get_workspace(workspace_id)
+
+            from backend.app.services.conversation.pipeline_core import (
+                PipelineCore,
+                should_use_pipeline_core,
+            )
+
+            if should_use_pipeline_core(workspace):
+                from backend.app.services.stores.workspace_runtime_profile_store import (
+                    WorkspaceRuntimeProfileStore,
+                )
+
+                rt_store = WorkspaceRuntimeProfileStore(db_path=self.store.db_path)
+                runtime_profile = await rt_store.get_runtime_profile(workspace_id)
+                if not runtime_profile:
+                    runtime_profile = await rt_store.create_default_profile(
+                        workspace_id
+                    )
+
+                profile = self.store.get_profile(profile_id)
+
+                if not thread_id:
+                    from backend.features.workspace.chat.streaming.generator import (
+                        _get_or_create_default_thread,
+                    )
+
+                    thread_id = _get_or_create_default_thread(workspace_id, self.store)
+
+                import uuid as _uuid
+
+                user_event_id = str(_uuid.uuid4())
+                pipeline = PipelineCore(
+                    orchestrator_store=self.store,
+                    workspace=workspace,
+                    profile=profile,
+                    runtime_profile=runtime_profile,
+                )
+                result = await pipeline.process(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    thread_id=thread_id,
+                    project_id=project_id or "",
+                    message=message,
+                    user_event_id=user_event_id,
+                    execution_mode=mode,
+                )
+                # Map PipelineResult to legacy return contract
+                return {
+                    "display_events": result.events,
+                    "triggered_playbook": result.playbook_code,
+                    "pending_tasks": result.suggestion_cards,
+                    "assistant_response": result.response_text,
+                    "execution_id": result.execution_id,
+                }
+
+            # --- Legacy path below (feature flag off) ---
             # Get workspace if not provided
             if not workspace:
                 workspace = await self.store.get_workspace(workspace_id)

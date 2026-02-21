@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class FallbackMode(str, Enum):
     """Fallback mode enum"""
+
     QA_ONLY = "qa_only"
     READONLY = "readonly"
     ASK_USER = "ask_user"
@@ -23,6 +24,7 @@ class FallbackMode(str, Enum):
 
 class RetryStrategy(str, Enum):
     """Retry strategy enum"""
+
     IMMEDIATE = "immediate"
     EXPONENTIAL_BACKOFF = "exponential_backoff"
     ASK_USER = "ask_user"
@@ -38,21 +40,23 @@ class RecoveryHandler:
     - Escalation to human
     """
 
-    def __init__(self, recovery_policy: RecoveryPolicy):
+    def __init__(self, recovery_policy: RecoveryPolicy, max_retries: int = 3):
         """
         Initialize Recovery Handler
 
         Args:
             recovery_policy: RecoveryPolicy configuration
+            max_retries: Maximum retry attempts (from StopConditions.max_retries)
         """
         self.recovery_policy = recovery_policy
+        self.max_retries = max_retries
 
     async def handle_error(
         self,
         error: Exception,
         operation: str,
         retry_func: Optional[Callable[[], Awaitable[Any]]] = None,
-        retry_count: int = 0
+        retry_count: int = 0,
     ) -> Dict[str, Any]:
         """
         Handle error with RecoveryPolicy
@@ -90,26 +94,32 @@ class RecoveryHandler:
                 "action": "escalate",
                 "fallback_mode": None,
                 "retry_after": None,
-                "message": f"Error escalated to human: {error}"
+                "message": f"Error escalated to human: {error}",
             }
 
         # Check if should retry
-        if self.recovery_policy.retry_on_failure and retry_func and retry_count < 3:
+        if (
+            self.recovery_policy.retry_on_failure
+            and retry_func
+            and retry_count < self.max_retries
+        ):
             retry_strategy = RetryStrategy(self.recovery_policy.retry_strategy)
 
             if retry_strategy == RetryStrategy.IMMEDIATE:
-                logger.info(f"RecoveryPolicy: Retrying immediately (attempt {retry_count + 1})")
+                logger.info(
+                    f"RecoveryPolicy: Retrying immediately (attempt {retry_count + 1})"
+                )
                 return {
                     "handled": True,
                     "action": "retry",
                     "fallback_mode": None,
                     "retry_after": 0.0,
-                    "message": f"Retrying immediately (attempt {retry_count + 1})"
+                    "message": f"Retrying immediately (attempt {retry_count + 1})",
                 }
 
             elif retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF:
                 # Exponential backoff: 1s, 2s, 4s, 8s, ...
-                retry_after = min(2 ** retry_count, 60)  # Cap at 60 seconds
+                retry_after = min(2**retry_count, 60)  # Cap at 60 seconds
                 logger.info(
                     f"RecoveryPolicy: Retrying with exponential backoff "
                     f"(attempt {retry_count + 1}, wait {retry_after}s)"
@@ -119,7 +129,7 @@ class RecoveryHandler:
                     "action": "retry",
                     "fallback_mode": None,
                     "retry_after": retry_after,
-                    "message": f"Retrying with exponential backoff (wait {retry_after}s)"
+                    "message": f"Retrying with exponential backoff (wait {retry_after}s)",
                 }
 
             elif retry_strategy == RetryStrategy.ASK_USER:
@@ -129,7 +139,7 @@ class RecoveryHandler:
                     "action": "ask_user",
                     "fallback_mode": None,
                     "retry_after": None,
-                    "message": f"Error occurred: {error}. Should we retry?"
+                    "message": f"Error occurred: {error}. Should we retry?",
                 }
 
         # Check if should fallback
@@ -144,7 +154,7 @@ class RecoveryHandler:
                 "action": "fallback",
                 "fallback_mode": fallback_mode.value,
                 "retry_after": None,
-                "message": f"Fallback to {fallback_mode.value} mode"
+                "message": f"Fallback to {fallback_mode.value} mode",
             }
 
         # Default: fail
@@ -154,13 +164,11 @@ class RecoveryHandler:
             "action": "fail",
             "fallback_mode": None,
             "retry_after": None,
-            "message": f"Error not recoverable: {error}"
+            "message": f"Error not recoverable: {error}",
         }
 
     async def apply_fallback_mode(
-        self,
-        fallback_mode: str,
-        operation: str
+        self, fallback_mode: str, operation: str
     ) -> Dict[str, Any]:
         """
         Apply fallback mode
@@ -180,24 +188,23 @@ class RecoveryHandler:
             return {
                 "mode": "qa_only",
                 "restrictions": ["No tool execution", "QA responses only"],
-                "message": "Switched to QA-only mode due to error"
+                "message": "Switched to QA-only mode due to error",
             }
         elif fallback_mode == FallbackMode.READONLY.value:
             return {
                 "mode": "readonly",
                 "restrictions": ["Read-only operations only", "No write operations"],
-                "message": "Switched to read-only mode due to error"
+                "message": "Switched to read-only mode due to error",
             }
         elif fallback_mode == FallbackMode.ASK_USER.value:
             return {
                 "mode": "ask_user",
                 "restrictions": [],
-                "message": "Asking user for guidance due to error"
+                "message": "Asking user for guidance due to error",
             }
         else:
             return {
                 "mode": "unknown",
                 "restrictions": [],
-                "message": f"Unknown fallback mode: {fallback_mode}"
+                "message": f"Unknown fallback mode: {fallback_mode}",
             }
-
