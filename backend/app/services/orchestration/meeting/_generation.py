@@ -23,8 +23,8 @@ class MeetingGenerationMixin:
         last_error: Optional[Exception] = None
         for attempt in range(attempts + 1):
             try:
-                if self.preferred_agent:
-                    return await self._generate_text_via_preferred_agent(messages)
+                if self.executor_runtime:
+                    return await self._generate_text_via_executor_runtime(messages)
                 await self._ensure_provider()
                 return await self._generate_text_via_llm(messages)
             except Exception as exc:
@@ -56,14 +56,14 @@ class MeetingGenerationMixin:
             raise RuntimeError("Meeting LLM returned empty content")
         return str(content).strip()
 
-    async def _generate_text_via_preferred_agent(
+    async def _generate_text_via_executor_runtime(
         self, messages: List[Dict[str, str]]
     ) -> str:
         """Generate text by delegating to a preferred agent runtime."""
-        if not self.preferred_agent:
-            raise RuntimeError("preferred_agent is not configured for meeting mode")
+        if not self.executor_runtime:
+            raise RuntimeError("executor_runtime is not configured for meeting mode")
         if not self.workspace:
-            raise RuntimeError("workspace is required for preferred_agent meeting mode")
+            raise RuntimeError("workspace is required for executor_runtime meeting mode")
 
         if not self._agent_executor:
             from backend.app.services.workspace_agent_executor import (
@@ -75,20 +75,20 @@ class MeetingGenerationMixin:
         available = False
         for attempt in range(3):
             available = await self._agent_executor.check_agent_available(
-                self.preferred_agent
+                self.executor_runtime
             )
             if available:
                 break
             if attempt < 2:
                 logger.warning(
                     "Agent '%s' unavailable (attempt %d/3), retrying...",
-                    self.preferred_agent,
+                    self.executor_runtime,
                     attempt + 1,
                 )
                 await asyncio.sleep(2 * (attempt + 1))
         if not available:
             raise RuntimeError(
-                f"Preferred agent '{self.preferred_agent}' is unavailable in meeting mode"
+                f"Preferred agent '{self.executor_runtime}' is unavailable in meeting mode"
             )
 
         system_prompt = ""
@@ -110,7 +110,7 @@ class MeetingGenerationMixin:
 
         result = await self._agent_executor.execute(
             task=task,
-            agent_id=self.preferred_agent,
+            agent_id=self.executor_runtime,
             context_overrides={
                 "meeting_session_id": self.session.id,
                 "thread_id": self.thread_id,
@@ -120,12 +120,12 @@ class MeetingGenerationMixin:
         )
         if not result.success:
             raise RuntimeError(
-                f"Preferred agent '{self.preferred_agent}' failed: "
+                f"Preferred agent '{self.executor_runtime}' failed: "
                 f"{result.error or 'unknown error'}"
             )
         if not result.output or not result.output.strip():
             raise RuntimeError(
-                f"Preferred agent '{self.preferred_agent}' returned empty output"
+                f"Preferred agent '{self.executor_runtime}' returned empty output"
             )
         return result.output.strip()
 

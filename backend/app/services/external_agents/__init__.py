@@ -34,7 +34,11 @@ if await agent.is_available():
 
 # Core framework exports
 from backend.app.services.external_agents.core import (
-    # Base adapter
+    # Base adapter (new names)
+    BaseRuntimeAdapter,
+    RuntimeExecRequest,
+    RuntimeExecResponse,
+    # Base adapter (backward compat aliases)
     BaseAgentAdapter,
     AgentRequest,
     AgentResponse,
@@ -60,7 +64,11 @@ from backend.app.services.external_agents.core import (
 )
 
 __all__ = [
-    # Core framework
+    # Core framework (new names)
+    "BaseRuntimeAdapter",
+    "RuntimeExecRequest",
+    "RuntimeExecResponse",
+    # Core framework (backward compat aliases)
     "BaseAgentAdapter",
     "AgentRequest",
     "AgentResponse",

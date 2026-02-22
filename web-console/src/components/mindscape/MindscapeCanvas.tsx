@@ -75,6 +75,7 @@ function CanvasEmpty() {
 
 interface MindscapeCanvasProps {
     workspaceId: string;
+    workspaceGroupId?: string;
     onNodeSelect?: (node: MindscapeNode | null) => void;
     onNodeContextMenu?: (event: React.MouseEvent, node: MindscapeNode) => void;
     className?: string;
@@ -82,11 +83,12 @@ interface MindscapeCanvasProps {
 
 export default function MindscapeCanvas({
     workspaceId,
+    workspaceGroupId,
     onNodeSelect,
     onNodeContextMenu,
     className = '',
 }: MindscapeCanvasProps) {
-    const { graph, overlay, isLoading, error } = useMindscapeGraph({ workspaceId });
+    const { graph, overlay, isLoading, error } = useMindscapeGraph({ workspaceId, workspaceGroupId });
     const { pendingChanges } = usePendingChanges({ workspaceId });
 
     const nodes = graph?.nodes ?? [];

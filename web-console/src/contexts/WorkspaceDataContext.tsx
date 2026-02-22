@@ -30,7 +30,7 @@ interface Workspace {
   default_playbook_id?: string;
   default_locale?: string;
   mode?: string | null;
-  execution_mode?: 'qa' | 'execution' | 'hybrid' | null;
+  execution_mode?: 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
   expected_artifacts?: string[];
   execution_priority?: 'low' | 'medium' | 'high' | null;
   data_sources?: any;

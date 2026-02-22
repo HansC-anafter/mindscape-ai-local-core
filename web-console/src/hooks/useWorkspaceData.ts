@@ -61,9 +61,9 @@ export function useWorkspaceData(
       if (response.ok) {
         const data = await response.json();
         setWorkspaceTitle(data.title || data.name || '');
-        // Load preferred_agent if exists
-        if (data.preferred_agent !== undefined) {
-          setPreferredAgent(data.preferred_agent);
+        // Load executor_runtime if exists
+        if (data.executor_runtime !== undefined) {
+          setPreferredAgent(data.executor_runtime);
         }
         onWorkspaceLoaded?.(data);
       }

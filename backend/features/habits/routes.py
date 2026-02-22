@@ -32,8 +32,12 @@ mindscape_store = MindscapeStore()
 @router.get("/candidates", response_model=List[HabitCandidateResponse])
 async def get_candidates(
     profile_id: str = Query(..., description="Profile ID"),
-    status: Optional[str] = Query(None, description="Filter by status (pending, confirmed, rejected)"),
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of candidates to return")
+    status: Optional[str] = Query(
+        None, description="Filter by status (pending, confirmed, rejected)"
+    ),
+    limit: int = Query(
+        50, ge=1, le=100, description="Maximum number of candidates to return"
+    ),
 ):
     """
     Get list of habit candidates
@@ -52,14 +56,12 @@ async def get_candidates(
             except ValueError:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid status: {status}. Must be one of: pending, confirmed, rejected, superseded"
+                    detail=f"Invalid status: {status}. Must be one of: pending, confirmed, rejected, superseded",
                 )
 
         # Get candidate list
         candidates = habit_store.get_candidates(
-            profile_id=profile_id,
-            status=status_filter,
-            limit=limit
+            profile_id=profile_id, status=status_filter, limit=limit
         )
 
         # Convert to response format
@@ -68,21 +70,24 @@ async def get_candidates(
             # Generate suggestion message
             suggestion_message = _generate_suggestion_message(candidate)
 
-            responses.append(HabitCandidateResponse(
-                candidate=candidate,
-                suggestion_message=suggestion_message
-            ))
+            responses.append(
+                HabitCandidateResponse(
+                    candidate=candidate, suggestion_message=suggestion_message
+                )
+            )
 
         return responses
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get candidates: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get candidates: {str(e)}"
+        )
 
 
 @router.get("/candidates/{candidate_id}", response_model=HabitCandidate)
 async def get_candidate(
     candidate_id: str = Path(..., description="Candidate ID"),
-    profile_id: str = Query(..., description="Profile ID")
+    profile_id: str = Query(..., description="Profile ID"),
 ):
     """Get a single habit candidate"""
     try:
@@ -98,14 +103,16 @@ async def get_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get candidate: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get candidate: {str(e)}"
+        )
 
 
 @router.post("/candidates/{candidate_id}/confirm", response_model=HabitCandidate)
 async def confirm_candidate(
     candidate_id: str = Path(..., description="Candidate ID"),
     profile_id: str = Query(..., description="Profile ID"),
-    request: Optional[ConfirmHabitCandidateRequest] = None
+    request: Optional[ConfirmHabitCandidateRequest] = None,
 ):
     """
     Confirm a habit candidate
@@ -127,7 +134,7 @@ async def confirm_candidate(
         if candidate.status == HabitCandidateStatus.REJECTED:
             raise HTTPException(
                 status_code=400,
-                detail="Cannot confirm a rejected candidate. Please create a new candidate or use rollback."
+                detail="Cannot confirm a rejected candidate. Please create a new candidate or use rollback.",
             )
 
         # Record previous status
@@ -145,6 +152,7 @@ async def confirm_candidate(
 
         # Create audit log
         from backend.app.models.habit import HabitAuditLog, HabitAuditAction
+
         audit_log = HabitAuditLog(
             id=str(uuid.uuid4()),
             profile_id=profile_id,
@@ -155,7 +163,7 @@ async def confirm_candidate(
             actor_type="user",
             actor_id=profile_id,
             reason=request.reason if request else None,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
         habit_store.create_audit_log(audit_log)
 
@@ -164,14 +172,16 @@ async def confirm_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to confirm candidate: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to confirm candidate: {str(e)}"
+        )
 
 
 @router.post("/candidates/{candidate_id}/reject", response_model=HabitCandidate)
 async def reject_candidate(
     candidate_id: str = Path(..., description="Candidate ID"),
     profile_id: str = Query(..., description="Profile ID"),
-    request: Optional[RejectHabitCandidateRequest] = None
+    request: Optional[RejectHabitCandidateRequest] = None,
 ):
     """
     Reject a habit candidate
@@ -202,6 +212,7 @@ async def reject_candidate(
 
         # Create audit log
         from backend.app.models.habit import HabitAuditLog, HabitAuditAction
+
         audit_log = HabitAuditLog(
             id=str(uuid.uuid4()),
             profile_id=profile_id,
@@ -212,7 +223,7 @@ async def reject_candidate(
             actor_type="user",
             actor_id=profile_id,
             reason=request.reason if request else None,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
         habit_store.create_audit_log(audit_log)
 
@@ -221,13 +232,15 @@ async def reject_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reject candidate: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reject candidate: {str(e)}"
+        )
 
 
 @router.post("/candidates/{candidate_id}/rollback", response_model=HabitCandidate)
 async def rollback_candidate(
     candidate_id: str = Path(..., description="Candidate ID"),
-    profile_id: str = Query(..., description="Profile ID")
+    profile_id: str = Query(..., description="Profile ID"),
 ):
     """
     Rollback a habit candidate to previous status
@@ -244,15 +257,13 @@ async def rollback_candidate(
 
         # Get audit logs (sorted by time descending)
         audit_logs = habit_store.get_audit_logs(
-            profile_id=profile_id,
-            candidate_id=candidate_id,
-            limit=100
+            profile_id=profile_id, candidate_id=candidate_id, limit=100
         )
 
         if not audit_logs:
             raise HTTPException(
                 status_code=400,
-                detail="No audit logs found for this candidate. Cannot rollback."
+                detail="No audit logs found for this candidate. Cannot rollback.",
             )
 
         # Find the last non-rollback audit log
@@ -265,7 +276,7 @@ async def rollback_candidate(
         if not last_meaningful_log:
             raise HTTPException(
                 status_code=400,
-                detail="No meaningful audit log found. Cannot rollback."
+                detail="No meaningful audit log found. Cannot rollback.",
             )
 
         # Determine target status for rollback
@@ -275,8 +286,7 @@ async def rollback_candidate(
 
         if not target_status:
             raise HTTPException(
-                status_code=400,
-                detail="Cannot determine target status for rollback."
+                status_code=400, detail="Cannot determine target status for rollback."
             )
 
         # Record current status
@@ -291,6 +301,7 @@ async def rollback_candidate(
 
         # Create audit log
         from backend.app.models.habit import HabitAuditLog, HabitAuditAction
+
         audit_log = HabitAuditLog(
             id=str(uuid.uuid4()),
             profile_id=profile_id,
@@ -304,9 +315,9 @@ async def rollback_candidate(
             metadata={
                 "rolled_back_from": current_status.value,
                 "rolled_back_to": target_status.value,
-                "reference_audit_log_id": last_meaningful_log.id
+                "reference_audit_log_id": last_meaningful_log.id,
             },
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
         habit_store.create_audit_log(audit_log)
 
@@ -315,32 +326,34 @@ async def rollback_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to rollback candidate: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to rollback candidate: {str(e)}"
+        )
 
 
 @router.get("/audit-logs", response_model=List[HabitAuditLog])
 async def get_audit_logs(
     profile_id: str = Query(..., description="Profile ID"),
     candidate_id: Optional[str] = Query(None, description="Filter by candidate ID"),
-    limit: int = Query(100, ge=1, le=500, description="Maximum number of logs to return")
+    limit: int = Query(
+        100, ge=1, le=500, description="Maximum number of logs to return"
+    ),
 ):
     """Get audit logs"""
     try:
         logs = habit_store.get_audit_logs(
-            profile_id=profile_id,
-            candidate_id=candidate_id,
-            limit=limit
+            profile_id=profile_id, candidate_id=candidate_id, limit=limit
         )
         return logs
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get audit logs: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get audit logs: {str(e)}"
+        )
 
 
 @router.get("/metrics", response_model=HabitMetricsResponse)
-async def get_metrics(
-    profile_id: str = Query(..., description="Profile ID")
-):
+async def get_metrics(profile_id: str = Query(..., description="Profile ID")):
     """
     Get habit learning statistics
 
@@ -355,14 +368,24 @@ async def get_metrics(
 
         # Calculate statistics
         total_candidates = len(all_candidates)
-        pending_candidates = sum(1 for c in all_candidates if c.status == HabitCandidateStatus.PENDING)
-        confirmed_candidates = sum(1 for c in all_candidates if c.status == HabitCandidateStatus.CONFIRMED)
-        rejected_candidates = sum(1 for c in all_candidates if c.status == HabitCandidateStatus.REJECTED)
-        superseded_candidates = sum(1 for c in all_candidates if c.status == HabitCandidateStatus.SUPERSEDED)
+        pending_candidates = sum(
+            1 for c in all_candidates if c.status == HabitCandidateStatus.PENDING
+        )
+        confirmed_candidates = sum(
+            1 for c in all_candidates if c.status == HabitCandidateStatus.CONFIRMED
+        )
+        rejected_candidates = sum(
+            1 for c in all_candidates if c.status == HabitCandidateStatus.REJECTED
+        )
+        superseded_candidates = sum(
+            1 for c in all_candidates if c.status == HabitCandidateStatus.SUPERSEDED
+        )
 
         # Calculate acceptance rate
         total_decisions = confirmed_candidates + rejected_candidates
-        acceptance_rate = (confirmed_candidates / total_decisions) if total_decisions > 0 else 0.0
+        acceptance_rate = (
+            (confirmed_candidates / total_decisions) if total_decisions > 0 else 0.0
+        )
 
         # Get total observation count
         observations = habit_store.get_observations(profile_id=profile_id, limit=10000)
@@ -372,16 +395,24 @@ async def get_metrics(
         # This is a simplified calculation: proportion of observations that generated candidates
         observations_with_candidates = set()
         for candidate in all_candidates:
-            observations_with_candidates.update(candidate.evidence_refs[:10])  # Check at most first 10 evidence
+            observations_with_candidates.update(
+                candidate.evidence_refs[:10]
+            )  # Check at most first 10 evidence
 
-        candidate_hit_rate = (len(observations_with_candidates) / total_observations) if total_observations > 0 else 0.0
+        candidate_hit_rate = (
+            (len(observations_with_candidates) / total_observations)
+            if total_observations > 0
+            else 0.0
+        )
 
         # Check if habit suggestions feature is enabled
         is_enabled = None
         try:
             profile = mindscape_store.get_profile(profile_id, apply_habits=False)
             if profile and profile.preferences:
-                is_enabled = getattr(profile.preferences, 'enable_habit_suggestions', False)
+                is_enabled = getattr(
+                    profile.preferences, "enable_habit_suggestions", False
+                )
         except Exception:
             pass  # If unable to get profile, set to None
 
@@ -393,7 +424,7 @@ async def get_metrics(
             rejected_candidates=rejected_candidates,
             acceptance_rate=acceptance_rate,
             candidate_hit_rate=candidate_hit_rate,
-            is_habit_suggestions_enabled=is_enabled
+            is_habit_suggestions_enabled=is_enabled,
         )
 
     except Exception as e:
@@ -402,13 +433,14 @@ async def get_metrics(
 
 # Helper functions
 
+
 def _generate_suggestion_message(candidate: HabitCandidate) -> str:
     """Generate suggestion message"""
     habit_key_display = {
         "language": "語言",
         "communication_style": "溝通風格",
         "response_length": "回應長度",
-        "preferred_agent_type": "偏好的 Agent 類型",
+        "executor_runtime_type": "Preferred agent type",
         "tool_usage": "工具使用",
         "playbook_usage": "Playbook 使用",
     }.get(candidate.habit_key, candidate.habit_key)
@@ -423,7 +455,9 @@ def _generate_suggestion_message(candidate: HabitCandidate) -> str:
     )
 
 
-def _supersede_conflicting_candidates(profile_id: str, confirmed_candidate: HabitCandidate):
+def _supersede_conflicting_candidates(
+    profile_id: str, confirmed_candidate: HabitCandidate
+):
     """
     Mark other confirmed candidates with the same key as superseded
 
@@ -435,10 +469,13 @@ def _supersede_conflicting_candidates(profile_id: str, confirmed_candidate: Habi
         # Get all confirmed candidates with the same key
         all_candidates = habit_store.get_candidates(profile_id=profile_id, limit=10000)
         conflicting = [
-            c for c in all_candidates
-            if (c.habit_key == confirmed_candidate.habit_key and
-                c.id != confirmed_candidate.id and
-                c.status == HabitCandidateStatus.CONFIRMED)
+            c
+            for c in all_candidates
+            if (
+                c.habit_key == confirmed_candidate.habit_key
+                and c.id != confirmed_candidate.id
+                and c.status == HabitCandidateStatus.CONFIRMED
+            )
         ]
 
         # Mark them as superseded
@@ -450,6 +487,7 @@ def _supersede_conflicting_candidates(profile_id: str, confirmed_candidate: Habi
 
             # Create audit log
             from backend.app.models.habit import HabitAuditLog, HabitAuditAction
+
             audit_log = HabitAuditLog(
                 id=str(uuid.uuid4()),
                 profile_id=profile_id,
@@ -459,12 +497,13 @@ def _supersede_conflicting_candidates(profile_id: str, confirmed_candidate: Habi
                 new_status=HabitCandidateStatus.SUPERSEDED,
                 actor_type="system",
                 reason=f"Superseded by candidate {confirmed_candidate.id}",
-                created_at=datetime.utcnow()
+                created_at=datetime.utcnow(),
             )
             habit_store.create_audit_log(audit_log)
 
     except Exception as e:
         # Log error but don't interrupt confirmation flow
         import logging
+
         logger = logging.getLogger(__name__)
         logger.warning(f"Failed to supersede conflicting candidates: {e}")

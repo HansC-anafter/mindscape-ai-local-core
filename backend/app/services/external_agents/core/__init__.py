@@ -1,11 +1,15 @@
 """
 External Agents Core Framework
 
-Provides the base classes and utilities for integrating external AI agents
-within Mindscape's governance layer.
+Provides the base classes and utilities for integrating external runtime
+adapters within Mindscape's governance layer.
 """
 
 from backend.app.services.external_agents.core.base_adapter import (
+    BaseRuntimeAdapter,
+    RuntimeExecRequest,
+    RuntimeExecResponse,
+    # Backward compat aliases
     BaseAgentAdapter,
     AgentRequest,
     AgentResponse,
@@ -39,7 +43,11 @@ from backend.app.services.external_agents.core.workspace_sandbox_resolver import
 )
 
 __all__ = [
-    # Base adapter
+    # Base adapter (new names)
+    "BaseRuntimeAdapter",
+    "RuntimeExecRequest",
+    "RuntimeExecResponse",
+    # Base adapter (backward compat aliases)
     "BaseAgentAdapter",
     "AgentRequest",
     "AgentResponse",

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from backend.app.routes.workspace_dependencies import get_workspace, get_store
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.project.project_manager import ProjectManager
+from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 from backend.app.models.workspace import Workspace, ExecutionSession
 from backend.app.models.project import Project
 
@@ -847,6 +848,50 @@ async def get_project_card(
         status_map = {"open": "active", "closed": "completed", "archived": "archived"}
         status = status_map.get(project.state, "active")
 
+        # Project-scoped meeting status (persistent governance layer)
+        meeting_enabled = bool((project.metadata or {}).get("meeting_enabled", False))
+        meeting_store = MeetingSessionStore()
+        active_meeting = meeting_store.get_active_session(
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        latest_sessions = meeting_store.list_by_workspace(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            limit=1,
+            offset=0,
+        )
+        latest_meeting = active_meeting or (latest_sessions[0] if latest_sessions else None)
+        meeting_summary = {
+            "enabled": meeting_enabled,
+            "active": bool(active_meeting and active_meeting.is_active),
+            "session_id": latest_meeting.id if latest_meeting else None,
+            "status": (
+                latest_meeting.status.value
+                if latest_meeting and hasattr(latest_meeting.status, "value")
+                else (latest_meeting.status if latest_meeting else None)
+            ),
+            "round_count": latest_meeting.round_count if latest_meeting else 0,
+            "max_rounds": latest_meeting.max_rounds if latest_meeting else 5,
+            "action_item_count": (
+                len(latest_meeting.action_items) if latest_meeting else 0
+            ),
+            "last_activity": (
+                latest_meeting.ended_at.isoformat()
+                if latest_meeting and latest_meeting.ended_at
+                else (
+                    latest_meeting.started_at.isoformat()
+                    if latest_meeting and latest_meeting.started_at
+                    else None
+                )
+            ),
+            "minutes_preview": (
+                (latest_meeting.minutes_md or "").strip()[:180]
+                if latest_meeting
+                else ""
+            ),
+        }
+
         return {
             "projectId": project.id,
             "projectName": project.title,
@@ -871,6 +916,7 @@ async def get_project_card(
             "progress": {"current": progress_current, "label": progress_label},
             "playbooks": playbook_list,
             "recentEvents": card_events,
+            "meeting": meeting_summary,
         }
     except PermissionError as e:
         logger.error(f"Permission error getting project card: {e}")

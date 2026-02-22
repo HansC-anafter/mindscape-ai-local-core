@@ -10,7 +10,7 @@ interface Workspace {
   storage_base_path?: string;
   artifacts_dir?: string;
   storage_config?: any;
-  execution_mode?: 'qa' | 'execution' | 'hybrid';
+  execution_mode?: 'qa' | 'execution' | 'hybrid' | 'meeting';
   expected_artifacts?: string[];
   execution_priority?: 'low' | 'medium' | 'high';
 }

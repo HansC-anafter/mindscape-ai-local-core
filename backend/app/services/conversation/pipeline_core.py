@@ -153,7 +153,7 @@ class PipelineCore:
                 )
 
                 execution_launcher = self._build_execution_launcher()
-                preferred_agent = getattr(self.workspace, "preferred_agent", None)
+                executor_runtime = getattr(self.workspace, "executor_runtime", None)
                 meeting_engine = MeetingEngine(
                     session=session,
                     store=self.store,
@@ -164,7 +164,7 @@ class PipelineCore:
                     project_id=project_id,
                     execution_launcher=execution_launcher,
                     model_name=model_name,
-                    preferred_agent=preferred_agent,
+                    executor_runtime=executor_runtime,
                 )
                 meeting_result = await meeting_engine.run(message)
                 result.response_text = meeting_result.minutes_md
@@ -218,9 +218,9 @@ class PipelineCore:
             )
 
             # --- Stage 3: Dispatch ---
-            preferred_agent = getattr(self.workspace, "preferred_agent", None)
+            executor_runtime = getattr(self.workspace, "executor_runtime", None)
 
-            if preferred_agent:
+            if executor_runtime:
                 result = await self._dispatch_agent(
                     workspace_id,
                     profile_id,
@@ -228,7 +228,7 @@ class PipelineCore:
                     project_id,
                     message,
                     user_event_id,
-                    preferred_agent,
+                    executor_runtime,
                     context_str,
                     result,
                 )
@@ -281,7 +281,7 @@ class PipelineCore:
         project_id,
         message,
         user_event_id,
-        preferred_agent,
+        executor_runtime,
         context_str,
         result: PipelineResult,
     ) -> PipelineResult:
@@ -292,12 +292,12 @@ class PipelineCore:
         )
 
         executor = WorkspaceAgentExecutor(self.workspace)
-        agent_available = await executor.check_agent_available(preferred_agent)
+        agent_available = await executor.check_agent_available(executor_runtime)
 
         if not agent_available:
             result.success = False
             result.error = (
-                f"Agent {preferred_agent} is unavailable: no runtime connected. "
+                f"Agent {executor_runtime} is unavailable: no runtime connected. "
                 f"Start the CLI bridge or switch to Mindscape LLM."
             )
             return result
@@ -308,13 +308,13 @@ class PipelineCore:
             thread_id,
             project_id,
             "agent_dispatching",
-            f"Dispatching task to agent {preferred_agent}...",
+            f"Dispatching task to agent {executor_runtime}...",
             user_event_id,
         )
 
         agent_response: AgentExecutionResponse = await executor.execute(
             task=message,
-            agent_id=preferred_agent,
+            agent_id=executor_runtime,
             context_overrides={
                 "conversation_context": context_str or "",
                 "thread_id": thread_id,
@@ -338,13 +338,13 @@ class PipelineCore:
             # Create assistant event
             payload = {
                 "message": agent_response.output,
-                "agent_id": preferred_agent,
+                "agent_id": executor_runtime,
                 "trace_id": agent_response.trace_id,
                 "execution_time": exec_time,
             }
             metadata = {
                 "external_agent": True,
-                "agent_id": preferred_agent,
+                "agent_id": executor_runtime,
             }
             if result.meeting_session_id:
                 payload["meeting_session_id"] = result.meeting_session_id

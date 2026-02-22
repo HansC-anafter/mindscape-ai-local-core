@@ -508,11 +508,11 @@ class PlaybookPreflight:
             Tuple of (approved, issue_description)
         """
         # Verify the agent matches workspace preference (unified model - all workspaces equal)
-        preferred = getattr(workspace, "preferred_agent", None)
+        preferred = getattr(workspace, "executor_runtime", None)
         if preferred and preferred != agent_id:
             return (
                 False,
-                f"Workspace preferred_agent is '{preferred}', not '{agent_id}'",
+                f"Workspace executor_runtime is '{preferred}', not '{agent_id}'",
             )
 
         # Get sandbox config

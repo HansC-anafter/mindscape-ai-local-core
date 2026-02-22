@@ -29,6 +29,15 @@ class CreateProjectRequest(BaseModel):
     ai_pm_id: Optional[str] = None
 
 
+class UpdateProjectRequest(BaseModel):
+    """Request model for updating project fields."""
+
+    title: Optional[str] = None
+    state: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    meeting_enabled: Optional[bool] = None
+
+
 @router.get("/{workspace_id}/projects", response_model=Dict[str, Any])
 async def list_projects(
     workspace_id: str = Path(..., description="Workspace ID"),
@@ -110,6 +119,51 @@ async def get_project(
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to get project: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{workspace_id}/projects/{project_id}", response_model=Dict[str, Any])
+async def update_project(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    project_id: str = Path(..., description="Project ID"),
+    request: UpdateProjectRequest = Body(...),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store),
+):
+    """
+    Update mutable project fields.
+
+    Supports project-level persistent meeting toggle via `meeting_enabled`.
+    """
+    try:
+        project_manager = ProjectManager(store)
+        project = await project_manager.get_project(project_id, workspace_id=workspace_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if request.title is not None:
+            project.title = request.title
+        if request.state is not None:
+            project.state = request.state
+        if request.metadata is not None:
+            # Merge metadata to avoid dropping existing project flags.
+            merged = dict(project.metadata or {})
+            merged.update(request.metadata)
+            project.metadata = merged
+        if request.meeting_enabled is not None:
+            merged = dict(project.metadata or {})
+            merged["meeting_enabled"] = bool(request.meeting_enabled)
+            project.metadata = merged
+
+        updated = await project_manager.update_project(project)
+        return {"project": updated.model_dump(mode="json")}
+    except PermissionError as e:
+        logger.error(f"Permission error updating project: {e}")
+        raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update project: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

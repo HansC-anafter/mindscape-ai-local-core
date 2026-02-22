@@ -422,7 +422,7 @@ class WorkspaceRuntimeProfile(BaseModel):
     # Mode 預設值
     default_mode: ExecutionMode = Field(
         default=ExecutionMode.QA,
-        description="Default execution mode: qa/execution/hybrid"
+        description="Default execution mode: qa/execution/hybrid/meeting"
     )
 
     # Interaction Budget
@@ -555,4 +555,3 @@ class WorkspaceRuntimeProfile(BaseModel):
             WritingStyle: lambda v: v.value,
             ConfirmationFormat: lambda v: v.value,
         }
-

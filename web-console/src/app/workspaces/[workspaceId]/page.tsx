@@ -66,7 +66,7 @@ interface AssociatedIntent {
   priority?: string;
 }
 
-type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
+type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
 type ExecutionPriority = 'low' | 'medium' | 'high' | null;
 
 interface Workspace {
@@ -366,6 +366,51 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
       const timer = setTimeout(executePlaybook, 500);
       return () => clearTimeout(timer);
     }
+  }, [workspace, workspaceId, loading]);
+
+  // Auto-trigger meeting mode when URL contains meeting=1
+  useEffect(() => {
+    if (!workspace || loading) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const isMeeting = params.get('meeting') === '1';
+    const projectId = params.get('project_id');
+
+    if (!isMeeting || !projectId) return;
+
+    const triggerMeeting = async () => {
+      try {
+        console.log('[WorkspacePage] Auto-triggering meeting for project:', projectId);
+
+        const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: '[Meeting Started] Project persistent meeting started',
+            project_id: projectId,
+            thread_id: params.get('meeting_session_id') || undefined,
+          }),
+        });
+
+        if (!response.ok) {
+          console.error('[WorkspacePage] Meeting auto-trigger failed:', response.status);
+        }
+
+        // Clear meeting param to prevent re-trigger on refresh
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('meeting');
+        newUrl.searchParams.delete('meeting_session_id');
+        window.history.replaceState({}, '', newUrl.toString());
+
+        // Refresh chat to show meeting events
+        window.dispatchEvent(new Event('workspace-chat-updated'));
+      } catch (err) {
+        console.error('[WorkspacePage] Failed to auto-trigger meeting:', err);
+      }
+    };
+
+    const timer = setTimeout(triggerMeeting, 800);
+    return () => clearTimeout(timer);
   }, [workspace, workspaceId, loading]);
 
   if (loading) {
@@ -689,7 +734,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                   workspace && (
                     <ExecutionModeSelector
                       key={`exec-mode-${workspace.id}-${workspace.execution_mode || 'hybrid'}-${workspace.execution_priority || 'medium'}`}
-                      mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid') || 'hybrid'}
+                      mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid' | 'meeting') || 'hybrid'}
                       priority={(workspace.execution_priority as 'low' | 'medium' | 'high') || 'medium'}
                       onChange={async (update) => {
                         try {
@@ -748,7 +793,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
                           <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
                             <div className="flex-1 overflow-y-auto min-h-0 bg-accent-10 dark:bg-blue-900/10">
                               <div className="p-3">
-                                {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution') && (
+                                {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution' || workspace?.execution_mode === 'meeting') && (
                                   <>
                                     {executionState.isExecuting && (
                                       <ThinkingContext
@@ -951,4 +996,3 @@ export default function WorkspacePage() {
 
   return <WorkspacePageContent workspaceId={workspaceId} />;
 }
-

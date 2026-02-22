@@ -42,6 +42,13 @@ const NODE_COLORS: Record<string, { background: string; border: string }> = {
     artifact: { background: '#fff7ed', border: '#f97316' },
     playbook: { background: '#faf5ff', border: '#8b5cf6' },
     step: { background: '#eff6ff', border: '#3b82f6' },
+    // SGR reasoning node types
+    reasoning_premise: { background: '#fefce8', border: '#eab308' },
+    reasoning_inference: { background: '#fff1f2', border: '#f43f5e' },
+    reasoning_conclusion: { background: '#f0fdfa', border: '#14b8a6' },
+    reasoning_evidence: { background: '#fefce8', border: '#d97706' },
+    reasoning_risk: { background: '#fef2f2', border: '#ef4444' },
+    reasoning_unknown: { background: '#f5f5f5', border: '#737373' },
 };
 
 // Edge colors based on type
@@ -52,6 +59,10 @@ const EDGE_COLORS: Record<string, string> = {
     spawns: '#22c55e',
     produces: '#f97316',
     refers_to: '#06b6d4',
+    // SGR reasoning edge types
+    supports: '#22c55e',
+    contradicts: '#ef4444',
+    derived_from: '#8b5cf6',
 };
 
 // ============================================================================

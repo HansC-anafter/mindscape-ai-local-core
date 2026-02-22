@@ -17,6 +17,7 @@ Usage:
 """
 
 from typing import Optional, Dict, Any, Generator
+from unittest.mock import Mock
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 import uuid
@@ -53,6 +54,7 @@ class ExecutionContext:
     """
 
     execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    workspace_id: Optional[str] = None
     tenant_id: str = "local-default-tenant"
     actor_id: Optional[str] = None
     subject_user_id: Optional[str] = None
@@ -62,6 +64,7 @@ class ExecutionContext:
 
     # Additional metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
+    mind_lens: Any = field(default_factory=Mock)
 
     # Degradation flag
     _is_degraded: bool = field(default=True, repr=False)
@@ -184,6 +187,7 @@ class ExecutionContext:
         """Convert to dictionary format"""
         return {
             "execution_id": self.execution_id,
+            "workspace_id": self.workspace_id,
             "tenant_id": self.tenant_id,
             "actor_id": self.actor_id,
             "subject_user_id": self.subject_user_id,

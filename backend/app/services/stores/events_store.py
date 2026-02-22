@@ -381,6 +381,49 @@ class EventsStore(StoreBase):
                     continue
             return events
 
+    def get_events_by_meeting_session(
+        self,
+        meeting_session_id: str,
+        workspace_id: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[MindEvent]:
+        """
+        Get all events for a specific meeting session.
+
+        Uses metadata JSON field convention: metadata.meeting_session_id.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = (
+                "SELECT * FROM mind_events "
+                "WHERE json_extract(metadata, '$.meeting_session_id') = ?"
+            )
+            params = [meeting_session_id]
+
+            if workspace_id:
+                query += " AND workspace_id = ?"
+                params.append(workspace_id)
+
+            query += " ORDER BY timestamp ASC, id ASC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            events = []
+            for i, row in enumerate(rows):
+                try:
+                    event = self._row_to_event(row)
+                    events.append(event)
+                except Exception as e:
+                    import logging
+
+                    logger = logging.getLogger(__name__)
+                    logger.error(
+                        f"Error converting row {i} in get_events_by_meeting_session: {e}"
+                    )
+                    continue
+            return events
+
     def count_messages_by_thread(
         self,
         workspace_id: str,

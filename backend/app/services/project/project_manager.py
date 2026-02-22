@@ -11,12 +11,13 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Optional, List, Dict, Any
 import logging
 
 from backend.app.models.project import Project
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.stores.projects_store import ProjectsStore
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,8 @@ class ProjectManager:
             store: MindscapeStore instance
         """
         self.store = store
-        self.projects_store = ProjectsStore(db_path=store.db_path)
+        # Use Postgres adapter via MindscapeStore.projects (not SQLite ProjectsStore)
+        self.projects_store = store.projects
 
     async def create_project(
         self,

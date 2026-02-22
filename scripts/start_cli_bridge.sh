@@ -8,6 +8,7 @@
 #
 # Usage:
 #   ./scripts/start_cli_bridge.sh                    # auto-detect workspace
+#   ./scripts/start_cli_bridge.sh --all              # connect ALL workspaces
 #   ./scripts/start_cli_bridge.sh --workspace-id ID  # explicit workspace
 #   ./scripts/start_cli_bridge.sh --help
 #
@@ -26,6 +27,7 @@ CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/agents/gemini_c
 BACKEND_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
 WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-}"
 SURFACE="${MINDSCAPE_SURFACE:-gemini_cli}"
+ALL_MODE=false
 
 # Colors
 RED='\033[0;31m'
@@ -61,11 +63,16 @@ while [[ $# -gt 0 ]]; do
             SURFACE="$2"
             shift 2
             ;;
+        --all)
+            ALL_MODE=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --workspace-id ID   Workspace to connect to (auto-detected if omitted)"
+            echo "  --all               Connect to ALL workspaces"
             echo "  --host HOST:PORT    Backend host (default: localhost:8200)"
             echo "  --surface SURFACE   Agent surface type (default: gemini_cli)"
             echo "  -h, --help          Show this help"
@@ -113,18 +120,44 @@ if ! curl -s --connect-timeout 3 "$BACKEND_HTTP/health" &>/dev/null; then
     log_warn "Proceeding anyway -- the client will retry with backoff"
 fi
 
-# 5. Auto-detect workspace ID if not provided
-if [[ -z "$WORKSPACE_ID" ]]; then
-    log_info "Auto-detecting workspace ID..."
-    WORKSPACE_ID=$(curl -s "$BACKEND_HTTP/api/v1/workspace" 2>/dev/null \
+# --- Helper: fetch workspace IDs that have at least one open project ---
+fetch_active_workspace_ids() {
+    curl -s "$BACKEND_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null \
+        | python3 -c "
+import sys, json, urllib.request
+
+backend = '${BACKEND_HTTP}'
+try:
+    data = json.load(sys.stdin)
+    ws_ids = []
+    if isinstance(data, list):
+        ws_ids = [w['id'] for w in data if w.get('id')]
+    elif isinstance(data, dict) and 'workspaces' in data:
+        ws_ids = [w['id'] for w in data['workspaces'] if w.get('id')]
+
+    for wid in ws_ids:
+        try:
+            url = f'{backend}/api/v1/workspaces/{wid}/projects'
+            resp = urllib.request.urlopen(url, timeout=3)
+            pdata = json.loads(resp.read())
+            projects = pdata.get('projects', pdata) if isinstance(pdata, dict) else pdata
+            if isinstance(projects, list) and any(p.get('state') == 'open' for p in projects):
+                print(wid)
+        except Exception:
+            pass
+except Exception:
+    pass
+" 2>/dev/null
+}
+
+# Also keep a simple version for single-workspace auto-detect
+fetch_first_workspace_id() {
+    curl -s "$BACKEND_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null \
         | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    # Handle both single workspace and list responses
-    if isinstance(data, dict) and 'id' in data:
-        print(data['id'])
-    elif isinstance(data, list) and len(data) > 0:
+    if isinstance(data, list) and len(data) > 0:
         print(data[0]['id'])
     elif isinstance(data, dict) and 'workspaces' in data:
         ws = data['workspaces']
@@ -132,8 +165,22 @@ try:
             print(ws[0]['id'])
 except:
     pass
-" 2>/dev/null || true)
+" 2>/dev/null
+}
 
+# 5. Resolve workspace(s)
+if [[ "$ALL_MODE" == "true" ]]; then
+    log_info "Fetching active workspaces (with open projects)..."
+    ALL_WS_IDS=$(fetch_active_workspace_ids)
+    WS_COUNT=$(echo "$ALL_WS_IDS" | grep -c . || true)
+    if [[ "$WS_COUNT" -eq 0 ]]; then
+        log_error "No active workspaces found (no workspaces with open projects)."
+        exit 1
+    fi
+    log_info "Found $WS_COUNT active workspace(s)"
+elif [[ -z "$WORKSPACE_ID" ]]; then
+    log_info "Auto-detecting workspace ID..."
+    WORKSPACE_ID=$(fetch_first_workspace_id)
     if [[ -z "$WORKSPACE_ID" ]]; then
         log_error "Could not auto-detect workspace ID."
         log_error "Please specify: $0 --workspace-id YOUR_WORKSPACE_ID"
@@ -166,22 +213,47 @@ export GEMINI_CLI_RUNTIME_CMD="python3 $PROJECT_DIR/scripts/gemini_cli_runtime_b
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$PROJECT_DIR}"
 
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
-# GEMINI_API_KEY can also be set here as env-level override.
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_HOST}"
 
 # --- Start bridge ---
-log_info "Connecting to backend at ws://$BACKEND_HOST"
-log_info "Workspace: $WORKSPACE_ID"
-log_info "Surface:   $SURFACE"
-log_info "Runtime:   $GEMINI_CLI_RUNTIME_CMD"
-echo ""
-log_info "Press Ctrl+C to stop"
-echo ""
+if [[ "$ALL_MODE" == "true" ]]; then
+    log_info "Starting bridge for $WS_COUNT workspace(s)..."
+    log_info "Surface:   $SURFACE"
+    log_info "Runtime:   $GEMINI_CLI_RUNTIME_CMD"
+    echo ""
+    log_info "Press Ctrl+C to stop all bridges"
+    echo ""
 
-exec python3 "$CLIENT_SCRIPT" \
-    --workspace-id "$WORKSPACE_ID" \
-    --host "$BACKEND_HOST" \
-    --surface "$SURFACE" \
-    --workspace-root "$MINDSCAPE_WORKSPACE_ROOT"
+    PIDS=()
+    while IFS= read -r ws_id; do
+        [[ -z "$ws_id" ]] && continue
+        log_info "  Connecting workspace: $ws_id"
+        python3 "$CLIENT_SCRIPT" \
+            --workspace-id "$ws_id" \
+            --host "$BACKEND_HOST" \
+            --surface "$SURFACE" \
+            --workspace-root "$MINDSCAPE_WORKSPACE_ROOT" &
+        PIDS+=($!)
+    done <<< "$ALL_WS_IDS"
 
+    # Trap Ctrl+C to kill all background processes
+    trap 'log_info "Stopping all bridges..."; kill "${PIDS[@]}" 2>/dev/null; exit 0' INT TERM
+
+    log_info "All bridges started (${#PIDS[@]} processes)"
+    wait "${PIDS[@]}"
+else
+    log_info "Connecting to backend at ws://$BACKEND_HOST"
+    log_info "Workspace: $WORKSPACE_ID"
+    log_info "Surface:   $SURFACE"
+    log_info "Runtime:   $GEMINI_CLI_RUNTIME_CMD"
+    echo ""
+    log_info "Press Ctrl+C to stop"
+    echo ""
+
+    exec python3 "$CLIENT_SCRIPT" \
+        --workspace-id "$WORKSPACE_ID" \
+        --host "$BACKEND_HOST" \
+        --surface "$SURFACE" \
+        --workspace-root "$MINDSCAPE_WORKSPACE_ROOT"
+fi

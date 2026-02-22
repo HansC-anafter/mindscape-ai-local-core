@@ -62,6 +62,7 @@ export default function IntegratedSystemStatusCard({
   const [bridgeScriptPath, setBridgeScriptPath] = useState<string | null>(null);
   const [showBridgeDialog, setShowBridgeDialog] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -312,8 +313,36 @@ export default function IntegratedSystemStatusCard({
                     {copied ? 'Copied ✓' : 'Copy'}
                   </button>
                 </div>
+                <div className="ml-7 mt-2 text-[10px] text-gray-500 dark:text-gray-400 font-medium">Or connect all active workspaces at once:</div>
+                <div className="ml-7 mt-1 relative">
+                  <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                    {bridgeScriptPath
+                      ? `${bridgeScriptPath} --all`
+                      : `# Bridge script not found`}
+                  </pre>
+                  <button
+                    onClick={() => {
+                      if (bridgeScriptPath) {
+                        navigator.clipboard.writeText(
+                          `${bridgeScriptPath} --all`
+                        );
+                        setCopiedAll(true);
+                        setTimeout(() => setCopiedAll(false), 1500);
+                      }
+                    }}
+                    disabled={!bridgeScriptPath}
+                    className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copiedAll
+                      ? 'bg-green-700 text-green-200'
+                      : bridgeScriptPath
+                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                      }`}
+                  >
+                    {copiedAll ? 'Copied ✓' : 'Copy'}
+                  </button>
+                </div>
                 <p className="ml-7 text-[10px] text-gray-500 dark:text-gray-400 mt-1.5">
-                  The script auto-detects installed CLIs on your machine and establishes a WebSocket connection to the Mindscape backend.
+                  <code>--all</code> only connects workspaces with open projects. Single workspace mode connects to this workspace only.
                 </p>
               </div>
 

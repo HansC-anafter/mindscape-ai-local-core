@@ -1,15 +1,15 @@
 """
-工具 Schema 定義
+Tool Schema Definitions
 
-定義 Mindscape AI 工具系統的標準化 schema，包括：
-- 工具元數據（名稱、描述、schema、分類）
-- JSON Schema 兼容的輸入規範
-- 工具分類和風險等級枚舉
+Defines standardized schemas for the Mindscape AI tool system, including:
+- Tool metadata (name, description, schema, category)
+- JSON Schema compatible input specifications
+- Tool category and danger level enumerations
 
-設計原則：
-- 框架中立：不綁定特定工具生態
-- JSON Schema 兼容：支援 LangChain/MCP 轉換
-- 使用 Pydantic v2 API
+Design principles:
+- Framework-neutral: not tied to any specific tool ecosystem
+- JSON Schema compatible: supports LangChain/MCP conversion
+- Uses Pydantic v2 API
 """
 
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ from enum import Enum
 
 class ToolInputSchema(BaseModel):
     """
-    工具輸入參數 schema（對齊 JSON Schema）
+    Tool input parameter schema (aligned with JSON Schema)
 
     Example:
         schema = ToolInputSchema(
@@ -38,14 +38,13 @@ class ToolInputSchema(BaseModel):
             required=["query"]
         )
     """
+
     type: Literal["object"] = "object"
     properties: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Parameter definitions"
+        default_factory=dict, description="Parameter definitions"
     )
     required: List[str] = Field(
-        default_factory=list,
-        description="Required parameter names"
+        default_factory=list, description="Required parameter names"
     )
 
     class Config:
@@ -53,46 +52,47 @@ class ToolInputSchema(BaseModel):
             "example": {
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query"
-                    }
+                    "query": {"type": "string", "description": "Search query"}
                 },
-                "required": ["query"]
+                "required": ["query"],
             }
         }
 
 
 class ToolSourceType(str, Enum):
-    """工具來源類型"""
-    BUILTIN = "builtin"      # 內建工具（WordPress, Notion, etc.）
-    LANGCHAIN = "langchain"  # LangChain 社群工具
-    MCP = "mcp"              # MCP 協議工具
-    CUSTOM = "custom"        # 自定義工具
+    """Tool source type"""
+
+    BUILTIN = "builtin"  # Built-in tools (WordPress, Notion, etc.)
+    LANGCHAIN = "langchain"  # LangChain community tools
+    MCP = "mcp"  # MCP protocol tools
+    CUSTOM = "custom"  # Custom tools
 
 
 class ToolCategory(str, Enum):
-    """工具分類"""
-    CONTENT = "content"            # 內容創作/管理
-    DATA = "data"                  # 資料查詢/搜尋
-    AUTOMATION = "automation"      # 自動化/腳本
-    COMMUNICATION = "communication" # 通訊/通知
-    ANALYSIS = "analysis"          # 分析/計算
+    """Tool category"""
+
+    CONTENT = "content"  # Content creation/management
+    DATA = "data"  # Data query/search
+    AUTOMATION = "automation"  # Automation/scripting
+    COMMUNICATION = "communication"  # Communication/notification
+    ANALYSIS = "analysis"  # Analysis/computation
 
 
 class ToolDangerLevel(str, Enum):
-    """工具風險等級"""
-    LOW = "low"          # 只讀操作
-    MEDIUM = "medium"    # 寫入操作
-    HIGH = "high"        # 修改/刪除操作
-    CRITICAL = "critical" # 執行/系統操作
+    """Tool danger level"""
+
+    LOW = "low"  # Read-only operations
+    MEDIUM = "medium"  # Write operations
+    HIGH = "high"  # Modify/delete operations
+    CRITICAL = "critical"  # Execution/system operations
 
 
 class ToolMetadata(BaseModel):
     """
-    工具元數據（對齊 LangChain BaseTool）
+    Tool metadata (aligned with LangChain BaseTool)
 
-    這個 schema 可以與 LangChain BaseTool 雙向轉換，同時也能映射到 MCP tool spec。
+    This schema can be bidirectionally converted with LangChain BaseTool,
+    and also maps to MCP tool spec.
 
     Example:
         metadata = ToolMetadata(
@@ -104,63 +104,52 @@ class ToolMetadata(BaseModel):
             provider="wikipedia"
         )
     """
-    # 核心欄位（對齊 LangChain BaseTool）
+
+    # Core fields (aligned with LangChain BaseTool)
     name: str = Field(
         ...,
-        description="工具名稱（唯一識別碼，建議使用 snake_case）",
-        pattern=r"^[a-z][a-z0-9_]*$"
+        description="Tool name (unique identifier, use snake_case)",
+        pattern=r"^[a-z][a-z0-9_.]*$",
     )
     description: str = Field(
         ...,
-        description="工具功能描述（會被 LLM 讀取，需清晰說明功能）",
+        description="Tool description (read by LLM, must clearly describe functionality)",
         min_length=10,
-        max_length=500
+        max_length=500,
     )
     input_schema: ToolInputSchema = Field(
-        ...,
-        description="輸入參數的 JSON Schema"
+        ..., description="Input parameter JSON Schema"
     )
     return_direct: bool = Field(
         default=False,
-        description="是否直接返回結果給用戶（不經過 LLM 處理）"
+        description="Whether to return result directly to user (bypass LLM processing)",
     )
 
-    # Mindscape 擴展欄位
+    # Mindscape extension fields
     category: ToolCategory = Field(
-        default=ToolCategory.AUTOMATION,
-        description="工具分類"
+        default=ToolCategory.AUTOMATION, description="Tool category"
     )
-    source_type: ToolSourceType = Field(
-        ...,
-        description="工具來源類型"
-    )
+    source_type: ToolSourceType = Field(..., description="Tool source type")
     provider: Optional[str] = Field(
         default=None,
-        description="工具提供者（如 'wordpress', 'github', 'wikipedia'）"
+        description="Tool provider (e.g. 'wordpress', 'github', 'wikipedia')",
     )
     danger_level: ToolDangerLevel = Field(
-        default=ToolDangerLevel.LOW,
-        description="風險等級"
+        default=ToolDangerLevel.LOW, description="Danger level"
     )
 
-    # 可選欄位
-    version: Optional[str] = Field(
-        default="1.0.0",
-        description="工具版本"
-    )
+    # Optional fields
+    version: Optional[str] = Field(default="1.0.0", description="Tool version")
     tags: List[str] = Field(
-        default_factory=list,
-        description="標籤（用於搜尋和分類）"
+        default_factory=list, description="Tags (for search and categorization)"
     )
     examples: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="使用範例"
+        default_factory=list, description="Usage examples"
     )
 
-    # MCP 相關（預留）
+    # MCP related (reserved)
     mcp_server_id: Optional[str] = Field(
-        default=None,
-        description="MCP server ID（如果是 MCP 工具）"
+        default=None, description="MCP server ID (if this is an MCP tool)"
     )
 
     class Config:
@@ -172,65 +161,67 @@ class ToolMetadata(BaseModel):
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search query"
-                        }
+                        "query": {"type": "string", "description": "Search query"}
                     },
-                    "required": ["query"]
+                    "required": ["query"],
                 },
                 "category": "data",
                 "source_type": "langchain",
                 "provider": "wikipedia",
                 "danger_level": "low",
-                "return_direct": False
+                "return_direct": False,
             }
         }
 
     def to_langchain_schema(self) -> Dict[str, Any]:
         """
-        轉換成 LangChain tool schema
+        Convert to LangChain tool schema.
 
         Returns:
-            LangChain 可以使用的 schema dict
+            Schema dict usable by LangChain.
         """
         return {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema.model_dump(),
-            "return_direct": self.return_direct
+            "return_direct": self.return_direct,
         }
 
     def to_mcp_schema(self) -> Dict[str, Any]:
         """
-        轉換成 MCP tool schema
+        Convert to MCP tool schema.
 
         Returns:
-            MCP 協議的 tool info
+            MCP protocol tool info.
         """
         return {
             "name": self.name,
             "description": self.description,
-            "inputSchema": self.input_schema.model_dump()
+            "inputSchema": self.input_schema.model_dump(),
         }
 
     def is_dangerous(self) -> bool:
-        """判斷是否為危險操作"""
+        """Check whether this is a dangerous operation."""
         return self.danger_level in [ToolDangerLevel.HIGH, ToolDangerLevel.CRITICAL]
 
     def requires_confirmation(self) -> bool:
-        """判斷是否需要用戶確認"""
-        return self.danger_level in [ToolDangerLevel.MEDIUM, ToolDangerLevel.HIGH, ToolDangerLevel.CRITICAL]
+        """Check whether user confirmation is required."""
+        return self.danger_level in [
+            ToolDangerLevel.MEDIUM,
+            ToolDangerLevel.HIGH,
+            ToolDangerLevel.CRITICAL,
+        ]
 
 
 class ToolExecutionResult(BaseModel):
-    """工具執行結果"""
-    success: bool = Field(..., description="是否執行成功")
-    result: Any = Field(default=None, description="執行結果")
-    error: Optional[str] = Field(default=None, description="錯誤訊息")
+    """Tool execution result"""
+
+    success: bool = Field(..., description="Whether execution succeeded")
+    result: Any = Field(default=None, description="Execution result")
+    error: Optional[str] = Field(default=None, description="Error message")
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
-        description="額外的元數據（執行時間、token 使用量等）"
+        description="Additional metadata (execution time, token usage, etc.)",
     )
 
     class Config:
@@ -239,15 +230,12 @@ class ToolExecutionResult(BaseModel):
                 "success": True,
                 "result": "Wikipedia summary of...",
                 "error": None,
-                "metadata": {
-                    "execution_time_ms": 250,
-                    "source": "wikipedia"
-                }
+                "metadata": {"execution_time_ms": 250, "source": "wikipedia"},
             }
         }
 
 
-# 便捷函式
+# Convenience functions
 def create_simple_tool_metadata(
     name: str,
     description: str,
@@ -257,18 +245,18 @@ def create_simple_tool_metadata(
     **kwargs
 ) -> ToolMetadata:
     """
-    快速創建簡單的工具 metadata
+    Quickly create simple tool metadata.
 
     Args:
-        name: 工具名稱
-        description: 描述
-        parameters: 參數定義 {"param_name": {"type": "string", "description": "..."}}
-        required: 必填參數列表
-        source_type: 來源類型
-        **kwargs: 其他 ToolMetadata 欄位
+        name: Tool name
+        description: Description
+        parameters: Parameter definitions {"param_name": {"type": "string", "description": "..."}}
+        required: Required parameter list
+        source_type: Source type
+        **kwargs: Other ToolMetadata fields
 
     Returns:
-        ToolMetadata 實例
+        ToolMetadata instance
 
     Example:
         metadata = create_simple_tool_metadata(
@@ -284,9 +272,7 @@ def create_simple_tool_metadata(
         )
     """
     input_schema = ToolInputSchema(
-        type="object",
-        properties=parameters,
-        required=required or []
+        type="object", properties=parameters, required=required or []
     )
 
     return ToolMetadata(

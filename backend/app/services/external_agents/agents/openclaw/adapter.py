@@ -1,8 +1,8 @@
 """
-OpenClaw Agent Adapter
+OpenClaw Runtime Adapter
 
 Adapter for executing OpenClaw within Mindscape's governance layer.
-This adapter extends BaseAgentAdapter with OpenClaw-specific implementation.
+This adapter extends BaseRuntimeAdapter with OpenClaw-specific implementation.
 """
 
 import asyncio
@@ -14,19 +14,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.app.services.external_agents.core.base_adapter import (
-    BaseAgentAdapter,
-    AgentRequest,
-    AgentResponse,
+    BaseRuntimeAdapter,
+    RuntimeExecRequest,
+    RuntimeExecResponse,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class OpenClawAdapter(BaseAgentAdapter):
+class OpenClawAdapter(BaseRuntimeAdapter):
     """
     OpenClaw Code Execution Adapter
 
-    Extends BaseAgentAdapter with OpenClaw CLI functionality:
+    Extends BaseRuntimeAdapter with OpenClaw CLI functionality:
     - CLI invocation via 'openclaw' command
     - Sandbox configuration generation
     - Execution trace collection
@@ -37,8 +37,8 @@ class OpenClawAdapter(BaseAgentAdapter):
             response = await adapter.execute(request)
     """
 
-    AGENT_NAME = "openclaw"
-    AGENT_VERSION = "1.0.0"
+    RUNTIME_NAME = "openclaw"
+    RUNTIME_VERSION = "1.0.0"
 
     # CLI commands to try (in order of preference)
     CLI_COMMANDS = ["openclaw"]
@@ -112,7 +112,7 @@ class OpenClawAdapter(BaseAgentAdapter):
         """Get the CLI command to use (detected or configured)."""
         return self._detected_cli or self.cli_command or "claude"
 
-    async def execute(self, request: AgentRequest) -> AgentResponse:
+    async def execute(self, request: RuntimeExecRequest) -> RuntimeExecResponse:
         """
         Execute an OpenClaw task within the sandbox.
 
@@ -120,7 +120,7 @@ class OpenClawAdapter(BaseAgentAdapter):
             request: The execution request with task and constraints
 
         Returns:
-            AgentResponse with results and execution trace
+            RuntimeExecResponse with results and execution trace
         """
         self.log_execution_start(request)
         start_time = datetime.now()
@@ -128,7 +128,7 @@ class OpenClawAdapter(BaseAgentAdapter):
 
         # Validate sandbox path
         if not self.validate_sandbox_path(request.sandbox_path):
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=0,
@@ -158,7 +158,7 @@ class OpenClawAdapter(BaseAgentAdapter):
             logger.warning(
                 f"OpenClaw execution timed out after {request.max_duration_seconds}s"
             )
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=request.max_duration_seconds,
@@ -167,7 +167,7 @@ class OpenClawAdapter(BaseAgentAdapter):
             )
         except Exception as e:
             logger.exception("OpenClaw execution failed with exception")
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=(datetime.now() - start_time).total_seconds(),
@@ -183,7 +183,7 @@ class OpenClawAdapter(BaseAgentAdapter):
         files_after = self._snapshot_files(sandbox_path)
         files_created, files_modified = self._diff_files(files_before, files_after)
 
-        response = AgentResponse(
+        response = RuntimeExecResponse(
             success=result["returncode"] == 0,
             output=result["stdout"],
             duration_seconds=duration,
@@ -197,7 +197,7 @@ class OpenClawAdapter(BaseAgentAdapter):
         self.log_execution_end(response)
         return response
 
-    def _generate_sandbox_config(self, request: AgentRequest) -> Dict[str, Any]:
+    def _generate_sandbox_config(self, request: RuntimeExecRequest) -> Dict[str, Any]:
         """Generate a restricted OpenClaw config for sandbox execution."""
         all_denied = self.merge_denied_tools(request.denied_tools)
 
@@ -222,7 +222,7 @@ class OpenClawAdapter(BaseAgentAdapter):
         }
 
     async def _run_openclaw(
-        self, request: AgentRequest, config_path: Path
+        self, request: RuntimeExecRequest, config_path: Path
     ) -> Dict[str, Any]:
         """Actually run the CLI process."""
         cli = self._get_cli_command()

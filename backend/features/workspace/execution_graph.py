@@ -126,6 +126,10 @@ def get_graph_service(
 async def get_graph(
     workspace_id: Optional[str] = Query(None, description="Workspace ID"),
     workspace_group_id: Optional[str] = Query(None, description="Workspace Group ID"),
+    include_reasoning: bool = Query(
+        False,
+        description="Include reasoning graph nodes (not supported for group queries)",
+    ),
     service: MindscapeGraphService = Depends(get_graph_service),
 ):
     """
@@ -143,6 +147,36 @@ async def get_graph(
         graph = await service.get_graph(
             workspace_id=workspace_id, workspace_group_id=workspace_group_id
         )
+
+        # Governance: optionally merge reasoning graph nodes into the main graph
+        if include_reasoning:
+            if workspace_group_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="include_reasoning is not supported for group queries",
+                )
+            try:
+                from backend.app.services.stores.reasoning_traces_store import (
+                    ReasoningTracesStore,
+                )
+
+                traces_store = ReasoningTracesStore()
+                traces = traces_store.list_by_workspace(workspace_id, limit=10)
+                for trace in traces:
+                    try:
+                        rg = trace.graph
+                        service.derive_from_reasoning_graph(workspace_id, rg, trace.id)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to derive reasoning graph {trace.id}: {e}"
+                        )
+                # Re-fetch graph with reasoning nodes included
+                graph = await service.get_graph(
+                    workspace_id=workspace_id,
+                    workspace_group_id=workspace_group_id,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to include reasoning graphs: {e}")
 
         return GraphResponse(
             nodes=[
@@ -202,13 +236,12 @@ async def create_manual_node(
         metadata=request.metadata or {},
     )
 
-    # Get current overlay and add node
-    overlay = await service._load_overlay("workspace", workspace_id)
-    overlay.manual_nodes.append(manual_node)
-    overlay.version += 1
-
-    # Update cache
-    service._overlay_cache[f"workspace:{workspace_id}"] = overlay
+    # Persist through update_overlay (writes to DB, not just cache)
+    await service.update_overlay(
+        "workspace",
+        workspace_id,
+        {"manual_nodes_add": [manual_node.__dict__]},
+    )
 
     return NodeResponse(
         id=node_id,
@@ -294,13 +327,25 @@ async def create_manual_edge(
         metadata=request.metadata or {},
     )
 
-    # Get current overlay and add edge
-    overlay = await service._load_overlay("workspace", workspace_id)
-    overlay.manual_edges.append(edge)
-    overlay.version += 1
-
-    # Update cache
-    service._overlay_cache[f"workspace:{workspace_id}"] = overlay
+    # Persist through update_overlay (writes to DB, not just cache)
+    await service.update_overlay(
+        "workspace",
+        workspace_id,
+        {
+            "manual_edges_add": [
+                {
+                    "id": edge.id,
+                    "from_id": edge.from_id,
+                    "to_id": edge.to_id,
+                    "type": edge.type.value,
+                    "origin": edge.origin.value,
+                    "confidence": edge.confidence,
+                    "status": edge.status.value,
+                    "metadata": edge.metadata,
+                }
+            ]
+        },
+    )
 
     return EdgeResponse(
         id=edge_id,
@@ -396,6 +441,106 @@ async def get_group_graph(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== SGR Reasoning Graph Endpoints ====================
+
+
+class ReasoningGraphResponse(BaseModel):
+    """Response model for reasoning graph data."""
+
+    id: str
+    workspace_id: str
+    execution_id: Optional[str] = None
+    assistant_event_id: Optional[str] = None
+    graph: Dict[str, Any]
+    schema_version: int
+    sgr_mode: str
+    model: Optional[str] = None
+    token_count: Optional[int] = None
+    latency_ms: Optional[int] = None
+    created_at: str
+
+
+@router.get("/reasoning/{trace_id}", response_model=ReasoningGraphResponse)
+async def get_reasoning_graph(trace_id: str):
+    """
+    Get a reasoning graph by trace ID.
+
+    Returns the full reasoning graph structure including nodes, edges, and metadata.
+    """
+    try:
+        from backend.app.services.stores.reasoning_traces_store import ReasoningTracesStore
+
+        store = ReasoningTracesStore()
+        trace = store.get_by_id(trace_id)
+        if not trace:
+            raise HTTPException(
+                status_code=404, detail=f"Reasoning trace not found: {trace_id}"
+            )
+        return ReasoningGraphResponse(
+            id=trace.id,
+            workspace_id=trace.workspace_id,
+            execution_id=trace.execution_id,
+            assistant_event_id=trace.assistant_event_id,
+            graph=trace.graph_json,
+            schema_version=trace.schema_version,
+            sgr_mode=trace.sgr_mode,
+            model=trace.model,
+            token_count=trace.token_count,
+            latency_ms=trace.latency_ms,
+            created_at=trace.created_at.isoformat(),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get reasoning graph: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reasoning", response_model=List[ReasoningGraphResponse])
+async def list_reasoning_graphs(
+    workspace_id: str = Query(..., description="Workspace ID"),
+    execution_id: Optional[str] = Query(None, description="Filter by execution ID"),
+    limit: int = Query(20, ge=1, le=100, description="Max results"),
+):
+    """
+    List reasoning graphs for a workspace.
+
+    Optionally filter by execution_id to find the reasoning graph
+    associated with a specific chat execution.
+    """
+    try:
+        from backend.app.services.stores.reasoning_traces_store import ReasoningTracesStore
+
+        store = ReasoningTracesStore()
+
+        if execution_id:
+            # Use workspace-scoped query to prevent cross-workspace access
+            trace = store.get_by_execution_id_and_workspace(execution_id, workspace_id)
+            traces = [trace] if trace else []
+        else:
+            traces = store.list_by_workspace(workspace_id, limit=limit)
+
+        return [
+            ReasoningGraphResponse(
+                id=t.id,
+                workspace_id=t.workspace_id,
+                execution_id=t.execution_id,
+                assistant_event_id=t.assistant_event_id,
+                graph=t.graph_json,
+                schema_version=t.schema_version,
+                sgr_mode=t.sgr_mode,
+                model=t.model,
+                token_count=t.token_count,
+                latency_ms=t.latency_ms,
+                created_at=t.created_at.isoformat(),
+            )
+            for t in traces
+        ]
+    except Exception as e:
+        logger.error(f"Failed to list reasoning graphs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== Playbook DAG Expansion ====================
 
 
@@ -434,7 +579,7 @@ async def get_playbook_dag(
     - Input/output definitions
     """
     try:
-        from app.services.playbook_registry import PlaybookRegistry
+        from backend.app.services.playbook_registry import PlaybookRegistry
 
         registry = PlaybookRegistry()
         playbook_run = await registry.get_playbook(playbook_code)
