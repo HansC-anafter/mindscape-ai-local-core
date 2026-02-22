@@ -125,13 +125,49 @@ class PipelineCore:
         result = PipelineResult()
 
         try:
-            # --- Stage 0: MeetingSession lifecycle (Phase 2) ---
-            session = await self._ensure_meeting_session(
-                workspace_id,
-                thread_id,
-            )
-            if session:
-                result.meeting_session_id = session.id
+            # --- Stage 0: MeetingSession lifecycle (project-scoped when enabled) ---
+            meeting_enabled = execution_mode == "meeting"
+            if not meeting_enabled:
+                meeting_enabled = await self._is_project_meeting_enabled(project_id)
+
+            session = None
+            if meeting_enabled:
+                session = await self._ensure_meeting_session(
+                    workspace_id,
+                    thread_id,
+                    project_id,
+                )
+                if session:
+                    result.meeting_session_id = session.id
+
+            # --- Stage 0.5: Meeting branch ---
+            if execution_mode == "meeting":
+                if not session:
+                    raise RuntimeError("Failed to initialize meeting session")
+
+                from backend.app.services.orchestration.meeting_engine import (
+                    MeetingEngine,
+                )
+
+                execution_launcher = self._build_execution_launcher()
+                meeting_engine = MeetingEngine(
+                    session=session,
+                    store=self.store,
+                    runtime_profile=self.runtime_profile,
+                    profile_id=profile_id,
+                    thread_id=thread_id,
+                    project_id=project_id,
+                    execution_launcher=execution_launcher,
+                    model_name=model_name,
+                )
+                meeting_result = await meeting_engine.run(message)
+                result.response_text = meeting_result.minutes_md
+                result.events = [{"id": eid} for eid in meeting_result.event_ids]
+                result.meeting_session_id = meeting_result.session_id
+
+                # Early return path must still finalize session metadata.
+                await self._finalize_meeting_session(result)
+                return result
 
             # --- Stage 1: Intent Extraction ---
             if execution_mode in ("execution", "hybrid"):
@@ -294,6 +330,20 @@ class PipelineCore:
             )
 
             # Create assistant event
+            payload = {
+                "message": agent_response.output,
+                "agent_id": preferred_agent,
+                "trace_id": agent_response.trace_id,
+                "execution_time": exec_time,
+            }
+            metadata = {
+                "external_agent": True,
+                "agent_id": preferred_agent,
+            }
+            if result.meeting_session_id:
+                payload["meeting_session_id"] = result.meeting_session_id
+                metadata["meeting_session_id"] = result.meeting_session_id
+
             assistant_event = MindEvent(
                 id=str(uuid.uuid4()),
                 timestamp=datetime.now(timezone.utc),
@@ -304,17 +354,9 @@ class PipelineCore:
                 workspace_id=workspace_id,
                 thread_id=thread_id,
                 event_type=EventType.MESSAGE,
-                payload={
-                    "message": agent_response.output,
-                    "agent_id": preferred_agent,
-                    "trace_id": agent_response.trace_id,
-                    "execution_time": exec_time,
-                },
+                payload=payload,
                 entity_ids=[],
-                metadata={
-                    "external_agent": True,
-                    "agent_id": preferred_agent,
-                },
+                metadata=metadata,
             )
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
@@ -576,6 +618,28 @@ class PipelineCore:
     # Helpers
     # ============================================================
 
+    def _build_execution_launcher(self):
+        """
+        Build ExecutionLauncher for meeting action landing.
+
+        Returns None on setup failure so meeting flow can degrade gracefully
+        to task creation fallback.
+        """
+        try:
+            from backend.app.services.playbook_service import PlaybookService
+            from backend.app.services.conversation.execution_launcher import (
+                ExecutionLauncher,
+            )
+
+            playbook_service = PlaybookService(store=self.store)
+            return ExecutionLauncher(playbook_service=playbook_service)
+        except Exception as e:
+            logger.warning(
+                f"[PipelineCore] Failed to initialize ExecutionLauncher for meeting mode: {e}",
+                exc_info=True,
+            )
+            return None
+
     async def _emit_pipeline_stage(
         self,
         workspace_id,
@@ -621,6 +685,7 @@ class PipelineCore:
         self,
         workspace_id: str,
         thread_id: str,
+        project_id: Optional[str] = None,
     ):
         """Get or create the active MeetingSession for this workspace/thread.
 
@@ -633,6 +698,7 @@ class PipelineCore:
                 None,
                 lambda: self.session_store.get_active_session(
                     workspace_id,
+                    project_id,
                     thread_id,
                 ),
             )
@@ -645,6 +711,7 @@ class PipelineCore:
 
             new_session = MeetingSession.new(
                 workspace_id=workspace_id,
+                project_id=project_id,
                 thread_id=thread_id,
             )
             await loop.run_in_executor(
@@ -659,6 +726,27 @@ class PipelineCore:
                 exc_info=True,
             )
             return None
+
+    async def _is_project_meeting_enabled(self, project_id: Optional[str]) -> bool:
+        """Return whether persistent meeting is enabled on the project metadata."""
+        if not project_id:
+            return False
+        try:
+            loop = asyncio.get_running_loop()
+            project = await loop.run_in_executor(
+                None,
+                lambda: self.store.get_project(project_id),
+            )
+            if not project:
+                return False
+            metadata = getattr(project, "metadata", {}) or {}
+            return bool(metadata.get("meeting_enabled"))
+        except Exception as e:
+            logger.warning(
+                f"[PipelineCore] Failed to read project meeting flag: {e}",
+                exc_info=True,
+            )
+            return False
 
     async def _finalize_meeting_session(
         self,

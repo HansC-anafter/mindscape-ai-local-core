@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 
-export type ExecutionMode = 'qa' | 'execution' | 'hybrid';
+export type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting';
 export type ExecutionPriority = 'low' | 'medium' | 'high';
 
 interface ExecutionModeSelectorProps {
@@ -32,7 +32,14 @@ const modeConfig: Record<ExecutionMode, {
     icon: '🤝',
     description: '邊做邊聊：邊聊邊執行，平衡對話與動作',
   },
+  meeting: {
+    label: '會議模式',
+    icon: '🧭',
+    description: '多代理會議：聚焦決策、收斂與行動項',
+  },
 };
+
+const selectableModes: ExecutionMode[] = ['qa', 'execution', 'hybrid'];
 
 const priorityConfig: Record<ExecutionPriority, {
   label: string;
@@ -155,7 +162,7 @@ export default function ExecutionModeSelector({
           <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
             模式
           </div>
-          {(Object.keys(modeConfig) as ExecutionMode[]).map((m) => (
+          {selectableModes.map((m) => (
             <button
               key={m}
               onClick={() => {
@@ -225,4 +232,3 @@ export default function ExecutionModeSelector({
     </div>
   );
 }
-
