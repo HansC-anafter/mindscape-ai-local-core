@@ -92,11 +92,19 @@ class MeetingEngine:
         self._events: List[MindEvent] = []
         self._turn_history: List[Dict[str, Any]] = []
 
+        # Resolve locale from workspace settings
+        self._locale = getattr(workspace, "default_locale", None) or "en"
+
+        # Fetch project data for meeting context
+        self._project_context = self._build_project_context()
+
         self.orchestrator = MultiAgentOrchestrator(
             agent_roster=MEETING_AGENT_ROSTER,
             topology=MEETING_TOPOLOGY,
             loop_budget=runtime_profile.loop_budget if runtime_profile else None,
-            stop_conditions=runtime_profile.stop_conditions if runtime_profile else None,
+            stop_conditions=(
+                runtime_profile.stop_conditions if runtime_profile else None
+            ),
         )
         stop_conditions = getattr(runtime_profile, "stop_conditions", None)
         self.max_retries = int(getattr(stop_conditions, "max_retries", 2) or 2)
@@ -114,54 +122,78 @@ class MeetingEngine:
         critic_notes: List[str] = []
 
         converged = False
-        for round_num in range(1, max_rounds + 1):
-            if self.orchestrator.should_stop():
-                self._emit_round_event(round_num, status="budget_exhausted")
-                break
+        run_error: Optional[Exception] = None
+        try:
+            for round_num in range(1, max_rounds + 1):
+                if self.orchestrator.should_stop():
+                    self._emit_round_event(round_num, status="budget_exhausted")
+                    break
 
-            self.orchestrator.record_iteration()
-            self._emit_round_event(round_num, status="started")
+                self.orchestrator.record_iteration()
+                self._emit_round_event(round_num, status="started")
 
-            facilitator_turn = await self._agent_turn(
-                "facilitator",
-                round_num,
-                user_message,
-                planner_proposals=planner_proposals,
-                critic_notes=critic_notes,
+                facilitator_turn = await self._agent_turn(
+                    "facilitator",
+                    round_num,
+                    user_message,
+                    planner_proposals=planner_proposals,
+                    critic_notes=critic_notes,
+                )
+                self._emit_turn(facilitator_turn)
+
+                planner_turn = await self._agent_turn(
+                    "planner",
+                    round_num,
+                    user_message,
+                    planner_proposals=planner_proposals,
+                    critic_notes=critic_notes,
+                )
+                planner_proposals.append(planner_turn.content)
+                self._emit_turn(planner_turn)
+                self._emit_decision_proposal(planner_turn)
+
+                critic_turn = await self._agent_turn(
+                    "critic",
+                    round_num,
+                    user_message,
+                    planner_proposals=planner_proposals,
+                    critic_notes=critic_notes,
+                )
+                critic_notes.append(critic_turn.content)
+                self._emit_turn(critic_turn)
+
+                self.session.round_count = round_num
+                if self._is_converged(round_num, max_rounds, facilitator_turn.content):
+                    converged = True
+                    self._emit_round_event(round_num, status="converged")
+                    break
+
+                self._emit_round_event(round_num, status="completed")
+        except Exception as exc:
+            run_error = exc
+            logger.error(
+                "Meeting engine failed at round %s: %s",
+                self.session.round_count,
+                exc,
             )
-            self._emit_turn(facilitator_turn)
+            # Persist partial progress so round_count reflects reality
+            self.session.status = MeetingStatus.FAILED
+            try:
+                self.session_store.update(self.session)
+            except Exception:
+                logger.warning("Failed to persist partial meeting session state")
 
-            planner_turn = await self._agent_turn(
-                "planner",
-                round_num,
-                user_message,
-                planner_proposals=planner_proposals,
-                critic_notes=critic_notes,
-            )
-            planner_proposals.append(planner_turn.content)
-            self._emit_turn(planner_turn)
-            self._emit_decision_proposal(planner_turn)
+        if run_error:
+            raise RuntimeError(
+                f"Meeting failed at round {self.session.round_count}: {run_error}"
+            ) from run_error
 
-            critic_turn = await self._agent_turn(
-                "critic",
-                round_num,
-                user_message,
-                planner_proposals=planner_proposals,
-                critic_notes=critic_notes,
-            )
-            critic_notes.append(critic_turn.content)
-            self._emit_turn(critic_turn)
-
-            self.session.round_count = round_num
-            if self._is_converged(round_num, max_rounds, facilitator_turn.content):
-                converged = True
-                self._emit_round_event(round_num, status="converged")
-                break
-
-            self._emit_round_event(round_num, status="completed")
-
-        decision = planner_proposals[-1] if planner_proposals else "No decision proposed."
-        self._emit_decision_final(decision=decision, round_number=self.session.round_count)
+        decision = (
+            planner_proposals[-1] if planner_proposals else "No decision proposed."
+        )
+        self._emit_decision_final(
+            decision=decision, round_number=self.session.round_count
+        )
 
         action_items = await self._build_action_items(
             decision=decision,
@@ -194,6 +226,8 @@ class MeetingEngine:
     def _start_session(self) -> None:
         self.session.start()
         self.session.status = MeetingStatus.ACTIVE
+        # Capture state_before snapshot at meeting start
+        self.session.state_before = self._capture_state_snapshot()
         self.session_store.update(self.session)
         self._emit_event(
             EventType.MEETING_START,
@@ -201,13 +235,18 @@ class MeetingEngine:
                 "meeting_session_id": self.session.id,
                 "meeting_type": self.session.meeting_type,
                 "agenda": self.session.agenda,
+                "lens_id": self.session.lens_id,
             },
         )
 
-    def _close_session(self, minutes_md: str, action_items: List[Dict[str, Any]]) -> None:
+    def _close_session(
+        self, minutes_md: str, action_items: List[Dict[str, Any]]
+    ) -> None:
         self.session.begin_closing()
         self.session.minutes_md = minutes_md
         self.session.action_items = action_items
+        # Capture state_after snapshot at meeting close
+        self.session.state_after = self._capture_state_snapshot()
         self.session.status = MeetingStatus.CLOSED
         self.session.close()
         self.session_store.update(self.session)
@@ -218,6 +257,7 @@ class MeetingEngine:
                 "meeting_session_id": self.session.id,
                 "round_count": self.session.round_count,
                 "action_item_count": len(action_items),
+                "state_diff": self.session.state_diff,
             },
         )
 
@@ -326,7 +366,10 @@ class MeetingEngine:
                     trace_id=str(uuid.uuid4()),
                 )
                 item["execution_id"] = result.get("execution_id")
-                if item["execution_id"] and item["execution_id"] not in self.session.decisions:
+                if (
+                    item["execution_id"]
+                    and item["execution_id"] not in self.session.decisions
+                ):
                     self.session.decisions.append(item["execution_id"])
                 item["landing_status"] = (
                     "launched" if item.get("execution_id") else "launch_failed"
@@ -343,7 +386,9 @@ class MeetingEngine:
 
         if not item.get("execution_id"):
             item["task_id"] = self._create_action_task(item)
-            item["landing_status"] = "task_created" if item.get("task_id") else "planned"
+            item["landing_status"] = (
+                "task_created" if item.get("task_id") else "planned"
+            )
 
         return item
 
@@ -377,7 +422,9 @@ class MeetingEngine:
             self.tasks_store.create_task(task)
             return task_id
         except Exception as exc:
-            logger.warning("MeetingEngine failed to create action task: %s", exc, exc_info=True)
+            logger.warning(
+                "MeetingEngine failed to create action task: %s", exc, exc_info=True
+            )
             return None
 
     async def _generate_text(self, messages: List[Dict[str, str]]) -> str:
@@ -397,7 +444,9 @@ class MeetingEngine:
                 self.orchestrator.record_retry()
                 await asyncio.sleep(self._retry_delay_seconds(attempt))
 
-        raise RuntimeError(f"Meeting turn generation failed: {last_error}") from last_error
+        raise RuntimeError(
+            f"Meeting turn generation failed: {last_error}"
+        ) from last_error
 
     async def _generate_text_via_llm(self, messages: List[Dict[str, str]]) -> str:
         call_kwargs = {
@@ -427,7 +476,21 @@ class MeetingEngine:
         if not self._agent_executor:
             self._agent_executor = WorkspaceAgentExecutor(self.workspace)
 
-        available = await self._agent_executor.check_agent_available(self.preferred_agent)
+        # Retry availability check to handle transient WS disconnects
+        available = False
+        for attempt in range(3):
+            available = await self._agent_executor.check_agent_available(
+                self.preferred_agent
+            )
+            if available:
+                break
+            if attempt < 2:
+                logger.warning(
+                    "Agent '%s' unavailable (attempt %d/3), retrying...",
+                    self.preferred_agent,
+                    attempt + 1,
+                )
+                await asyncio.sleep(2 * (attempt + 1))
         if not available:
             raise RuntimeError(
                 f"Preferred agent '{self.preferred_agent}' is unavailable in meeting mode"
@@ -511,6 +574,182 @@ class MeetingEngine:
             return float(min(2**attempt, 8))
         return 0.0
 
+    def _build_project_context(self) -> str:
+        """Fetch project data and recent activity to provide meeting context."""
+        if not self.project_id:
+            return ""
+
+        parts: List[str] = []
+        try:
+            project = self.store.get_project(self.project_id)
+            if project:
+                parts.append(f"Project: {getattr(project, 'title', self.project_id)}")
+                ptype = getattr(project, "type", None)
+                if ptype:
+                    parts.append(f"Type: {ptype}")
+                pstate = getattr(project, "state", None)
+                if pstate:
+                    parts.append(f"State: {pstate}")
+                pmeta = getattr(project, "metadata", None)
+                if pmeta and isinstance(pmeta, dict):
+                    summary_keys = [
+                        "goal",
+                        "goals",
+                        "description",
+                        "brief",
+                        "scope",
+                        "deliverables",
+                        "requirements",
+                    ]
+                    for key in summary_keys:
+                        val = pmeta.get(key)
+                        if val:
+                            parts.append(f"{key.capitalize()}: {val}")
+        except Exception as exc:
+            logger.warning("Failed to fetch project for meeting context: %s", exc)
+
+        # Fetch recent events for the project
+        try:
+            recent_events = self.store.get_events_by_project(self.project_id, limit=10)
+            if recent_events:
+                activity_lines = []
+                for ev in recent_events[:5]:
+                    ev_type = getattr(ev, "event_type", "")
+                    payload = getattr(ev, "payload", {}) or {}
+                    summary = (
+                        payload.get("message") or payload.get("title") or str(ev_type)
+                    )
+                    if len(summary) > 120:
+                        summary = summary[:120] + "..."
+                    activity_lines.append(f"  - {summary}")
+                if activity_lines:
+                    parts.append(
+                        "Recent project activity:\n" + "\n".join(activity_lines)
+                    )
+        except Exception as exc:
+            logger.warning("Failed to fetch project events for meeting: %s", exc)
+
+        return "\n".join(parts) if parts else ""
+
+    def _capture_state_snapshot(self) -> Dict[str, Any]:
+        """Capture a point-in-time state snapshot for before/after diff.
+
+        Includes current intents, project state, and active meeting metadata.
+        """
+        snapshot: Dict[str, Any] = {
+            "snapshot_at": datetime.now(timezone.utc).isoformat(),
+            "project_id": self.project_id,
+            "lens_id": self.session.lens_id,
+        }
+        # Capture active intents for this project
+        try:
+            if self.project_id and self.profile_id:
+                intents = self.store.list_intents(
+                    self.profile_id, project_id=self.project_id
+                )
+                snapshot["intent_count"] = len(intents)
+                snapshot["intents"] = [
+                    {
+                        "id": i.id,
+                        "title": i.title,
+                        "status": (
+                            i.status.value
+                            if hasattr(i.status, "value")
+                            else str(i.status)
+                        ),
+                        "priority": (
+                            i.priority.value
+                            if hasattr(i.priority, "value")
+                            else str(i.priority)
+                        ),
+                        "progress": i.progress_percentage,
+                    }
+                    for i in intents[:20]
+                ]
+        except Exception as exc:
+            logger.warning("Failed to capture intent snapshot: %s", exc)
+            snapshot["intents"] = []
+            snapshot["intent_count"] = 0
+
+        # Capture project state
+        try:
+            if self.project_id:
+                project = self.store.get_project(self.project_id)
+                if project:
+                    snapshot["project_state"] = getattr(project, "state", None)
+                    snapshot["project_title"] = getattr(project, "title", None)
+        except Exception as exc:
+            logger.warning("Failed to capture project snapshot: %s", exc)
+
+        return snapshot
+
+    def _get_active_intent_ids(self) -> List[str]:
+        """Return IDs of active intents for this project (for turn trace)."""
+        try:
+            if self.project_id and self.profile_id:
+                from backend.app.models.mindscape import IntentStatus
+
+                intents = self.store.list_intents(
+                    self.profile_id,
+                    project_id=self.project_id,
+                    status=IntentStatus.ACTIVE,
+                )
+                return [i.id for i in intents[:10]]
+        except Exception as exc:
+            logger.warning("Failed to fetch active intent IDs: %s", exc)
+        return []
+
+    def _check_intent_patch_approval(
+        self,
+        intent_id: str,
+        patch_fields: Dict[str, Any],
+        auto_approve_fields: Optional[List[str]] = None,
+    ) -> bool:
+        """Gate for intent mutations during meetings.
+
+        Auto-approves low-risk field updates (progress_percentage, tags).
+        Blocks high-risk mutations (status changes, priority overrides)
+        by returning False — caller must create a DECISION_PROPOSAL event
+        for human review.
+
+        Args:
+            intent_id: The intent being patched.
+            patch_fields: Dict of field_name -> new_value.
+            auto_approve_fields: Fields that can be auto-approved.
+                Defaults to ["progress_percentage", "tags", "metadata"].
+
+        Returns:
+            True if the patch can proceed without human approval.
+        """
+        if auto_approve_fields is None:
+            auto_approve_fields = ["progress_percentage", "tags", "metadata"]
+
+        high_risk_fields = set(patch_fields.keys()) - set(auto_approve_fields)
+        if not high_risk_fields:
+            return True
+
+        # Emit a decision proposal for human review
+        self._emit_event(
+            EventType.DECISION_PROPOSAL,
+            payload={
+                "meeting_session_id": self.session.id,
+                "type": "intent_patch_approval",
+                "intent_id": intent_id,
+                "patch_fields": patch_fields,
+                "high_risk_fields": list(high_risk_fields),
+                "auto_approved_fields": [
+                    f for f in patch_fields if f in auto_approve_fields
+                ],
+                "requires_human_approval": True,
+            },
+        )
+        logger.info(
+            "Intent patch for %s blocked for human approval: high-risk fields %s",
+            intent_id,
+            high_risk_fields,
+        )
+        return False
+
     def _build_turn_prompt(
         self,
         agent_id: str,
@@ -526,8 +765,33 @@ class MeetingEngine:
         latest_proposal = planner_proposals[-1] if planner_proposals else "(none)"
         latest_critic = critic_notes[-1] if critic_notes else "(none)"
 
+        # Locale directive for consistent language output
+        locale_map = {
+            "zh-TW": "Traditional Chinese (zh-TW)",
+            "zh-CN": "Simplified Chinese (zh-CN)",
+            "en": "English",
+            "ja": "Japanese",
+        }
+        locale_label = locale_map.get(self._locale, self._locale)
+        locale_directive = (
+            f"IMPORTANT: All your responses MUST be in {locale_label}. "
+            f"Do not mix languages.\n\n"
+        )
+
+        # Project context block
+        project_block = ""
+        if self._project_context:
+            project_block = (
+                f"=== Project Context ===\n"
+                f"{self._project_context}\n"
+                f"=== End Project Context ===\n\n"
+                f"This meeting is about the project above. "
+                f"All discussion, proposals, and action items must be "
+                f"relevant to this specific project.\n\n"
+            )
+
         common = (
-            f"Meeting session: {self.session.id}\n"
+            locale_directive + project_block + f"Meeting session: {self.session.id}\n"
             f"Round: {round_num}/{max(1, self.session.max_rounds)}\n"
             f"Agenda:\n{agenda_text}\n\n"
             f"User request:\n{user_message}\n\n"
@@ -554,8 +818,7 @@ class MeetingEngine:
                 + "As critic, challenge assumptions, identify risks, and suggest mitigations."
             )
         return (
-            common
-            + "As executor, produce only JSON array with up to 3 action items. "
+            common + "As executor, produce only JSON array with up to 3 action items. "
             'Schema: [{"title":"...","description":"...","assigned_to":"executor",'
             '"priority":"low|medium|high","playbook_code":null}]'
         )
@@ -568,20 +831,18 @@ class MeetingEngine:
             [f"- R{t['round']} {t['role']}: {t['content'][:220]}" for t in recent]
         )
 
-    def _fallback_turn_text(self, agent_id: str, round_num: int, user_message: str) -> str:
+    def _fallback_turn_text(
+        self, agent_id: str, round_num: int, user_message: str
+    ) -> str:
         if agent_id == "facilitator":
             return (
                 f"Round {round_num} facilitation summary for '{user_message[:80]}'. "
                 "Planner and critic inputs consolidated."
             )
         if agent_id == "planner":
-            return (
-                f"Proposal R{round_num}: execute incrementally, track evidence, and verify outcomes."
-            )
+            return f"Proposal R{round_num}: execute incrementally, track evidence, and verify outcomes."
         if agent_id == "critic":
-            return (
-                f"Critique R{round_num}: verify data contract, add rollback checks, and test failure paths."
-            )
+            return f"Critique R{round_num}: verify data contract, add rollback checks, and test failure paths."
         return json.dumps(
             [
                 {
@@ -594,14 +855,18 @@ class MeetingEngine:
             ]
         )
 
-    def _is_converged(self, round_num: int, max_rounds: int, facilitator_text: str) -> bool:
+    def _is_converged(
+        self, round_num: int, max_rounds: int, facilitator_text: str
+    ) -> bool:
         if round_num >= max_rounds:
             return True
         if round_num >= 2 and "[converged]" in facilitator_text.lower():
             return True
         return False
 
-    def _parse_action_items(self, executor_output: str, decision: str) -> List[Dict[str, Any]]:
+    def _parse_action_items(
+        self, executor_output: str, decision: str
+    ) -> List[Dict[str, Any]]:
         payload = self._extract_json_payload(executor_output)
         items: List[Dict[str, Any]] = []
 
@@ -683,6 +948,7 @@ class MeetingEngine:
         return None
 
     def _emit_turn(self, turn: AgentTurnResult) -> None:
+        # Enrich per-turn events with governance trace metadata
         self._emit_event(
             EventType.AGENT_TURN,
             payload={
@@ -691,6 +957,8 @@ class MeetingEngine:
                 "agent_role": turn.agent_role,
                 "round_number": turn.round_number,
                 "content": turn.content,
+                "lens_id": self.session.lens_id,
+                "intent_ids": self._get_active_intent_ids(),
             },
         )
 
@@ -784,13 +1052,15 @@ class MeetingEngine:
         converged: bool,
     ) -> str:
         status = "converged" if converged else "partial"
-        action_lines = "\n".join([
-            (
-                f"| {idx} | {item.get('title', 'Action Item')} | "
-                f"{item.get('assigned_to', 'executor')} | {item.get('priority', 'medium')} |"
-            )
-            for idx, item in enumerate(action_items, start=1)
-        ])
+        action_lines = "\n".join(
+            [
+                (
+                    f"| {idx} | {item.get('title', 'Action Item')} | "
+                    f"{item.get('assigned_to', 'executor')} | {item.get('priority', 'medium')} |"
+                )
+                for idx, item in enumerate(action_items, start=1)
+            ]
+        )
         if not action_lines:
             action_lines = "| 1 | No action item generated | executor | medium |"
         risk_text = "\n".join([f"- {note}" for note in critic_notes]) or "- None"
