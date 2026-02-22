@@ -141,11 +141,14 @@ class PipelineCore:
                     result.meeting_session_id = session.id
 
             # --- Stage 0.5: Meeting branch ---
-            if execution_mode == "meeting":
+            # Enter meeting engine when:
+            # 1. execution_mode explicitly set to "meeting", OR
+            # 2. project.metadata.meeting_enabled == true (resolved at L129-131)
+            if meeting_enabled:
                 if not session:
                     raise RuntimeError("Failed to initialize meeting session")
 
-                from backend.app.services.orchestration.meeting_engine import (
+                from backend.app.services.orchestration.meeting import (
                     MeetingEngine,
                 )
 
@@ -743,7 +746,9 @@ class PipelineCore:
             if not project:
                 return False
             metadata = getattr(project, "metadata", {}) or {}
-            return bool(metadata.get("meeting_enabled"))
+            raw = metadata.get("meeting_enabled")
+            # Strict boolean: only True or "true" (not truthy strings like "1")
+            return raw is True or (isinstance(raw, str) and raw.lower() == "true")
         except Exception as e:
             logger.warning(
                 f"[PipelineCore] Failed to read project meeting flag: {e}",
