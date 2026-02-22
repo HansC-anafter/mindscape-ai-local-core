@@ -26,8 +26,8 @@ import logging
 
 from sqlalchemy import text
 
-from app.database.connection_factory import ConnectionFactory
-from app.models.mindscape import (
+from backend.app.database.connection_factory import ConnectionFactory
+from backend.app.models.mindscape import (
     MindscapeProfile,
     IntentCard,
     AgentExecution,
@@ -43,36 +43,42 @@ from app.models.mindscape import (
     TagCategory,
     EntityTag,
 )
-from app.models.workspace import Workspace
+from backend.app.models.workspace import Workspace
 
 # Import domain stores
-from app.services.stores.profiles_store import ProfilesStore
-from app.services.stores.intents_store import IntentsStore
-from app.services.stores.agent_executions_store import AgentExecutionsStore
-from app.services.stores.events_store import EventsStore
-from app.services.stores.intent_logs_store import IntentLogsStore
-from app.services.stores.entities_store import EntitiesStore
-from app.services.stores.workspaces_store import WorkspacesStore
-from app.services.stores.artifacts_store import ArtifactsStore
-from app.services.stores.mind_lens_store import MindLensStore
-from app.services.stores.lens_composition_store import LensCompositionStore
-from app.services.stores.commands_store import CommandsStore
-from app.services.stores.surface_events_store import SurfaceEventsStore
-from app.services.stores.user_playbook_meta_store import UserPlaybookMetaStore
-from app.services.stores.conversation_threads_store import ConversationThreadsStore
-from app.services.stores.thread_references_store import ThreadReferencesStore
-from app.services.stores.playbook_executions_store import PlaybookExecutionsStore
-from app.services.stores.postgres.mind_lens_store import PostgresMindLensStore
-from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
-from app.services.stores.postgres.profiles_store import PostgresProfilesStore
-from app.services.stores.postgres.workspaces_store import PostgresWorkspacesStore
-from app.services.stores.postgres.projects_store import PostgresProjectsStore
-from app.services.stores.postgres.events_store import PostgresEventsStore
-from app.services.stores.postgres.agent_executions_store import (
+from backend.app.services.stores.profiles_store import ProfilesStore
+from backend.app.services.stores.intents_store import IntentsStore
+from backend.app.services.stores.agent_executions_store import AgentExecutionsStore
+from backend.app.services.stores.events_store import EventsStore
+from backend.app.services.stores.intent_logs_store import IntentLogsStore
+from backend.app.services.stores.entities_store import EntitiesStore
+from backend.app.services.stores.workspaces_store import WorkspacesStore
+from backend.app.services.stores.artifacts_store import ArtifactsStore
+from backend.app.services.stores.mind_lens_store import MindLensStore
+from backend.app.services.stores.lens_composition_store import LensCompositionStore
+from backend.app.services.stores.commands_store import CommandsStore
+from backend.app.services.stores.surface_events_store import SurfaceEventsStore
+from backend.app.services.stores.user_playbook_meta_store import UserPlaybookMetaStore
+from backend.app.services.stores.conversation_threads_store import (
+    ConversationThreadsStore,
+)
+from backend.app.services.stores.thread_references_store import ThreadReferencesStore
+from backend.app.services.stores.playbook_executions_store import (
+    PlaybookExecutionsStore,
+)
+from backend.app.services.stores.postgres.mind_lens_store import PostgresMindLensStore
+from backend.app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
+from backend.app.services.stores.postgres.profiles_store import PostgresProfilesStore
+from backend.app.services.stores.postgres.workspaces_store import (
+    PostgresWorkspacesStore,
+)
+from backend.app.services.stores.postgres.projects_store import PostgresProjectsStore
+from backend.app.services.stores.postgres.events_store import PostgresEventsStore
+from backend.app.services.stores.postgres.agent_executions_store import (
     PostgresAgentExecutionsStore,
 )
-from app.services.stores.postgres.intents_store import PostgresIntentsStore
-from app.services.stores.postgres.remaining_stores import (
+from backend.app.services.stores.postgres.intents_store import PostgresIntentsStore
+from backend.app.services.stores.postgres.remaining_stores import (
     PostgresCommandsStore,
     PostgresConversationThreadsStore,
     PostgresPlaybookExecutionsStore,
@@ -81,7 +87,7 @@ from app.services.stores.postgres.remaining_stores import (
     PostgresUserPlaybookMetaStore,
     PostgresThreadReferencesStore,
 )
-from app.services.stores.projects_store import ProjectsStore
+from backend.app.services.stores.projects_store import ProjectsStore
 
 logger = logging.getLogger(__name__)
 
@@ -356,9 +362,12 @@ class MindscapeStore:
         profile_id: str,
         status: Optional[IntentStatus] = None,
         priority: Optional[PriorityLevel] = None,
+        project_id: Optional[str] = None,
     ) -> List[IntentCard]:
         """List intents for a profile with optional filters"""
-        return self.intents.list_intents(profile_id, status=status, priority=priority)
+        return self.intents.list_intents(
+            profile_id, status=status, priority=priority, project_id=project_id
+        )
 
     def update_intent(self, intent: IntentCard) -> Optional[IntentCard]:
         """Update an existing intent"""
@@ -517,6 +526,23 @@ class MindscapeStore:
             end_time=end_time,
             limit=limit,
             before_id=before_id,
+        )
+
+    def get_events_by_meeting_session(
+        self,
+        meeting_session_id: str,
+        workspace_id: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[MindEvent]:
+        """
+        Get events for one meeting session.
+
+        Reads meeting_session_id from event metadata.
+        """
+        return self.events.get_events_by_meeting_session(
+            meeting_session_id=meeting_session_id,
+            workspace_id=workspace_id,
+            limit=limit,
         )
 
     def get_timeline(
