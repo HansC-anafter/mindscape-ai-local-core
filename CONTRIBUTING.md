@@ -49,6 +49,22 @@ Thank you for your interest in contributing to the `mindscape-ai-local-core` rep
 - **Use Port/Adapter pattern**: All external dependencies should go through Ports
 - **Local-first**: This is a local-only version, no cloud-specific code
 
+### Terminology Guardrails
+
+These rules prevent semantic collisions in code, docs, and PR reviews:
+
+| Term | Scope | Rule |
+|------|-------|------|
+| **Agent** | Identity + long-term consistency | Only refers to AgentSpec / AgentCore (intent, lens, memory + actuator). Never use "agent" to mean a model, a framework, or a tool. |
+| **Executor / Runtime** | Execution environment / dispatch | Refers to external integrations (Gemini CLI, OpenClaw, LangGraph, etc.) that provide compute + sandbox. Never call a runtime an "agent". |
+| **Tool / Skill** | Atomic callable capability | A function or MCP tool. Never personify tools as "agents" — tools don't have identity. |
+
+**Examples:**
+- ✅ "The OpenClaw **runtime** executed the task"
+- ❌ "The OpenClaw **agent** executed the task"
+- ✅ "AgentSpec defines the **agent's** identity"
+- ❌ "The Gemini CLI **agent** is connected"
+
 ### Testing
 
 - Write tests for new features
