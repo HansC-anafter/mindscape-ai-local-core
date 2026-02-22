@@ -96,7 +96,7 @@ class Workspace(BaseModel):
     # Execution mode configuration
     execution_mode: Optional[str] = Field(
         default="qa",
-        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid'",
+        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid' | 'meeting'",
     )
     expected_artifacts: Optional[List[str]] = Field(
         default=None,
@@ -119,23 +119,24 @@ class Workspace(BaseModel):
         "Overrides system default for this workspace.",
     )
 
-    # External Agent configuration (unified for all workspaces)
-    # Users explicitly choose which agent to use; governance applies automatically
-    preferred_agent: Optional[str] = Field(
+    # External Runtime configuration (unified for all workspaces)
+    # Users explicitly choose which runtime to use; governance applies automatically
+    executor_runtime: Optional[str] = Field(
         None,
-        description="Currently selected external agent for task execution (e.g., 'openclaw', 'aider'). "
-        "When set, tasks are routed to this agent instead of Mindscape LLM. "
-        "All workspaces can use external agents - governance/sandbox applies automatically.",
+        description="Currently selected executor runtime for task dispatch "
+        "(e.g., 'openclaw', 'gemini_cli'). When set, tasks are routed to "
+        "this runtime instead of Mindscape LLM. "
+        "All workspaces can use external runtimes - governance/sandbox applies automatically.",
     )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None,
-        description="Sandbox configuration for external agent execution: "
+        description="Sandbox configuration for external runtime execution: "
         "{filesystem_scope: [...], network_allowlist: [...], tool_policies: {...}, max_execution_time_seconds: int}. "
-        "Applied automatically when using external agents.",
+        "Applied automatically when using external runtimes.",
     )
     agent_fallback_enabled: bool = Field(
         default=True,
-        description="If preferred_agent fails or is unavailable, fallback to Mindscape LLM",
+        description="If executor_runtime fails or is unavailable, fallback to Mindscape LLM",
     )
 
     # Extensible metadata for features (core_memory, preferences, etc.)
@@ -196,7 +197,7 @@ class CreateWorkspaceRequest(BaseModel):
         None, description="Artifacts directory name (default: 'artifacts')"
     )
     execution_mode: Optional[str] = Field(
-        None, description="Execution mode: 'qa' | 'execution' | 'hybrid'"
+        None, description="Execution mode: 'qa' | 'execution' | 'hybrid' | 'meeting'"
     )
     expected_artifacts: Optional[List[str]] = Field(
         None, description="Expected artifact types"
@@ -204,16 +205,16 @@ class CreateWorkspaceRequest(BaseModel):
     execution_priority: Optional[str] = Field(
         None, description="Execution priority: 'low' | 'medium' | 'high'"
     )
-    # External Agent configuration (unified for all workspaces)
-    preferred_agent: Optional[str] = Field(
+    # External Runtime configuration (unified for all workspaces)
+    executor_runtime: Optional[str] = Field(
         None,
-        description="Selected external agent (e.g., 'openclaw'). Null = Mindscape LLM",
+        description="Selected executor runtime (e.g., 'openclaw', 'gemini_cli'). Null = Mindscape LLM",
     )
     sandbox_config: Optional[Dict[str, Any]] = Field(
-        None, description="Sandbox configuration for agent execution"
+        None, description="Sandbox configuration for runtime execution"
     )
     agent_fallback_enabled: bool = Field(
-        default=True, description="Fallback to Mindscape LLM if agent fails"
+        default=True, description="Fallback to Mindscape LLM if runtime fails"
     )
     # Workspace launch enhancement fields (optional, can be set via seed/blueprint flow)
     workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
@@ -251,7 +252,7 @@ class UpdateWorkspaceRequest(BaseModel):
         "{playbook_code: {base_path: str, artifacts_dir: str}}",
     )
     execution_mode: Optional[str] = Field(
-        None, description="Execution mode: 'qa' | 'execution' | 'hybrid'"
+        None, description="Execution mode: 'qa' | 'execution' | 'hybrid' | 'meeting'"
     )
     expected_artifacts: Optional[List[str]] = Field(
         None, description="Expected artifact types"
@@ -264,16 +265,16 @@ class UpdateWorkspaceRequest(BaseModel):
         description="Workspace-level capability profile override (fast/standard/precise/tool_strict/safe_write). "
         "Overrides system default for this workspace.",
     )
-    # External Agent configuration (unified for all workspaces)
-    preferred_agent: Optional[str] = Field(
+    # External Runtime configuration (unified for all workspaces)
+    executor_runtime: Optional[str] = Field(
         None,
-        description="Selected external agent (e.g., 'openclaw'). Null = Mindscape LLM",
+        description="Selected executor runtime (e.g., 'openclaw', 'gemini_cli'). Null = Mindscape LLM",
     )
     sandbox_config: Optional[Dict[str, Any]] = Field(
-        None, description="Sandbox configuration for agent execution"
+        None, description="Sandbox configuration for runtime execution"
     )
     agent_fallback_enabled: Optional[bool] = Field(
-        None, description="Fallback to Mindscape LLM if agent fails"
+        None, description="Fallback to Mindscape LLM if runtime fails"
     )
     # Workspace launch enhancement fields (optional)
     workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
@@ -283,6 +284,12 @@ class UpdateWorkspaceRequest(BaseModel):
         None, description="Launch status: pending / ready / active"
     )
     starter_kit_type: Optional[str] = Field(None, description="Starter kit type")
+    # Extensible metadata for governance features (SGR, meeting session, etc.)
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Extensible metadata (merge-update, not replace). "
+        "Used for SGR settings, governance config, and other feature flags.",
+    )
 
 
 class WorkspaceChatRequest(BaseModel):
