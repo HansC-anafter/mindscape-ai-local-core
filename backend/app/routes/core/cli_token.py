@@ -199,7 +199,7 @@ async def get_cli_token():
         settings = SystemSettingsStore()
 
         auth_mode = settings.get("gemini_cli_auth_mode", "gca")
-        agent_model = settings.get("agent_cli_model", "gemini-3-pro")
+        agent_model = settings.get("agent_cli_model", "gemini-2.5-pro")
 
         # ── GCA mode: return stored Google IDP token ──
         if auth_mode == "gca":

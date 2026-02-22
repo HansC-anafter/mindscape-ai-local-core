@@ -141,12 +141,16 @@ export function useChatEvents(
         .filter((e: any) =>
           e.event_type === 'message' ||
           e.event_type === 'playbook_step' ||
-          e.event_type === 'tool_call'
+          e.event_type === 'tool_call' ||
+          e.event_type === 'agent_turn' ||
+          e.event_type === 'pipeline_stage'
         )
         .map((e: any) => ({
           id: e.id,
           role: e.actor === 'user' ? 'user' : 'assistant',
           content: e.payload?.message || e.payload?.text ||
+            (e.event_type === 'agent_turn' ? `[${e.payload?.agent_role || 'Agent'}] ${e.payload?.content || ''}` : '') ||
+            (e.event_type === 'pipeline_stage' ? `${e.payload?.message || e.payload?.stage || 'Processing...'}` : '') ||
             (e.event_type === 'playbook_step' ? `Playbook step: ${e.payload?.step || ''}` : '') ||
             (e.event_type === 'tool_call' ? `Tool: ${e.payload?.tool_fqn || ''}` : ''),
           timestamp: new Date(e.timestamp),
@@ -336,5 +340,4 @@ export function useChatEvents(
     loadMore
   };
 }
-
 

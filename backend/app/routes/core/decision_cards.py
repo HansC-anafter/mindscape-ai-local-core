@@ -548,7 +548,7 @@ class BreakGlassRequestModel(BaseModel):
     task_description: str = Field("", description="Task requiring break-glass")
     duration_minutes: int = Field(15, ge=5, le=60, description="Duration (5-60 min)")
     agent_id: Optional[str] = Field(
-        None, description="Agent requesting (default: workspace.preferred_agent)"
+        None, description="Agent requesting (default: workspace.executor_runtime)"
     )
 
 
@@ -583,11 +583,11 @@ async def request_break_glass(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        agent_id = request.agent_id or getattr(workspace, "preferred_agent", None)
+        agent_id = request.agent_id or getattr(workspace, "executor_runtime", None)
         if not agent_id:
             raise HTTPException(
                 status_code=400,
-                detail="agent_id required (workspace has no preferred_agent)",
+                detail="agent_id required (workspace has no executor_runtime)",
             )
 
         service = get_break_glass_service()

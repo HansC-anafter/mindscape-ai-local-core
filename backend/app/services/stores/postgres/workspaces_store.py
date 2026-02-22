@@ -197,7 +197,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     workspace_blueprint = :workspace_blueprint,
                     launch_status = :launch_status,
                     starter_kit_type = :starter_kit_type,
-                    preferred_agent = :preferred_agent,
+                    executor_runtime = :executor_runtime,
                     sandbox_config = :sandbox_config,
                     doer_fallback_to_mindscape = :doer_fallback_to_mindscape,
                     updated_at = :updated_at
@@ -279,7 +279,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else LaunchStatus.PENDING.value
                 ),
                 "starter_kit_type": workspace.starter_kit_type,
-                "preferred_agent": workspace.preferred_agent,
+                "executor_runtime": workspace.executor_runtime,
                 "sandbox_config": (
                     self.serialize_json(workspace.sandbox_config)
                     if workspace.sandbox_config
@@ -387,7 +387,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             workspace_blueprint=workspace_blueprint,
             launch_status=launch_status,
             starter_kit_type=row.starter_kit_type,
-            preferred_agent=getattr(row, "preferred_agent", None),
+            executor_runtime=getattr(row, "executor_runtime", None),
             sandbox_config=self.deserialize_json(getattr(row, "sandbox_config", None)),
             doer_fallback_to_mindscape=getattr(row, "doer_fallback_to_mindscape", True),
             created_at=row.created_at,

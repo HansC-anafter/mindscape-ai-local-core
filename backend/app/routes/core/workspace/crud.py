@@ -639,6 +639,15 @@ async def update_workspace(
                 f"Updated capability_profile for workspace {workspace_id}: {request.capability_profile}"
             )
 
+        # Handle metadata merge-update (governance features, SGR settings, etc.)
+        if hasattr(request, "metadata") and request.metadata is not None:
+            existing_meta = workspace.metadata or {}
+            existing_meta.update(request.metadata)
+            workspace.metadata = existing_meta
+            logger.info(
+                f"Merged metadata for workspace {workspace_id}: keys={list(request.metadata.keys())}"
+            )
+
         # If path changed, record warning to event system
         if storage_path_changed:
             warning_event = MindEvent(

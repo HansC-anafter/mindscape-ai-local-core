@@ -74,15 +74,23 @@ class ChatOrchestratorService:
                 detect_and_create_project_if_needed,
             )
 
+            # Respect explicit project context from frontend first.
+            requested_project_id = request.project_id
             project_id, _ = await detect_and_create_project_if_needed(
                 message=request.message,
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 store=self.orchestrator.store,
                 workspace=workspace,
-                existing_project_id=None,
+                existing_project_id=requested_project_id,
                 create_on_medium_confidence=True,
             )
+            if requested_project_id and project_id != requested_project_id:
+                logger.warning(
+                    "[AsyncChat] Project resolution mismatch: requested=%s resolved=%s",
+                    requested_project_id,
+                    project_id,
+                )
 
             # Thread ID
             thread_id = request.thread_id
@@ -255,13 +263,13 @@ class ChatOrchestratorService:
                 user_event.id,
             )
 
-            # Check if workspace has preferred_agent
+            # Check if workspace has executor_runtime
             # If so, route to WorkspaceAgentExecutor instead of LLM
-            preferred_agent = getattr(workspace, "preferred_agent", None)
+            executor_runtime = getattr(workspace, "executor_runtime", None)
 
-            if preferred_agent:
+            if executor_runtime:
                 logger.info(
-                    f"[AsyncChat] Workspace has preferred_agent={preferred_agent}, "
+                    f"[AsyncChat] Workspace has executor_runtime={executor_runtime}, "
                     f"routing to WorkspaceAgentExecutor"
                 )
 
@@ -272,19 +280,19 @@ class ChatOrchestratorService:
 
                 # Pre-check: is the agent runtime actually connected?
                 executor = WorkspaceAgentExecutor(workspace)
-                agent_available = await executor.check_agent_available(preferred_agent)
+                agent_available = await executor.check_agent_available(executor_runtime)
 
                 if not agent_available:
                     await self._create_error_event(
                         workspace_id,
                         profile_id,
                         thread_id,
-                        f"Agent {preferred_agent} is unavailable: "
+                        f"Agent {executor_runtime} is unavailable: "
                         f"no runtime connected. "
                         f"Start the CLI bridge or switch to Mindscape LLM.",
                     )
                     logger.warning(
-                        f"[AsyncChat] Agent {preferred_agent} unavailable, "
+                        f"[AsyncChat] Agent {executor_runtime} unavailable, "
                         f"no runtime connected"
                     )
                     return
@@ -296,7 +304,7 @@ class ChatOrchestratorService:
                         thread_id,
                         project_id,
                         "agent_dispatching",
-                        f"Dispatching task to agent {preferred_agent}...",
+                        f"Dispatching task to agent {executor_runtime}...",
                         user_event_id or event_id,
                     )
 
@@ -324,7 +332,7 @@ class ChatOrchestratorService:
 
                     agent_response: AgentExecutionResponse = await executor.execute(
                         task=request.message,
-                        agent_id=preferred_agent,
+                        agent_id=executor_runtime,
                         context_overrides={
                             "conversation_context": conversation_context or "",
                             "thread_id": thread_id,
@@ -369,14 +377,14 @@ class ChatOrchestratorService:
                             event_type=EventType.MESSAGE,
                             payload={
                                 "message": agent_response.output,
-                                "agent_id": preferred_agent,
+                                "agent_id": executor_runtime,
                                 "trace_id": agent_response.trace_id,
                                 "execution_time": agent_response.execution_time_seconds,
                             },
                             entity_ids=[],
                             metadata={
                                 "external_agent": True,
-                                "agent_id": preferred_agent,
+                                "agent_id": executor_runtime,
                             },
                         )
                         loop = asyncio.get_running_loop()
@@ -387,7 +395,7 @@ class ChatOrchestratorService:
                             ),
                         )
                         logger.info(
-                            f"[AsyncChat] External agent {preferred_agent} completed, "
+                            f"[AsyncChat] External agent {executor_runtime} completed, "
                             f"trace_id={agent_response.trace_id}"
                         )
                         return  # Agent succeeded, done
@@ -400,15 +408,15 @@ class ChatOrchestratorService:
                         workspace_id,
                         profile_id,
                         thread_id,
-                        f"Agent {preferred_agent} execution failed: {error_msg}. "
+                        f"Agent {executor_runtime} execution failed: {error_msg}. "
                         f"Check the CLI bridge logs or switch to Mindscape LLM.",
                         retry_data={
                             "message": request.message,
-                            "agent_id": preferred_agent,
+                            "agent_id": executor_runtime,
                         },
                     )
                     logger.error(
-                        f"[AsyncChat] External agent {preferred_agent} failed: "
+                        f"[AsyncChat] External agent {executor_runtime} failed: "
                         f"{error_msg}"
                     )
                     logger.warning(
@@ -500,7 +508,7 @@ class ChatOrchestratorService:
                 pass
 
             if sgr_enabled:
-                from app.services.sgr_reasoning_service import SGRReasoningService
+                from backend.app.services.sgr_reasoning_service import SGRReasoningService
 
                 sgr_service = SGRReasoningService()
                 messages = sgr_service.inject_sgr_prompt(messages)

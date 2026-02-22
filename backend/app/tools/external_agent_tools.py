@@ -55,7 +55,7 @@ async def execute_agent(
     import uuid
     from backend.app.services.external_agents import (
         get_agent_registry,
-        AgentRequest,
+        RuntimeExecRequest,
     )
     from backend.app.services.external_agents.core.execution_trace import (
         ExecutionTraceCollector,
@@ -170,7 +170,7 @@ async def execute_agent(
         }
 
     # Build request
-    request = AgentRequest(
+    request = RuntimeExecRequest(
         task=task,
         sandbox_path=str(sandbox_path),
         allowed_tools=allowed_tools or ["file", "web_search"],

@@ -1,8 +1,8 @@
 """
-Polling Agent Adapter
+Polling Runtime Adapter
 
-Base class for agents dispatched via the REST Polling + DB-primary pipeline.
-Concrete adapters only need to set AGENT_NAME and optionally override timeouts.
+Base class for runtimes dispatched via the REST Polling + DB-primary pipeline.
+Concrete adapters only need to set RUNTIME_NAME and optionally override timeouts.
 
 Architecture:
   - DB (TasksStore): source of truth for task state
@@ -18,23 +18,23 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from backend.app.services.external_agents.core.base_adapter import (
-    BaseAgentAdapter,
-    AgentRequest,
-    AgentResponse,
+    BaseRuntimeAdapter,
+    RuntimeExecRequest,
+    RuntimeExecResponse,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def build_dispatch_payload(
-    request: AgentRequest,
+    request: RuntimeExecRequest,
     execution_id: str,
     agent_id: str,
 ) -> Dict[str, Any]:
     """
-    Build a transport-agnostic dispatch payload from an AgentRequest.
+    Build a transport-agnostic dispatch payload from a RuntimeExecRequest.
 
-    This is the unified contract shared across all polling-based agents.
+    This is the unified contract shared across all polling-based runtimes.
     """
     # Extract conversation context and thread_id from agent_config
     # These are injected by chat_orchestrator_service when routing to agent
@@ -58,11 +58,11 @@ def build_dispatch_payload(
     }
 
 
-class PollingAgentAdapter(BaseAgentAdapter):
+class PollingRuntimeAdapter(BaseRuntimeAdapter):
     """
-    Base class for agents dispatched via REST Polling + DB persistence.
+    Base class for runtimes dispatched via REST Polling + DB persistence.
 
-    Subclasses only need to set AGENT_NAME (and optionally override timeouts).
+    Subclasses only need to set RUNTIME_NAME (and optionally override timeouts).
     All dispatch lifecycle logic is handled here:
       1. Persist task to DB (source of truth)
       2. Enqueue for runner pickup
@@ -70,13 +70,13 @@ class PollingAgentAdapter(BaseAgentAdapter):
       4. On timeout, check DB for results landed after restart
 
     Usage:
-        class CodexCLIAdapter(PollingAgentAdapter):
-            AGENT_NAME = "codex_cli"
-            AGENT_VERSION = "1.0.0"
+        class CodexCLIAdapter(PollingRuntimeAdapter):
+            RUNTIME_NAME = "codex_cli"
+            RUNTIME_VERSION = "1.0.0"
     """
 
-    AGENT_NAME: str = "polling_agent"
-    AGENT_VERSION: str = "1.0.0"
+    RUNTIME_NAME: str = "polling_agent"
+    RUNTIME_VERSION: str = "1.0.0"
 
     ALWAYS_DENIED_TOOLS = [
         "system.run",
@@ -102,7 +102,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
 
     async def is_available(self) -> bool:
         """
-        Check if this agent's CLI is actually installed on the host.
+        Check if this runtime's CLI is actually installed on the host.
 
         Uses shutil.which() to detect CLI binaries. Results are cached
         for 30 seconds to avoid repeated subprocess lookups.
@@ -123,7 +123,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
                 AGENT_CLI_MAP,
             )
 
-            agent_info = AGENT_CLI_MAP.get(self.AGENT_NAME)
+            agent_info = AGENT_CLI_MAP.get(self.RUNTIME_NAME)
             if not agent_info:
                 # Agent not in CLI map — cannot verify installation
                 self._available_cache = False
@@ -138,34 +138,34 @@ class PollingAgentAdapter(BaseAgentAdapter):
                 self._available_cache = True
                 self._available_cache_time = now
                 self._version_cache = f"cli-detected:{cli_path}"
-                logger.info(f"{self.AGENT_NAME} CLI available at {cli_path}")
+                logger.info(f"{self.RUNTIME_NAME} CLI available at {cli_path}")
                 return True
 
             self._available_cache = False
             self._available_cache_time = now
             self._version_cache = "cli-not-found"
-            logger.debug(f"{self.AGENT_NAME} CLI not found (tried: {command})")
+            logger.debug(f"{self.RUNTIME_NAME} CLI not found (tried: {command})")
             return False
 
         except Exception as e:
-            logger.warning(f"CLI detection failed for {self.AGENT_NAME}: {e}")
+            logger.warning(f"CLI detection failed for {self.RUNTIME_NAME}: {e}")
             self._available_cache = False
             self._available_cache_time = now
             return False
 
-    async def execute(self, request: AgentRequest) -> AgentResponse:
+    async def execute(self, request: RuntimeExecRequest) -> RuntimeExecResponse:
         """
         Execute a task by dispatching via REST polling pipeline.
 
         Flow: persist to DB → enqueue → wait Future → return result
         """
-        # Fail-fast: reject if AGENT_NAME is still the base default
-        if self.AGENT_NAME == "polling_agent":
-            return AgentResponse(
+        # Fail-fast: reject if RUNTIME_NAME is still the base default
+        if self.RUNTIME_NAME == "polling_agent":
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=0,
-                error="Cannot dispatch: adapter AGENT_NAME not set "
+                error="Cannot dispatch: adapter RUNTIME_NAME not set "
                 "(still using base class default).",
                 exit_code=-1,
             )
@@ -176,8 +176,8 @@ class PollingAgentAdapter(BaseAgentAdapter):
         try:
             response = await self._execute_via_polling(request, execution_id)
         except Exception as e:
-            logger.exception(f"[{self.AGENT_NAME}] execution failed")
-            response = AgentResponse(
+            logger.exception(f"[{self.RUNTIME_NAME}] execution failed")
+            response = RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=0,
@@ -190,9 +190,9 @@ class PollingAgentAdapter(BaseAgentAdapter):
 
     async def _execute_via_polling(
         self,
-        request: AgentRequest,
+        request: RuntimeExecRequest,
         execution_id: str,
-    ) -> AgentResponse:
+    ) -> RuntimeExecResponse:
         """
         Queue task for REST Polling pickup by runner, then wait for result.
 
@@ -210,7 +210,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
         )
 
         start_time = time.monotonic()
-        payload = build_dispatch_payload(request, execution_id, self.AGENT_NAME)
+        payload = build_dispatch_payload(request, execution_id, self.RUNTIME_NAME)
         dispatch_payload = {"type": "dispatch", **payload}
         workspace_id = request.workspace_id or ""
 
@@ -230,16 +230,16 @@ class PollingAgentAdapter(BaseAgentAdapter):
                 workspace_id=workspace_id,
                 message_id=execution_id,
                 execution_id=execution_id,
-                pack_id=self.AGENT_NAME,
+                pack_id=self.RUNTIME_NAME,
                 task_type="agent_dispatch",
                 status=TaskStatus.PENDING,
                 params=dispatch_payload,
             )
             TasksStore().create_task(task_record)
-            logger.info(f"[{self.AGENT_NAME}] Persisted task {execution_id} to DB")
+            logger.info(f"[{self.RUNTIME_NAME}] Persisted task {execution_id} to DB")
         except Exception as e:
             logger.warning(
-                f"[{self.AGENT_NAME}] Failed to persist task "
+                f"[{self.RUNTIME_NAME}] Failed to persist task "
                 f"{execution_id} to DB: {e}"
             )
 
@@ -262,7 +262,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
         )
         manager._enqueue_pending(pending)
         logger.info(
-            f"[{self.AGENT_NAME}] Enqueued task {execution_id} for workspace "
+            f"[{self.RUNTIME_NAME}] Enqueued task {execution_id} for workspace "
             f"{workspace_id}, waiting for result..."
         )
 
@@ -276,7 +276,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
             status = raw_result.get("status", "completed")
             error = raw_result.get("error")
 
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=(status == "completed"),
                 output=output or "Task completed.",
                 duration_seconds=elapsed,
@@ -293,7 +293,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
             manager._inflight.pop(execution_id, None)
             elapsed = time.monotonic() - start_time
             logger.warning(
-                f"[{self.AGENT_NAME}] Timed out waiting for result on "
+                f"[{self.RUNTIME_NAME}] Timed out waiting for result on "
                 f"{execution_id} after {elapsed:.1f}s"
             )
 
@@ -305,11 +305,11 @@ class PollingAgentAdapter(BaseAgentAdapter):
                 db_task = TasksStore().get_task(execution_id)
                 if db_task and db_task.status == TaskStatus.SUCCEEDED:
                     logger.info(
-                        f"[{self.AGENT_NAME}] DB recovery: found completed "
+                        f"[{self.RUNTIME_NAME}] DB recovery: found completed "
                         f"task {execution_id}"
                     )
                     result_data = db_task.result or {}
-                    return AgentResponse(
+                    return RuntimeExecResponse(
                         success=True,
                         output=result_data.get(
                             "output", "Task completed (recovered from DB)."
@@ -326,10 +326,10 @@ class PollingAgentAdapter(BaseAgentAdapter):
                     )
                 if db_task and db_task.status == TaskStatus.FAILED:
                     logger.info(
-                        f"[{self.AGENT_NAME}] DB recovery: found failed "
+                        f"[{self.RUNTIME_NAME}] DB recovery: found failed "
                         f"task {execution_id}"
                     )
-                    return AgentResponse(
+                    return RuntimeExecResponse(
                         success=False,
                         output="",
                         duration_seconds=elapsed,
@@ -344,11 +344,11 @@ class PollingAgentAdapter(BaseAgentAdapter):
                     )
             except Exception as db_err:
                 logger.warning(
-                    f"[{self.AGENT_NAME}] DB recovery check failed for "
+                    f"[{self.RUNTIME_NAME}] DB recovery check failed for "
                     f"{execution_id}: {db_err}"
                 )
 
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=elapsed,
@@ -362,3 +362,7 @@ class PollingAgentAdapter(BaseAgentAdapter):
                     "status": "timeout",
                 },
             )
+
+
+# Backward compatibility alias
+PollingAgentAdapter = PollingRuntimeAdapter

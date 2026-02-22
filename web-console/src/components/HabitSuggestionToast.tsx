@@ -35,7 +35,7 @@ export default function HabitSuggestionToast({
       setLoading(true);
       const data = await getCandidates(profileId, 'pending', 10);
       setCandidates(data);
-      
+
       // 如果有新的候選且 autoShow 為 true，顯示第一個
       if (data.length > 0 && autoShow && !visible) {
         setCurrentIndex(0);
@@ -51,7 +51,7 @@ export default function HabitSuggestionToast({
   // 初始載入和定期檢查
   useEffect(() => {
     loadCandidates();
-    
+
     if (autoShow) {
       const interval = setInterval(loadCandidates, checkInterval);
       return () => clearInterval(interval);
@@ -66,11 +66,11 @@ export default function HabitSuggestionToast({
     try {
       setLoading(true);
       await confirmCandidate(candidate.candidate.id, profileId);
-      
+
       // 從列表中移除
       const newCandidates = candidates.filter((_, idx) => idx !== currentIndex);
       setCandidates(newCandidates);
-      
+
       // 如果有下一個，顯示下一個；否則隱藏
       if (newCandidates.length > 0) {
         setCurrentIndex(Math.min(currentIndex, newCandidates.length - 1));
@@ -80,7 +80,7 @@ export default function HabitSuggestionToast({
       }
 
       onConfirm?.(candidate.candidate.id);
-      
+
       // 顯示成功訊息
       alert(t('habitConfirmSuccess' as any));
     } catch (error: any) {
@@ -98,11 +98,11 @@ export default function HabitSuggestionToast({
     try {
       setLoading(true);
       await rejectCandidate(candidate.candidate.id, profileId);
-      
+
       // 從列表中移除
       const newCandidates = candidates.filter((_, idx) => idx !== currentIndex);
       setCandidates(newCandidates);
-      
+
       // 如果有下一個，顯示下一個；否則隱藏
       if (newCandidates.length > 0) {
         setCurrentIndex(Math.min(currentIndex, newCandidates.length - 1));
@@ -112,7 +112,7 @@ export default function HabitSuggestionToast({
       }
 
       onReject?.(candidate.candidate.id);
-      
+
       // 顯示成功訊息
       alert(t('habitRejectSuccess' as any));
     } catch (error: any) {
@@ -156,7 +156,7 @@ export default function HabitSuggestionToast({
     language: t('language' as any) || '語言',
     communication_style: '溝通風格',
     response_length: '回應長度',
-    preferred_agent_type: '偏好的 Agent 類型',
+    executor_runtime_type: 'Preferred agent type',
     tool_usage: '工具使用',
     playbook_usage: 'Playbook 使用',
   };

@@ -1,7 +1,7 @@
 """
 Agent Registry
 
-Auto-discovers and registers external agent adapters from the agents/ directory.
+Auto-discovers and registers external runtime adapters from the agents/ directory.
 Each agent should have an AGENT.md manifest file.
 """
 
@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_YAML = False
 
-from backend.app.services.external_agents.core.base_adapter import BaseAgentAdapter
+from backend.app.services.external_agents.core.base_adapter import BaseRuntimeAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class AgentRegistry:
 
     def __init__(self):
         """Initialize the registry."""
-        self._adapters: Dict[str, BaseAgentAdapter] = {}
+        self._adapters: Dict[str, BaseRuntimeAdapter] = {}
         self._manifests: Dict[str, AgentManifest] = {}
         self._agents_dir = Path(__file__).parent.parent / "agents"
 
@@ -107,7 +107,7 @@ class AgentRegistry:
 
         Each agent directory should contain:
         - AGENT.md: Manifest with metadata (YAML frontmatter)
-        - adapter.py: Implementation of BaseAgentAdapter
+        - adapter.py: Implementation of BaseRuntimeAdapter
         """
         if not self._agents_dir.exists():
             logger.warning(f"Agents directory not found: {self._agents_dir}")
@@ -211,7 +211,7 @@ class AgentRegistry:
 
     def _load_adapter(
         self, agent_name: str, adapter_path: Path
-    ) -> Optional[BaseAgentAdapter]:
+    ) -> Optional[BaseRuntimeAdapter]:
         """Dynamically load an adapter module."""
         import importlib.util
 
@@ -230,14 +230,14 @@ class AgentRegistry:
             obj = getattr(module, name)
             if (
                 isinstance(obj, type)
-                and issubclass(obj, BaseAgentAdapter)
-                and obj is not BaseAgentAdapter
+                and issubclass(obj, BaseRuntimeAdapter)
+                and obj is not BaseRuntimeAdapter
             ):
                 return obj()
 
         return None
 
-    def get_adapter(self, agent_name: str) -> Optional[BaseAgentAdapter]:
+    def get_adapter(self, agent_name: str) -> Optional[BaseRuntimeAdapter]:
         """Get an adapter by name."""
         return self._adapters.get(agent_name)
 

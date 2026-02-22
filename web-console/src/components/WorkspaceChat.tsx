@@ -40,7 +40,7 @@ import { ErrorDisplay } from './workspace/ErrorDisplay';
 import { ProcessingIndicator } from './workspace/ProcessingIndicator';
 import { formatExecutionSummary, createPlaybookErrorMessage, createAgentModeMessage, createExecutionModeMessage } from '@/utils/messageUtils';
 
-type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
+type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
 
 interface WorkspaceChatProps {
   workspaceId: string;

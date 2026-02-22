@@ -1,12 +1,12 @@
 """
-Workspace Agent Configuration API Routes
+Workspace Runtime Configuration API Routes
 
-Unified API for configuring external agents in any workspace.
-All workspaces are treated equally - users explicitly choose which agent to use.
+Unified API for configuring executor runtimes in any workspace.
+All workspaces are treated equally - users explicitly choose which runtime to use.
 Governance and sandbox isolation apply automatically.
 
 Note: This was previously named "Doer Workspace" but the concept was simplified.
-      Now every workspace can use external agents with automatic governance.
+      Now every workspace can use external runtimes with automatic governance.
 """
 
 import logging
@@ -39,11 +39,12 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigureAgentRequest(BaseModel):
-    """Request to configure external agent for a workspace"""
+    """Request to configure executor runtime for a workspace"""
 
-    preferred_agent: Optional[str] = Field(
+    executor_runtime: Optional[str] = Field(
         None,
-        description="External agent to use (e.g., 'openclaw', 'aider'). Set to null to use Mindscape LLM.",
+        description="Executor runtime to use (e.g., 'openclaw', 'gemini_cli'). "
+        "Set to null to use Mindscape LLM.",
     )
     config_preset: Optional[str] = Field(
         "balanced",
@@ -67,10 +68,10 @@ class AvailableAgentInfo(BaseModel):
 
 
 class AgentConfigResponse(BaseModel):
-    """Response containing workspace agent configuration"""
+    """Response containing workspace runtime configuration"""
 
     workspace_id: str
-    preferred_agent: Optional[str]
+    executor_runtime: Optional[str]
     agent_status: Optional[dict] = None
     sandbox_config: Optional[DoerWorkspaceConfig] = None
     available_presets: List[str] = ["conservative", "balanced", "permissive"]
@@ -85,10 +86,10 @@ async def get_agent_config(
     workspace_id: str = Path(..., description="Workspace ID"),
 ) -> AgentConfigResponse:
     """
-    Get workspace agent configuration.
+    Get workspace runtime configuration.
 
-    Returns the current agent configuration including sandbox settings
-    and agent status. Works for any workspace.
+    Returns the current runtime configuration including sandbox settings
+    and runtime status. Works for any workspace.
     """
     store = MindscapeStore()
 
@@ -97,17 +98,17 @@ async def get_agent_config(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        # Get agent status if preferred_agent is set
+        # Get agent status if executor_runtime is set
         agent_status = None
-        if workspace.preferred_agent:
+        if workspace.executor_runtime:
             try:
                 from backend.app.routes.core.system_settings.governance_tools import (
                     get_agent_install_status,
                 )
 
-                status = get_agent_install_status(workspace.preferred_agent)
+                status = get_agent_install_status(workspace.executor_runtime)
                 agent_status = {
-                    "agent_id": workspace.preferred_agent,
+                    "agent_id": workspace.executor_runtime,
                     "status": status.status,
                     "cli_available": status.cli_available,
                     "version": status.version,
@@ -125,7 +126,7 @@ async def get_agent_config(
 
         return AgentConfigResponse(
             workspace_id=workspace_id,
-            preferred_agent=workspace.preferred_agent,
+            executor_runtime=workspace.executor_runtime,
             agent_status=agent_status,
             sandbox_config=sandbox_config,
             agent_fallback_enabled=getattr(workspace, "agent_fallback_enabled", True),
@@ -144,9 +145,9 @@ async def configure_agent(
     request: ConfigureAgentRequest = Body(...),
 ) -> AgentConfigResponse:
     """
-    Configure external agent for a workspace.
+    Configure executor runtime for a workspace.
 
-    Any workspace can use external agents. Governance and sandbox
+    Any workspace can use external runtimes. Governance and sandbox
     isolation apply automatically based on the configuration.
     """
     store = MindscapeStore()
@@ -156,19 +157,19 @@ async def configure_agent(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        # Validate preferred_agent if provided
-        if request.preferred_agent:
+        # Validate executor_runtime if provided
+        if request.executor_runtime:
             registry = get_agent_registry()
-            if request.preferred_agent not in registry.list_agents():
+            if request.executor_runtime not in registry.list_agents():
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Unknown agent: {request.preferred_agent}. "
+                    detail=f"Unknown runtime: {request.executor_runtime}. "
                     f"Available: {', '.join(registry.list_agents())}",
                 )
 
         # Get sandbox config from preset
         sandbox_config = None
-        if request.preferred_agent:
+        if request.executor_runtime:
             preset_name = request.config_preset or "balanced"
             if preset_name not in DOER_CONFIG_PRESETS:
                 raise HTTPException(
@@ -192,7 +193,7 @@ async def configure_agent(
         await store.update_workspace(
             workspace_id,
             {
-                "preferred_agent": request.preferred_agent,
+                "executor_runtime": request.executor_runtime,
                 "sandbox_config": (
                     sandbox_config.model_dump() if sandbox_config else None
                 ),
@@ -200,7 +201,7 @@ async def configure_agent(
             },
         )
 
-        agent_desc = request.preferred_agent or "Mindscape LLM"
+        agent_desc = request.executor_runtime or "Mindscape LLM"
         logger.info(f"Workspace {workspace_id} configured to use {agent_desc}")
 
         return await get_agent_config(workspace_id)
@@ -229,7 +230,7 @@ async def update_agent_config(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        if not workspace.preferred_agent:
+        if not workspace.executor_runtime:
             raise HTTPException(
                 status_code=400,
                 detail="No agent configured. Use POST /agent-config first.",
@@ -287,7 +288,7 @@ async def clear_agent_config(
         await store.update_workspace(
             workspace_id,
             {
-                "preferred_agent": None,
+                "executor_runtime": None,
                 "sandbox_config": None,
                 "updated_at": _utc_now(),
             },
@@ -373,9 +374,9 @@ async def set_preferred_agent(
     agent_id: Optional[str] = Body(None, embed=True, description="Agent ID to set"),
 ) -> dict:
     """
-    Set or clear the preferred agent for a workspace.
+    Set or clear the executor runtime for a workspace.
 
-    If agent_id is null/None, clears the preferred agent (uses Mindscape LLM).
+    If agent_id is null/None, clears the runtime (uses Mindscape LLM).
     Sandbox configuration will be set to 'balanced' preset automatically.
     """
     store = MindscapeStore()
@@ -397,7 +398,7 @@ async def set_preferred_agent(
 
         # Prepare update
         update_data = {
-            "preferred_agent": agent_id,
+            "executor_runtime": agent_id,
             "updated_at": _utc_now(),
         }
 
@@ -411,7 +412,7 @@ async def set_preferred_agent(
             update_data["sandbox_config"] = None
 
         # Apply updates to workspace object
-        workspace.preferred_agent = update_data.get("preferred_agent")
+        workspace.executor_runtime = update_data.get("executor_runtime")
         workspace.updated_at = update_data.get("updated_at")
         if "sandbox_config" in update_data:
             workspace.sandbox_config = update_data.get("sandbox_config")
@@ -419,17 +420,17 @@ async def set_preferred_agent(
         await store.update_workspace(workspace)
 
         action = f"set to {agent_id}" if agent_id else "cleared (using Mindscape LLM)"
-        logger.info(f"Preferred agent {action} for workspace {workspace_id}")
+        logger.info(f"Executor runtime {action} for workspace {workspace_id}")
 
         return {
             "success": True,
             "workspace_id": workspace_id,
-            "preferred_agent": agent_id,
-            "message": f"Preferred agent {action}",
+            "executor_runtime": agent_id,
+            "message": f"Executor runtime {action}",
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to set preferred agent: {e}", exc_info=True)
+        logger.error(f"Failed to set executor runtime: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

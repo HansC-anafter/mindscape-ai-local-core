@@ -17,7 +17,7 @@ import { ProcessingIndicator } from './ProcessingIndicator';
 interface MessagesContainerProps {
   workspaceId: string;
   apiUrl: string;
-  executionMode?: 'qa' | 'execution' | 'hybrid';
+  executionMode?: 'qa' | 'execution' | 'hybrid' | 'meeting';
   expectedArtifacts?: string[];
   onExecuteSuggestion?: (suggestion: Suggestion) => Promise<void>;
   onRetry?: (retryData: { message: string; agent_id?: string }) => void;

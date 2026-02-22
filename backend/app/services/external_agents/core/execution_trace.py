@@ -1,7 +1,7 @@
 """
 Execution Trace Collector
 
-Collects and structures execution traces from external agents
+Collects and structures execution traces from external runtime adapters
 for integration with Mindscape's Asset Provenance system.
 """
 
@@ -159,17 +159,17 @@ class ExecutionTraceCollector:
 
     def collect_from_response(
         self,
-        response: "AgentResponse",  # noqa: F821 - forward reference
-        request: "AgentRequest",  # noqa: F821 - forward reference
+        response: "RuntimeExecResponse",  # noqa: F821 - forward reference
+        request: "RuntimeExecRequest",  # noqa: F821 - forward reference
         agent_type: str = "unknown",
         execution_id: Optional[str] = None,
     ) -> ExecutionTrace:
         """
-        Collect execution trace from a generic AgentResponse.
+        Collect execution trace from a generic RuntimeExecResponse.
 
         Args:
-            response: The AgentResponse from any adapter
-            request: The original AgentRequest
+            response: The RuntimeExecResponse from any adapter
+            request: The original RuntimeExecRequest
             agent_type: Type of agent (e.g., 'openclaw', 'autogpt')
             execution_id: Optional custom execution ID
 
@@ -243,16 +243,16 @@ class ExecutionTraceCollector:
 
     def collect_from_openclaw(
         self,
-        response: "AgentResponse",  # noqa: F821 - forward reference
-        request: "AgentRequest",  # noqa: F821 - forward reference
+        response: "RuntimeExecResponse",  # noqa: F821 - forward reference
+        request: "RuntimeExecRequest",  # noqa: F821 - forward reference
         execution_id: Optional[str] = None,
     ) -> ExecutionTrace:
         """
         Collect execution trace from an OpenClaw response.
 
         Args:
-            response: The AgentResponse from adapter
-            request: The original AgentRequest
+            response: The RuntimeExecResponse from adapter
+            request: The original RuntimeExecRequest
             execution_id: Optional custom execution ID
 
         Returns:

@@ -41,6 +41,17 @@ interface ProjectCardData {
     name: string;
     description: string;
   }>;
+  meeting?: {
+    enabled: boolean;
+    active: boolean;
+    session_id?: string | null;
+    status?: string | null;
+    round_count?: number;
+    max_rounds?: number;
+    action_item_count?: number;
+    last_activity?: string | null;
+    minutes_preview?: string;
+  };
 }
 
 interface ProjectCardProps {
@@ -130,6 +141,7 @@ export default function ProjectCard({
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const [cardData, setCardData] = useState<ProjectCardData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [meetingUpdating, setMeetingUpdating] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
   const loadingRef = useRef(false);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -194,13 +206,13 @@ export default function ProjectCard({
   useEffect(() => {
     // Load data when component mounts or when project changes, not just when expanded
     // This ensures statistics are visible even when card is collapsed
-    if (cardData || loadingRef.current || !apiUrl || !workspaceId) {
+    if (cardData || loadingRef.current || !apiUrl || !effectiveWorkspaceId) {
       return;
     }
 
     loadingRef.current = true;
     setLoading(true);
-    const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${project.id}/card`;
+    const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
     console.log('[ProjectCard] Loading card data from:', url);
 
     let isMounted = true;
@@ -252,7 +264,166 @@ export default function ProjectCard({
       controller.abort();
       loadingRef.current = false;
     };
-  }, [cardData, apiUrl, project.id, workspaceId]);
+  }, [cardData, apiUrl, project.id, effectiveWorkspaceId]);
+
+  const meetingEnabled = Boolean(
+    cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
+  );
+  const meetingActive = Boolean(cardData?.meeting?.active);
+
+  const handleToggleMeeting = async (enabled: boolean) => {
+    if (!apiUrl || !effectiveWorkspaceId || meetingUpdating) return;
+    setMeetingUpdating(true);
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meeting_enabled: enabled }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to update meeting flag: ${response.status}`);
+      }
+      setCardData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          meeting: {
+            enabled,
+            active: enabled ? true : false,
+            session_id: prev.meeting?.session_id ?? null,
+            status: enabled ? 'active' : null,
+            round_count: prev.meeting?.round_count ?? 0,
+            max_rounds: prev.meeting?.max_rounds ?? 5,
+            action_item_count: prev.meeting?.action_item_count ?? 0,
+            last_activity: prev.meeting?.last_activity ?? null,
+            minutes_preview: prev.meeting?.minutes_preview ?? '',
+          },
+        };
+      });
+      // Refetch card data after toggle to sync with backend state
+      if (enabled) {
+        setTimeout(async () => {
+          try {
+            const res = await fetch(
+              `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`,
+              { headers: { 'Accept': 'application/json' }, credentials: 'include' }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              setCardData(data);
+            }
+          } catch { /* ignore refetch errors */ }
+        }, 1500);
+
+        // Auto kick-off meeting pipeline (no separate chat message needed)
+        try {
+          // Find or create meeting session
+          let sessionId = cardData?.meeting?.session_id || '';
+          if (!sessionId) {
+            const activeResp = await fetch(
+              `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/active?project_id=${project.id}`,
+              { method: 'GET' }
+            );
+            if (activeResp.ok) {
+              const active = await activeResp.json();
+              sessionId = active.id;
+            } else if (activeResp.status === 404) {
+              const startResp = await fetch(
+                `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/start`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    project_id: project.id,
+                    thread_id: cardData?.storyThreadId || null,
+                  }),
+                }
+              );
+              if (startResp.ok) {
+                const started = await startResp.json();
+                sessionId = started.id;
+              }
+            }
+          }
+
+          // Trigger the meeting pipeline with project context
+          const meetingMessage = `[Meeting Started] Start project meeting for "${project.title}" (${project.type})`;
+          console.log('[ProjectCard] Auto-kicking off meeting pipeline for project:', project.id);
+          await fetch(`${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: meetingMessage,
+              project_id: project.id,
+              thread_id: sessionId || undefined,
+            }),
+          });
+          window.dispatchEvent(new Event('workspace-chat-updated'));
+        } catch (kickoffErr) {
+          console.error('[ProjectCard] Meeting auto-kickoff failed:', kickoffErr);
+        }
+      }
+    } catch (err) {
+      console.error('[ProjectCard] Failed to toggle meeting:', err);
+      throw err;  // Re-throw so callers (handleOpenMeeting) can detect failure
+    } finally {
+      setMeetingUpdating(false);
+    }
+  };
+
+  const handleOpenMeeting = async () => {
+    if (!apiUrl || !effectiveWorkspaceId) return;
+    if (!meetingEnabled) {
+      try {
+        await handleToggleMeeting(true);
+      } catch {
+        console.error('[ProjectCard] Meeting toggle failed, aborting open');
+        return;
+      }
+      // Verify toggle actually succeeded (API may have returned non-ok)
+      // handleToggleMeeting swallows errors into console, so double-check state
+    }
+    try {
+      let sessionId = cardData?.meeting?.session_id || '';
+      if (!sessionId) {
+        const activeResp = await fetch(
+          `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/active?project_id=${project.id}`,
+          { method: 'GET' }
+        );
+        if (activeResp.ok) {
+          const active = await activeResp.json();
+          sessionId = active.id;
+        } else if (activeResp.status === 404) {
+          const startResp = await fetch(
+            `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/start`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                project_id: project.id,
+                thread_id: cardData?.storyThreadId || null,
+              }),
+            }
+          );
+          if (startResp.ok) {
+            const started = await startResp.json();
+            sessionId = started.id;
+          }
+        }
+      }
+
+      const params = new URLSearchParams();
+      params.set('project_id', project.id);
+      params.set('meeting', '1');
+      if (sessionId) params.set('meeting_session_id', sessionId);
+      window.open(`/workspaces/${effectiveWorkspaceId}?${params.toString()}`, '_blank');
+    } catch (err) {
+      console.error('[ProjectCard] Failed to open meeting:', err);
+    }
+  };
 
   const handleOpenExecution = (executionId: string) => {
     if (onOpenExecution) {
@@ -368,6 +539,21 @@ export default function ProjectCard({
                 ⏸️ {cardData.stats.pendingConfirmations}
               </span>
             )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleMeeting(!meetingEnabled).catch(() => { /* error already logged */ });
+              }}
+              disabled={meetingUpdating}
+              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${meetingEnabled
+                ? 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-700'
+                : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-400 border-default dark:border-gray-600'
+                } ${meetingUpdating ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-85'}`}
+              title={meetingEnabled ? 'Disable persistent meeting' : 'Enable persistent meeting'}
+            >
+              🧭 {meetingEnabled ? (meetingActive ? 'ON*' : 'ON') : 'OFF'}
+            </button>
           </div>
         </div>
         <div className="block px-3 pb-2 pt-0.5 text-[10px] text-secondary dark:text-gray-400">
@@ -428,6 +614,42 @@ export default function ProjectCard({
             </div>
           ) : cardData ? (
             <div className="events-column w-full space-y-4">
+              {/* Persistent Meeting Summary */}
+              <div className="p-2 rounded border border-sky-200/60 dark:border-sky-800/60 bg-sky-50/60 dark:bg-sky-900/10">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="text-[10px] font-semibold text-sky-800 dark:text-sky-300">
+                    Persistent Meeting
+                  </div>
+                  <div className="text-[10px] text-sky-700 dark:text-sky-400">
+                    {meetingEnabled ? (meetingActive ? 'Active' : 'Idle') : 'Disabled'}
+                  </div>
+                </div>
+                {meetingEnabled ? (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-secondary dark:text-gray-400">
+                      Round {cardData.meeting?.round_count || 0}/{cardData.meeting?.max_rounds || 5} · Action Items {cardData.meeting?.action_item_count || 0}
+                    </div>
+                    <div className="text-[10px] text-secondary dark:text-gray-400 line-clamp-2">
+                      {cardData.meeting?.minutes_preview?.trim() || 'No meeting summary yet'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenMeeting();
+                      }}
+                      className="mt-1 text-[10px] px-2 py-1 rounded bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-300 hover:opacity-85"
+                    >
+                      Enter Meeting
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-tertiary dark:text-gray-500">
+                    Enable to maintain meeting context and accumulate decisions and action items.
+                  </div>
+                )}
+              </div>
+
               {/* Playbook List */}
               {cardData.playbooks && cardData.playbooks.length > 0 && (
                 <div className="mb-4">
@@ -501,7 +723,7 @@ export default function ProjectCard({
         </div>
       )}
 
-      <div className="px-3 pb-2 pt-1.5 border-t border-default dark:border-gray-700">
+      <div className="px-3 pb-2 pt-1.5 border-t border-default dark:border-gray-700 grid grid-cols-2 gap-2">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -518,6 +740,18 @@ export default function ProjectCard({
           className="w-full text-xs text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
         >
           查看 →
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenMeeting();
+          }}
+          className={`w-full text-xs font-medium py-1.5 px-2 rounded transition-colors ${meetingEnabled
+            ? 'text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/20'
+            : 'text-tertiary dark:text-gray-500 hover:bg-surface-secondary dark:hover:bg-gray-800'
+            }`}
+        >
+          Meeting
         </button>
       </div>
     </div>

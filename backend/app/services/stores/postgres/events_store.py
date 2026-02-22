@@ -1,8 +1,8 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy import text
-from app.services.stores.postgres_base import PostgresStoreBase
-from app.models.mindscape import MindEvent, EventType, EventActor
+from backend.app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.models.mindscape import MindEvent, EventType, EventActor
 import logging
 import asyncio
 
@@ -53,7 +53,7 @@ class PostgresEventsStore(PostgresStoreBase):
     def _trigger_embedding_generation(self, event: MindEvent):
         """Trigger async embedding generation safely"""
         try:
-            from app.services.event_embedding_generator import EventEmbeddingGenerator
+            from backend.app.services.event_embedding_generator import EventEmbeddingGenerator
 
             generator = EventEmbeddingGenerator()
             # Fire and forget
@@ -244,6 +244,31 @@ class PostgresEventsStore(PostgresStoreBase):
             rows = result.fetchall()
             return [self._row_to_event(row) for row in rows]
 
+    def get_events_by_meeting_session(
+        self,
+        meeting_session_id: str,
+        workspace_id: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[MindEvent]:
+        """Get events belonging to one meeting session via metadata.meeting_session_id."""
+        base_query = """
+            SELECT * FROM mind_events
+            WHERE (metadata::jsonb)->>'meeting_session_id' = :meeting_session_id
+        """
+        params: Dict[str, Any] = {"meeting_session_id": meeting_session_id}
+
+        if workspace_id:
+            base_query += " AND workspace_id = :workspace_id"
+            params["workspace_id"] = workspace_id
+
+        base_query += " ORDER BY timestamp ASC, id ASC LIMIT :limit"
+        params["limit"] = limit
+
+        with self.get_connection() as conn:
+            result = conn.execute(text(base_query), params)
+            rows = result.fetchall()
+            return [self._row_to_event(row) for row in rows]
+
     def count_messages_by_thread(
         self,
         workspace_id: str,
@@ -251,7 +276,7 @@ class PostgresEventsStore(PostgresStoreBase):
         include_execution_chat: bool = False,
     ) -> int:
         """Count MESSAGE events for a specific conversation thread"""
-        from app.models.mindscape import EventType
+        from backend.app.models.mindscape import EventType
 
         if include_execution_chat:
             query = text(

@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-export type ExecutionMode = 'qa' | 'execution' | 'hybrid' | null;
+export type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
 export type ExecutionPriority = 'low' | 'medium' | 'high' | null;
 
 interface ExecutionModePillProps {
@@ -39,6 +39,13 @@ const modeConfig: Record<NonNullable<ExecutionMode>, {
     bgColor: 'bg-violet-100 dark:bg-violet-900/30',
     textColor: 'text-violet-700 dark:text-violet-400',
     description: '混合模式：平衡對話與執行',
+  },
+  meeting: {
+    label: 'Meeting',
+    icon: '🧭',
+    bgColor: 'bg-sky-100 dark:bg-sky-900/30',
+    textColor: 'text-sky-700 dark:text-sky-400',
+    description: 'Meeting mode: multi-agent discussion for decisions and action items',
   },
 };
 
@@ -80,4 +87,3 @@ export default function ExecutionModePill({
     </button>
   );
 }
-

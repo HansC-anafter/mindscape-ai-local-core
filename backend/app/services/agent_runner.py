@@ -150,7 +150,7 @@ class AgentPromptBuilder:
                         playbook_preferences.append(habit.habit_value)
                     elif (
                         habit.habit_category.value == "tool_usage"
-                        and habit.habit_key == "preferred_agent_type"
+                        and habit.habit_key == "executor_runtime_type"
                     ):
                         agent_type_preferences.append(habit.habit_value)
 

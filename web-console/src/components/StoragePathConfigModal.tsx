@@ -14,7 +14,7 @@ interface Workspace {
   artifacts_dir?: string;
   storage_config?: any;
   playbook_storage_config?: Record<string, { base_path?: string; artifacts_dir?: string }>;
-  execution_mode?: 'qa' | 'execution' | 'hybrid';
+  execution_mode?: 'qa' | 'execution' | 'hybrid' | 'meeting';
   expected_artifacts?: string[];
   execution_priority?: 'low' | 'medium' | 'high';
 }

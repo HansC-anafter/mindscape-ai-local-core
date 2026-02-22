@@ -1,8 +1,13 @@
 """
-Base Agent Adapter
+Base Runtime Adapter
 
-Abstract base class for all external agent adapters.
-Each agent implementation must extend this class.
+Abstract base class for all external runtime adapters.
+Each runtime implementation must extend this class.
+
+Terminology (AgentSpec framework):
+  - RuntimeExecRequest: sandbox execution request dispatched to a runtime
+  - BaseRuntimeAdapter: abstract adapter for an executor runtime
+  - "Agent" identity lives in AgentSpec, not here
 """
 
 import logging
@@ -15,12 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class AgentRequest:
+class RuntimeExecRequest:
     """
-    Generic request for external agent execution.
+    Generic request for external runtime execution.
 
     This is the common interface used by the Playbook engine.
-    Agent-specific adapters may have additional fields.
+    Runtime-specific adapters may have additional fields.
     """
 
     task: str
@@ -50,9 +55,9 @@ class AgentRequest:
 
 
 @dataclass
-class AgentResponse:
+class RuntimeExecResponse:
     """
-    Generic response from external agent execution.
+    Generic response from external runtime execution.
     """
 
     success: bool
@@ -80,26 +85,26 @@ class AgentResponse:
     exit_code: int = 0
     """Process exit code."""
 
-    # Agent-specific metadata
+    # Runtime-specific metadata
     agent_metadata: Dict[str, Any] = field(default_factory=dict)
-    """Additional agent-specific metadata."""
+    """Additional runtime-specific metadata."""
 
 
-class BaseAgentAdapter(ABC):
+class BaseRuntimeAdapter(ABC):
     """
-    Abstract base class for external agent adapters.
+    Abstract base class for external runtime adapters.
 
-    Each external agent should have an adapter that extends this class.
+    Each external runtime should have an adapter that extends this class.
 
     Responsibilities:
-    1. Check if the agent is available on the system
+    1. Check if the runtime is available on the system
     2. Execute tasks within the sandbox
     3. Collect execution traces for governance
     """
 
     # Override in subclass
-    AGENT_NAME: str = "base"
-    AGENT_VERSION: str = "0.0.0"
+    RUNTIME_NAME: str = "base"
+    RUNTIME_VERSION: str = "0.0.0"
 
     # Default tools that are always denied for security
     ALWAYS_DENIED_TOOLS: List[str] = [
@@ -116,38 +121,41 @@ class BaseAgentAdapter(ABC):
     @abstractmethod
     async def is_available(self) -> bool:
         """
-        Check if this agent is installed and accessible.
+        Check if this runtime is installed and accessible.
 
         Returns:
-            True if the agent can be used, False otherwise.
+            True if the runtime can be used, False otherwise.
         """
         pass
 
     @abstractmethod
-    async def execute(self, request: AgentRequest) -> AgentResponse:
+    async def execute(self, request: RuntimeExecRequest) -> RuntimeExecResponse:
         """
-        Execute a task using this agent.
+        Execute a task using this runtime.
 
         Args:
             request: The execution request with task and constraints.
 
         Returns:
-            AgentResponse with results and execution trace.
+            RuntimeExecResponse with results and execution trace.
         """
         pass
 
     def get_version(self) -> Optional[str]:
-        """Get the cached agent version string."""
+        """Get the cached runtime version string."""
         return self._version_cache
 
-    def get_agent_info(self) -> Dict[str, Any]:
-        """Get agent information for registration."""
+    def get_runtime_info(self) -> Dict[str, Any]:
+        """Get runtime information for registration."""
         return {
-            "name": self.AGENT_NAME,
-            "version": self.AGENT_VERSION,
+            "name": self.RUNTIME_NAME,
+            "version": self.RUNTIME_VERSION,
             "installed_version": self._version_cache,
             "always_denied_tools": self.ALWAYS_DENIED_TOOLS,
         }
+
+    # backward compat alias
+    get_agent_info = get_runtime_info
 
     def merge_denied_tools(self, request_denied: List[str]) -> List[str]:
         """Merge request-denied tools with always-denied tools."""
@@ -186,10 +194,10 @@ class BaseAgentAdapter(ABC):
 
         return True
 
-    def log_execution_start(self, request: AgentRequest) -> None:
+    def log_execution_start(self, request: RuntimeExecRequest) -> None:
         """Log the start of an execution."""
         logger.info(
-            f"[{self.AGENT_NAME}] Starting execution",
+            f"[{self.RUNTIME_NAME}] Starting execution",
             extra={
                 "task_preview": request.task[:100],
                 "sandbox_path": request.sandbox_path,
@@ -197,10 +205,10 @@ class BaseAgentAdapter(ABC):
             },
         )
 
-    def log_execution_end(self, response: AgentResponse) -> None:
+    def log_execution_end(self, response: RuntimeExecResponse) -> None:
         """Log the end of an execution."""
         logger.info(
-            f"[{self.AGENT_NAME}] Execution completed",
+            f"[{self.RUNTIME_NAME}] Execution completed",
             extra={
                 "success": response.success,
                 "duration": response.duration_seconds,
@@ -208,3 +216,11 @@ class BaseAgentAdapter(ABC):
                 "files_modified": len(response.files_modified),
             },
         )
+
+
+# ============================================================================
+# Backward compatibility aliases (P2 transition)
+# ============================================================================
+AgentRequest = RuntimeExecRequest
+AgentResponse = RuntimeExecResponse
+BaseAgentAdapter = BaseRuntimeAdapter

@@ -7,7 +7,7 @@ import ToolOverlayPanel from './ToolOverlayPanel';
 import DataSourceOverlayPanel from './DataSourceOverlayPanel';
 import CapabilityExtensionSlot from './CapabilityExtensionSlot';
 
-type ExecutionMode = 'qa' | 'execution' | 'hybrid';
+type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting';
 type ExecutionPriority = 'low' | 'medium' | 'high';
 type ProjectAssignmentMode = 'auto_silent' | 'assistive' | 'manual_first';
 
@@ -25,6 +25,7 @@ interface Workspace {
     auto_execute?: boolean;
     confidence_threshold?: number;
   }>;
+  metadata?: Record<string, any>;
 }
 
 interface WorkspaceSettingsProps {
@@ -38,6 +39,7 @@ const EXECUTION_MODE_OPTIONS: { value: ExecutionMode; label: string; icon: strin
   { value: 'qa', label: 'Chat First', icon: 'chat', description: 'Conversation-oriented, execution as supplement' },
   { value: 'execution', label: 'Execution First', icon: 'zap', description: 'Action-oriented, direct output' },
   { value: 'hybrid', label: 'Chat & Execute', icon: 'refresh', description: 'Balance conversation with action' },
+  { value: 'meeting', label: 'Meeting', icon: 'groups', description: 'Multi-agent meeting for decision convergence and action items' },
 ];
 
 const EXECUTION_PRIORITY_OPTIONS: { value: ExecutionPriority; label: string; description: string }[] = [
@@ -87,6 +89,15 @@ export default function WorkspaceSettings({
   const [intentExtractionError, setIntentExtractionError] = useState<string | null>(null);
   const [intentExtractionSuccess, setIntentExtractionSuccess] = useState(false);
 
+  // SGR (Self-Graph Reasoning) settings
+  const [sgrEnabled, setSgrEnabled] = useState(false);
+  const [sgrMode, setSgrMode] = useState<'inline' | 'two_pass'>('inline');
+  const [originalSgrEnabled, setOriginalSgrEnabled] = useState(false);
+  const [originalSgrMode, setOriginalSgrMode] = useState<'inline' | 'two_pass'>('inline');
+  const [savingSgr, setSavingSgr] = useState(false);
+  const [sgrError, setSgrError] = useState<string | null>(null);
+  const [sgrSuccess, setSgrSuccess] = useState(false);
+
   // UI state
   const [saving, setSaving] = useState(false);
   const [savingExecution, setSavingExecution] = useState(false);
@@ -131,6 +142,15 @@ export default function WorkspaceSettings({
       setIntentExtractionThreshold(threshold);
       setOriginalIntentExtractionAutoExecute(autoExecute);
       setOriginalIntentExtractionThreshold(threshold);
+
+      // SGR settings (stored in workspace.metadata)
+      const meta = workspace.metadata || {};
+      const sgrEn = meta.sgr_enabled || false;
+      const sgrMd = meta.sgr_mode || 'inline';
+      setSgrEnabled(sgrEn);
+      setSgrMode(sgrMd);
+      setOriginalSgrEnabled(sgrEn);
+      setOriginalSgrMode(sgrMd);
     }
   }, [workspace]);
 
@@ -447,7 +467,7 @@ export default function WorkspaceSettings({
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    When intent extraction confidence >= {intentExtractionThreshold.toFixed(1)}, auto-execute without manual confirmation
+                    When intent extraction confidence {'>='}  {intentExtractionThreshold.toFixed(1)}, auto-execute without manual confirmation
                   </p>
                 </div>
               )}
@@ -499,6 +519,108 @@ export default function WorkspaceSettings({
               {intentExtractionSuccess && (
                 <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2">
                   <p className="text-xs text-green-700 dark:text-green-300">Intent extraction settings saved</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SGR (Self-Graph Reasoning) Settings */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Self-Graph Reasoning (SGR)
+            </label>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="sgr-enabled"
+                  checked={sgrEnabled}
+                  onChange={(e) => setSgrEnabled(e.target.checked)}
+                  className="w-4 h-4 text-teal-600 rounded focus:ring-teal-500"
+                />
+                <label htmlFor="sgr-enabled" className="text-sm text-gray-700 dark:text-gray-300">
+                  Enable reasoning graph extraction from LLM responses
+                </label>
+              </div>
+              {sgrEnabled && (
+                <div className="ml-7 space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span>SGR Mode</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {(['inline', 'two_pass'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setSgrMode(mode)}
+                        className={`
+                          px-3 py-1.5 rounded-lg border text-sm transition-all
+                          ${sgrMode === mode
+                            ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300'
+                            : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300'
+                          }
+                        `}
+                      >
+                        {mode === 'inline' ? 'Inline' : 'Two-Pass'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {sgrMode === 'inline'
+                      ? 'Reasoning graph extracted from single LLM call (lower cost)'
+                      : 'Separate LLM call extracts reasoning from response (higher quality)'}
+                  </p>
+                </div>
+              )}
+              <button
+                onClick={async () => {
+                  setSavingSgr(true);
+                  setSgrError(null);
+                  setSgrSuccess(false);
+
+                  try {
+                    const currentMeta = workspace?.metadata || {};
+                    const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        metadata: {
+                          ...currentMeta,
+                          sgr_enabled: sgrEnabled,
+                          sgr_mode: sgrMode,
+                        },
+                      }),
+                    });
+
+                    if (!response.ok) {
+                      const errorData = await response.json().catch(() => ({ detail: 'Failed to update' }));
+                      throw new Error(errorData.detail || 'Failed to update SGR settings');
+                    }
+
+                    setOriginalSgrEnabled(sgrEnabled);
+                    setOriginalSgrMode(sgrMode);
+                    setSgrSuccess(true);
+                    setTimeout(() => setSgrSuccess(false), 3000);
+                    onUpdate?.();
+                  } catch (err: any) {
+                    setSgrError(err.message || 'Failed to save settings');
+                  } finally {
+                    setSavingSgr(false);
+                  }
+                }}
+                disabled={savingSgr ||
+                  (sgrEnabled === originalSgrEnabled && sgrMode === originalSgrMode)}
+                className="px-3 py-1.5 text-sm bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {savingSgr ? 'Saving...' : 'Save SGR Settings'}
+              </button>
+              {sgrError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2">
+                  <p className="text-xs text-red-700 dark:text-red-300">{sgrError}</p>
+                </div>
+              )}
+              {sgrSuccess && (
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2">
+                  <p className="text-xs text-green-700 dark:text-green-300">SGR settings saved</p>
                 </div>
               )}
             </div>
@@ -736,4 +858,3 @@ export default function WorkspaceSettings({
     </>
   );
 }
-

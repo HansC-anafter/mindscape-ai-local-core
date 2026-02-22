@@ -83,7 +83,7 @@ class MeetingEngine(
         project_id: Optional[str] = None,
         execution_launcher: Optional[ExecutionLauncher] = None,
         model_name: Optional[str] = None,
-        preferred_agent: Optional[str] = None,
+        executor_runtime: Optional[str] = None,
     ):
         self.session = session
         self.store = store
@@ -95,7 +95,7 @@ class MeetingEngine(
         self.session_store = MeetingSessionStore()
         self.execution_launcher = execution_launcher
         self.model_name = model_name
-        self.preferred_agent = preferred_agent
+        self.executor_runtime = executor_runtime
         self.provider = None
         self._agent_executor = None
         self.tasks_store: Optional[TasksStore] = None

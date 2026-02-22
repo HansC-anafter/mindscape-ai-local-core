@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 
 from backend.app.services.external_agents.core.registry import get_agent_registry
 from backend.app.services.external_agents.core.base_adapter import (
-    AgentRequest,
-    AgentResponse,
+    RuntimeExecRequest,
+    RuntimeExecResponse,
 )
 from backend.app.services.external_agents.core.execution_trace import (
     ExecutionTraceService,
@@ -87,12 +87,12 @@ class WorkspaceAgentExecutor:
         Check if the specified agent runtime is currently connected.
 
         Args:
-            agent_id: Agent to check (default: workspace.preferred_agent)
+            agent_id: Agent to check (default: workspace.executor_runtime)
 
         Returns:
             True if the agent runtime is connected and available
         """
-        agent_id = agent_id or getattr(self.workspace, "preferred_agent", None)
+        agent_id = agent_id or getattr(self.workspace, "executor_runtime", None)
         if not agent_id:
             return False
 
@@ -124,7 +124,7 @@ class WorkspaceAgentExecutor:
 
         Args:
             task: Task description
-            agent_id: Override agent ID (default: workspace.preferred_agent)
+            agent_id: Override agent ID (default: workspace.executor_runtime)
             skip_preflight: Skip preflight checks (for pre-approved tasks)
             context_overrides: Override context values
 
@@ -132,13 +132,13 @@ class WorkspaceAgentExecutor:
             AgentExecutionResponse with results
         """
         start_time = _utc_now()
-        agent_id = agent_id or self.workspace.preferred_agent
+        agent_id = agent_id or self.workspace.executor_runtime
 
         if not agent_id:
             return AgentExecutionResponse(
                 success=False,
                 output="",
-                error="No agent specified and workspace has no preferred_agent",
+                error="No agent specified and workspace has no executor_runtime",
             )
 
         # 1. Preflight check (unless skipped)
@@ -204,7 +204,7 @@ class WorkspaceAgentExecutor:
                 f"sandbox={sandbox_path}"
             )
 
-            agent_request = AgentRequest(
+            agent_request = RuntimeExecRequest(
                 task=task,
                 sandbox_path=sandbox_path,
                 workspace_id=self.workspace.id,

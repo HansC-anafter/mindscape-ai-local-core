@@ -1,9 +1,9 @@
 """
-Gemini CLI Agent Adapter
+Gemini CLI Runtime Adapter
 
 Dispatches coding tasks to Gemini CLI via a transport-agnostic
 Dispatch Contract. Supports WebSocket Push (primary), REST Polling (inherited
-from PollingAgentAdapter), and MCP Sampling (experimental).
+from PollingRuntimeAdapter), and MCP Sampling (experimental).
 
 Unlike CLI-based adapters (e.g. OpenClawAdapter), this adapter communicates
 over the network to an IDE instance rather than spawning a subprocess.
@@ -19,12 +19,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.app.services.external_agents.core.polling_adapter import (
-    PollingAgentAdapter,
+    PollingRuntimeAdapter,
     build_dispatch_payload,
 )
 from backend.app.services.external_agents.core.base_adapter import (
-    AgentRequest,
-    AgentResponse,
+    RuntimeExecRequest,
+    RuntimeExecResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,14 +41,14 @@ logger = logging.getLogger(__name__)
 def parse_dispatch_response(
     raw: Dict[str, Any],
     start_time: float,
-) -> AgentResponse:
+) -> RuntimeExecResponse:
     """
-    Parse a transport-agnostic dispatch response into AgentResponse.
+    Parse a transport-agnostic dispatch response into RuntimeExecResponse.
     """
     status = raw.get("status", "failed")
     duration = raw.get("duration_seconds", time.monotonic() - start_time)
 
-    return AgentResponse(
+    return RuntimeExecResponse(
         success=status in ("completed", "dispatched_to_ide"),
         output=raw.get("output", ""),
         duration_seconds=duration,
@@ -70,9 +70,9 @@ def parse_dispatch_response(
 # ============================================================
 
 
-class GeminiCLIAdapter(PollingAgentAdapter):
+class GeminiCLIAdapter(PollingRuntimeAdapter):
     """
-    Gemini CLI Agent Adapter.
+    Gemini CLI Runtime Adapter.
 
     Dispatches coding tasks to Gemini CLI running inside
     the user's IDE via a transport-agnostic Dispatch Contract.
@@ -88,8 +88,8 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             response = await adapter.execute(request)
     """
 
-    AGENT_NAME = "gemini_cli"
-    AGENT_VERSION = "1.0.0"
+    RUNTIME_NAME = "gemini_cli"
+    RUNTIME_VERSION = "1.0.0"
 
     # Gemini CLI denied tools
     ALWAYS_DENIED_TOOLS = [
@@ -246,7 +246,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
         except ImportError:
             logger.debug("agent_websocket module not available")
 
-    async def execute(self, request: AgentRequest) -> AgentResponse:
+    async def execute(self, request: RuntimeExecRequest) -> RuntimeExecResponse:
         """
         Execute a task by dispatching to Gemini CLI.
 
@@ -286,7 +286,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
                         "GeminiCLIAdapter: no WS client connected, "
                         "failing fast instead of queuing"
                     )
-                    return AgentResponse(
+                    return RuntimeExecResponse(
                         success=False,
                         output="",
                         duration_seconds=0,
@@ -302,7 +302,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             elif self.strategy == "sampling":
                 response = await self._execute_via_sampling(request, execution_id)
             else:
-                response = AgentResponse(
+                response = RuntimeExecResponse(
                     success=False,
                     output="",
                     duration_seconds=0,
@@ -310,7 +310,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
                 )
         except Exception as e:
             logger.exception("Gemini CLI execution failed with exception")
-            response = AgentResponse(
+            response = RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=0,
@@ -327,9 +327,9 @@ class GeminiCLIAdapter(PollingAgentAdapter):
 
     async def _execute_via_ws(
         self,
-        request: AgentRequest,
+        request: RuntimeExecRequest,
         execution_id: str,
-    ) -> AgentResponse:
+    ) -> RuntimeExecResponse:
         """
         Dispatch task via WebSocket Push.
 
@@ -340,10 +340,10 @@ class GeminiCLIAdapter(PollingAgentAdapter):
           4. Wait for result (with RESULT_TIMEOUT)
         """
         start_time = time.monotonic()
-        payload = build_dispatch_payload(request, execution_id, self.AGENT_NAME)
+        payload = build_dispatch_payload(request, execution_id, self.RUNTIME_NAME)
 
         if not self.ws_manager:
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=0,
@@ -391,7 +391,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
                 f"WS dispatch timed out after {elapsed:.1f}s " f"(exec={execution_id})"
             )
             # Return running status -- IDE may still complete and call /agent/result
-            return AgentResponse(
+            return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=elapsed,
@@ -405,7 +405,7 @@ class GeminiCLIAdapter(PollingAgentAdapter):
                 },
             )
 
-    # _execute_via_polling is inherited from PollingAgentAdapter
+    # _execute_via_polling is inherited from PollingRuntimeAdapter
 
     # ============================================================
     #  Strategy: MCP Sampling (experimental)
@@ -413,9 +413,9 @@ class GeminiCLIAdapter(PollingAgentAdapter):
 
     async def _execute_via_sampling(
         self,
-        request: AgentRequest,
+        request: RuntimeExecRequest,
         execution_id: str,
-    ) -> AgentResponse:
+    ) -> RuntimeExecResponse:
         """
         Dispatch task via MCP Sampling createMessage().
 
@@ -465,11 +465,11 @@ class GeminiCLIAdapter(PollingAgentAdapter):
             raw_result.setdefault("metadata", {})["transport"] = "mcp_sampling"
             return parse_dispatch_response(raw_result, start_time)
 
-        # If fallback returned an AgentResponse directly
-        if isinstance(result.data, AgentResponse):
+        # If fallback returned a RuntimeExecResponse directly
+        if isinstance(result.data, RuntimeExecResponse):
             return result.data
 
-        return AgentResponse(
+        return RuntimeExecResponse(
             success=False,
             output="",
             duration_seconds=time.monotonic() - start_time,

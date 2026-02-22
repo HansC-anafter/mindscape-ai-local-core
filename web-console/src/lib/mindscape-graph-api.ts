@@ -14,10 +14,13 @@ const API_BASE = getApiBaseUrl();
 // Types matching backend MindscapeGraph response
 // ============================================================================
 
-export type NodeType = 'intent' | 'execution' | 'artifact' | 'playbook' | 'step';
+export type NodeType = 'intent' | 'execution' | 'artifact' | 'playbook' | 'step'
+    | 'reasoning_premise' | 'reasoning_inference' | 'reasoning_conclusion'
+    | 'reasoning_evidence' | 'reasoning_risk' | 'reasoning_unknown';
 export type NodeStatus = 'suggested' | 'accepted' | 'rejected';
-export type EdgeType = 'temporal' | 'causal' | 'dependency' | 'spawns' | 'produces' | 'refers_to';
-export type EdgeOrigin = 'derived' | 'user';
+export type EdgeType = 'temporal' | 'causal' | 'dependency' | 'spawns' | 'produces' | 'refers_to'
+    | 'supports' | 'contradicts' | 'derived_from';
+export type EdgeOrigin = 'derived' | 'user' | 'sgr';
 
 export interface MindscapeNode {
     id: string;
