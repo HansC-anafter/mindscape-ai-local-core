@@ -200,17 +200,51 @@ class RuntimeAuthService:
                 access_token = token_data.get("access_token")
 
                 # Check if token needs refresh
-                if self._is_token_expired(token_data) and token_data.get(
-                    "refresh_token"
-                ):
-                    access_token = await self._refresh_oauth_token(
-                        runtime,
-                        token_data,
-                        db=db,
-                    )
+                if self._is_token_expired(token_data):
+                    if token_data.get("refresh_token"):
+                        refreshed = await self._refresh_oauth_token(
+                            runtime,
+                            token_data,
+                            db=db,
+                        )
+                        if refreshed:
+                            access_token = refreshed
+                        else:
+                            # Refresh failed — mark runtime as expired
+                            logger.warning(
+                                f"OAuth token expired and refresh failed for runtime {runtime.id}. "
+                                f"Marking auth_status as 'expired'."
+                            )
+                            access_token = None
+                            runtime.auth_status = "expired"
+                            if db:
+                                try:
+                                    db.add(runtime)
+                                    db.commit()
+                                except Exception:
+                                    db.rollback()
+                    else:
+                        # Expired but no refresh_token — cannot recover
+                        logger.warning(
+                            f"OAuth token expired for runtime {runtime.id} and no refresh_token available. "
+                            f"User must re-authenticate."
+                        )
+                        access_token = None
+                        runtime.auth_status = "expired"
+                        if db:
+                            try:
+                                db.add(runtime)
+                                db.commit()
+                            except Exception:
+                                db.rollback()
 
                 if access_token:
                     headers["Authorization"] = f"Bearer {access_token}"
+                else:
+                    logger.warning(
+                        f"No valid OAuth2 token for runtime {runtime.id}. "
+                        f"Auth headers will be empty — expect 401."
+                    )
             except Exception as e:
                 logger.error(
                     f"Failed to get OAuth2 token for runtime {runtime.id}: {e}"
