@@ -142,7 +142,16 @@ class ToolDependency(BaseModel):
 
 
 class AgentDefinition(BaseModel):
-    """Agent Definition - Agent 定義（球員名單中的一個球員）"""
+    """
+    Agent role spec within a playbook roster.
+
+    In the AgentSpec framework this covers:
+      - Actuator subset: role, tools, system_prompt
+      - Does NOT include Agent Core (intent / lens / memory)
+
+    Future: promote to full AgentSpec by adding intent_refs,
+    lens_hash, and memory_scope bindings.
+    """
 
     agent_id: str = Field(
         ..., description="Unique agent ID (e.g., 'researcher', 'writer', 'reviewer')"

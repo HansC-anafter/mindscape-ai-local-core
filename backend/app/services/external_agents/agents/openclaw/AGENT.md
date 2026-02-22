@@ -105,5 +105,5 @@ These tools are **never** permitted for sandboxed execution:
 
 ## Related
 
-- [External Agents Architecture](file:///docs/core-architecture/external-agents.md)
+- [External Runtimes Architecture](file:///docs/core-architecture/external-agents.md)
 - [Asset Provenance](file:///docs/core-architecture/asset-provenance.md)

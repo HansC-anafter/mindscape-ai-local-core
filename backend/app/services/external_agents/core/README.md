@@ -1,7 +1,7 @@
-# External Agents Core Framework
+# External Runtimes Core Framework
 
-This directory contains the core framework for integrating external AI agents
-within Mindscape's governance layer.
+This directory contains the core framework for integrating external executor runtimes
+within Mindscape's Agent OS (governance + execution contract layer).
 
 ## Directory Structure
 
@@ -22,7 +22,7 @@ external_agents/
 
 ## Security: Workspace-Bound Execution
 
-> **CRITICAL**: All external agent execution is now workspace-bound.
+> **CRITICAL**: All executor runtime execution is now workspace-bound.
 
 - `workspace_id` is **REQUIRED** for all agent execution
 - Sandbox paths are auto-generated within `<workspace>/agent_sandboxes/`
