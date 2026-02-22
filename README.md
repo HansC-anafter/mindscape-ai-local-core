@@ -170,21 +170,23 @@ This means you can import Skills from the Anthropic ecosystem, wrap them with Mi
 
 ---
 
-## 🤖 External Agents Integration
+## 🤖 External Runtimes (Executor Integration)
 
-Mindscape provides a **pluggable architecture** for integrating external AI agents within its governance layer:
+Mindscape provides a **pluggable architecture** for integrating external executor runtimes within its governance layer.
+
+> External runtimes (Gemini CLI, OpenClaw, LangGraph, etc.) provide execution environments. In Mindscape's architecture, the *agent identity* is defined by Intent + Mind-Lens + Memory; runtimes provide the compute and sandbox for execution.
 
 ### Key Features
 
-- **Pluggable Adapters**: Drop a new agent into `agents/` directory, auto-discovered on startup
-- **Unified API**: All agents share common `execute()` interface via `BaseAgentAdapter`
-- **Workspace-Bound Sandbox**: All agents run in isolated sandboxes within workspace boundaries
+- **Pluggable Adapters**: Drop a new runtime adapter into `agents/` directory, auto-discovered on startup
+- **Unified API**: All runtimes share common `execute()` interface via `BaseAgentAdapter`
+- **Workspace-Bound Sandbox**: All runtimes execute in isolated sandboxes within workspace boundaries
 - **Full Traceability**: All executions recorded for Asset Provenance
-- **Agent WebSocket**: Real-time task dispatch channel (`/ws/agent`) for IDE-based agents with authentication, multi-client routing, heartbeat monitoring, and pending-task queue
+- **Runtime WebSocket**: Real-time task dispatch channel (`/ws/agent`) for IDE-based runtimes with authentication, multi-client routing, heartbeat monitoring, and pending-task queue
 
 ### 🔒 Workspace-Bound Sandbox Security
 
-> **CRITICAL**: All external agent execution is workspace-bound.
+> **CRITICAL**: All external runtime execution is workspace-bound.
 
 ```text
 <workspace_storage_base>/
@@ -200,9 +202,9 @@ Mindscape provides a **pluggable architecture** for integrating external AI agen
 | `workspace_storage_base` | **REQUIRED** - must have storage configured |
 | Sandbox path | Auto-generated, cannot be manually specified |
 
-### Agent WebSocket
+### Runtime WebSocket
 
-The Agent WebSocket endpoint (`/ws/agent`) enables real-time bi-directional communication between the local-core backend and IDE-based agents:
+The Runtime WebSocket endpoint (`/ws/agent`) enables real-time bi-directional communication between the local-core backend and IDE-based executor runtimes:
 
 - **HMAC-SHA256 authentication** with nonce challenge-response
 - **Multi-client routing**: Multiple IDE clients can connect simultaneously; tasks are dispatched to the best available client
@@ -212,14 +214,14 @@ The Agent WebSocket endpoint (`/ws/agent`) enables real-time bi-directional comm
 ### Workspace Collaboration Pattern
 
 ```text
-Workspace A (Planning)    →    Workspace C (Agent Executor)    →    Workspace B (Review)
-   Define Intent                  External Agent runs               Quality check
-   Configure Lens                 in isolated sandbox               Approve outputs
+Workspace A (Planning)    →    Workspace C (Executor)           →    Workspace B (Review)
+   Define Intent                  Runtime executes                   Quality check
+   Configure Lens                 in isolated sandbox                Approve outputs
 ```
 
-This enables using one workspace as a dedicated "AI worker" while other workspaces handle planning and review, all with full governance and audit trails.
+This enables using one workspace as a dedicated execution environment while other workspaces handle planning and review, all with full governance and audit trails.
 
-See [External Agents Architecture](./docs/core-architecture/external-agents.md) for details.
+See [External Runtimes Architecture](./docs/core-architecture/external-agents.md) for details.
 
 ---
 
@@ -311,9 +313,14 @@ See [Governance Decision & Risk Control Layer](./docs/core-architecture/governan
 * **Intents** – structured "what I want" cards that anchor LLM conversations to your long-term goals. **Versionable and rollback-able.**
 * **Mind-Lens** – a palette for rendering AI outputs; controls tone, style, and behavior. **Versionable, composable, A/B testable.**
 * **Mind-Model VC** – version control for mind models; organizes user-provided clues into reviewable, adjustable, and rollback-able mind state recipes with version history. See [Mind-Model VC Architecture](./docs/core-architecture/mind-model-vc.md).
+* **Agent (Mindscape definition)** – An agent is an **AgentSpec** running on the **Agent OS**:
+  - **AgentSpec** = **Agent Core** (Intent + Mind-Lens + Memory) + **Actuator** (tool access + skill bundles + action space)
+  - **Agent OS** provides the execution contract: tracing, rollback, risk gates, audit/provenance, and human-in-the-loop UI.
+
+  External integrations (Gemini CLI, OpenClaw, LangGraph, etc.) are **executor runtimes** — they provide execution environments. The agent identity stays with the AgentSpec.
 * **Projects** – containers for related intents and playbooks (e.g., a product launch, a yearly book, a client account).
-* **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces.
-* **Governance Layer** – Intent, Lens, and Trust governance that ensures every AI action is traceable and controllable.
+* **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces. Playbooks are policy assets mountable on AgentSpecs.
+* **Governance Layer (Agent OS)** – Intent, Lens, Trust, and Asset governance that ensures every AI action is traceable and controllable. Agent OS = Governance Layer + execution contract (trace, rollback, risk gates, provenance, HITL).
 * **Port/Adapter Architecture** – clean separation between core and external integrations, enabling local-first design with optional cloud extensions.
 * **[Event, Intent Governance, and Memory Architecture](./docs/core-architecture/memory-intent-architecture.md)** – how events, intent analysis, and long-term memory work together.
 
