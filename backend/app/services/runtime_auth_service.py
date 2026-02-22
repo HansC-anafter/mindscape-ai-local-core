@@ -197,11 +197,25 @@ class RuntimeAuthService:
         elif runtime.auth_type == "oauth2" and runtime.auth_config:
             try:
                 token_data = self.decrypt_token_blob(runtime.auth_config)
-                access_token = token_data.get("access_token")
+
+                # Normalize token fields: GCA direct flow uses idp_ prefix
+                access_token = token_data.get("access_token") or token_data.get(
+                    "idp_access_token"
+                )
+                refresh_token = token_data.get("refresh_token") or token_data.get(
+                    "idp_refresh_token"
+                )
 
                 # Check if token needs refresh
                 if self._is_token_expired(token_data):
-                    if token_data.get("refresh_token"):
+                    if refresh_token:
+                        # Ensure _refresh_oauth_token can find the refresh token
+                        if not token_data.get("refresh_token") and token_data.get(
+                            "idp_refresh_token"
+                        ):
+                            token_data["refresh_token"] = token_data[
+                                "idp_refresh_token"
+                            ]
                         refreshed = await self._refresh_oauth_token(
                             runtime,
                             token_data,
@@ -294,14 +308,26 @@ class RuntimeAuthService:
 
     @staticmethod
     def _is_token_expired(token_data: Dict[str, Any]) -> bool:
-        """Check if an OAuth2 access token has expired."""
+        """Check if an OAuth2 access token has expired.
+
+        Checks both standard 'expiry' and GCA-style 'idp_token_expiry' fields.
+        """
         import time
 
-        expiry = token_data.get("expiry")
+        # Check standard expiry first, then idp_token_expiry
+        expiry = token_data.get("expiry") or token_data.get("idp_token_expiry")
         if not expiry:
             return False
         try:
-            return float(expiry) < time.time()
+            exp_val = float(expiry)
+            # Treat expiry=0 as "not set" (legacy data)
+            if exp_val == 0:
+                # If there's an idp_token_expiry, use that instead
+                idp_expiry = token_data.get("idp_token_expiry")
+                if idp_expiry:
+                    return float(idp_expiry) < time.time()
+                return False
+            return exp_val < time.time()
         except (ValueError, TypeError):
             return False
 
