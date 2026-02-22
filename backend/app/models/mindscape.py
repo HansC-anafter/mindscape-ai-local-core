@@ -167,6 +167,10 @@ class IntentCard(BaseModel):
 
     id: str = Field(..., description="Unique intent identifier")
     profile_id: str = Field(..., description="Associated profile ID")
+    project_id: Optional[str] = Field(
+        None,
+        description="Associated project ID for project-scoped intent queries",
+    )
 
     # Basic info
     title: str = Field(..., description="Intent title")
@@ -359,6 +363,21 @@ class EventType(str, Enum):
     QUALITY_GATE_CHECK = "quality_gate_check"  # QualityGates check result
     ARTIFACT_UPDATED = "artifact_updated"  # Artifact updated
     RUN_STATE_CHANGED = "run_state_changed"  # Execution state changed (WAITING_HUMAN / READY / RUNNING / DONE)
+    AGENT_TURN = "agent_turn"  # One agent turn in a governance meeting
+    DECISION_PROPOSAL = "decision_proposal"  # Proposal from planner/facilitator
+    DECISION_FINAL = "decision_final"  # Finalized decision in meeting lifecycle
+    ACTION_ITEM = "action_item"  # Executable follow-up task extracted from meeting
+    MEETING_ROUND = "meeting_round"  # Round delimiter/status event for replay
+    # Governance events (intent governance paradigm)
+    MEETING_START = "meeting_start"  # Governance meeting session started
+    MEETING_END = "meeting_end"  # Governance meeting session ended
+    DECISION_MADE = (
+        "decision_made"  # Decision finalized (complement to DECISION_REQUIRED)
+    )
+    REASONING_COMMITTED = (
+        "reasoning_committed"  # SGR reasoning trace committed to graph
+    )
+    INTENT_PATCHED = "intent_patched"  # IntentCard modified during governance session
 
 
 class EventActor(str, Enum):
@@ -367,14 +386,18 @@ class EventActor(str, Enum):
     USER = "user"  # User actions
     ASSISTANT = "assistant"  # AI assistant actions
     SYSTEM = "system"  # System events
+    AGENT = "agent"  # Agent execution actions (playbook_runner, coordinator, etc.)
+    PERSONA = "persona"  # Named persona in governance meeting context
 
 
 class MindEvent(BaseModel):
     """
-    Mindspace event for timeline reconstruction
+    Governance state transition log
 
     All events that happen in the mindspace are recorded here,
-    allowing replay and recombination for features like:
+    serving as the auditable state transition log for:
+    - Intent governance (decision tracking, reasoning audit)
+    - Meeting session replay and state diffs
     - Annual book generation
     - Project proposal compilation
     - Habit learning analysis

@@ -15,12 +15,12 @@ class PostgresIntentsStore(PostgresStoreBase):
         query = text(
             """
             INSERT INTO intents (
-                id, profile_id, title, description, status, priority, tags, storyline_tags,
+                id, profile_id, project_id, title, description, status, priority, tags, storyline_tags,
                 category, progress_percentage, created_at, updated_at,
                 started_at, completed_at, due_date, parent_intent_id,
                 child_intent_ids, metadata
             ) VALUES (
-                :id, :profile_id, :title, :description, :status, :priority, :tags, :storyline_tags,
+                :id, :profile_id, :project_id, :title, :description, :status, :priority, :tags, :storyline_tags,
                 :category, :progress_percentage, :created_at, :updated_at,
                 :started_at, :completed_at, :due_date, :parent_intent_id,
                 :child_intent_ids, :metadata
@@ -30,6 +30,7 @@ class PostgresIntentsStore(PostgresStoreBase):
         params = {
             "id": intent.id,
             "profile_id": intent.profile_id,
+            "project_id": intent.project_id,
             "title": intent.title,
             "description": intent.description,
             "status": intent.status.value,
@@ -66,6 +67,7 @@ class PostgresIntentsStore(PostgresStoreBase):
         profile_id: str,
         status: Optional[IntentStatus] = None,
         priority: Optional[PriorityLevel] = None,
+        project_id: Optional[str] = None,
     ) -> List[IntentCard]:
         """List intents for a profile with optional filters"""
         base_query = "SELECT * FROM intents WHERE profile_id = :profile_id"
@@ -78,6 +80,10 @@ class PostgresIntentsStore(PostgresStoreBase):
         if priority:
             base_query += " AND priority = :priority"
             params["priority"] = priority.value
+
+        if project_id:
+            base_query += " AND project_id = :project_id"
+            params["project_id"] = project_id
 
         base_query += " ORDER BY created_at DESC"
 
@@ -152,6 +158,7 @@ class PostgresIntentsStore(PostgresStoreBase):
         return IntentCard(
             id=row.id,
             profile_id=row.profile_id,
+            project_id=getattr(row, "project_id", None),
             title=row.title,
             description=row.description,
             status=IntentStatus(row.status),
