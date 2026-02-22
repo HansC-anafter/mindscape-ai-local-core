@@ -33,3 +33,4 @@ docs-internal/
 !backend/playbooks/system_mindscape_state_sync.yaml
 !backend/app/capabilities/.gitkeep
 !web-console/src/app/capabilities/.gitkeep
+!backend/app/models/workspace/

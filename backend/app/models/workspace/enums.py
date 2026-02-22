@@ -63,6 +63,7 @@ class ExecutionMode(str, Enum):
     QA = "qa"
     EXECUTION = "execution"
     HYBRID = "hybrid"
+    MEETING = "meeting"
 
 
 class ExecutionPriority(str, Enum):
