@@ -1,23 +1,25 @@
-# External Agents Architecture
+# External Runtimes Architecture (Executor Integration)
 
-> **Version**: 1.1 (Pluggable Architecture)
-> **Last Updated**: 2026-01-31
+> **Version**: 1.2 (AgentSpec / Agent OS alignment)
+> **Last Updated**: 2026-02-23
 > **Status**: Phase 1 Implementation
 
-This document describes the pluggable architecture for integrating external AI agents within Mindscape's governance layer.
+This document describes the pluggable architecture for integrating external executor runtimes within Mindscape's Agent OS (governance + execution contract layer).
+
+> **Terminology**: In Mindscape, *agent identity* is defined by AgentSpec (Intent + Lens + Memory + Actuator). External integrations (Gemini CLI, OpenClaw, LangGraph, etc.) are **executor runtimes** — they provide execution environments, not the agent identity.
 
 ---
 
 ## 1. Overview
 
-External agents are autonomous AI systems that can perform complex tasks independently. Mindscape integrates these agents as **controlled executors** using a pluggable adapter pattern.
+External runtimes are autonomous AI execution environments that can perform complex tasks independently. Mindscape integrates these runtimes as **controlled executors** using a pluggable adapter pattern.
 
 ### Design Principles
 
-1. **Pluggable**: New agents added by dropping directories into `agents/`
-2. **Auto-Discovery**: Registry scans and registers agents on startup
-3. **Unified API**: All agents share common `execute()` interface
-4. **Governance**: All executions traced and sandboxed
+1. **Pluggable**: New runtimes added by dropping directories into `agents/`
+2. **Auto-Discovery**: Registry scans and registers runtimes on startup
+3. **Unified API**: All runtimes share common `execute()` interface
+4. **Governance**: All executions traced and sandboxed via Agent OS
 
 ---
 
@@ -100,7 +102,7 @@ Each agent requires an `AGENT.md` with YAML frontmatter:
 ---
 name: example_agent
 version: "1.0.0"
-description: Example External Agent Adapter
+description: Example Runtime Adapter
 cli_command: example-agent
 min_version: "0.1.0"
 
@@ -205,7 +207,7 @@ steps:
 
 ### Workspace-Bound Sandbox Enforcement
 
-> **CRITICAL**: All external agent execution is now workspace-bound.
+> **CRITICAL**: All executor runtime execution is now workspace-bound.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -283,9 +285,9 @@ These tools are blocked for **all** agents:
 │  └─ Configure Lens          └─ Approve/reject                       │
 │                                                                      │
 │  ┌───────────────────────────────────────────────────────┐          │
-│  │  Workspace C (Agent Executor)                          │          │
+│  │  Workspace C (Executor Runtime)                      │          │
 │  │  ┌─────────────────────────────────────────────────┐  │          │
-│  │  │  External Agent (Sandboxed)                    │  │          │
+│  │  │  Runtime (Sandboxed)                           │  │          │
 │  │  │  - Executes tasks from A                        │  │          │
 │  │  │  - Outputs reviewed by B                        │  │          │
 │  │  └─────────────────────────────────────────────────┘  │          │

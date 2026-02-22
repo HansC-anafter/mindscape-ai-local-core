@@ -364,7 +364,7 @@ overrides:
 
 ---
 
-## 7. Integration with External Agents
+## 7. Integration with External Runtimes
 
 ### 7.1 Adapter Responsibility
 
@@ -404,7 +404,7 @@ adapter = ExampleAgentAdapter(
 
 ## Related Documents
 
-- [External Agents Architecture](./core-architecture/external-agents.md)
+- [External Runtimes Architecture](./core-architecture/external-agents.md)
 - [Governance Decision & Risk Control Layer](./core-architecture/governance-decision-risk-control-layer.md)
 - [Pack Supply Chain](./core-architecture/capability-packs.md)
 - [Asset Provenance](./core-architecture/asset-provenance.md)
