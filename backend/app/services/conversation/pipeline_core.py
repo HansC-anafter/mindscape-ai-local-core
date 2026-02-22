@@ -150,15 +150,18 @@ class PipelineCore:
                 )
 
                 execution_launcher = self._build_execution_launcher()
+                preferred_agent = getattr(self.workspace, "preferred_agent", None)
                 meeting_engine = MeetingEngine(
                     session=session,
                     store=self.store,
+                    workspace=self.workspace,
                     runtime_profile=self.runtime_profile,
                     profile_id=profile_id,
                     thread_id=thread_id,
                     project_id=project_id,
                     execution_launcher=execution_launcher,
                     model_name=model_name,
+                    preferred_agent=preferred_agent,
                 )
                 meeting_result = await meeting_engine.run(message)
                 result.response_text = meeting_result.minutes_md
