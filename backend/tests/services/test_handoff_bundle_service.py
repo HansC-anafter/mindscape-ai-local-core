@@ -254,7 +254,7 @@ class TestIntakeAndCompileValidation:
             await svc.intake_and_compile(
                 bundle=bundle,
                 workspace=None,
-                store=None,
+                db_path="/tmp/test_handoff_compile.db",
                 runtime_profile=None,
                 profile_id="test",
                 thread_id="t1",
@@ -281,7 +281,7 @@ class TestIntakeAndCompileValidation:
             await svc.intake_and_compile(
                 bundle=bundle,
                 workspace=None,
-                store=None,
+                db_path="/tmp/test_handoff_compile.db",
                 runtime_profile=None,
                 profile_id="test",
                 thread_id="t1",
@@ -308,7 +308,7 @@ class TestIntakeAndCompileValidation:
             await svc.intake_and_compile(
                 bundle=bundle,
                 workspace=None,
-                store=None,
+                db_path="/tmp/test_handoff_compile.db",
                 runtime_profile=None,
                 profile_id="test",
                 thread_id="t1",

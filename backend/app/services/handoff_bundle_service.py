@@ -182,7 +182,7 @@ class HandoffBundleService:
     async def intake_and_compile(
         bundle: SignedHandoffBundle,
         workspace: Any,
-        store: Any,
+        db_path: str,
         runtime_profile: Any,
         profile_id: str,
         thread_id: str,
@@ -194,12 +194,12 @@ class HandoffBundleService:
 
         This is the primary intake entry point. It drives the extracted
         HandoffIn through MeetingEngine.run() which produces a compiled
-        TaskIR, persists it, and dispatches executable phases.
+        TaskIR, persists it via TaskIRStore.
 
         Args:
             bundle: Incoming signed bundle (must contain handoff_in payload).
             workspace: Workspace ORM instance (provides session init context).
-            store: Conversation store instance (provides db_path for TaskIR).
+            db_path: SQLite database path for TaskIRStore persistence.
             runtime_profile: Active runtime profile for the workspace.
             profile_id: User profile ID.
             thread_id: Conversation thread ID.
@@ -208,7 +208,7 @@ class HandoffBundleService:
             model_name: LLM model override.
 
         Returns:
-            Dict with task_ir_id, session_id, and compile status.
+            Dict with task_ir_id, session_id, persisted status.
 
         Raises:
             ValueError: If signature fails or payload_type is not handoff_in.
@@ -242,7 +242,7 @@ class HandoffBundleService:
 
         engine = MeetingEngine(
             session=session,
-            store=store,
+            store=None,
             workspace=workspace,
             runtime_profile=runtime_profile,
             profile_id=profile_id,
@@ -274,15 +274,13 @@ class HandoffBundleService:
             try:
                 from backend.app.services.stores.task_ir_store import TaskIRStore
 
-                db_path = getattr(store, "db_path", None)
-                if db_path:
-                    ir_store = TaskIRStore(db_path=db_path)
-                    ir_store.replace_task_ir(meeting_result.task_ir)
-                    result["persisted"] = True
-                    logger.info(
-                        "Persisted TaskIR %s from intake",
-                        meeting_result.task_ir.task_id,
-                    )
+                ir_store = TaskIRStore(db_path=db_path)
+                ir_store.replace_task_ir(meeting_result.task_ir)
+                result["persisted"] = True
+                logger.info(
+                    "Persisted TaskIR %s from intake",
+                    meeting_result.task_ir.task_id,
+                )
             except Exception as exc:
                 logger.warning(
                     "Failed to persist TaskIR from intake: %s",
