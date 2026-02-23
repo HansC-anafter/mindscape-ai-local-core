@@ -53,9 +53,23 @@ class SignedHandoffBundle(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
     @staticmethod
-    def _canonical_json(payload: Dict[str, Any]) -> bytes:
+    def _canonical_json(data: Dict[str, Any]) -> bytes:
         """Produce deterministic JSON bytes for hashing."""
-        return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        return json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+
+    def _signing_data(self) -> bytes:
+        """Build canonical bytes covering payload AND envelope fields.
+
+        Ensures that payload_type, source_device_id, and target_device_id
+        are included in the integrity boundary.
+        """
+        envelope = {
+            "payload_type": self.payload_type,
+            "source_device_id": self.source_device_id,
+            "target_device_id": self.target_device_id,
+            "payload": self.payload,
+        }
+        return self._canonical_json(envelope)
 
     @classmethod
     def create(
@@ -78,7 +92,14 @@ class SignedHandoffBundle(BaseModel):
         Returns:
             SignedHandoffBundle with computed hash and signature.
         """
-        canonical = cls._canonical_json(payload)
+        # Build envelope for signing
+        envelope = {
+            "payload_type": payload_type,
+            "source_device_id": source_device_id,
+            "target_device_id": target_device_id,
+            "payload": payload,
+        }
+        canonical = cls._canonical_json(envelope)
         content_hash = hashlib.sha256(canonical).hexdigest()
         signature = hmac.new(secret_key.encode(), canonical, hashlib.sha256).hexdigest()
 
@@ -94,13 +115,16 @@ class SignedHandoffBundle(BaseModel):
     def verify(self, secret_key: str) -> bool:
         """Verify bundle integrity and authenticity.
 
+        Checks both the content hash (integrity) and HMAC signature
+        (authenticity) over the full signing envelope.
+
         Args:
             secret_key: Shared secret used during creation.
 
         Returns:
             True if both content hash and signature are valid.
         """
-        canonical = self._canonical_json(self.payload)
+        canonical = self._signing_data()
         expected_hash = hashlib.sha256(canonical).hexdigest()
         if expected_hash != self.content_hash:
             return False

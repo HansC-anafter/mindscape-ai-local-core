@@ -138,8 +138,8 @@ class HandoffHandler:
         Returns:
             Execution initiation result
         """
-        # Save initial Task IR
-        self.task_ir_store.create_task_ir(task_ir)
+        # Persist or update Task IR (may already exist from pipeline persist)
+        self.task_ir_store.replace_task_ir(task_ir)
 
         # Find first executable phase
         executable_phases = task_ir.get_next_executable_phases()
