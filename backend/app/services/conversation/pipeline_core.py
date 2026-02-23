@@ -1,21 +1,20 @@
 """
-Pipeline Core - Unique decision center for chat message processing.
+Pipeline Core -- Unique decision center for chat message processing.
 
 ADR-001: This module is the SOLE decision hub for:
 - Intent extraction
 - Execution plan generation
-- Agent/LLM dispatch
-- Playbook trigger
-- Meeting session lifecycle
+- Agent/LLM dispatch (via pipeline_dispatch)
+- Playbook trigger (via pipeline_playbook)
+- Meeting session lifecycle (via pipeline_meeting)
 
 llm_streaming.py is limited to pure LLM generation + SSE event output.
 chat_orchestrator_service.py is the HTTP/async wrapper.
 """
 
-import logging
-import json
-import uuid
 import asyncio
+import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
@@ -124,28 +123,45 @@ class PipelineCore:
         Returns:
             PipelineResult with events, response text, playbook info, etc.
         """
+        from backend.app.services.conversation.pipeline_dispatch import (
+            dispatch_to_agent,
+            dispatch_to_llm,
+        )
+        from backend.app.services.conversation.pipeline_playbook import (
+            handle_post_response_playbook,
+        )
+        from backend.app.services.conversation.pipeline_meeting import (
+            ensure_meeting_session,
+            is_project_meeting_enabled,
+            build_execution_launcher,
+            extract_handoff_in,
+            persist_meeting_task_ir,
+            dispatch_task_ir,
+            finalize_meeting_session,
+        )
+
         result = PipelineResult()
 
         try:
-            # --- Stage 0: MeetingSession lifecycle (project-scoped when enabled) ---
+            # --- Stage 0: MeetingSession lifecycle ---
             meeting_enabled = execution_mode == "meeting"
             if not meeting_enabled:
-                meeting_enabled = await self._is_project_meeting_enabled(project_id)
+                meeting_enabled = await is_project_meeting_enabled(
+                    project_id, self.store
+                )
 
             session = None
             if meeting_enabled:
-                session = await self._ensure_meeting_session(
+                session = await ensure_meeting_session(
                     workspace_id,
                     thread_id,
+                    self.session_store,
                     project_id,
                 )
                 if session:
                     result.meeting_session_id = session.id
 
             # --- Stage 0.5: Meeting branch ---
-            # Enter meeting engine when:
-            # 1. execution_mode explicitly set to "meeting", OR
-            # 2. project.metadata.meeting_enabled == true (resolved at L129-131)
             if meeting_enabled:
                 if not session:
                     raise RuntimeError("Failed to initialize meeting session")
@@ -154,7 +170,7 @@ class PipelineCore:
                     MeetingEngine,
                 )
 
-                execution_launcher = self._build_execution_launcher()
+                execution_launcher = build_execution_launcher(self.store)
                 executor_runtime = getattr(self.workspace, "executor_runtime", None)
                 meeting_engine = MeetingEngine(
                     session=session,
@@ -169,8 +185,7 @@ class PipelineCore:
                     executor_runtime=executor_runtime,
                 )
 
-                # Extract HandoffIn from request payload if present
-                handoff_in = self._extract_handoff_in(request)
+                handoff_in = extract_handoff_in(request)
 
                 meeting_result = await meeting_engine.run(
                     message, handoff_in=handoff_in
@@ -181,14 +196,16 @@ class PipelineCore:
 
                 # Persist compiled TaskIR if present
                 if meeting_result.task_ir:
-                    await self._persist_meeting_task_ir(meeting_result.task_ir)
+                    await persist_meeting_task_ir(meeting_result.task_ir)
                     result.task_ir_id = meeting_result.task_ir.task_id
-                    dispatch = await self._dispatch_task_ir(meeting_result.task_ir)
+                    dispatch = await dispatch_task_ir(
+                        meeting_result.task_ir, self.store
+                    )
                     if dispatch:
                         result.dispatch_result = dispatch
 
                 # Early return path must still finalize session metadata.
-                await self._finalize_meeting_session(result)
+                await finalize_meeting_session(result, self.session_store)
                 return result
 
             # --- Stage 1: Intent Extraction ---
@@ -237,42 +254,48 @@ class PipelineCore:
             executor_runtime = getattr(self.workspace, "executor_runtime", None)
 
             if executor_runtime:
-                result = await self._dispatch_agent(
-                    workspace_id,
-                    profile_id,
-                    thread_id,
-                    project_id,
-                    message,
-                    user_event_id,
-                    executor_runtime,
-                    context_str,
-                    result,
+                result = await dispatch_to_agent(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    thread_id=thread_id,
+                    project_id=project_id,
+                    message=message,
+                    user_event_id=user_event_id,
+                    executor_runtime=executor_runtime,
+                    context_str=context_str,
+                    store=self.store,
+                    workspace=self.workspace,
+                    result=result,
+                    emit_pipeline_stage=self._emit_pipeline_stage,
                 )
             else:
-                result = await self._dispatch_llm(
-                    workspace_id,
-                    profile_id,
-                    thread_id,
-                    project_id,
-                    message,
-                    user_event_id,
-                    execution_mode,
-                    model_name,
-                    context_str,
-                    result,
+                result = await dispatch_to_llm(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    thread_id=thread_id,
+                    project_id=project_id,
+                    message=message,
+                    user_event_id=user_event_id,
+                    execution_mode=execution_mode,
+                    model_name=model_name,
+                    context_str=context_str,
+                    store=self.store,
+                    workspace=self.workspace,
+                    profile=self.profile,
+                    result=result,
                 )
 
             # --- Stage 4: Post-response (playbook trigger) ---
             if result.success and execution_mode in ("execution", "hybrid"):
-                result = await self._post_response_playbook(
-                    workspace_id,
-                    profile_id,
-                    thread_id,
-                    project_id,
-                    message,
-                    user_event_id,
-                    execution_mode,
-                    result,
+                result = await handle_post_response_playbook(
+                    execution_mode=execution_mode,
+                    message=message,
+                    workspace=self.workspace,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    profile=self.profile,
+                    store=self.store,
+                    result=result,
                 )
 
         except Exception as e:
@@ -281,495 +304,13 @@ class PipelineCore:
             result.error = str(e)
 
         # --- Finalize MeetingSession (always runs) ---
-        await self._finalize_meeting_session(result)
+        await finalize_meeting_session(result, self.session_store)
 
         return result
 
     # ============================================================
-    # Stage 3a: Agent Dispatch
+    # Pipeline Stage Event Emitter
     # ============================================================
-
-    async def _dispatch_agent(
-        self,
-        workspace_id,
-        profile_id,
-        thread_id,
-        project_id,
-        message,
-        user_event_id,
-        executor_runtime,
-        context_str,
-        result: PipelineResult,
-    ) -> PipelineResult:
-        """Dispatch to external agent runtime (e.g. Gemini CLI)."""
-        from backend.app.services.workspace_agent_executor import (
-            WorkspaceAgentExecutor,
-            AgentExecutionResponse,
-        )
-
-        executor = WorkspaceAgentExecutor(self.workspace)
-        agent_available = await executor.check_agent_available(executor_runtime)
-
-        if not agent_available:
-            result.success = False
-            result.error = (
-                f"Agent {executor_runtime} is unavailable: no runtime connected. "
-                f"Start the CLI bridge or switch to Mindscape LLM."
-            )
-            return result
-
-        await self._emit_pipeline_stage(
-            workspace_id,
-            profile_id,
-            thread_id,
-            project_id,
-            "agent_dispatching",
-            f"Dispatching task to agent {executor_runtime}...",
-            user_event_id,
-        )
-
-        agent_response: AgentExecutionResponse = await executor.execute(
-            task=message,
-            agent_id=executor_runtime,
-            context_overrides={
-                "conversation_context": context_str or "",
-                "thread_id": thread_id,
-                "project_id": project_id,
-            },
-        )
-
-        exec_time = agent_response.execution_time_seconds
-
-        if agent_response.success:
-            await self._emit_pipeline_stage(
-                workspace_id,
-                profile_id,
-                thread_id,
-                project_id,
-                "agent_completed",
-                f"Agent completed in {exec_time:.0f}s",
-                user_event_id,
-            )
-
-            # Create assistant event
-            payload = {
-                "message": agent_response.output,
-                "agent_id": executor_runtime,
-                "trace_id": agent_response.trace_id,
-                "execution_time": exec_time,
-            }
-            metadata = {
-                "external_agent": True,
-                "agent_id": executor_runtime,
-            }
-            if result.meeting_session_id:
-                payload["meeting_session_id"] = result.meeting_session_id
-                metadata["meeting_session_id"] = result.meeting_session_id
-
-            assistant_event = MindEvent(
-                id=str(uuid.uuid4()),
-                timestamp=datetime.now(timezone.utc),
-                actor=EventActor.ASSISTANT,
-                channel="local_workspace",
-                profile_id=profile_id,
-                project_id=project_id,
-                workspace_id=workspace_id,
-                thread_id=thread_id,
-                event_type=EventType.MESSAGE,
-                payload=payload,
-                entity_ids=[],
-                metadata=metadata,
-            )
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.store.create_event(assistant_event),
-            )
-
-            result.response_text = agent_response.output
-            result.events.append(
-                assistant_event.model_dump()
-                if hasattr(assistant_event, "model_dump")
-                else {"id": assistant_event.id}
-            )
-        else:
-            result.success = False
-            result.error = agent_response.error or "Agent execution failed"
-
-        return result
-
-    # ============================================================
-    # Stage 3b: LLM Dispatch
-    # ============================================================
-
-    async def _dispatch_llm(
-        self,
-        workspace_id,
-        profile_id,
-        thread_id,
-        project_id,
-        message,
-        user_event_id,
-        execution_mode,
-        model_name,
-        context_str,
-        result: PipelineResult,
-    ) -> PipelineResult:
-        """Dispatch to LLM streaming (pure generation, no decisions)."""
-        from backend.features.workspace.chat.streaming.llm_streaming import (
-            stream_llm_response,
-        )
-        from backend.features.workspace.chat.utils.llm_provider import (
-            get_llm_provider_manager,
-            get_llm_provider,
-        )
-
-        # Resolve model
-        if not model_name:
-            try:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
-
-                settings_store = SystemSettingsStore()
-                chat_setting = settings_store.get_setting("chat_model")
-                if chat_setting and chat_setting.value:
-                    model_name = str(chat_setting.value)
-            except Exception as e:
-                logger.warning(f"Failed to fetch default chat model: {e}")
-
-        if not model_name or str(model_name).strip() == "":
-            model_name = "gpt-4"
-
-        provider_manager = get_llm_provider_manager()
-        provider, provider_type = get_llm_provider(
-            model_name=model_name,
-            llm_provider_manager=provider_manager,
-            profile_id=profile_id,
-            db_path=self.store.db_path,
-        )
-
-        # Build messages
-        messages = []
-        if context_str:
-            messages.append({"role": "system", "content": context_str})
-        messages.append({"role": "user", "content": message})
-
-        # SGR prompt injection
-        sgr_enabled = False
-        try:
-            ws_metadata = self.workspace.metadata or {}
-            sgr_enabled = ws_metadata.get("sgr_enabled", False)
-        except Exception:
-            pass
-
-        if sgr_enabled:
-            from backend.app.services.sgr_reasoning_service import (
-                SGRReasoningService,
-            )
-
-            sgr_service = SGRReasoningService()
-            messages = sgr_service.inject_sgr_prompt(messages)
-            logger.info("[PipelineCore] SGR prompt injected")
-
-        context_token_count = len(context_str) // 4 if context_str else 0
-
-        # Collect full text from stream
-        full_text = ""
-        async for chunk in stream_llm_response(
-            provider=provider,
-            provider_type=provider_type,
-            messages=messages,
-            model_name=model_name,
-            execution_mode=execution_mode,
-            user_event_id=user_event_id,
-            profile_id=profile_id,
-            project_id=project_id,
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            workspace=self.workspace,
-            message=message,
-            profile=self.profile,
-            store=self.store,
-            context_token_count=context_token_count,
-            execution_playbook_result=None,
-            openai_key=None,
-            meeting_session_id=result.meeting_session_id,
-        ):
-            # Accumulate full text from chunks
-            if chunk.startswith("data: "):
-                try:
-                    data = json.loads(chunk[6:].strip())
-                    if data.get("type") == "chunk":
-                        full_text += data.get("content", "")
-                except Exception:
-                    pass
-
-        result.response_text = full_text
-        return result
-
-    # ============================================================
-    # Stage 4: Post-response Playbook Trigger
-    # ============================================================
-
-    async def _post_response_playbook(
-        self,
-        workspace_id,
-        profile_id,
-        thread_id,
-        project_id,
-        message,
-        user_event_id,
-        execution_mode,
-        result: PipelineResult,
-    ) -> PipelineResult:
-        """
-        Handle post-response playbook decisions.
-
-        This logic was previously scattered in llm_streaming.py
-        (handle_hybrid_mode_response + handle_execution_mode_playbook_trigger).
-        Now centralized here as the unique decision point.
-        """
-        full_text = result.response_text
-
-        if execution_mode == "hybrid":
-            result = await self._handle_hybrid_playbook(
-                full_text,
-                message,
-                workspace_id,
-                profile_id,
-                result,
-            )
-        elif execution_mode == "execution":
-            result = await self._handle_execution_playbook(
-                full_text,
-                workspace_id,
-                profile_id,
-                execution_mode,
-                result,
-            )
-
-        return result
-
-    async def _handle_hybrid_playbook(
-        self,
-        full_text,
-        message,
-        workspace_id,
-        profile_id,
-        result,
-    ) -> PipelineResult:
-        """Handle hybrid mode: parse Part1/Part2 and execute playbook."""
-        from backend.app.services.conversation.response_parser import (
-            parse_agent_mode_response,
-        )
-        from backend.features.workspace.chat.playbook.executor import (
-            execute_playbook_for_hybrid_mode,
-        )
-
-        parsed = parse_agent_mode_response(full_text)
-        logger.info(
-            f"[PipelineCore] Hybrid parse - Part1: {len(parsed['part1'])}, "
-            f"Part2: {len(parsed['part2'])}, "
-            f"Tasks: {len(parsed['executable_tasks'])}"
-        )
-
-        if parsed["executable_tasks"]:
-            try:
-                execution_result = await execute_playbook_for_hybrid_mode(
-                    message=message,
-                    executable_tasks=parsed["executable_tasks"],
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    profile=self.profile,
-                    store=self.store,
-                )
-                if execution_result:
-                    result.playbook_code = execution_result.get("playbook_code")
-                    result.execution_id = execution_result.get("execution_id")
-                    logger.info(
-                        f"[PipelineCore] Hybrid playbook executed: "
-                        f"{result.playbook_code}"
-                    )
-            except Exception as e:
-                # Log but do not swallow - caller sees error in result
-                logger.warning(
-                    f"[PipelineCore] Hybrid playbook execution error: {e}",
-                    exc_info=True,
-                )
-
-        return result
-
-    async def _handle_execution_playbook(
-        self,
-        full_text,
-        workspace_id,
-        profile_id,
-        execution_mode,
-        result,
-    ) -> PipelineResult:
-        """Handle execution mode: check for playbook trigger."""
-        from backend.features.workspace.chat.playbook.trigger import (
-            check_and_trigger_playbook,
-        )
-
-        try:
-            trigger_result = await check_and_trigger_playbook(
-                full_text=full_text,
-                workspace=self.workspace,
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                execution_mode=execution_mode,
-            )
-            if trigger_result:
-                result.playbook_code = trigger_result.get("playbook_code")
-                result.execution_id = trigger_result.get("execution_id")
-                logger.info(
-                    f"[PipelineCore] Execution playbook triggered: "
-                    f"{result.playbook_code}"
-                )
-        except Exception as e:
-            logger.warning(
-                f"[PipelineCore] Execution playbook error: {e}",
-                exc_info=True,
-            )
-
-        return result
-
-    # ============================================================
-    # Helpers
-    # ============================================================
-
-    def _build_execution_launcher(self):
-        """
-        Build ExecutionLauncher for meeting action landing.
-
-        Returns None on setup failure so meeting flow can degrade gracefully
-        to task creation fallback.
-        """
-        try:
-            from backend.app.services.playbook_service import PlaybookService
-            from backend.app.services.conversation.execution_launcher import (
-                ExecutionLauncher,
-            )
-
-            playbook_service = PlaybookService(store=self.store)
-            return ExecutionLauncher(playbook_service=playbook_service)
-        except Exception as e:
-            logger.warning(
-                f"[PipelineCore] Failed to initialize ExecutionLauncher for meeting mode: {e}",
-                exc_info=True,
-            )
-            return None
-
-    def _extract_handoff_in(self, request: Optional[Any]) -> Optional[Any]:
-        """Extract HandoffIn from request payload if present.
-
-        Args:
-            request: Original ChatRequest object.
-
-        Returns:
-            HandoffIn instance or None.
-        """
-        if not request:
-            return None
-        handoff_data = getattr(request, "handoff_in", None)
-        if not handoff_data:
-            return None
-        from backend.app.models.handoff import HandoffIn
-
-        if isinstance(handoff_data, dict):
-            return HandoffIn(**handoff_data)
-        if isinstance(handoff_data, HandoffIn):
-            return handoff_data
-        return None
-
-    async def _persist_meeting_task_ir(self, task_ir) -> None:
-        """Persist compiled TaskIR with upsert semantics.
-
-        Uses delete-then-create for full replacement to ensure
-        governance, phases, and metadata are fully persisted.
-
-        Args:
-            task_ir: Compiled TaskIR from meeting engine.
-        """
-        try:
-            from backend.app.services.stores.postgres.task_ir_store import (
-                PostgresTaskIRStore,
-            )
-
-            store = PostgresTaskIRStore()
-            replaced = store.replace_task_ir(task_ir)
-            logger.info(
-                "[PipelineCore] Persisted TaskIR %s (replaced=%s)",
-                task_ir.task_id,
-                replaced,
-            )
-        except Exception as e:
-            logger.warning(
-                "[PipelineCore] Failed to persist TaskIR: %s",
-                e,
-                exc_info=True,
-            )
-
-    async def _dispatch_task_ir(self, task_ir) -> Optional[Dict[str, Any]]:
-        """Dispatch persisted TaskIR via HandoffHandler.
-
-        Performs actuation plan lowering, then dispatches the first
-        executable phase via HandoffHandler.
-
-        Args:
-            task_ir: Compiled and persisted TaskIR.
-
-        Returns:
-            Dispatch result dict or None on failure.
-        """
-        try:
-            from backend.app.services.stores.postgres.task_ir_store import (
-                PostgresTaskIRStore,
-            )
-            from backend.app.services.handoff_handler import HandoffHandler
-            from backend.app.services.artifact_registry import ArtifactRegistry
-
-            db_path = getattr(self.store, "db_path", None)
-            if not db_path:
-                return None
-
-            ir_store = PostgresTaskIRStore()
-            artifact_registry = ArtifactRegistry(db_path=db_path)
-            handler = HandoffHandler(
-                task_ir_store=ir_store,
-                artifact_registry=artifact_registry,
-            )
-
-            # Lower phases to actuation plan
-            task_ir.lower_to_actuation_plan()
-            ir_store.replace_task_ir(task_ir)
-
-            # Dispatch first executable phase
-            first_phases = task_ir.get_next_executable_phases()
-            if not first_phases:
-                logger.info(
-                    "[PipelineCore] No executable phases for %s", task_ir.task_id
-                )
-                return None
-
-            engine = first_phases[0].preferred_engine or "playbook:generic"
-            result = await handler.initiate_task_execution(task_ir, engine)
-            logger.info(
-                "[PipelineCore] Dispatched TaskIR %s via %s",
-                task_ir.task_id,
-                engine,
-            )
-            return result
-        except Exception as e:
-            logger.warning(
-                "[PipelineCore] Dispatch failed for %s: %s",
-                task_ir.task_id,
-                e,
-                exc_info=True,
-            )
-            return None
 
     async def _emit_pipeline_stage(
         self,
@@ -807,131 +348,6 @@ class PipelineCore:
             lambda: self.store.create_event(event),
         )
         logger.info(f"[PipelineCore] Pipeline stage: {stage}")
-
-    # ============================================================
-    # MeetingSession Lifecycle (Phase 2)
-    # ============================================================
-
-    async def _ensure_meeting_session(
-        self,
-        workspace_id: str,
-        thread_id: str,
-        project_id: Optional[str] = None,
-    ):
-        """Get or create the active MeetingSession for this workspace/thread.
-
-        - If an active session exists, reuse it.
-        - If not, create a new one.
-        """
-        try:
-            loop = asyncio.get_running_loop()
-            session = await loop.run_in_executor(
-                None,
-                lambda: self.session_store.get_active_session(
-                    workspace_id,
-                    project_id,
-                    thread_id,
-                ),
-            )
-            if session:
-                logger.info(f"[PipelineCore] Reusing active session {session.id}")
-                return session
-
-            # Create new session
-            from backend.app.models.meeting_session import MeetingSession
-
-            new_session = MeetingSession.new(
-                workspace_id=workspace_id,
-                project_id=project_id,
-                thread_id=thread_id,
-            )
-            await loop.run_in_executor(
-                None,
-                lambda: self.session_store.create(new_session),
-            )
-            logger.info(f"[PipelineCore] Created new session {new_session.id}")
-            return new_session
-        except Exception as e:
-            logger.warning(
-                f"[PipelineCore] MeetingSession lifecycle error: {e}",
-                exc_info=True,
-            )
-            return None
-
-    async def _is_project_meeting_enabled(self, project_id: Optional[str]) -> bool:
-        """Return whether persistent meeting is enabled on the project metadata."""
-        if not project_id:
-            return False
-        try:
-            loop = asyncio.get_running_loop()
-            project = await loop.run_in_executor(
-                None,
-                lambda: self.store.get_project(project_id),
-            )
-            if not project:
-                return False
-            metadata = getattr(project, "metadata", {}) or {}
-            raw = metadata.get("meeting_enabled")
-            # Strict boolean: only True or "true" (not truthy strings like "1")
-            return raw is True or (isinstance(raw, str) and raw.lower() == "true")
-        except Exception as e:
-            logger.warning(
-                f"[PipelineCore] Failed to read project meeting flag: {e}",
-                exc_info=True,
-            )
-            return False
-
-    async def _finalize_meeting_session(
-        self,
-        result: PipelineResult,
-    ):
-        """Record pipeline artifacts back to the MeetingSession.
-
-        Links playbook execution ID and traces to the session record.
-        Does NOT end the session - that requires an explicit API call
-        or idle timeout.
-        """
-        if not result.meeting_session_id:
-            return
-
-        try:
-            loop = asyncio.get_running_loop()
-            session = await loop.run_in_executor(
-                None,
-                lambda: self.session_store.get_by_id(result.meeting_session_id),
-            )
-            if not session:
-                return
-
-            # Append execution_id to decisions list if playbook was triggered
-            if result.execution_id and result.execution_id not in session.decisions:
-                session.decisions.append(result.execution_id)
-
-            # Metadata enrichment
-            run_meta = session.metadata.get("runs", [])
-            run_meta.append(
-                {
-                    "playbook": result.playbook_code,
-                    "execution_id": result.execution_id,
-                    "success": result.success,
-                    "error": result.error,
-                }
-            )
-            session.metadata["runs"] = run_meta
-
-            await loop.run_in_executor(
-                None,
-                lambda: self.session_store.update(session),
-            )
-            logger.info(
-                f"[PipelineCore] Session {session.id} finalized "
-                f"(decisions={len(session.decisions)})"
-            )
-        except Exception as e:
-            logger.warning(
-                f"[PipelineCore] Session finalize error: {e}",
-                exc_info=True,
-            )
 
 
 # ============================================================
