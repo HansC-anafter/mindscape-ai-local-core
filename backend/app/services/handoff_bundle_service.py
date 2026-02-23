@@ -265,14 +265,35 @@ class HandoffBundleService:
             "decision": meeting_result.decision,
             "action_items_count": len(meeting_result.action_items),
             "task_ir_id": None,
+            "persisted": False,
         }
 
+        # Persist compiled TaskIR (mirrors PipelineCore._persist_meeting_task_ir)
         if meeting_result.task_ir:
             result["task_ir_id"] = meeting_result.task_ir.task_id
+            try:
+                from backend.app.services.stores.task_ir_store import TaskIRStore
+
+                db_path = getattr(store, "db_path", None)
+                if db_path:
+                    ir_store = TaskIRStore(db_path=db_path)
+                    ir_store.replace_task_ir(meeting_result.task_ir)
+                    result["persisted"] = True
+                    logger.info(
+                        "Persisted TaskIR %s from intake",
+                        meeting_result.task_ir.task_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to persist TaskIR from intake: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         logger.info(
-            "Intake complete: handoff %s -> TaskIR %s",
+            "Intake complete: handoff %s -> TaskIR %s (persisted=%s)",
             handoff_in.handoff_id,
             result["task_ir_id"],
+            result["persisted"],
         )
         return result

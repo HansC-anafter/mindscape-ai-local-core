@@ -229,3 +229,89 @@ class TestSecretKeyResolution:
                 handoff_in=handoff,
                 source_device_id="dev_A",
             )
+
+
+class TestIntakeAndCompileValidation:
+    """Test intake_and_compile guard clauses (no MeetingEngine needed)."""
+
+    @pytest.mark.asyncio
+    async def test_tampered_bundle_rejected(self):
+        handoff = HandoffIn(
+            handoff_id="h_ic_001",
+            workspace_id="ws_001",
+            intent_summary="tamper test",
+            goals=["goal1"],
+        )
+        svc = HandoffBundleService()
+        bundle = svc.package_handoff(
+            handoff_in=handoff,
+            source_device_id="dev_A",
+            secret_key=SECRET,
+        )
+        bundle.payload["intent_summary"] = "TAMPERED"
+
+        with pytest.raises(ValueError, match="verification failed"):
+            await svc.intake_and_compile(
+                bundle=bundle,
+                workspace=None,
+                store=None,
+                runtime_profile=None,
+                profile_id="test",
+                thread_id="t1",
+                project_id="p1",
+                secret_key=SECRET,
+            )
+
+    @pytest.mark.asyncio
+    async def test_wrong_payload_type_rejected(self):
+        commitment = Commitment(
+            commitment_id="c_ic_001",
+            handoff_id="h_001",
+            accepted=True,
+            scope_summary="test",
+        )
+        svc = HandoffBundleService()
+        bundle = svc.package_commitment(
+            commitment=commitment,
+            source_device_id="dev_B",
+            secret_key=SECRET,
+        )
+
+        with pytest.raises(ValueError, match="requires handoff_in bundle"):
+            await svc.intake_and_compile(
+                bundle=bundle,
+                workspace=None,
+                store=None,
+                runtime_profile=None,
+                profile_id="test",
+                thread_id="t1",
+                project_id="p1",
+                secret_key=SECRET,
+            )
+
+    @pytest.mark.asyncio
+    async def test_wrong_secret_rejected(self):
+        handoff = HandoffIn(
+            handoff_id="h_ic_003",
+            workspace_id="ws_001",
+            intent_summary="wrong key test",
+            goals=["goal1"],
+        )
+        svc = HandoffBundleService()
+        bundle = svc.package_handoff(
+            handoff_in=handoff,
+            source_device_id="dev_A",
+            secret_key=SECRET,
+        )
+
+        with pytest.raises(ValueError, match="verification failed"):
+            await svc.intake_and_compile(
+                bundle=bundle,
+                workspace=None,
+                store=None,
+                runtime_profile=None,
+                profile_id="test",
+                thread_id="t1",
+                project_id="p1",
+                secret_key="wrong-key-here",
+            )
