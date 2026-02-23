@@ -700,27 +700,11 @@ class PipelineCore:
                 return
 
             store = TaskIRStore(db_path=db_path)
-            existing = store.get_task_ir(task_ir.task_id)
-            if existing:
-                store.delete_task_ir(task_ir.task_id)
-                try:
-                    store.create_task_ir(task_ir)
-                except Exception as create_err:
-                    # Recovery: re-create from existing to avoid data loss
-                    logger.critical(
-                        "[PipelineCore] Create failed after delete for %s, "
-                        "re-inserting original: %s",
-                        task_ir.task_id,
-                        create_err,
-                    )
-                    store.create_task_ir(existing)
-                    raise
-            else:
-                store.create_task_ir(task_ir)
+            replaced = store.replace_task_ir(task_ir)
             logger.info(
                 "[PipelineCore] Persisted TaskIR %s (replaced=%s)",
                 task_ir.task_id,
-                existing is not None,
+                replaced,
             )
         except Exception as e:
             logger.warning(
