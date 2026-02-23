@@ -182,7 +182,6 @@ class HandoffBundleService:
     async def intake_and_compile(
         bundle: SignedHandoffBundle,
         workspace: Any,
-        db_path: str,
         runtime_profile: Any,
         profile_id: str,
         thread_id: str,
@@ -194,12 +193,11 @@ class HandoffBundleService:
 
         This is the primary intake entry point. It drives the extracted
         HandoffIn through MeetingEngine.run() which produces a compiled
-        TaskIR, persists it via TaskIRStore.
+        TaskIR, persists it via PostgresTaskIRStore.
 
         Args:
             bundle: Incoming signed bundle (must contain handoff_in payload).
             workspace: Workspace ORM instance (provides session init context).
-            db_path: SQLite database path for TaskIRStore persistence.
             runtime_profile: Active runtime profile for the workspace.
             profile_id: User profile ID.
             thread_id: Conversation thread ID.
@@ -268,13 +266,15 @@ class HandoffBundleService:
             "persisted": False,
         }
 
-        # Persist compiled TaskIR (mirrors PipelineCore._persist_meeting_task_ir)
+        # Persist compiled TaskIR via PostgresTaskIRStore
         if meeting_result.task_ir:
             result["task_ir_id"] = meeting_result.task_ir.task_id
             try:
-                from backend.app.services.stores.task_ir_store import TaskIRStore
+                from backend.app.services.stores.postgres.task_ir_store import (
+                    PostgresTaskIRStore,
+                )
 
-                ir_store = TaskIRStore(db_path=db_path)
+                ir_store = PostgresTaskIRStore()
                 ir_store.replace_task_ir(meeting_result.task_ir)
                 result["persisted"] = True
                 logger.info(
