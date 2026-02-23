@@ -232,11 +232,14 @@ class HandoffBundleService:
         workspace_id = getattr(workspace, "id", handoff_in.workspace_id)
         session = session_store.get_active_session(workspace_id, project_id)
         if not session:
-            session = session_store.create_session(
+            from backend.app.models.meeting_session import MeetingSession
+
+            session = MeetingSession.new(
                 workspace_id=workspace_id,
                 project_id=project_id,
-                profile_id=profile_id,
+                thread_id=thread_id,
             )
+            session_store.create(session)
 
         engine = MeetingEngine(
             session=session,
