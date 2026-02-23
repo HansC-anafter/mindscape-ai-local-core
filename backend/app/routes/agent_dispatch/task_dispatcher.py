@@ -300,11 +300,11 @@ class TaskDispatchMixin:
                 "error": f"Unknown execution {execution_id}",
             }
 
-        # Exact match — original client still owns the task
+        # Exact match -- original client still owns the task
         if inflight.client_id == client.client_id:
             return None
 
-        # Re-queued task ('pending') — any authenticated client may claim
+        # Re-queued task ('pending') -- any authenticated client may claim
         if inflight.client_id == "pending":
             logger.info(
                 f"[AgentWS] Accepting result from {client.client_id} "
@@ -312,7 +312,7 @@ class TaskDispatchMixin:
             )
             return None
 
-        # Same workspace — allow result from sibling client
+        # Same workspace -- allow result from sibling client
         # (handles reconnect with new client_id)
         if inflight.workspace_id == client.workspace_id:
             logger.info(
@@ -662,6 +662,9 @@ class TaskDispatchMixin:
             f"[AgentWS] Starting pending dispatch consumer "
             f"(worker pid={os.getpid()})"
         )
+        # Track consecutive no-client cycles for backoff
+        no_client_backoff = 0
+        MAX_NO_CLIENT_BACKOFF = 30  # max 30s between retries
         while True:
             try:
                 # Only consume if this worker has local WS connections
@@ -673,9 +676,11 @@ class TaskDispatchMixin:
                     self._db_pick_pending_dispatches, limit=5
                 )
                 if not rows:
+                    no_client_backoff = 0  # Reset on empty queue
                     await asyncio.sleep(0.5)
                     continue
 
+                had_no_client = False
                 for row in rows:
                     exec_id = row["execution_id"]
                     ws_id = row["workspace_id"]
@@ -689,14 +694,23 @@ class TaskDispatchMixin:
                     # Dispatch via local WS (get_client will find local)
                     client = self.get_client(ws_id)
                     if not client:
+                        had_no_client = True
                         logger.warning(
-                            f"[AgentWS] No local client for {ws_id} "
-                            f"despite having connections"
+                            f"[AgentWS] No local client for {ws_id}, "
+                            f"marking task {exec_id} as no_client"
                         )
+                        # Mark as 'no_client' so it is NOT re-picked
+                        # immediately. A future flush_pending or client
+                        # reconnect will handle it.
                         await asyncio.to_thread(
-                            self._db_update_pending_status, exec_id, "pending"
+                            self._db_update_pending_status,
+                            exec_id,
+                            "no_client",
                         )
                         continue
+
+                    # Reset backoff on successful client match
+                    no_client_backoff = 0
 
                     # Create inflight entry for this task
                     loop = asyncio.get_event_loop()
@@ -764,6 +778,17 @@ class TaskDispatchMixin:
                             exec_id,
                             timeout_result,
                         )
+
+                # Exponential backoff when all rows had no client
+                if had_no_client:
+                    no_client_backoff = min(
+                        no_client_backoff + 2, MAX_NO_CLIENT_BACKOFF
+                    )
+                    logger.info(
+                        f"[AgentWS] No-client backoff: sleeping "
+                        f"{no_client_backoff}s"
+                    )
+                    await asyncio.sleep(no_client_backoff)
 
             except Exception:
                 logger.exception("[AgentWS] Error in pending dispatch consumer")
