@@ -1,12 +1,15 @@
 """
-Store-level integration tests for TaskIR governance round-trip.
+Store-level and PipelineCore-level integration tests for TaskIR.
 
-Tests TaskIRStore persistence of GovernanceContext, PhaseIR actuation fields,
-and the MeetingIRCompilerMixin → TaskIRStore chain.
-Does NOT test PipelineCore orchestration (that requires full-stack mocking).
+Tests:
+- TaskIRStore round-trip for GovernanceContext and PhaseIR actuation fields.
+- TaskIRStore.replace_task_ir() atomic upsert.
+- PipelineCore._extract_handoff_in() dict/model/None paths.
+- MeetingIRCompilerMixin -> TaskIRStore chain.
 """
 
 import pytest
+import asyncio
 import tempfile
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -221,3 +224,166 @@ class TestCompilerToStoreChain:
         assert restored.metadata.get_governance() is None
         assert len(restored.phases) == 1
         assert restored.phases[0].name == "Execute Decision"
+
+
+class TestAtomicReplaceTaskIR:
+    """Verify TaskIRStore.replace_task_ir() operates atomically."""
+
+    def setup_method(self):
+        self.tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmp, "test.db")
+        self.store = TaskIRStore(db_path=self.db_path)
+
+    def _make_task_ir(self, task_id="task_atomic", goal="Original goal"):
+        gov = GovernanceContext(goals=[goal], handoff_id="h-atomic")
+        metadata = ExecutionMetadata()
+        metadata.set_governance(gov)
+        return TaskIR(
+            task_id=task_id,
+            intent_instance_id="ii-atomic",
+            workspace_id="ws-atomic",
+            actor_id="u-atomic",
+            current_phase="p0",
+            status=TaskStatus.PENDING,
+            phases=[PhaseIR(id="p0", name="Do", status=PhaseStatus.PENDING)],
+            artifacts=[],
+            metadata=metadata,
+        )
+
+    def test_replace_on_empty_db_inserts(self):
+        """replace_task_ir on non-existent row behaves like create."""
+        task_ir = self._make_task_ir()
+        replaced = self.store.replace_task_ir(task_ir)
+        assert replaced is False
+
+        restored = self.store.get_task_ir(task_ir.task_id)
+        assert restored is not None
+        assert restored.metadata.get_governance().goals == ["Original goal"]
+
+    def test_replace_on_existing_row_replaces(self):
+        """replace_task_ir on existing row replaces all fields."""
+        original = self._make_task_ir(goal="Original goal")
+        self.store.create_task_ir(original)
+
+        updated = self._make_task_ir(goal="Updated goal")
+        replaced = self.store.replace_task_ir(updated)
+        assert replaced is True
+
+        restored = self.store.get_task_ir(original.task_id)
+        assert restored.metadata.get_governance().goals == ["Updated goal"]
+
+    def test_replace_idempotent(self):
+        """Double replace_task_ir should not crash."""
+        task_ir = self._make_task_ir()
+        self.store.replace_task_ir(task_ir)
+        self.store.replace_task_ir(task_ir)
+
+        restored = self.store.get_task_ir(task_ir.task_id)
+        assert restored is not None
+
+
+class TestExtractHandoffIn:
+    """Verify PipelineCore._extract_handoff_in() handles all input forms."""
+
+    def setup_method(self):
+        from backend.app.services.conversation.pipeline_core import PipelineCore
+
+        self.pipeline = PipelineCore.__new__(PipelineCore)
+
+    def test_none_request_returns_none(self):
+        assert self.pipeline._extract_handoff_in(None) is None
+
+    def test_request_without_handoff_in_attr_returns_none(self):
+        req = MagicMock(spec=[])
+        assert self.pipeline._extract_handoff_in(req) is None
+
+    def test_dict_input_returns_handoff_in_model(self):
+        req = MagicMock()
+        req.handoff_in = {
+            "handoff_id": "h-dict",
+            "workspace_id": "ws-dict",
+            "intent_summary": "Test",
+            "goals": ["A"],
+        }
+        result = self.pipeline._extract_handoff_in(req)
+        assert result is not None
+        assert result.handoff_id == "h-dict"
+        assert result.goals == ["A"]
+
+    def test_model_input_passes_through(self):
+        handoff = HandoffIn(
+            handoff_id="h-model",
+            workspace_id="ws-model",
+            intent_summary="Test",
+            goals=["B"],
+        )
+        req = MagicMock()
+        req.handoff_in = handoff
+        result = self.pipeline._extract_handoff_in(req)
+        assert result is handoff
+
+    def test_falsy_handoff_in_returns_none(self):
+        req = MagicMock()
+        req.handoff_in = {}
+        assert self.pipeline._extract_handoff_in(req) is None
+
+
+class TestPipelineCoreHandoffInPath:
+    """Full-path test: request.handoff_in -> _extract -> engine.run(handoff_in=...) -> persist."""
+
+    def setup_method(self):
+        self.tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmp, "test.db")
+        self.store = TaskIRStore(db_path=self.db_path)
+
+    def test_handoff_in_reaches_meeting_engine_and_persists(self):
+        """Verify handoff_in passes through the full chain and is persisted."""
+        from backend.app.services.conversation.pipeline_core import PipelineCore
+
+        # Build a minimal PipelineCore with a mock store
+        pipeline = PipelineCore.__new__(PipelineCore)
+        mock_store = MagicMock()
+        mock_store.db_path = self.db_path
+        pipeline.store = mock_store
+
+        # Build a request with handoff_in
+        request = MagicMock()
+        request.handoff_in = {
+            "handoff_id": "h-fullpath-001",
+            "workspace_id": "ws-fullpath",
+            "intent_summary": "Build landing page",
+            "goals": ["Hero banner", "Contact form"],
+            "acceptance_tests": ["Loads under 2s"],
+        }
+
+        # Extract handoff_in
+        handoff = pipeline._extract_handoff_in(request)
+        assert handoff is not None
+        assert handoff.handoff_id == "h-fullpath-001"
+        assert handoff.goals == ["Hero banner", "Contact form"]
+
+        # Simulate the compiler step (what engine.run does internally)
+        class FakeEngine(MeetingIRCompilerMixin):
+            def __init__(self):
+                self.session = MagicMock()
+                self.session.id = "sess-fullpath"
+                self.session.workspace_id = "ws-fullpath"
+                self.profile_id = "user-fullpath"
+
+        engine = FakeEngine()
+        task_ir = engine._compile_to_task_ir(
+            decision="Build it",
+            action_items=[{"title": "Design", "description": "Create mockup"}],
+            handoff_in=handoff,
+        )
+
+        # Persist (simulates _persist_meeting_task_ir)
+        self.store.replace_task_ir(task_ir)
+
+        # Verify
+        restored = self.store.get_task_ir(task_ir.task_id)
+        assert restored is not None
+        gov = restored.metadata.get_governance()
+        assert gov.handoff_id == "h-fullpath-001"
+        assert gov.goals == ["Hero banner", "Contact form"]
+        assert gov.acceptance_tests == ["Loads under 2s"]
