@@ -190,8 +190,8 @@ async def get_playbook(
                 for step in playbook_json.steps:
                     if hasattr(step, 'model_dump'):
                         playbook_steps.append(step.model_dump())
-                    elif hasattr(step, 'dict'):
-                        playbook_steps.append(step.dict())
+                    elif hasattr(step, 'model_dump'):
+                        playbook_steps.append(step.model_dump())
                     else:
                         playbook_steps.append(step)
         except Exception as e:

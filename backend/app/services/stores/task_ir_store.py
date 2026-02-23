@@ -108,9 +108,9 @@ class TaskIRStore(StoreBase):
                     task_ir.actor_id,
                     task_ir.current_phase,
                     task_ir.status,
-                    self.serialize_json([p.dict() for p in task_ir.phases]),
-                    self.serialize_json([a.dict() for a in task_ir.artifacts]),
-                    self.serialize_json(task_ir.metadata.dict()),
+                    self.serialize_json([p.model_dump() for p in task_ir.phases]),
+                    self.serialize_json([a.model_dump() for a in task_ir.artifacts]),
+                    self.serialize_json(task_ir.metadata.model_dump()),
                     self.to_isoformat(task_ir.created_at),
                     self.to_isoformat(task_ir.updated_at),
                     (
@@ -202,8 +202,8 @@ class TaskIRStore(StoreBase):
                 (
                     task_ir.current_phase,
                     task_ir.status,
-                    self.serialize_json([p.dict() for p in task_ir.phases]),
-                    self.serialize_json([a.dict() for a in task_ir.artifacts]),
+                    self.serialize_json([p.model_dump() for p in task_ir.phases]),
+                    self.serialize_json([a.model_dump() for a in task_ir.artifacts]),
                     self.to_isoformat(task_ir.updated_at),
                     (
                         self.to_isoformat(task_ir.last_checkpoint_at)
@@ -272,9 +272,9 @@ class TaskIRStore(StoreBase):
                     task_ir.actor_id,
                     task_ir.current_phase,
                     task_ir.status,
-                    self.serialize_json([p.dict() for p in task_ir.phases]),
-                    self.serialize_json([a.dict() for a in task_ir.artifacts]),
-                    self.serialize_json(task_ir.metadata.dict()),
+                    self.serialize_json([p.model_dump() for p in task_ir.phases]),
+                    self.serialize_json([a.model_dump() for a in task_ir.artifacts]),
+                    self.serialize_json(task_ir.metadata.model_dump()),
                     self.to_isoformat(task_ir.created_at),
                     self.to_isoformat(task_ir.updated_at),
                     (

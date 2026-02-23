@@ -156,7 +156,7 @@ async def update_config(config: VectorDBConfigRequest):
         )
 
     # TODO: Implement actual config update when adapter is available
-    response = config.dict()
+    response = config.model_dump()
     response["password"] = None  # Don't return password
     response["adapter_available"] = True
     return VectorDBConfigResponse(**response)

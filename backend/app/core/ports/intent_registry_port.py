@@ -4,7 +4,7 @@ Intent Registry Port - Resolve user input to Intent
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from ..domain_context import LocalDomainContext
 
 
@@ -17,10 +17,7 @@ class IntentResolutionResult(BaseModel):
     confidence: Optional[float] = None
     llm_analysis: Optional[Dict[str, Any]] = None
 
-    class Config:
-        json_encoders = {
-            dict: lambda v: v
-        }
+    model_config = ConfigDict(json_encoders={dict: lambda v: v})
 
 
 class IntentDefinition(BaseModel):
@@ -32,10 +29,7 @@ class IntentDefinition(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
 
-    class Config:
-        json_encoders = {
-            dict: lambda v: v
-        }
+    model_config = ConfigDict(json_encoders={dict: lambda v: v})
 
 
 class IntentRegistryPort(ABC):

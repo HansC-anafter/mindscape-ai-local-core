@@ -6,16 +6,7 @@ Simplified version for v0 MVP - local Playbook library
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
-from pydantic import BaseModel, Field, validator
-
-try:
-    from pydantic import model_validator
-except ImportError:
-    # Pydantic v1 fallback
-    from pydantic import root_validator
-
-    def model_validator(*args, **kwargs):
-        return root_validator(*args, skip_on_failure=True, **kwargs)
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 class PlaybookKind(str, Enum):
@@ -130,10 +121,11 @@ class ToolDependency(BaseModel):
     )
     description: Optional[str] = Field(None, description="Tool purpose description")
 
-    @validator("source")
-    def validate_source(cls, v, values):
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate source field"""
-        tool_type = values.get("type")
+        tool_type = info.data.get("type")
 
         if tool_type == "langchain" and not v:
             raise ValueError("LangChain tools must provide source (full class path)")
@@ -412,8 +404,7 @@ class Playbook(BaseModel):
         None, description="Agent roster for this playbook: {agent_id: AgentDefinition}"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class PlaybookRun(BaseModel):
@@ -466,8 +457,7 @@ class PlaybookRun(BaseModel):
             side_effect_level="none",
         )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class CreatePlaybookRequest(BaseModel):
@@ -499,8 +489,7 @@ class PlaybookAssociation(BaseModel):
     playbook_code: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # ============================================================================
@@ -737,8 +726,7 @@ class PlaybookJson(BaseModel):
         "so the runner can prevent conflicting parallel executions.",
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # ============================================================================
@@ -820,8 +808,7 @@ class HandoffPlan(BaseModel):
         None, description="Estimated execution time in seconds"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # ============================================================================
@@ -920,5 +907,4 @@ class PlaybookInvocationContext(BaseModel):
         None, description="Parent run ID (if mode is subroutine)"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

@@ -27,7 +27,7 @@ from fastapi.responses import (
     RedirectResponse,
     Response,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...models.workspace import Artifact, ArtifactType, PrimaryActionType
 from ...services.mindscape_store import MindscapeStore
@@ -66,8 +66,7 @@ class ArtifactResponse(BaseModel):
     content_preview: Optional[str] = None
     platform: Optional[str] = None
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class CreateArtifactRequest(BaseModel):

@@ -5,7 +5,7 @@ Timeline models — TimelineItem, ConversationThread.
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._common import _utc_now
 from .enums import TimelineItemType
@@ -36,8 +36,7 @@ class TimelineItem(BaseModel):
         default_factory=_utc_now, description="Creation timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ConversationThread(BaseModel):
@@ -77,5 +76,4 @@ class ConversationThread(BaseModel):
         description="Whether this is the default thread for the workspace",
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

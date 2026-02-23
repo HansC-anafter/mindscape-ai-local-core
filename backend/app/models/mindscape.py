@@ -6,7 +6,7 @@ Defines the core data structures for user profiles and intent management
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class IntentStatus(str, Enum):
@@ -158,8 +158,7 @@ class MindscapeProfile(BaseModel):
         default=1, description="Profile version for optimistic locking"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class IntentCard(BaseModel):
@@ -209,8 +208,7 @@ class IntentCard(BaseModel):
         default_factory=dict, description="Additional intent-specific data"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class AgentExecution(BaseModel):
@@ -239,8 +237,7 @@ class AgentExecution(BaseModel):
     # Metadata
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # API Request/Response models
@@ -497,8 +494,7 @@ class MindEvent(BaseModel):
         default_factory=dict, description="Additional metadata (source, trace_id, etc.)"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # ==================== Core Entities and Tags System ====================
@@ -551,8 +547,7 @@ class Entity(BaseModel):
         default_factory=datetime.utcnow, description="Last update timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class Tag(BaseModel):
@@ -578,8 +573,7 @@ class Tag(BaseModel):
         default_factory=datetime.utcnow, description="Creation timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class EntityTag(BaseModel):
@@ -597,8 +591,7 @@ class EntityTag(BaseModel):
         default_factory=datetime.utcnow, description="Association timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # ==================== Intent Log for Offline Optimization ====================
@@ -682,8 +675,7 @@ class IntentTag(BaseModel):
         None, description="Rejection timestamp (if rejected)"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # ==================== IntentSteward Models ====================
@@ -717,8 +709,7 @@ class IntentSignal(BaseModel):
         default_factory=datetime.utcnow, description="Creation timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class IntentOperation(BaseModel):
@@ -865,5 +856,4 @@ class IntentLog(BaseModel):
         description="Additional metadata (model_version, prompt_version, etc.)",
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

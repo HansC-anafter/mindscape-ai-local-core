@@ -339,7 +339,7 @@ class HabitStore(PostgresStoreBase):
         if not confirmed_habits:
             return profile
 
-        preferences_dict = profile.preferences.dict() if profile.preferences else {}
+        preferences_dict = profile.preferences.model_dump() if profile.preferences else {}
 
         for habit in confirmed_habits:
             if habit.habit_category == HabitCategory.PREFERENCE:
@@ -355,7 +355,7 @@ class HabitStore(PostgresStoreBase):
 
         updated_preferences = UserPreferences(**preferences_dict)
 
-        profile_dict = profile.dict()
+        profile_dict = profile.model_dump()
         profile_dict["preferences"] = updated_preferences
         return MindscapeProfile(**profile_dict)
 

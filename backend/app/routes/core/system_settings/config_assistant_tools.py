@@ -20,7 +20,7 @@ async def check_agent_cli(agent_id: str) -> Dict[str, Any]:
     from .governance_tools import check_agent_cli as _check_cli
 
     result = _check_cli(agent_id)
-    return result.dict()
+    return result.model_dump()
 
 
 async def install_agent_cli(agent_id: str, method: str = "npm") -> Dict[str, Any]:
@@ -36,7 +36,7 @@ async def install_agent_cli(agent_id: str, method: str = "npm") -> Dict[str, Any
     from .governance_tools import install_agent_cli as _install_cli
 
     result = _install_cli(agent_id, method)
-    return result.dict()
+    return result.model_dump()
 
 
 async def install_from_github(agent_id: str, repo_url: str) -> Dict[str, Any]:
@@ -65,7 +65,7 @@ async def install_from_github(agent_id: str, repo_url: str) -> Dict[str, Any]:
         }
 
     result = _install_cli(agent_id, "github")
-    return result.dict()
+    return result.model_dump()
 
 
 async def enable_agent(agent_id: str) -> Dict[str, Any]:

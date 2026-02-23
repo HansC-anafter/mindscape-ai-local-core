@@ -133,7 +133,7 @@ async def verify_tool_registration(
             "in_registry_service": in_registry_service,
             "in_tools_registry": in_tools_registry,
             "fully_registered": in_registry_service and in_tools_registry,
-            "registered_tool": registered_tool.dict() if registered_tool else None
+            "registered_tool": registered_tool.model_dump() if registered_tool else None
         }
     except Exception as e:
         raise_api_error(500, f"Verification failed: {str(e)}")

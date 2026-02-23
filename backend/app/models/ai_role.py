@@ -5,7 +5,7 @@ Defines persistent storage for user's AI role selections and configurations
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AIRoleConfig(BaseModel):
@@ -62,10 +62,7 @@ class AIRoleConfig(BaseModel):
         description="Platform-specific metadata (optional, can be used by extensions)"
     )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class CreateAIRoleRequest(BaseModel):
@@ -102,7 +99,4 @@ class AIRoleUsageRecord(BaseModel):
     task: str
     used_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

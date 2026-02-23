@@ -15,7 +15,7 @@ Key characteristics:
 
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Project(BaseModel):
@@ -43,10 +43,7 @@ class Project(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional project metadata")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ProjectSuggestion(BaseModel):
@@ -96,8 +93,5 @@ class ProjectPhase(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 

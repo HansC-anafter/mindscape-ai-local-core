@@ -19,7 +19,7 @@ def _utc_now():
 
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatus(str, Enum):
@@ -93,8 +93,7 @@ class ArtifactReference(BaseModel):
         default_factory=datetime.utcnow, description="Creation timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class PhaseIR(BaseModel):
@@ -159,8 +158,7 @@ class PhaseIR(BaseModel):
         None, description="Phase completion timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 GOVERNANCE_SCHEMA_VERSION = "0.1"
@@ -271,7 +269,7 @@ class ExecutionMetadata(BaseModel):
 
     def set_governance(self, ctx: "GovernanceContext") -> None:
         """Serialize typed GovernanceContext into governance dict."""
-        self.governance = ctx.dict()
+        self.governance = ctx.model_dump()
 
 
 class CheckpointSnapshot(BaseModel):
@@ -292,8 +290,7 @@ class CheckpointSnapshot(BaseModel):
         default_factory=_utc_now, description="Checkpoint creation timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class TaskIR(BaseModel):
@@ -348,8 +345,7 @@ class TaskIR(BaseModel):
         None, description="Last checkpoint timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
     def get_phase(self, phase_id: str) -> Optional[PhaseIR]:
         """Get a phase by ID"""
@@ -451,7 +447,7 @@ class TaskIR(BaseModel):
             label=label,
             task_id=self.task_id,
             phase_id=phase_id,
-            snapshot=self.dict(),
+            snapshot=self.model_dump(),
         )
 
     @staticmethod
@@ -544,5 +540,4 @@ class HandoffEvent(BaseModel):
         default_factory=ExecutionMetadata, description="Execution metadata"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

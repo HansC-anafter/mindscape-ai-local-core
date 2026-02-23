@@ -428,13 +428,13 @@ class WorkflowTemplateService:
         """Save template to disk"""
         template_path = self.templates_dir / f"{template.template_id}.json"
         with open(template_path, 'w', encoding='utf-8') as f:
-            json.dump(template.dict(), f, indent=2, ensure_ascii=False, default=str)
+            json.dump(template.model_dump(), f, indent=2, ensure_ascii=False, default=str)
 
     def _save_user_workflow(self, workflow: UserWorkflow):
         """Save user workflow to disk"""
         workflow_path = self.workflows_dir / f"{workflow.workflow_id}.json"
         with open(workflow_path, 'w', encoding='utf-8') as f:
-            json.dump(workflow.dict(), f, indent=2, ensure_ascii=False, default=str)
+            json.dump(workflow.model_dump(), f, indent=2, ensure_ascii=False, default=str)
 
     def _create_workflow_version(
         self,
@@ -457,7 +457,7 @@ class WorkflowTemplateService:
 
         version_path = self.versions_dir / f"{workflow.workflow_id}_{version_id}.json"
         with open(version_path, 'w', encoding='utf-8') as f:
-            json.dump(version.dict(), f, indent=2, ensure_ascii=False, default=str)
+            json.dump(version.model_dump(), f, indent=2, ensure_ascii=False, default=str)
 
         for existing_version in self.get_workflow_versions(workflow.workflow_id):
             if existing_version.version_id != version_id:
@@ -466,7 +466,7 @@ class WorkflowTemplateService:
                     self.versions_dir / f"{workflow.workflow_id}_{existing_version.version_id}.json"
                 )
                 with open(existing_version_path, 'w', encoding='utf-8') as f:
-                    json.dump(existing_version.dict(), f, indent=2, ensure_ascii=False, default=str)
+                    json.dump(existing_version.model_dump(), f, indent=2, ensure_ascii=False, default=str)
 
     def _increment_version(self, current_version: str) -> str:
         """Increment version string (simple patch increment)"""

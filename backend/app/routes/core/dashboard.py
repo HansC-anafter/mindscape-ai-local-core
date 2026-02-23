@@ -282,7 +282,7 @@ async def create_saved_view(
     """Create saved view"""
     try:
         store = get_saved_views_store()
-        view = await asyncio.to_thread(store.create, auth.user_id, view_data.dict())
+        view = await asyncio.to_thread(store.create, auth.user_id, view_data.model_dump())
         return SavedViewDTO(**view)
     except Exception as e:
         logger.error(f"Failed to create saved view: {e}")

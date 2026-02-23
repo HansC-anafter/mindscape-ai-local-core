@@ -12,7 +12,7 @@ Design principles:
 - Uses Pydantic v2 API
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Dict, Any, Optional, List, Literal
 from enum import Enum
 
@@ -47,8 +47,8 @@ class ToolInputSchema(BaseModel):
         default_factory=list, description="Required parameter names"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "object",
                 "properties": {
@@ -57,6 +57,7 @@ class ToolInputSchema(BaseModel):
                 "required": ["query"],
             }
         }
+    )
 
 
 class ToolSourceType(str, Enum):
@@ -152,9 +153,9 @@ class ToolMetadata(BaseModel):
         default=None, description="MCP server ID (if this is an MCP tool)"
     )
 
-    class Config:
-        use_enum_values = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        use_enum_values=True,
+        json_schema_extra={
             "example": {
                 "name": "search_wikipedia",
                 "description": "Search Wikipedia for information on any topic",
@@ -171,7 +172,8 @@ class ToolMetadata(BaseModel):
                 "danger_level": "low",
                 "return_direct": False,
             }
-        }
+        },
+    )
 
     def to_langchain_schema(self) -> Dict[str, Any]:
         """
@@ -224,8 +226,8 @@ class ToolExecutionResult(BaseModel):
         description="Additional metadata (execution time, token usage, etc.)",
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "success": True,
                 "result": "Wikipedia summary of...",
@@ -233,6 +235,7 @@ class ToolExecutionResult(BaseModel):
                 "metadata": {"execution_time_ms": 250, "source": "wikipedia"},
             }
         }
+    )
 
 
 # Convenience functions

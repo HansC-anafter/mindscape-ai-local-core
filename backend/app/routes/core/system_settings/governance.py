@@ -117,7 +117,7 @@ async def get_node_governance_settings():
 async def update_node_governance_settings(settings: NodeGovernanceSettings):
     """Update node governance settings"""
     try:
-        settings_store.set_setting("governance.node", settings.dict())
+        settings_store.set_setting("governance.node", settings.model_dump())
         return settings
     except Exception as e:
         raise HTTPException(
@@ -142,7 +142,7 @@ async def get_cost_governance_settings():
 async def update_cost_governance_settings(settings: CostGovernanceSettings):
     """Update cost governance settings"""
     try:
-        settings_store.set_setting("governance.cost", settings.dict())
+        settings_store.set_setting("governance.cost", settings.model_dump())
         return settings
     except Exception as e:
         raise HTTPException(
@@ -167,7 +167,7 @@ async def get_policy_service_settings():
 async def update_policy_service_settings(settings: PolicyServiceSettings):
     """Update policy service settings"""
     try:
-        settings_store.set_setting("governance.policy", settings.dict())
+        settings_store.set_setting("governance.policy", settings.model_dump())
         return settings
     except Exception as e:
         raise HTTPException(
@@ -192,7 +192,7 @@ async def get_preflight_settings():
 async def update_preflight_settings(settings: PreflightSettings):
     """Update preflight settings"""
     try:
-        settings_store.set_setting("governance.preflight", settings.dict())
+        settings_store.set_setting("governance.preflight", settings.model_dump())
         return settings
     except Exception as e:
         raise HTTPException(
@@ -222,7 +222,7 @@ async def update_governance_mode(settings: GovernanceModeSettings):
         if settings.strict_mode and settings.warning_mode:
             settings.warning_mode = False
 
-        settings_store.set_setting("governance.mode", settings.dict())
+        settings_store.set_setting("governance.mode", settings.model_dump())
         return settings
     except Exception as e:
         raise HTTPException(
@@ -246,7 +246,7 @@ async def check_agent_cli_status(agent_id: str):
         from .governance_tools import check_agent_cli
 
         result = check_agent_cli(agent_id)
-        return result.dict()
+        return result.model_dump()
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to check CLI status: {str(e)}"
@@ -264,7 +264,7 @@ async def check_all_agents_cli_status():
         from .governance_tools import get_all_agent_cli_status
 
         results = get_all_agent_cli_status()
-        return {agent_id: result.dict() for agent_id, result in results.items()}
+        return {agent_id: result.model_dump() for agent_id, result in results.items()}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to check CLI status: {str(e)}"
@@ -282,7 +282,7 @@ async def get_agent_status(agent_id: str):
         from .governance_tools import get_agent_install_status
 
         status = get_agent_install_status(agent_id)
-        return status.dict()
+        return status.model_dump()
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get agent status: {str(e)}"
@@ -321,7 +321,7 @@ async def update_agent_config(agent_id: str, update: AgentConfigUpdate):
 
         # Return updated status
         status = get_agent_install_status(agent_id)
-        return status.dict()
+        return status.model_dump()
     except HTTPException:
         raise
     except Exception as e:
@@ -362,7 +362,7 @@ async def install_agent_cli_endpoint(agent_id: str, request: CLIInstallRequest):
         from .governance_tools import install_agent_cli
 
         result = install_agent_cli(agent_id, request.method)
-        return result.dict()
+        return result.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Installation failed: {str(e)}")
 

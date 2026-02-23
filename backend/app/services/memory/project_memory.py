@@ -16,7 +16,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.project.project_manager import ProjectManager
@@ -75,10 +75,7 @@ class ProjectMemory(BaseModel):
     )
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ProjectMemoryService:

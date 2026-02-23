@@ -8,7 +8,7 @@ not a separate table. Uses ToolConnection as underlying storage.
 
 from datetime import datetime
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .tool_connection import ToolConnection
 
@@ -96,10 +96,7 @@ class DataSource(BaseModel):
             updated_at=self.updated_at,
         )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class CreateDataSourceRequest(BaseModel):

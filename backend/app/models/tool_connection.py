@@ -6,7 +6,7 @@ Defines tool connection configurations for both local and remote integrations
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ToolConnectionStatus(str, Enum):
@@ -100,10 +100,7 @@ class ToolConnection(BaseModel):
         description="Platform-specific metadata (optional, can be used by extensions)"
     )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ToolConnectionTemplate(BaseModel):
@@ -135,10 +132,7 @@ class ToolConnectionTemplate(BaseModel):
 
     associated_roles: List[str] = Field(default_factory=list)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class CreateToolConnectionRequest(BaseModel):
@@ -195,7 +189,4 @@ class ToolConnectionValidationResult(BaseModel):
     error_message: Optional[str] = None
     validated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

@@ -476,7 +476,7 @@ async def install_default_packs(
                     "state": "ACTION_REQUIRED",
                     "reason": packs_catalog.get("reason", "ENTITLEMENT_REQUIRED"),
                     "message": "Action required to install packs",
-                    "actions": [action.dict() for action in action_required.actions] if action_required else []
+                    "actions": [action.model_dump() for action in action_required.actions] if action_required else []
                 }
             )
 
@@ -700,7 +700,7 @@ async def list_provider_packs(
         if isinstance(catalog, dict) and catalog.get("state") == "ACTION_REQUIRED":
             action_required = _parse_action_required(catalog)
             return {
-                "action_required": action_required.dict() if action_required else None,
+                "action_required": action_required.model_dump() if action_required else None,
                 "packs": []
             }
 
@@ -745,7 +745,7 @@ async def get_provider_actions(
 
         if isinstance(catalog, dict) and catalog.get("state") == "ACTION_REQUIRED":
             action_required = _parse_action_required(catalog)
-            return action_required.dict() if action_required else {
+            return action_required.model_dump() if action_required else {
                 "state": "ACTION_REQUIRED",
                 "reason": "UNKNOWN",
                 "actions": [],

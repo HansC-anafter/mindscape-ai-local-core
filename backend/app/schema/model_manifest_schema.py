@@ -6,7 +6,7 @@ used by ModelWeightsInstaller.
 """
 
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from enum import Enum
 
 
@@ -121,24 +121,31 @@ class ModelSchema(BaseModel):
     dependencies: DependenciesSchema = Field(default_factory=DependenciesSchema)
     data_locality: DataLocalitySchema = Field(default_factory=DataLocalitySchema)
 
-    @validator("repo_id")
-    def validate_repo_id(cls, v, values):
+    @field_validator("repo_id")
+    @classmethod
+    def validate_repo_id(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate repo_id is present for huggingface provider."""
-        if values.get("provider") == ModelProviderEnum.HUGGINGFACE and not v:
+        if info.data.get("provider") == ModelProviderEnum.HUGGINGFACE and not v:
             raise ValueError("repo_id is required for huggingface provider")
         return v
 
-    @validator("download_urls")
-    def validate_download_urls(cls, v, values):
+    @field_validator("download_urls")
+    @classmethod
+    def validate_download_urls(
+        cls, v: list | None, info: ValidationInfo
+    ) -> list | None:
         """Validate download_urls is present for direct_url provider."""
-        if values.get("provider") == ModelProviderEnum.DIRECT_URL and not v:
+        if info.data.get("provider") == ModelProviderEnum.DIRECT_URL and not v:
             raise ValueError("download_urls is required for direct_url provider")
         return v
 
-    @validator("local_bundle")
-    def validate_local_bundle(cls, v, values):
+    @field_validator("local_bundle")
+    @classmethod
+    def validate_local_bundle(
+        cls, v: "LocalBundleSchema | None", info: ValidationInfo
+    ) -> "LocalBundleSchema | None":
         """Validate local_bundle is present for local_bundle provider."""
-        if values.get("provider") == ModelProviderEnum.LOCAL_BUNDLE and not v:
+        if info.data.get("provider") == ModelProviderEnum.LOCAL_BUNDLE and not v:
             raise ValueError("local_bundle is required for local_bundle provider")
         return v
 
@@ -205,10 +212,11 @@ class ModelManifestSchema(BaseModel):
     download_policy: DownloadPolicySchema = Field(default_factory=DownloadPolicySchema)
     profiles: List[ProfileSchema] = Field(default_factory=list)
 
-    @validator("profiles")
-    def validate_profiles(cls, v, values):
+    @field_validator("profiles")
+    @classmethod
+    def validate_profiles(cls, v: list, info: ValidationInfo) -> list:
         """Validate all model_ids in profiles exist in models."""
-        model_ids = {m.model_id for m in values.get("models", [])}
+        model_ids = {m.model_id for m in info.data.get("models", [])}
         for profile in v:
             for model_id in profile.model_ids:
                 if model_id not in model_ids:

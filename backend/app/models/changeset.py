@@ -4,7 +4,7 @@ ChangeSet models for Mind-Lens unified implementation.
 ChangeSet represents a collection of node state changes that can be applied
 to different scopes (session, workspace, or preset).
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Literal
 from datetime import datetime, timezone
 from enum import Enum
@@ -19,8 +19,7 @@ class NodeChange(BaseModel):
     from_state: LensNodeState
     to_state: LensNodeState
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ApplyTarget(str, Enum):
@@ -40,8 +39,7 @@ class ChangeSet(BaseModel):
     summary: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ChangeSetCreateRequest(BaseModel):

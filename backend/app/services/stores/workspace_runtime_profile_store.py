@@ -83,7 +83,7 @@ class WorkspaceRuntimeProfileStore:
         try:
             profile_dict = profile.model_dump(mode="json")
         except AttributeError:
-            profile_dict = profile.dict()
+            profile_dict = profile.model_dump()
 
         workspace.metadata["runtime_profile"] = profile_dict
 

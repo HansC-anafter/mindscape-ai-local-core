@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def _utc_now():
@@ -49,8 +49,7 @@ class SignedHandoffBundle(BaseModel):
         ..., description="HMAC-SHA256 hex digest over canonical payload JSON"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
     @staticmethod
     def _canonical_json(data: Dict[str, Any]) -> bytes:

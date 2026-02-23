@@ -140,7 +140,7 @@ class LangfuseAdapter:
 
         try:
             trace = self._client.get_trace(trace_id)
-            return trace.dict() if trace else None
+            return trace.model_dump() if trace else None
         except Exception as e:
             logger.error(f"LangfuseAdapter: Failed to get trace {trace_id}: {e}")
             return None
@@ -168,7 +168,7 @@ class LangfuseAdapter:
                 session_id=session_id,
                 limit=limit,
             )
-            return [t.dict() for t in traces.data] if traces else []
+            return [t.model_dump() for t in traces.data] if traces else []
         except Exception as e:
             logger.error(
                 f"LangfuseAdapter: Failed to get traces for session {session_id}: {e}"
@@ -193,7 +193,7 @@ class LangfuseAdapter:
 
         try:
             observations = self._client.get_observations(trace_id=trace_id)
-            return [o.dict() for o in observations.data] if observations else []
+            return [o.model_dump() for o in observations.data] if observations else []
         except Exception as e:
             logger.error(
                 f"LangfuseAdapter: Failed to get observations for trace {trace_id}: {e}"

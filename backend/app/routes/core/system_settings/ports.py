@@ -75,7 +75,7 @@ async def update_port_config(
                 cluster=config.cluster,
                 environment=config.environment,
                 site=config.site
-            ).dict()
+            ).model_dump()
         }
 
         # 如果启用自动应用

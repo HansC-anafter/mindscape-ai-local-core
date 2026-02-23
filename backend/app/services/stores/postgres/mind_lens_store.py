@@ -42,7 +42,7 @@ class PostgresMindLensStore(PostgresStoreBase):
                 "role": schema.role,
                 "label": schema.label,
                 "dimensions": self.serialize_json(
-                    [d.dict() for d in schema.dimensions]
+                    [d.model_dump() for d in schema.dimensions]
                 ),
                 "version": schema.version,
                 "created_at": schema.created_at or _utc_now(),

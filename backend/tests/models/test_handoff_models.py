@@ -99,7 +99,7 @@ class TestHandoffIn:
             intent_summary="Test roundtrip",
             goals=["Goal A"],
         )
-        d = h.dict()
+        d = h.model_dump()
         h2 = HandoffIn(**d)
         assert h2.handoff_id == h.handoff_id
         assert h2.goals == h.goals
@@ -153,7 +153,7 @@ class TestGovernanceContext:
 
     def test_serialization_roundtrip(self):
         g = GovernanceContext(goals=["A"], handoff_id="h-x")
-        d = g.dict()
+        d = g.model_dump()
         g2 = GovernanceContext(**d)
         assert g2.goals == g.goals
         assert g2.schema_version == GOVERNANCE_SCHEMA_VERSION
@@ -201,7 +201,7 @@ class TestExecutionMetadataSetters:
         gov = GovernanceContext(goals=["X"], acceptance_tests=["test passes"])
         m.set_governance(gov)
 
-        serialized = m.dict()
+        serialized = m.model_dump()
         m2 = ExecutionMetadata(**serialized)
         restored = m2.get_governance()
         assert restored is not None

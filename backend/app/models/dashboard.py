@@ -6,7 +6,7 @@ Contract consistency: Fully aligned with site-hub, no Local-Core specific fields
 from typing import Optional, List, Dict, Any, Generic, TypeVar
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar('T')
 
@@ -22,8 +22,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     has_more: bool
     warnings: List[str] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Enum Definitions ====================
@@ -103,8 +102,7 @@ class DashboardSummaryDTO(BaseModel):
     not_supported: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Inbox DTO ====================
@@ -140,8 +138,7 @@ class InboxItemDTO(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Case DTO ====================
@@ -186,8 +183,7 @@ class CaseCardDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Assignment DTO ====================
@@ -234,8 +230,7 @@ class AssignmentCardDTO(BaseModel):
     claimed_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Workspace DTO ====================
@@ -269,8 +264,7 @@ class WorkspaceCardDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Saved View DTO ====================
@@ -289,8 +283,7 @@ class SavedViewDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SavedViewCreate(BaseModel):

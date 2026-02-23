@@ -250,8 +250,8 @@ class AgentRunner:
                 if profile:
                     active_intents = self.store.list_intents(profile_id)
 
-            execution.used_profile = profile.dict() if profile else None
-            execution.used_intents = [intent.dict() for intent in active_intents]
+            execution.used_profile = profile.model_dump() if profile else None
+            execution.used_intents = [intent.model_dump() for intent in active_intents]
 
             # Get active backend and execute
             backend = self.backend_manager.get_active_backend(profile_id)
@@ -580,8 +580,8 @@ class AgentRunner:
                         status=agent_response.status,
                         output=agent_response.output,
                         error_message=agent_response.error_message,
-                        used_profile=profile.dict() if profile else None,
-                        used_intents=[intent.dict() for intent in active_intents],
+                        used_profile=profile.model_dump() if profile else None,
+                        used_intents=[intent.model_dump() for intent in active_intents],
                         metadata={**agent_response.metadata, "agent_type": at},
                     )
                 except Exception as e:

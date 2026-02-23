@@ -44,7 +44,7 @@ class PostgresProfilesStore(PostgresStoreBase):
                 "roles": self.serialize_json(profile.roles),
                 "domains": self.serialize_json(profile.domains),
                 "preferences": self.serialize_json(
-                    profile.preferences.dict() if profile.preferences else {}
+                    profile.preferences.model_dump() if profile.preferences else {}
                 ),
                 "onboarding_state": (
                     self.serialize_json(profile.onboarding_state)
@@ -142,7 +142,7 @@ class PostgresProfilesStore(PostgresStoreBase):
                 "roles": self.serialize_json(current.roles),
                 "domains": self.serialize_json(current.domains),
                 "preferences": self.serialize_json(
-                    current.preferences.dict() if current.preferences else {}
+                    current.preferences.model_dump() if current.preferences else {}
                 ),
                 "onboarding_state": (
                     self.serialize_json(current.onboarding_state)

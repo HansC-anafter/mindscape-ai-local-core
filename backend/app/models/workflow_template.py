@@ -6,7 +6,7 @@ Defines data models for workflow templates, user-defined workflows, and version 
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .playbook import WorkflowStep, PlaybookKind, InteractionMode
 
@@ -44,8 +44,7 @@ class WorkflowTemplate(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class UserWorkflow(BaseModel):
@@ -64,8 +63,7 @@ class UserWorkflow(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class WorkflowVersion(BaseModel):
@@ -80,8 +78,7 @@ class WorkflowVersion(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_current: bool = Field(default=False, description="Whether this is the current active version")
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class CreateWorkflowTemplateRequest(BaseModel):

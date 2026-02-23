@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from backend.app.models.tool_registry import RegisteredTool
 from backend.app.services.tool_registry import ToolRegistryService
@@ -49,7 +49,8 @@ class FilteredToolsRequest(BaseModel):
     include_playbooks: bool = Field(default=True)
     enabled_only: bool = Field(default=True)
 
-    @validator("max_tools", pre=True, always=True)
+    @field_validator("max_tools", mode="before")
+    @classmethod
     def clamp_max_tools(cls, v):
         """Clamp to valid range instead of rejecting with 422."""
         try:
@@ -332,7 +333,7 @@ async def list_filtered_tools(
             # Cap and serialize
             filtered = filtered[:MAX_PLAYBOOKS]
             result_playbooks = [
-                pb.dict(exclude_none=True) if hasattr(pb, "dict") else pb
+                pb.model_dump(exclude_none=True) if hasattr(pb, "model_dump") else pb
                 for pb in filtered
             ]
         except Exception as e:

@@ -5,7 +5,7 @@ Configuration models for ports, hostnames, and service URLs.
 """
 
 from typing import Dict, Optional, List
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, field_validator, Field
 
 
 class PortConfig(BaseModel):
@@ -42,15 +42,16 @@ class PortConfig(BaseModel):
         default=None, description="Site identifier (e.g. site-1)"
     )
 
-    @validator(
+    @field_validator(
         "backend_api",
         "frontend",
         "ocr_service",
         "postgres",
         "cloud_api",
         "cloud_provider_api",
-        pre=True,
+        mode="before",
     )
+    @classmethod
     def validate_port(cls, v):
         if v is None:
             return v
@@ -63,8 +64,8 @@ class PortConfig(BaseModel):
             raise ValueError(f"Port must be in range 1024-65535: {v}")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "backend_api": 8200,
                 "frontend": 8300,
@@ -77,6 +78,7 @@ class PortConfig(BaseModel):
                 "site": "site-1",
             }
         }
+    )
 
 
 class HostConfig(BaseModel):
@@ -101,8 +103,8 @@ class HostConfig(BaseModel):
         default_factory=list, description="List of allowed CORS origins"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "backend_api_host": "localhost",
                 "frontend_host": "localhost",
@@ -112,6 +114,7 @@ class HostConfig(BaseModel):
                 "cors_origins": ["http://localhost:8300", "https://app.example.com"],
             }
         }
+    )
 
 
 class ServiceURLConfig(BaseModel):
@@ -123,8 +126,8 @@ class ServiceURLConfig(BaseModel):
     cloud_api_url: Optional[str] = None
     cloud_provider_api_url: Optional[str] = None
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "backend_api_url": "http://localhost:8200",
                 "frontend_url": "http://localhost:8300",
@@ -133,3 +136,4 @@ class ServiceURLConfig(BaseModel):
                 "cloud_provider_api_url": "http://localhost:8102",
             }
         }
+    )

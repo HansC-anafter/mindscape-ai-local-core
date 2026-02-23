@@ -5,7 +5,7 @@ Defines export formats for local backup and portability
 
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BackupConfiguration(BaseModel):
@@ -44,10 +44,7 @@ class BackupConfiguration(BaseModel):
         description="Backup metadata (creation date, version, etc.)"
     )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class PortableConfiguration(BaseModel):
@@ -117,10 +114,7 @@ class PortableConfiguration(BaseModel):
         description="Additional metadata about this configuration"
     )
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ExportPreview(BaseModel):
@@ -160,10 +154,7 @@ class ExportPreview(BaseModel):
     # Estimated export size
     estimated_size_kb: float = Field(0.0, description="Estimated export size in KB")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class BackupRequest(BaseModel):
@@ -191,7 +182,4 @@ class ExportResponse(BaseModel):
     exported_at: datetime = Field(default_factory=datetime.utcnow)
     file_size_bytes: int = 0
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
