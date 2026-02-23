@@ -186,6 +186,30 @@ class TestSignedHandoffBundle:
         b2 = SignedHandoffBundle.create("result", payload, "d", "k")
         assert b1.content_hash == b2.content_hash
 
+    def test_tampered_envelope_field_fails_verify(self):
+        """Envelope fields (payload_type, source_device_id) are in signing scope."""
+        payload = {"handoff_id": "h-env"}
+        bundle = SignedHandoffBundle.create(
+            payload_type="handoff_in",
+            payload=payload,
+            source_device_id="dev-A",
+            secret_key="key",
+        )
+        # Tamper with envelope field
+        bundle.payload_type = "commitment"
+        assert not bundle.verify("key")
+
+    def test_tampered_source_device_fails_verify(self):
+        payload = {"handoff_id": "h-dev"}
+        bundle = SignedHandoffBundle.create(
+            payload_type="handoff_in",
+            payload=payload,
+            source_device_id="dev-A",
+            secret_key="key",
+        )
+        bundle.source_device_id = "dev-EVIL"
+        assert not bundle.verify("key")
+
 
 class TestHandoffHandlerDefensiveRouting:
     """Gap 7: unknown engine returns error dict, not crash."""
@@ -233,3 +257,56 @@ class TestHandoffHandlerDefensiveRouting:
         result = await handler.handle_handoff(event)
         assert result["success"] is True
         assert result["deferred"] is True
+
+
+class TestDispatchPKCollisionRegression:
+    """Regression: initiate_task_execution must not crash on existing task_id."""
+
+    def setup_method(self):
+        self.tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmp, "test.db")
+
+    @pytest.mark.asyncio
+    async def test_dispatch_after_persist_no_pk_collision(self):
+        """Reproduce: persist → lower → initiate_task_execution should not crash."""
+        from backend.app.services.stores.task_ir_store import TaskIRStore
+        from backend.app.services.handoff_handler import HandoffHandler
+
+        store = TaskIRStore(db_path=self.db_path)
+
+        task_ir = TaskIR(
+            task_id="t-collision-001",
+            intent_instance_id="ii-col",
+            workspace_id="ws-col",
+            actor_id="u-col",
+            current_phase="p0",
+            status=TaskStatus.PENDING,
+            phases=[
+                PhaseIR(
+                    id="p0",
+                    name="Build",
+                    status=PhaseStatus.PENDING,
+                    preferred_engine="playbook:landing",
+                ),
+            ],
+            artifacts=[],
+            metadata=ExecutionMetadata(),
+        )
+
+        # Step 1: persist (what _persist_meeting_task_ir does)
+        store.replace_task_ir(task_ir)
+        assert store.get_task_ir("t-collision-001") is not None
+
+        # Step 2: lower (what _dispatch_task_ir does)
+        task_ir.lower_to_actuation_plan()
+        store.replace_task_ir(task_ir)
+
+        # Step 3: initiate_task_execution (previously crashed with UNIQUE constraint)
+        handler = HandoffHandler(
+            task_ir_store=store,
+            artifact_registry=MagicMock(),
+        )
+        # initiate_task_execution internally calls replace_task_ir + handle_handoff
+        # This should NOT raise UNIQUE constraint
+        result = await handler.initiate_task_execution(task_ir, "playbook:landing")
+        assert result is not None
