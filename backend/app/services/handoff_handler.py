@@ -200,7 +200,7 @@ class HandoffHandler:
                 profile_id="system",  # Use system profile for handoffs
                 inputs=playbook_inputs,
                 workspace_id=task_ir.workspace_id,
-                target_language="zh-TW",
+                locale="zh-TW",
             )
 
             # Convert playbook output back to Task IR updates
