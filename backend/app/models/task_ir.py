@@ -274,6 +274,28 @@ class ExecutionMetadata(BaseModel):
         self.governance = ctx.dict()
 
 
+class CheckpointSnapshot(BaseModel):
+    """Saved state at a named checkpoint for rollback.
+
+    Captures the full serialized TaskIR state at a point in time,
+    enabling rollback to a known-good state before a phase executed.
+    """
+
+    checkpoint_id: str = Field(..., description="Unique checkpoint identifier")
+    label: str = Field(..., description="Human-readable checkpoint name")
+    task_id: str = Field(..., description="Task this checkpoint belongs to")
+    phase_id: str = Field(..., description="Phase about to execute when snapshot taken")
+    snapshot: Dict[str, Any] = Field(
+        ..., description="Serialized TaskIR state at checkpoint"
+    )
+    created_at: datetime = Field(
+        default_factory=_utc_now, description="Checkpoint creation timestamp"
+    )
+
+    class Config:
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 class TaskIR(BaseModel):
     """
     Task Intermediate Representation
@@ -380,6 +402,71 @@ class TaskIR(BaseModel):
             for p in self.phases
             if self.can_start_phase(p.id) and p.status == PhaseStatus.PENDING
         ]
+
+    def lower_to_actuation_plan(
+        self,
+        default_engine: str = "playbook:generic",
+        default_gate: Optional[str] = None,
+    ) -> "TaskIR":
+        """Lower TaskIR phases into a dispatchable actuation plan.
+
+        For each PENDING phase, fills in missing execution preferences
+        using provided defaults. Returns self for chaining.
+
+        Args:
+            default_engine: Fallback engine when preferred_engine is None.
+            default_gate: Default HITL gate for phases without explicit gate.
+        """
+        for phase in self.phases:
+            if phase.status != PhaseStatus.PENDING:
+                continue
+            if not phase.preferred_engine:
+                phase.preferred_engine = default_engine
+            if not phase.gate and default_gate:
+                phase.gate = default_gate
+            if not phase.checkpoint_label:
+                phase.checkpoint_label = f"pre_{phase.id}"
+        self.updated_at = _utc_now()
+        return self
+
+    def create_checkpoint(self, phase_id: str) -> "CheckpointSnapshot":
+        """Create a checkpoint snapshot before executing a phase.
+
+        Args:
+            phase_id: Phase about to be executed.
+
+        Returns:
+            CheckpointSnapshot with serialized TaskIR state.
+        """
+        phase = self.get_phase(phase_id)
+        label = (
+            phase.checkpoint_label
+            if phase and phase.checkpoint_label
+            else f"pre_{phase_id}"
+        )
+        self.last_checkpoint_at = _utc_now()
+        self.updated_at = _utc_now()
+        return CheckpointSnapshot(
+            checkpoint_id=f"ckpt_{phase_id}_{int(self.last_checkpoint_at.timestamp())}",
+            label=label,
+            task_id=self.task_id,
+            phase_id=phase_id,
+            snapshot=self.dict(),
+        )
+
+    @staticmethod
+    def rollback_to_checkpoint(checkpoint: "CheckpointSnapshot") -> "TaskIR":
+        """Restore TaskIR state from a checkpoint snapshot.
+
+        Args:
+            checkpoint: Previously saved checkpoint.
+
+        Returns:
+            Restored TaskIR instance.
+        """
+        restored = TaskIR(**checkpoint.snapshot)
+        restored.updated_at = _utc_now()
+        return restored
 
 
 class TaskIRUpdate(BaseModel):

@@ -16,11 +16,18 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Dict, Any, List, Optional
 
 from backend.app.models.task_ir import (
-    TaskIR, TaskIRUpdate, HandoffEvent, ExecutionEngine,
-    TaskStatus, PhaseStatus, ExecutionMetadata
+    TaskIR,
+    TaskIRUpdate,
+    HandoffEvent,
+    ExecutionEngine,
+    TaskStatus,
+    PhaseStatus,
+    ExecutionMetadata,
 )
 from backend.app.services.stores.task_ir_store import TaskIRStore
 from backend.app.services.artifact_registry import ArtifactRegistry
@@ -44,7 +51,7 @@ class HandoffHandler:
         task_ir_store: TaskIRStore,
         artifact_registry: ArtifactRegistry,
         playbook_adapter: Optional[PlaybookIRAdapter] = None,
-        skill_adapter: Optional[SkillIRAdapter] = None
+        skill_adapter: Optional[SkillIRAdapter] = None,
     ):
         """
         Initialize handoff handler
@@ -79,8 +86,10 @@ class HandoffHandler:
         Returns:
             Handoff result with execution details
         """
-        logger.info(f"Processing handoff: {handoff_event.event_type} from {handoff_event.from_engine} "
-                   f"to {handoff_event.to_engine}")
+        logger.info(
+            f"Processing handoff: {handoff_event.event_type} from {handoff_event.from_engine} "
+            f"to {handoff_event.to_engine}"
+        )
 
         # Load current Task IR
         task_ir = self.task_ir_store.get_task_ir(handoff_event.task_ir.task_id)
@@ -88,7 +97,7 @@ class HandoffHandler:
             raise ValueError(f"Task IR {handoff_event.task_ir.task_id} not found")
 
         # Route to appropriate handler based on target engine
-        target_engine_type = handoff_event.to_engine.split(':')[0]
+        target_engine_type = handoff_event.to_engine.split(":")[0]
 
         if target_engine_type == ExecutionEngine.PLAYBOOK.value:
             return await self._handoff_to_playbook(handoff_event, task_ir)
@@ -98,13 +107,26 @@ class HandoffHandler:
             return await self._handoff_to_mcp(handoff_event, task_ir)
         elif target_engine_type == ExecutionEngine.N8N.value:
             return await self._handoff_to_n8n(handoff_event, task_ir)
+        elif target_engine_type == "meeting":
+            logger.info(
+                "Meeting engine dispatch deferred for task %s",
+                handoff_event.task_ir.task_id,
+            )
+            return {"success": True, "deferred": True, "engine": "meeting"}
         else:
-            raise ValueError(f"Unsupported target engine: {handoff_event.to_engine}")
+            logger.warning(
+                "Unsupported target engine %s, skipping handoff for task %s",
+                handoff_event.to_engine,
+                handoff_event.task_ir.task_id,
+            )
+            return {
+                "success": False,
+                "error": f"Unsupported engine: {handoff_event.to_engine}",
+                "task_id": handoff_event.task_ir.task_id,
+            }
 
     async def initiate_task_execution(
-        self,
-        task_ir: TaskIR,
-        starting_engine: str
+        self, task_ir: TaskIR, starting_engine: str
     ) -> Dict[str, Any]:
         """
         Initiate execution of a new task
@@ -122,10 +144,7 @@ class HandoffHandler:
         # Find first executable phase
         executable_phases = task_ir.get_next_executable_phases()
         if not executable_phases:
-            return {
-                "success": False,
-                "error": "No executable phases found"
-            }
+            return {"success": False, "error": "No executable phases found"}
 
         first_phase = executable_phases[0]
 
@@ -142,19 +161,19 @@ class HandoffHandler:
             input_artifacts=[],
             input_summary="Task initialization",
             workspace_id=task_ir.workspace_id,
-            metadata=task_ir.metadata
+            metadata=task_ir.metadata,
         )
 
         # Execute the handoff
         result = await self.handle_handoff(handoff_event)
 
-        logger.info(f"Initiated task {task_ir.task_id} execution with engine {starting_engine}")
+        logger.info(
+            f"Initiated task {task_ir.task_id} execution with engine {starting_engine}"
+        )
         return result
 
     async def _handoff_to_playbook(
-        self,
-        handoff_event: HandoffEvent,
-        task_ir: TaskIR
+        self, handoff_event: HandoffEvent, task_ir: TaskIR
     ) -> Dict[str, Any]:
         """Handle handoff to playbook engine"""
         try:
@@ -172,6 +191,7 @@ class HandoffHandler:
 
             # Import playbook service
             from backend.app.services.playbook_service import PlaybookService
+
             playbook_service = PlaybookService()
 
             # Execute playbook
@@ -180,7 +200,7 @@ class HandoffHandler:
                 profile_id="system",  # Use system profile for handoffs
                 inputs=playbook_inputs,
                 workspace_id=task_ir.workspace_id,
-                target_language="zh-TW"
+                target_language="zh-TW",
             )
 
             # Convert playbook output back to Task IR updates
@@ -188,7 +208,7 @@ class HandoffHandler:
                 execution_result.result or {},
                 execution_result.execution_id,
                 current_phase,
-                task_ir
+                task_ir,
             )
 
             # Update Task IR
@@ -203,7 +223,7 @@ class HandoffHandler:
                 "target_engine": handoff_event.to_engine,
                 "phase_completed": current_phase,
                 "next_phase": next_phase,
-                "artifacts_created": len(ir_update.new_artifacts)
+                "artifacts_created": len(ir_update.new_artifacts),
             }
 
         except Exception as e:
@@ -211,13 +231,11 @@ class HandoffHandler:
             return {
                 "success": False,
                 "error": str(e),
-                "target_engine": handoff_event.to_engine
+                "target_engine": handoff_event.to_engine,
             }
 
     async def _handoff_to_skill(
-        self,
-        handoff_event: HandoffEvent,
-        task_ir: TaskIR
+        self, handoff_event: HandoffEvent, task_ir: TaskIR
     ) -> Dict[str, Any]:
         """Handle handoff to Claude Skill engine"""
         try:
@@ -245,7 +263,7 @@ class HandoffHandler:
                 skill_result,
                 f"skill_exec_{skill_id}_{int(_utc_now().timestamp())}",
                 current_phase,
-                task_ir
+                task_ir,
             )
 
             # Update Task IR
@@ -260,7 +278,7 @@ class HandoffHandler:
                 "target_engine": handoff_event.to_engine,
                 "phase_completed": current_phase,
                 "next_phase": next_phase,
-                "artifacts_created": len(ir_update.new_artifacts)
+                "artifacts_created": len(ir_update.new_artifacts),
             }
 
         except Exception as e:
@@ -268,38 +286,40 @@ class HandoffHandler:
             return {
                 "success": False,
                 "error": str(e),
-                "target_engine": handoff_event.to_engine
+                "target_engine": handoff_event.to_engine,
             }
 
     async def _handoff_to_mcp(
-        self,
-        handoff_event: HandoffEvent,
-        task_ir: TaskIR
+        self, handoff_event: HandoffEvent, task_ir: TaskIR
     ) -> Dict[str, Any]:
         """Handle handoff to MCP engine"""
         # Placeholder for MCP integration
-        logger.info(f"MCP handoff requested but not yet implemented: {handoff_event.to_engine}")
+        logger.info(
+            f"MCP handoff requested but not yet implemented: {handoff_event.to_engine}"
+        )
         return {
             "success": False,
             "error": "MCP handoff not yet implemented",
-            "target_engine": handoff_event.to_engine
+            "target_engine": handoff_event.to_engine,
         }
 
     async def _handoff_to_n8n(
-        self,
-        handoff_event: HandoffEvent,
-        task_ir: TaskIR
+        self, handoff_event: HandoffEvent, task_ir: TaskIR
     ) -> Dict[str, Any]:
         """Handle handoff to n8n engine"""
         # Placeholder for n8n integration
-        logger.info(f"n8n handoff requested but not yet implemented: {handoff_event.to_engine}")
+        logger.info(
+            f"n8n handoff requested but not yet implemented: {handoff_event.to_engine}"
+        )
         return {
             "success": False,
             "error": "n8n handoff not yet implemented",
-            "target_engine": handoff_event.to_engine
+            "target_engine": handoff_event.to_engine,
         }
 
-    def _determine_next_phase(self, task_ir: TaskIR, recent_update: TaskIRUpdate) -> Optional[str]:
+    def _determine_next_phase(
+        self, task_ir: TaskIR, recent_update: TaskIRUpdate
+    ) -> Optional[str]:
         """
         Determine the next phase to execute after a handoff
 
@@ -322,7 +342,9 @@ class HandoffHandler:
 
         return None
 
-    async def _simulate_skill_execution(self, skill_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _simulate_skill_execution(
+        self, skill_id: str, context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Simulate Claude Skill execution (placeholder)
 
@@ -346,10 +368,10 @@ class HandoffHandler:
                 {
                     "name": "analysis_result.json",
                     "content": {"status": "completed", "skill_id": skill_id},
-                    "type": "application/json"
+                    "type": "application/json",
                 }
             ],
-            "result": {"completed": True, "skill_id": skill_id}
+            "result": {"completed": True, "skill_id": skill_id},
         }
 
     async def create_handoff_event(
@@ -359,7 +381,7 @@ class HandoffHandler:
         task_ir: TaskIR,
         phase_id: str,
         input_artifacts: Optional[List[str]] = None,
-        input_summary: Optional[str] = None
+        input_summary: Optional[str] = None,
     ) -> HandoffEvent:
         """
         Create a handoff event
@@ -387,7 +409,7 @@ class HandoffHandler:
             input_artifacts=input_artifacts or [],
             input_summary=input_summary or "",
             workspace_id=task_ir.workspace_id,
-            metadata=task_ir.metadata
+            metadata=task_ir.metadata,
         )
 
     async def get_handoff_status(self, task_id: str) -> Dict[str, Any]:
@@ -404,23 +426,37 @@ class HandoffHandler:
         if not task_ir:
             return {"status": "not_found"}
 
-        current_phase = task_ir.get_phase(task_ir.current_phase) if task_ir.current_phase else None
+        current_phase = (
+            task_ir.get_phase(task_ir.current_phase) if task_ir.current_phase else None
+        )
 
         return {
             "task_id": task_id,
             "status": task_ir.status,
-            "current_phase": {
-                "id": current_phase.id if current_phase else None,
-                "name": current_phase.name if current_phase else None,
-                "status": current_phase.status if current_phase else None,
-                "preferred_engine": current_phase.preferred_engine if current_phase else None
-            } if current_phase else None,
+            "current_phase": (
+                {
+                    "id": current_phase.id if current_phase else None,
+                    "name": current_phase.name if current_phase else None,
+                    "status": current_phase.status if current_phase else None,
+                    "preferred_engine": (
+                        current_phase.preferred_engine if current_phase else None
+                    ),
+                }
+                if current_phase
+                else None
+            ),
             "completed_phases": len(task_ir.get_completed_phases()),
             "total_phases": len(task_ir.phases),
-            "last_checkpoint": task_ir.last_checkpoint_at.isoformat() if task_ir.last_checkpoint_at else None
+            "last_checkpoint": (
+                task_ir.last_checkpoint_at.isoformat()
+                if task_ir.last_checkpoint_at
+                else None
+            ),
         }
 
-    async def cancel_handoff(self, task_id: str, reason: str = "User cancelled") -> bool:
+    async def cancel_handoff(
+        self, task_id: str, reason: str = "User cancelled"
+    ) -> bool:
         """
         Cancel a handoff in progress
 
