@@ -13,11 +13,19 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Dict, Any, List, Optional
 
 from backend.app.models.task_ir import (
-    TaskIR, TaskIRUpdate, PhaseIR, ArtifactReference,
-    ExecutionEngine, TaskStatus, PhaseStatus, ExecutionMetadata
+    TaskIR,
+    TaskIRUpdate,
+    PhaseIR,
+    ArtifactReference,
+    ExecutionEngine,
+    TaskStatus,
+    PhaseStatus,
+    ExecutionMetadata,
 )
 from backend.app.services.artifact_registry import ArtifactRegistry
 
@@ -43,9 +51,7 @@ class SkillIRAdapter:
         self.artifact_registry = artifact_registry
 
     async def task_ir_to_skill_context(
-        self,
-        task_ir: TaskIR,
-        phase_id: str
+        self, task_ir: TaskIR, phase_id: str
     ) -> Dict[str, Any]:
         """
         Convert Task IR context to Claude Skill input format
@@ -74,7 +80,7 @@ class SkillIRAdapter:
             "files": [],
             "context_summary": "",
             "previous_phases": [],
-            "available_artifacts": []
+            "available_artifacts": [],
         }
 
         # Load input artifacts as files
@@ -86,23 +92,31 @@ class SkillIRAdapter:
                         artifact = task_ir.get_artifact(artifact_id)
                         if artifact:
                             try:
-                                content = await self.artifact_registry.load_artifact_content(artifact_id)
-                                context["files"].append({
-                                    "name": f"{artifact_id.split('/')[-1]}",
-                                    "path": artifact.uri,
-                                    "content": content,
-                                    "type": artifact.type,
-                                    "source": artifact.source
-                                })
+                                content = (
+                                    await self.artifact_registry.load_artifact_content(
+                                        artifact_id
+                                    )
+                                )
+                                context["files"].append(
+                                    {
+                                        "name": f"{artifact_id.split('/')[-1]}",
+                                        "path": artifact.uri,
+                                        "content": content,
+                                        "type": artifact.type,
+                                        "source": artifact.source,
+                                    }
+                                )
                             except Exception as e:
-                                logger.warning(f"Failed to load artifact {artifact_id} for skill context: {e}")
+                                logger.warning(
+                                    f"Failed to load artifact {artifact_id} for skill context: {e}"
+                                )
 
         # Build context summary
         context_parts = [
             f"Task: {task_ir.task_id}",
             f"Intent: {task_ir.intent_instance_id}",
             f"Current Phase: {phase.name}",
-            ""
+            "",
         ]
 
         # Add completed phases information
@@ -114,9 +128,13 @@ class SkillIRAdapter:
                     summary = await self.artifact_registry.load_artifact_content(
                         completed_phase.summary_artifact
                     )
-                    context_parts.append(f"Summary: {summary[:200]}{'...' if len(summary) > 200 else ''}")
+                    context_parts.append(
+                        f"Summary: {summary[:200]}{'...' if len(summary) > 200 else ''}"
+                    )
                 except Exception as e:
-                    logger.debug(f"Could not load summary for phase {completed_phase.id}: {e}")
+                    logger.debug(
+                        f"Could not load summary for phase {completed_phase.id}: {e}"
+                    )
             context_parts.append("")
 
         context["context_summary"] = "\n".join(context_parts)
@@ -127,7 +145,7 @@ class SkillIRAdapter:
                 "id": p.id,
                 "name": p.name,
                 "status": p.status,
-                "completed_at": p.completed_at.isoformat() if p.completed_at else None
+                "completed_at": p.completed_at.isoformat() if p.completed_at else None,
             }
             for p in completed_phases
         ]
@@ -138,7 +156,7 @@ class SkillIRAdapter:
                 "id": a.id,
                 "type": a.type,
                 "source": a.source,
-                "created_at": a.created_at.isoformat()
+                "created_at": a.created_at.isoformat(),
             }
             for a in task_ir.artifacts
         ]
@@ -147,8 +165,10 @@ class SkillIRAdapter:
         if task_ir.metadata.intent:
             context["intent_context"] = task_ir.metadata.intent
 
-        logger.info(f"Converted Task IR {task_ir.task_id} phase {phase_id} to skill context "
-                   f"with {len(context['files'])} files")
+        logger.info(
+            f"Converted Task IR {task_ir.task_id} phase {phase_id} to skill context "
+            f"with {len(context['files'])} files"
+        )
 
         return context
 
@@ -157,7 +177,7 @@ class SkillIRAdapter:
         skill_output: Dict[str, Any],
         skill_execution_id: str,
         phase_id: str,
-        task_ir: TaskIR
+        task_ir: TaskIR,
     ) -> TaskIRUpdate:
         """
         Convert Claude Skill output to Task IR updates
@@ -194,13 +214,12 @@ class SkillIRAdapter:
                 metadata={
                     "phase_id": phase_id,
                     "execution_id": skill_execution_id,
-                    "type": "phase_summary"
-                }
+                    "type": "phase_summary",
+                },
             )
 
             await self.artifact_registry.register_artifact(
-                summary_artifact,
-                skill_output["summary"]
+                summary_artifact, skill_output["summary"]
             )
             new_artifacts.append(summary_artifact)
 
@@ -218,8 +237,8 @@ class SkillIRAdapter:
                     metadata={
                         "phase_id": phase_id,
                         "execution_id": skill_execution_id,
-                        "name": artifact_data.get("name", f"artifact_{i}")
-                    }
+                        "name": artifact_data.get("name", f"artifact_{i}"),
+                    },
                 )
 
                 content = artifact_data.get("content", "")
@@ -237,15 +256,14 @@ class SkillIRAdapter:
                 metadata={
                     "phase_id": phase_id,
                     "execution_id": skill_execution_id,
-                    "type": "main_result"
-                }
+                    "type": "main_result",
+                },
             )
 
             await self.artifact_registry.register_artifact(
-                result_artifact,
-                skill_output["result"]
+                result_artifact, skill_output["result"]
             )
-            new_artifacts.append(artifact)
+            new_artifacts.append(result_artifact)
 
         # Update phase status
         phase_updates = {
@@ -254,24 +272,30 @@ class SkillIRAdapter:
                 "executed_by": f"skill:{skill_execution_id}",
                 "execution_id": skill_execution_id,
                 "output_artifacts": [a.id for a in new_artifacts],
-                "completed_at": _utc_now().isoformat()
+                "completed_at": _utc_now().isoformat(),
             }
         }
 
         # Set summary artifact if created
-        summary_artifacts = [a for a in new_artifacts if a.metadata.get("type") == "phase_summary"]
+        summary_artifacts = [
+            a for a in new_artifacts if a.metadata.get("type") == "phase_summary"
+        ]
         if summary_artifacts:
             phase_updates[phase_id]["summary_artifact"] = summary_artifacts[0].id
 
         update.phase_updates = phase_updates
         update.new_artifacts = new_artifacts
 
-        logger.info(f"Converted skill output from execution {skill_execution_id} to Task IR updates: "
-                   f"{len(phase_updates)} phase updates, {len(new_artifacts)} artifacts")
+        logger.info(
+            f"Converted skill output from execution {skill_execution_id} to Task IR updates: "
+            f"{len(phase_updates)} phase updates, {len(new_artifacts)} artifacts"
+        )
 
         return update
 
-    async def can_skill_handle_phase(self, task_ir: TaskIR, phase_id: str, skill_id: str) -> bool:
+    async def can_skill_handle_phase(
+        self, task_ir: TaskIR, phase_id: str, skill_id: str
+    ) -> bool:
         """
         Check if a specific Claude Skill can handle a phase
 
@@ -337,7 +361,7 @@ class SkillIRAdapter:
             f"**Phase Description:** {phase.description or 'No description available'}",
             f"",
             f"## Task History",
-            f""
+            f"",
         ]
 
         # Add completed phases
@@ -363,7 +387,9 @@ class SkillIRAdapter:
             prompt_parts.append("## Available Resources")
             prompt_parts.append("")
             for artifact in task_ir.artifacts:
-                prompt_parts.append(f"- **{artifact.id}** ({artifact.type}) from {artifact.source}")
+                prompt_parts.append(
+                    f"- **{artifact.id}** ({artifact.type}) from {artifact.source}"
+                )
             prompt_parts.append("")
 
         # Add phase-specific instructions
@@ -373,7 +399,9 @@ class SkillIRAdapter:
         if phase.description:
             prompt_parts.append(f"Description: {phase.description}")
         prompt_parts.append("")
-        prompt_parts.append("Provide your results in the expected format with summary and any artifacts.")
+        prompt_parts.append(
+            "Provide your results in the expected format with summary and any artifacts."
+        )
 
         return "\n".join(prompt_parts)
 
@@ -387,11 +415,7 @@ class SkillIRAdapter:
         Returns:
             Normalized response format
         """
-        normalized = {
-            "summary": "",
-            "artifacts": [],
-            "result": None
-        }
+        normalized = {"summary": "", "artifacts": [], "result": None}
 
         # Extract summary
         if "summary" in response:
