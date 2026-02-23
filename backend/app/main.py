@@ -355,6 +355,11 @@ def register_core_routes(app: FastAPI) -> None:
 
     app.include_router(decision_cards_router.router, tags=["decision-cards"])
 
+    # Handoff bundle routes (signed bundle packaging / intake)
+    from backend.app.routes.core.handoff_bundles import router as handoff_bundles_router
+
+    app.include_router(handoff_bundles_router, tags=["handoff-bundles"])
+
     # MCP Bridge routes (optional - requires mcp_bridge module)
     try:
         from .routes.mcp_bridge import router as mcp_bridge_router
