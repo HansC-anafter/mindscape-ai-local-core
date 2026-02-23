@@ -35,6 +35,7 @@ class PipelineResult:
     execution_id: Optional[str] = None
     suggestion_cards: List[Dict[str, Any]] = field(default_factory=list)
     meeting_session_id: Optional[str] = None
+    task_ir_id: Optional[str] = None
     success: bool = True
     error: Optional[str] = None
 
@@ -166,10 +167,21 @@ class PipelineCore:
                     model_name=model_name,
                     executor_runtime=executor_runtime,
                 )
-                meeting_result = await meeting_engine.run(message)
+
+                # Extract HandoffIn from request payload if present
+                handoff_in = self._extract_handoff_in(request)
+
+                meeting_result = await meeting_engine.run(
+                    message, handoff_in=handoff_in
+                )
                 result.response_text = meeting_result.minutes_md
                 result.events = [{"id": eid} for eid in meeting_result.event_ids]
                 result.meeting_session_id = meeting_result.session_id
+
+                # Persist compiled TaskIR if present
+                if meeting_result.task_ir:
+                    await self._persist_meeting_task_ir(meeting_result.task_ir)
+                    result.task_ir_id = meeting_result.task_ir.task_id
 
                 # Early return path must still finalize session metadata.
                 await self._finalize_meeting_session(result)
@@ -645,6 +657,77 @@ class PipelineCore:
                 exc_info=True,
             )
             return None
+
+    def _extract_handoff_in(self, request: Optional[Any]) -> Optional[Any]:
+        """Extract HandoffIn from request payload if present.
+
+        Args:
+            request: Original ChatRequest object.
+
+        Returns:
+            HandoffIn instance or None.
+        """
+        if not request:
+            return None
+        handoff_data = getattr(request, "handoff_in", None)
+        if not handoff_data:
+            return None
+        from backend.app.models.handoff import HandoffIn
+
+        if isinstance(handoff_data, dict):
+            return HandoffIn(**handoff_data)
+        if isinstance(handoff_data, HandoffIn):
+            return handoff_data
+        return None
+
+    async def _persist_meeting_task_ir(self, task_ir) -> None:
+        """Persist compiled TaskIR with upsert semantics.
+
+        Uses delete-then-create for full replacement to ensure
+        governance, phases, and metadata are fully persisted.
+
+        Args:
+            task_ir: Compiled TaskIR from meeting engine.
+        """
+        try:
+            from backend.app.services.stores.task_ir_store import TaskIRStore
+
+            db_path = getattr(self.store, "db_path", None)
+            if not db_path:
+                logger.warning(
+                    "[PipelineCore] Cannot persist TaskIR: no db_path on store"
+                )
+                return
+
+            store = TaskIRStore(db_path=db_path)
+            existing = store.get_task_ir(task_ir.task_id)
+            if existing:
+                store.delete_task_ir(task_ir.task_id)
+                try:
+                    store.create_task_ir(task_ir)
+                except Exception as create_err:
+                    # Recovery: re-create from existing to avoid data loss
+                    logger.critical(
+                        "[PipelineCore] Create failed after delete for %s, "
+                        "re-inserting original: %s",
+                        task_ir.task_id,
+                        create_err,
+                    )
+                    store.create_task_ir(existing)
+                    raise
+            else:
+                store.create_task_ir(task_ir)
+            logger.info(
+                "[PipelineCore] Persisted TaskIR %s (replaced=%s)",
+                task_ir.task_id,
+                existing is not None,
+            )
+        except Exception as e:
+            logger.warning(
+                "[PipelineCore] Failed to persist TaskIR: %s",
+                e,
+                exc_info=True,
+            )
 
     async def _emit_pipeline_stage(
         self,

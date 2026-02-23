@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -22,6 +24,7 @@ from pydantic import BaseModel, Field
 
 class TaskStatus(str, Enum):
     """Task execution status"""
+
     PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
@@ -31,6 +34,7 @@ class TaskStatus(str, Enum):
 
 class PhaseStatus(str, Enum):
     """Phase execution status"""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -39,16 +43,24 @@ class PhaseStatus(str, Enum):
 
 
 class ExecutionEngine(str, Enum):
-    """Supported execution engines"""
+    """Well-known execution engines.
+
+    PhaseIR.preferred_engine accepts arbitrary strings beyond this enum
+    to support open actuator types (e.g. 'image_gen', 'video_gen').
+    """
+
     PLAYBOOK = "playbook"
     SKILL = "skill"
     MCP = "mcp"
     N8N = "n8n"
     LOCAL = "local"
+    MEETING = "meeting"
+    EXTERNAL = "external"
 
 
 class ArtifactType(str, Enum):
     """Artifact content types"""
+
     TEXT_MARKDOWN = "text/markdown"
     TEXT_PLAIN = "text/plain"
     APPLICATION_JSON = "application/json"
@@ -66,17 +78,23 @@ class ArtifactReference(BaseModel):
     Artifacts are the "media files" in our video editing analogy -
     they can be text, images, JSON data, or any output from execution.
     """
+
     id: str = Field(..., description="Unique artifact identifier")
-    type: str = Field(..., description="MIME type (e.g., 'text/markdown', 'application/json')")
-    source: str = Field(..., description="Source engine (e.g., 'playbook:yoga_course_outline', 'skill:policy_research')")
+    type: str = Field(
+        ..., description="MIME type (e.g., 'text/markdown', 'application/json')"
+    )
+    source: str = Field(
+        ...,
+        description="Source engine (e.g., 'playbook:yoga_course_outline', 'skill:policy_research')",
+    )
     uri: str = Field(..., description="File path or external URL")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class PhaseIR(BaseModel):
@@ -86,6 +104,7 @@ class PhaseIR(BaseModel):
     A phase represents a logical step in task execution.
     Phases can be executed by different engines and can depend on each other.
     """
+
     id: str = Field(..., description="Unique phase identifier")
     name: str = Field(..., description="Human-readable phase name")
     description: Optional[str] = Field(None, description="Phase description")
@@ -95,41 +114,76 @@ class PhaseIR(BaseModel):
     # Execution preferences
     preferred_engine: Optional[str] = Field(
         None,
-        description="Preferred execution engine (e.g., 'playbook:yoga_course_outline', 'skill:policy_research')"
+        description="Preferred execution engine (e.g., 'playbook:yoga_course_outline', 'skill:policy_research')",
     )
     executed_by: Optional[str] = Field(
-        None,
-        description="Actual engine that executed this phase"
+        None, description="Actual engine that executed this phase"
     )
     execution_id: Optional[str] = Field(
-        None,
-        description="Execution ID from the engine that ran this phase"
+        None, description="Execution ID from the engine that ran this phase"
     )
 
     # Results
     summary_artifact: Optional[str] = Field(
-        None,
-        description="ID of summary artifact for this phase"
+        None, description="ID of summary artifact for this phase"
     )
     output_artifacts: List[str] = Field(
-        default_factory=list,
-        description="List of artifact IDs produced by this phase"
+        default_factory=list, description="List of artifact IDs produced by this phase"
     )
 
     # Dependencies
     depends_on: Optional[List[str]] = Field(
-        None,
-        description="List of phase IDs this phase depends on"
+        None, description="List of phase IDs this phase depends on"
+    )
+
+    # Actuation plan fields
+    input_artifacts: Optional[List[str]] = Field(
+        None, description="Artifact IDs required as input"
+    )
+    gate: Optional[str] = Field(
+        None, description="HITL gate identifier before execution"
+    )
+    checkpoint_label: Optional[str] = Field(
+        None, description="Named checkpoint for rollback"
+    )
+    action_space: Optional[str] = Field(
+        None, description="Allowed side-effect level for this phase"
+    )
+    rollback_strategy: Optional[str] = Field(
+        None, description="Rollback strategy (revert/retry/skip)"
     )
 
     # Timing
     started_at: Optional[datetime] = Field(None, description="Phase start timestamp")
-    completed_at: Optional[datetime] = Field(None, description="Phase completion timestamp")
+    completed_at: Optional[datetime] = Field(
+        None, description="Phase completion timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+GOVERNANCE_SCHEMA_VERSION = "0.1"
+
+
+class GovernanceContext(BaseModel):
+    """Typed governance context stored in ExecutionMetadata.governance.
+
+    Provides schema validation while remaining JSON-serializable
+    for persistence in the existing metadata column.
+    """
+
+    schema_version: str = Field(default=GOVERNANCE_SCHEMA_VERSION)
+    goals: Optional[List[str]] = None
+    non_goals: Optional[List[str]] = None
+    deliverables: Optional[List[Dict[str, Any]]] = None
+    constraints: Optional[Dict[str, Any]] = None
+    acceptance_tests: Optional[List[str]] = None
+    risk_profile: Optional[Dict[str, Any]] = None
+    open_questions: Optional[List[str]] = None
+    lens_snapshot_ref: Optional[str] = None
+    memory_refs: Optional[List[str]] = None
+    handoff_id: Optional[str] = None
 
 
 class ExecutionMetadata(BaseModel):
@@ -137,62 +191,87 @@ class ExecutionMetadata(BaseModel):
     Standardized execution metadata structure
 
     Provides consistent metadata structure for cross-engine interoperability.
-    Separates concerns into intent, execution, and cloud namespaces.
+    Separates concerns into intent, execution, cloud, and governance namespaces.
     """
 
     # Intent-related metadata
     intent: Optional[Dict[str, str]] = Field(
-        None,
-        description="Intent-related IDs: {intent_id, intent_instance_id}"
+        None, description="Intent-related IDs: {intent_id, intent_instance_id}"
     )
 
     # Execution-related metadata
     execution: Optional[Dict[str, str]] = Field(
         None,
-        description="Execution-related IDs: {playbook_code, playbook_execution_id, skill_id, skill_execution_id}"
+        description="Execution-related IDs: {playbook_code, playbook_execution_id, skill_id, skill_execution_id}",
     )
 
     # Cloud-related metadata
     cloud: Optional[Dict[str, str]] = Field(
-        None,
-        description="Cloud-related IDs: {tenant_id, cloud_workspace_id, job_id}"
+        None, description="Cloud-related IDs: {tenant_id, cloud_workspace_id, job_id}"
+    )
+
+    # Governance context (persisted via metadata JSON column)
+    governance: Optional[Dict[str, Any]] = Field(
+        None, description="Governance context validated by GovernanceContext model"
     )
 
     def get_intent_id(self) -> Optional[str]:
-        """Get intent ID"""
+        """Get intent ID."""
         return self.intent.get("intent_id") if self.intent else None
 
     def get_intent_instance_id(self) -> Optional[str]:
-        """Get intent instance ID"""
+        """Get intent instance ID."""
         return self.intent.get("intent_instance_id") if self.intent else None
 
     def get_playbook_code(self) -> Optional[str]:
-        """Get playbook code"""
+        """Get playbook code."""
         return self.execution.get("playbook_code") if self.execution else None
 
     def get_playbook_execution_id(self) -> Optional[str]:
-        """Get playbook execution ID"""
+        """Get playbook execution ID."""
         return self.execution.get("playbook_execution_id") if self.execution else None
 
     def get_skill_id(self) -> Optional[str]:
-        """Get skill ID"""
+        """Get skill ID."""
         return self.execution.get("skill_id") if self.execution else None
 
     def get_skill_execution_id(self) -> Optional[str]:
-        """Get skill execution ID"""
+        """Get skill execution ID."""
         return self.execution.get("skill_execution_id") if self.execution else None
 
     def get_tenant_id(self) -> Optional[str]:
-        """Get tenant ID"""
+        """Get tenant ID."""
         return self.cloud.get("tenant_id") if self.cloud else None
 
     def get_cloud_workspace_id(self) -> Optional[str]:
-        """Get cloud workspace ID"""
+        """Get cloud workspace ID."""
         return self.cloud.get("cloud_workspace_id") if self.cloud else None
 
     def get_job_id(self) -> Optional[str]:
-        """Get job ID"""
+        """Get job ID."""
         return self.cloud.get("job_id") if self.cloud else None
+
+    def set_execution_context(self, **kwargs) -> None:
+        """Set execution-related metadata fields."""
+        if self.execution is None:
+            self.execution = {}
+        self.execution.update(kwargs)
+
+    def set_intent_context(self, **kwargs) -> None:
+        """Set intent-related metadata fields."""
+        if self.intent is None:
+            self.intent = {}
+        self.intent.update(kwargs)
+
+    def get_governance(self) -> Optional["GovernanceContext"]:
+        """Deserialize governance dict into typed GovernanceContext."""
+        if not self.governance:
+            return None
+        return GovernanceContext(**self.governance)
+
+    def set_governance(self, ctx: "GovernanceContext") -> None:
+        """Serialize typed GovernanceContext into governance dict."""
+        self.governance = ctx.dict()
 
 
 class TaskIR(BaseModel):
@@ -216,33 +295,39 @@ class TaskIR(BaseModel):
     actor_id: str = Field(..., description="Actor who initiated the task")
 
     # Current state
-    current_phase: Optional[str] = Field(None, description="ID of currently executing phase")
+    current_phase: Optional[str] = Field(
+        None, description="ID of currently executing phase"
+    )
     status: str = Field(default=TaskStatus.PENDING, description="Overall task status")
 
     # Execution structure
-    phases: List[PhaseIR] = Field(default_factory=list, description="All phases in this task")
+    phases: List[PhaseIR] = Field(
+        default_factory=list, description="All phases in this task"
+    )
 
     # Artifacts
     artifacts: List[ArtifactReference] = Field(
-        default_factory=list,
-        description="All artifacts produced during task execution"
+        default_factory=list, description="All artifacts produced during task execution"
     )
 
     # Metadata (standardized structure)
     metadata: ExecutionMetadata = Field(
-        default_factory=ExecutionMetadata,
-        description="Standardized execution metadata"
+        default_factory=ExecutionMetadata, description="Standardized execution metadata"
     )
 
     # Timing
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Task creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
-    last_checkpoint_at: Optional[datetime] = Field(None, description="Last checkpoint timestamp")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Task creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
+    last_checkpoint_at: Optional[datetime] = Field(
+        None, description="Last checkpoint timestamp"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
     def get_phase(self, phase_id: str) -> Optional[PhaseIR]:
         """Get a phase by ID"""
@@ -290,7 +375,11 @@ class TaskIR(BaseModel):
 
     def get_next_executable_phases(self) -> List[PhaseIR]:
         """Get phases that can be executed next"""
-        return [p for p in self.phases if self.can_start_phase(p.id) and p.status == PhaseStatus.PENDING]
+        return [
+            p
+            for p in self.phases
+            if self.can_start_phase(p.id) and p.status == PhaseStatus.PENDING
+        ]
 
 
 class TaskIRUpdate(BaseModel):
@@ -303,23 +392,24 @@ class TaskIRUpdate(BaseModel):
 
     phase_updates: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,
-        description="Phase updates: {phase_id: {field: value, ...}}"
+        description="Phase updates: {phase_id: {field: value, ...}}",
     )
     new_artifacts: List[ArtifactReference] = Field(
-        default_factory=list,
-        description="New artifacts to add"
+        default_factory=list, description="New artifacts to add"
     )
     status_update: Optional[str] = Field(None, description="New task status")
     current_phase_update: Optional[str] = Field(None, description="New current phase")
 
     def is_empty(self) -> bool:
         """Check if this update contains any changes"""
-        return not any([
-            self.phase_updates,
-            self.new_artifacts,
-            self.status_update,
-            self.current_phase_update
-        ])
+        return not any(
+            [
+                self.phase_updates,
+                self.new_artifacts,
+                self.status_update,
+                self.current_phase_update,
+            ]
+        )
 
 
 class HandoffEvent(BaseModel):
@@ -330,36 +420,42 @@ class HandoffEvent(BaseModel):
     where one tool hands off work to another tool.
     """
 
-    event_type: str = Field(..., description="Event type: handoff.to_playbook, handoff.to_skill, etc.")
+    event_type: str = Field(
+        ..., description="Event type: handoff.to_playbook, handoff.to_skill, etc."
+    )
 
     # Timing
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow, description="Event timestamp"
+    )
 
     # Source information
-    from_engine: str = Field(..., description="Source engine (e.g., 'playbook:yoga_course_outline')")
+    from_engine: str = Field(
+        ..., description="Source engine (e.g., 'playbook:yoga_course_outline')"
+    )
     from_execution_id: str = Field(..., description="Source execution ID")
     from_phase_id: str = Field(..., description="Source phase ID")
 
     # Target information
-    to_engine: str = Field(..., description="Target engine (e.g., 'skill:policy_research')")
-    to_execution_id: Optional[str] = Field(None, description="Target execution ID (if known)")
+    to_engine: str = Field(
+        ..., description="Target engine (e.g., 'skill:policy_research')"
+    )
+    to_execution_id: Optional[str] = Field(
+        None, description="Target execution ID (if known)"
+    )
 
     # Context for handoff
     task_ir: TaskIR = Field(..., description="Complete Task IR snapshot")
     input_artifacts: List[str] = Field(
-        default_factory=list,
-        description="Artifact IDs to pass as input"
+        default_factory=list, description="Artifact IDs to pass as input"
     )
     input_summary: Optional[str] = Field(None, description="Text summary for context")
 
     # Metadata
     workspace_id: str = Field(..., description="Workspace ID")
     metadata: ExecutionMetadata = Field(
-        default_factory=ExecutionMetadata,
-        description="Execution metadata"
+        default_factory=ExecutionMetadata, description="Execution metadata"
     )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}

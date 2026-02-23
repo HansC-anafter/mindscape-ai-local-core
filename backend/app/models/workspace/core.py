@@ -327,6 +327,10 @@ class WorkspaceChatRequest(BaseModel):
     action_params: Optional[Dict[str, Any]] = Field(
         None, description="Action parameters (for dynamic suggestions)"
     )
+    handoff_in: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional HandoffIn payload for cross-boundary task delegation",
+    )
 
 
 class WorkspaceChatResponse(BaseModel):

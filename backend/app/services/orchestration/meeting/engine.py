@@ -36,6 +36,9 @@ from backend.app.services.orchestration.meeting._generation import (
 from backend.app.services.orchestration.meeting._governance import (
     MeetingGovernanceMixin,
 )
+from backend.app.services.orchestration.meeting._ir_compiler import (
+    MeetingIRCompilerMixin,
+)
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,7 @@ class MeetingResult:
     decision: str
     action_items: List[Dict[str, Any]] = field(default_factory=list)
     event_ids: List[str] = field(default_factory=list)
+    task_ir: Optional[Any] = None
 
 
 class MeetingEngine(
@@ -69,6 +73,7 @@ class MeetingEngine(
     MeetingPromptsMixin,
     MeetingActionItemsMixin,
     MeetingGenerationMixin,
+    MeetingIRCompilerMixin,
 ):
     """Drives a bounded multi-agent meeting with real LLM turns and action landing."""
 
@@ -127,8 +132,17 @@ class MeetingEngine(
             getattr(recovery_policy, "retry_strategy", "exponential_backoff")
         )
 
-    async def run(self, user_message: str) -> MeetingResult:
-        """Execute a bounded meeting and return generated minutes + action items."""
+    async def run(
+        self,
+        user_message: str,
+        handoff_in: Optional[Any] = None,
+    ) -> MeetingResult:
+        """Execute a bounded meeting and return generated minutes + action items.
+
+        Args:
+            user_message: User message that triggered the meeting.
+            handoff_in: Optional HandoffIn for governance context.
+        """
         self._start_session()
         max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
 
@@ -228,12 +242,24 @@ class MeetingEngine(
         self._close_session(minutes_md=minutes_md, action_items=action_items)
         self._emit_minutes_message(minutes_md)
 
+        # Compile structured TaskIR from meeting output
+        compiled_ir = None
+        try:
+            compiled_ir = self._compile_to_task_ir(
+                decision=decision,
+                action_items=action_items,
+                handoff_in=handoff_in,
+            )
+        except Exception as exc:
+            logger.warning("Failed to compile TaskIR from meeting: %s", exc)
+
         return MeetingResult(
             session_id=self.session.id,
             minutes_md=minutes_md,
             decision=decision,
             action_items=action_items,
             event_ids=[e.id for e in self._events],
+            task_ir=compiled_ir,
         )
 
     def _start_session(self) -> None:
