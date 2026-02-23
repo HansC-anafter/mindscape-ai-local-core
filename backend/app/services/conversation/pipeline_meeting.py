@@ -116,12 +116,8 @@ async def dispatch_task_ir(
         from backend.app.services.handoff_handler import HandoffHandler
         from backend.app.services.artifact_registry import ArtifactRegistry
 
-        db_path = getattr(store, "db_path", None)
-        if not db_path:
-            return None
-
         ir_store = PostgresTaskIRStore()
-        artifact_registry = ArtifactRegistry(db_path=db_path)
+        artifact_registry = ArtifactRegistry()
         handler = HandoffHandler(
             task_ir_store=ir_store,
             artifact_registry=artifact_registry,
