@@ -48,6 +48,11 @@
     "eslint": "^8.55.0",
     "eslint-config-next": "14.0.4",
     "luxon": "^3.4.4",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^5.1.4",
+    "jsdom": "^28.1.0",
+    "vitest": "^4.0.18"
   }
 }
