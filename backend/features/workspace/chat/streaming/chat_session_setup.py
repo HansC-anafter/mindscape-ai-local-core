@@ -7,6 +7,7 @@ duplication of profile resolution, project detection, thread setup,
 user event creation, runtime profile loading, and mode resolution.
 """
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -129,7 +130,7 @@ async def setup_chat_session(
     profile = None
     try:
         if profile_id:
-            profile = store.get_profile(profile_id)
+            profile = await asyncio.to_thread(store.get_profile, profile_id)
     except Exception:
         pass
 
@@ -152,7 +153,9 @@ async def setup_chat_session(
     # 3. Ensure thread
     thread_id = getattr(request, "thread_id", None)
     if not thread_id:
-        thread_id = get_or_create_default_thread(workspace_id, store)
+        thread_id = await asyncio.to_thread(
+            get_or_create_default_thread, workspace_id, store
+        )
 
     # 4. Create user event
     event_id = user_event_id or str(uuid.uuid4())
@@ -174,7 +177,7 @@ async def setup_chat_session(
         entity_ids=[],
         metadata={},
     )
-    store.create_event(user_event)
+    await asyncio.to_thread(store.create_event, user_event)
     logger.info(
         "Created user event %s (project=%s, thread=%s)",
         user_event.id,

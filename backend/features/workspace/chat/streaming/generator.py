@@ -289,7 +289,7 @@ async def generate_streaming_response(
                 execution_mode=session.execution_mode,
                 user_event_id=session.user_event.id,
                 profile_id=profile_id,
-                project_id=workspace.primary_project_id,
+                project_id=session.project_id,
                 workspace_id=workspace_id,
                 thread_id=session.thread_id,
                 workspace=workspace,
@@ -297,7 +297,7 @@ async def generate_streaming_response(
                 profile=session.profile,
                 store=orchestrator.store,
                 context_token_count=context_token_count,
-                execution_playbook_result=execution_playbook_result,
+                execution_playbook_result=None,  # already emitted above
                 openai_key=None,
             ):
                 yield event
