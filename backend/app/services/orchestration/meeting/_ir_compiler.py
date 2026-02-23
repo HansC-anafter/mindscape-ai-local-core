@@ -101,13 +101,13 @@ class MeetingIRCompilerMixin:
             constraints = getattr(handoff_in, "constraints", None)
             if constraints is not None:
                 gov.constraints = (
-                    constraints.dict() if hasattr(constraints, "dict") else constraints
+                    constraints.model_dump() if hasattr(constraints, "model_dump") else constraints
                 )
 
             deliverables = getattr(handoff_in, "deliverables", None)
             if deliverables:
                 gov.deliverables = [
-                    d.dict() if hasattr(d, "dict") else d for d in deliverables
+                    d.model_dump() if hasattr(d, "model_dump") else d for d in deliverables
                 ]
 
             metadata.set_governance(gov)

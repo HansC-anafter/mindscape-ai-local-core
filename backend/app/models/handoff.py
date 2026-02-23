@@ -8,7 +8,7 @@ for structured agent-to-agent task handoffs.
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def _utc_now():
@@ -64,8 +64,7 @@ class HandoffIn(BaseModel):
     created_at: datetime = Field(default_factory=_utc_now)
     metadata: Optional[Dict[str, Any]] = None
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class Commitment(BaseModel):
@@ -87,5 +86,4 @@ class Commitment(BaseModel):
     )
     created_at: datetime = Field(default_factory=_utc_now)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

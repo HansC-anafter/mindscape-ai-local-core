@@ -104,7 +104,7 @@ async def list_nodes(
     # Populate linked fields from bridge tables
     result = []
     for node in nodes:
-        node_dict = node.dict()
+        node_dict = node.model_dump()
         node_dict["linked_entity_ids"] = []
         node_dict["linked_playbook_codes"] = await asyncio.to_thread(
             store.get_node_linked_playbooks, node.id
@@ -130,7 +130,7 @@ async def get_node(
     if node.profile_id != profile_id:
         raise HTTPException(status_code=403, detail="Node not owned by profile")
 
-    node_dict = node.dict()
+    node_dict = node.model_dump()
     node_dict["linked_entity_ids"] = []
     node_dict["linked_playbook_codes"] = await asyncio.to_thread(
         store.get_node_linked_playbooks, node_id
@@ -293,7 +293,7 @@ async def get_full_graph(
     # Populate linked fields
     result_nodes = []
     for node in nodes:
-        node_dict = node.dict()
+        node_dict = node.model_dump()
         node_dict["linked_entity_ids"] = []
         node_dict["linked_playbook_codes"] = await asyncio.to_thread(
             store.get_node_linked_playbooks, node.id

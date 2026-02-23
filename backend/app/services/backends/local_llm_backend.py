@@ -69,8 +69,8 @@ class LocalLLMBackend(AgentBackend):
             execution_id="",  # Will be set by caller
             status="completed",
             output=response_text,
-            used_profile=profile.dict() if profile else None,
-            used_intents=[intent.dict() for intent in (active_intents or [])],
+            used_profile=profile.model_dump() if profile else None,
+            used_intents=[intent.model_dump() for intent in (active_intents or [])],
             metadata={
                 "agent_type": agent_type,
                 "backend": "local_llm",

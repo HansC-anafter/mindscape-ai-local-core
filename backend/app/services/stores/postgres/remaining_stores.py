@@ -571,7 +571,7 @@ class PostgresLensCompositionStore(PostgresStoreBase):
                 "name": composition.name,
                 "description": composition.description,
                 "lens_stack": self.serialize_json(
-                    [l.dict() for l in composition.lens_stack]
+                    [l.model_dump() for l in composition.lens_stack]
                 ),
                 "fusion_strategy": composition.fusion_strategy,
                 "metadata": self.serialize_json(composition.metadata),

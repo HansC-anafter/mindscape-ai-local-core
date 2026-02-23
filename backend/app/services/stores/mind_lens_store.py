@@ -37,7 +37,7 @@ class MindLensStore(StoreBase):
                 schema.schema_id,
                 schema.role,
                 schema.label,
-                self.serialize_json([d.dict() for d in schema.dimensions]),
+                self.serialize_json([d.model_dump() for d in schema.dimensions]),
                 schema.version,
                 self.to_isoformat(schema.created_at or _utc_now()),
                 self.to_isoformat(schema.updated_at or _utc_now())

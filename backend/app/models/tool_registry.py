@@ -5,7 +5,7 @@ Stores registered tools discovered from WordPress sites and other providers.
 """
 from typing import Dict, Any, List, Optional, Literal
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ToolInputSchema(BaseModel):
@@ -90,10 +90,7 @@ class RegisteredTool(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ToolConnectionModel(BaseModel):
@@ -173,8 +170,5 @@ class ToolConnectionModel(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 

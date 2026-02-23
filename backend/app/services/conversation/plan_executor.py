@@ -858,7 +858,7 @@ class PlanExecutor:
                     plan_summary=execution_plan.plan_summary or "",
                     reasoning=execution_plan.reasoning or "",
                     steps=[
-                        step.dict() if hasattr(step, "dict") else step
+                        step.model_dump() if hasattr(step, "model_dump") else step
                         for step in execution_plan.steps
                     ],
                     dependencies=(

@@ -80,8 +80,8 @@ class GenericHTTPBackend(AgentBackend):
             "task": task,
             "agent_type": agent_type,
             "mindscape_snapshot": {
-                "profile": profile.dict() if profile else None,
-                "active_intents": [intent.dict() for intent in (active_intents or [])]
+                "profile": profile.model_dump() if profile else None,
+                "active_intents": [intent.model_dump() for intent in (active_intents or [])]
             },
             "metadata": metadata or {}
         }

@@ -184,7 +184,7 @@ class ExportService:
         return {
             "default_roles": profile.roles,
             "default_domains": profile.domains,
-            "default_preferences": profile.preferences.dict(),
+            "default_preferences": profile.preferences.model_dump(),
             "self_description_template": profile.self_description,  # As example
             "tags": profile.tags,
             # Filtered: email, external_ref (those are personal)
@@ -321,6 +321,6 @@ class ExportService:
         filepath = Path(output_dir) / filename
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(exported.dict(), f, indent=2, ensure_ascii=False)
+            json.dump(exported.model_dump(), f, indent=2, ensure_ascii=False)
 
         return str(filepath)

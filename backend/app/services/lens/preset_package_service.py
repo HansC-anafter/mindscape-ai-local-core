@@ -50,9 +50,9 @@ class PresetPackageService:
         package_edges = [edge for edge in all_edges]
 
         content_dict = {
-            "nodes": [n.dict() for n in package_nodes],
-            "profile_nodes": [pn.dict() for pn in profile_nodes],
-            "edges": [e.dict() for e in package_edges]
+            "nodes": [n.model_dump() for n in package_nodes],
+            "profile_nodes": [pn.model_dump() for pn in profile_nodes],
+            "edges": [e.model_dump() for e in package_edges]
         }
         content_json = json.dumps(content_dict, sort_keys=True, default=str)
         checksum = hashlib.sha256(content_json.encode()).hexdigest()

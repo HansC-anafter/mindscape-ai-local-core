@@ -7,7 +7,7 @@ enabling pluggable runtime backends (Simple, LangGraph, etc.)
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, TYPE_CHECKING
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from backend.app.models.playbook import PlaybookRun
@@ -46,10 +46,7 @@ class ExecutionProfile(BaseModel):
         description="Required runtime capabilities"
     )
 
-    class Config:
-        json_encoders = {
-            dict: lambda v: v
-        }
+    model_config = ConfigDict(json_encoders={dict: lambda v: v})
 
 
 class ExecutionResult(BaseModel):
@@ -80,10 +77,7 @@ class ExecutionResult(BaseModel):
         description="Additional metadata"
     )
 
-    class Config:
-        json_encoders = {
-            dict: lambda v: v
-        }
+    model_config = ConfigDict(json_encoders={dict: lambda v: v})
 
 
 class RuntimePort(ABC):

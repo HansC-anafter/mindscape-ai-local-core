@@ -21,7 +21,7 @@ def _utc_now():
 
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query, Body
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
 from ...services.mindscape_store import MindscapeStore
@@ -52,8 +52,7 @@ class IntentResponse(BaseModel):
     created_at: str
     updated_at: str
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class IntentTreeNode(IntentResponse):
@@ -158,7 +157,7 @@ def build_intent_tree(
 
     # First pass: create all nodes
     for intent in intents:
-        node = IntentTreeNode(**intent_responses[intent.id].dict(), children=[])
+        node = IntentTreeNode(**intent_responses[intent.id].model_dump(), children=[])
         tree_nodes[intent.id] = node
 
     # Second pass: build tree structure

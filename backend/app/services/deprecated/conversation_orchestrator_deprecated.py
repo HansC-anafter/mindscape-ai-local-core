@@ -428,7 +428,7 @@ class ConversationOrchestrator:
                             },
                             entity_ids=[],
                             metadata={
-                                "handoff_plan": handoff_plan.dict(),
+                                "handoff_plan": handoff_plan.model_dump(),
                                 "workflow_steps": len(handoff_plan.steps),
                                 "is_multi_step_workflow": True
                             }
@@ -442,7 +442,7 @@ class ConversationOrchestrator:
                             if not task.execution_context:
                                 task.execution_context = {}
                             task.execution_context["workflow_result"] = workflow_result
-                            task.execution_context["handoff_plan"] = handoff_plan.dict()
+                            task.execution_context["handoff_plan"] = handoff_plan.model_dump()
                             tasks_store.update_task(task)
 
                         logger.info(f"Created assistant event for multi-step workflow: {assistant_event.id}")

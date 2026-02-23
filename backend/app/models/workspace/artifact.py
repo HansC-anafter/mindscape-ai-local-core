@@ -5,7 +5,7 @@ Artifact models — Artifact, ThreadReference, BackgroundRoutine.
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._common import _utc_now
 from .enums import ArtifactType, PrimaryActionType
@@ -58,8 +58,7 @@ class Artifact(BaseModel):
         default_factory=_utc_now, description="Last update timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ThreadReference(BaseModel):
@@ -90,8 +89,7 @@ class ThreadReference(BaseModel):
         default_factory=_utc_now, description="Last update timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class BackgroundRoutine(BaseModel):
@@ -142,5 +140,4 @@ class BackgroundRoutine(BaseModel):
         default_factory=_utc_now, description="Last update timestamp"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

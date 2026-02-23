@@ -3,7 +3,8 @@ Lens Kernel models for Mind-Lens unified implementation.
 
 These models define the contract between Graph and Workspace layers.
 """
-from pydantic import BaseModel, Field, validator
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 from typing import List, Optional, Dict, Literal
 from datetime import datetime, timezone
 from enum import Enum
@@ -24,6 +25,7 @@ def state_to_weight(state: LensNodeState) -> float:
 
 class LensNode(BaseModel):
     """Lens Kernel node contract"""
+
     node_id: str
     node_label: str
     node_type: GraphNodeType
@@ -31,24 +33,27 @@ class LensNode(BaseModel):
 
     state: LensNodeState = Field(default=LensNodeState.KEEP)
 
-    weight: float = Field(default=1.0, description="Derived from state, do not set directly")
+    weight: float = Field(
+        default=1.0, description="Derived from state, do not set directly"
+    )
 
     effective_scope: Literal["global", "workspace", "session"] = Field(default="global")
     is_overridden: bool = Field(default=False)
     overridden_from: Optional[Literal["global", "workspace"]] = None
 
-    @validator('weight', always=True)
-    def derive_weight(cls, v, values):
+    @field_validator("weight", mode="before")
+    @classmethod
+    def derive_weight(cls, v: float, info: ValidationInfo) -> float:
         """Weight derived from state"""
-        state = values.get('state', LensNodeState.KEEP)
+        state = info.data.get("state", LensNodeState.KEEP)
         return state_to_weight(state)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class EffectiveLens(BaseModel):
     """Three-layer stacked effective lens"""
+
     profile_id: str
     workspace_id: Optional[str]
     session_id: Optional[str]
@@ -60,29 +65,29 @@ class EffectiveLens(BaseModel):
     workspace_override_count: int = 0
     session_override_count: int = 0
 
-    hash: str = Field(description="Hash of (node_id, state, effective_scope) tuples only")
+    hash: str = Field(
+        description="Hash of (node_id, state, effective_scope) tuples only"
+    )
 
     computed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 def compute_lens_hash(nodes: List[LensNode]) -> str:
     """Compute stable hash for lens"""
-    stable_tuples = sorted([
-        (n.node_id, n.state.value, n.effective_scope)
-        for n in nodes
-    ])
+    stable_tuples = sorted(
+        [(n.node_id, n.state.value, n.effective_scope) for n in nodes]
+    )
     content = json.dumps(stable_tuples, sort_keys=True)
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 class CompiledLensContext(BaseModel):
     """Compiled lens context for prompt injection"""
+
     system_prompt_additions: str = Field(default="")
     anti_goals: List[str] = Field(default_factory=list)
     emphasized_values: List[str] = Field(default_factory=list)
     style_rules: List[str] = Field(default_factory=list)
     lens_hash: str
-

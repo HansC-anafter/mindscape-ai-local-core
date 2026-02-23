@@ -142,7 +142,7 @@ async def update_config(
     try:
         settings_store.set_setting(
             key="publish_service",
-            value=config.dict(),
+            value=config.model_dump(),
             value_type=SettingType.JSON,
             category="cloud"
         )

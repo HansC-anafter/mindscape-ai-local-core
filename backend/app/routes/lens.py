@@ -465,7 +465,7 @@ async def get_node_evidence(
         limit=limit,
     )
 
-    return {"node_id": node_id, "evidence": [e.dict() for e in evidence_list]}
+    return {"node_id": node_id, "evidence": [e.model_dump() for e in evidence_list]}
 
 
 @router.get("/evidence/drift")
@@ -481,7 +481,7 @@ async def get_drift_report(
         evidence_service.compute_drift, profile_id=profile_id, days=days
     )
 
-    return drift_report.dict()
+    return drift_report.model_dump()
 
 
 # ============================================================================

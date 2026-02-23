@@ -3,7 +3,7 @@ Lens Snapshot models for Mind-Lens observability.
 
 Lens Snapshot captures the effective lens state at execution time for replay and analysis.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -20,6 +20,5 @@ class LensSnapshot(BaseModel):
     nodes: List[LensNode]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 

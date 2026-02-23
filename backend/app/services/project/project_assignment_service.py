@@ -80,8 +80,8 @@ class ProjectAssignmentResult:
                 {
                     "project_id": c.get("project_id"),
                     "project": (
-                        c.get("project").dict()
-                        if hasattr(c.get("project"), "dict")
+                        c.get("project").model_dump()
+                        if hasattr(c.get("project"), "model_dump")
                         else c.get("project")
                     ),
                     "similarity": c.get("similarity", 0.0),

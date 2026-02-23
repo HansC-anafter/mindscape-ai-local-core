@@ -54,7 +54,7 @@ class LensReceiptStore(PostgresStoreBase):
                     "workspace_id": receipt.workspace_id,
                     "effective_lens_hash": receipt.effective_lens_hash,
                     "triggered_nodes_json": (
-                        json.dumps([n.dict() for n in receipt.triggered_nodes], default=str)
+                        json.dumps([n.model_dump() for n in receipt.triggered_nodes], default=str)
                         if receipt.triggered_nodes
                         else None
                     ),

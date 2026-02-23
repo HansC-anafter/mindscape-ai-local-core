@@ -388,8 +388,8 @@ class PipelineCore:
 
             result.response_text = agent_response.output
             result.events.append(
-                assistant_event.dict()
-                if hasattr(assistant_event, "dict")
+                assistant_event.model_dump()
+                if hasattr(assistant_event, "model_dump")
                 else {"id": assistant_event.id}
             )
         else:

@@ -43,7 +43,7 @@ class LensCompositionStore(PostgresStoreBase):
                 "name": composition.name,
                 "description": composition.description,
                 "lens_stack": self.serialize_json(
-                    [l.dict() for l in composition.lens_stack]
+                    [l.model_dump() for l in composition.lens_stack]
                 ),
                 "fusion_strategy": composition.fusion_strategy,
                 "metadata": self.serialize_json(composition.metadata),
@@ -86,7 +86,7 @@ class LensCompositionStore(PostgresStoreBase):
         if "lens_stack" in updates:
             set_clauses.append("lens_stack = :lens_stack")
             params["lens_stack"] = self.serialize_json(
-                [l.dict() if hasattr(l, "dict") else l for l in updates["lens_stack"]]
+                [l.model_dump() if hasattr(l, "model_dump") else l for l in updates["lens_stack"]]
             )
 
         if "fusion_strategy" in updates:

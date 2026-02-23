@@ -78,7 +78,7 @@ class StateIntegrationAdapter:
         plan_version = PlanVersion(
             version_id=version_id,
             version_number=version_number,
-            plan_data=execution_plan.dict(),
+            plan_data=execution_plan.model_dump(),
             created_by=model_name or "unknown",
             reasoning=reasoning or execution_plan.reasoning,
             is_active=True

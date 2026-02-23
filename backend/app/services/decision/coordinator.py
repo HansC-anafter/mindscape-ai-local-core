@@ -732,7 +732,7 @@ class UnifiedDecisionCoordinator:
         final_decision_dict = {
             # Final decision
             "selected_playbook_code": decision_result.selected_playbook_code,
-            "execution_profile": decision_result.execution_profile.dict() if hasattr(decision_result.execution_profile, 'dict') else decision_result.execution_profile.__dict__,
+            "execution_profile": decision_result.execution_profile.model_dump() if hasattr(decision_result.execution_profile, 'model_dump') else decision_result.execution_profile.__dict__,
 
             # Intent layer contribution (use IntentRoutingDecision.to_dict())
             "intent_contribution": decision_result.intent_contribution.to_dict() if hasattr(decision_result.intent_contribution, 'to_dict') else {

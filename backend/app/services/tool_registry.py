@@ -343,7 +343,7 @@ class ToolRegistryService(PostgresStoreBase):
                             "methods": self.serialize_json(tool.methods),
                             "danger_level": tool.danger_level,
                             "input_schema": self.serialize_json(
-                                tool.input_schema.dict()
+                                tool.input_schema.model_dump()
                             ),
                             "enabled": tool.enabled,
                             "read_only": tool.read_only,
@@ -460,7 +460,7 @@ class ToolRegistryService(PostgresStoreBase):
         try:
             with open(self.registry_file, "w", encoding="utf-8") as f:
                 json.dump(
-                    {tool_id: tool.dict() for tool_id, tool in self._tools.items()},
+                    {tool_id: tool.model_dump() for tool_id, tool in self._tools.items()},
                     f,
                     indent=2,
                     ensure_ascii=False,
@@ -472,7 +472,7 @@ class ToolRegistryService(PostgresStoreBase):
         try:
             with open(self.connections_file, "w", encoding="utf-8") as f:
                 connections_dict = {
-                    f"{profile_id}:{conn_id}": conn.dict()
+                    f"{profile_id}:{conn_id}": conn.model_dump()
                     for (profile_id, conn_id), conn in self._connections.items()
                 }
                 json.dump(
@@ -822,7 +822,7 @@ class ToolRegistryService(PostgresStoreBase):
             )
             register_dynamic_tool(tool_id, tool_connection)
 
-            registered_tools.append(registered_tool.dict())
+            registered_tools.append(registered_tool.model_dump())
 
         # Update/Create connection record
         key = (profile_id, connection_id)
@@ -1328,7 +1328,7 @@ class ToolRegistryService(PostgresStoreBase):
                 required_permissions=required_permissions,
                 associated_roles=conn.associated_roles,
             )
-            templates.append(template.dict())
+            templates.append(template.model_dump())
 
         return templates
 

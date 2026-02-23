@@ -55,7 +55,7 @@ class LensSnapshotStore(PostgresStoreBase):
                     "profile_id": snapshot.profile_id,
                     "workspace_id": snapshot.workspace_id,
                     "session_id": snapshot.session_id,
-                    "nodes_json": json.dumps([n.dict() for n in snapshot.nodes], default=str),
+                    "nodes_json": json.dumps([n.model_dump() for n in snapshot.nodes], default=str),
                     "created_at": now,
                 },
             )

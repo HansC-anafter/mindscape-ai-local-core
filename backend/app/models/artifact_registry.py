@@ -10,7 +10,7 @@ ArtifactRegistry entries are project-scoped and used for flow orchestration.
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ArtifactRegistry(BaseModel):
@@ -31,8 +31,5 @@ class ArtifactRegistry(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 

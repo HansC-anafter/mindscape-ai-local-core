@@ -803,7 +803,11 @@ class WorkflowOrchestrator:
                                 ),
                                 "sandbox_id": sandbox_id,
                                 "paused_step_id": step.id,
-                                "gate": gate.dict() if hasattr(gate, "dict") else gate,
+                                "gate": (
+                                    gate.model_dump()
+                                    if hasattr(gate, "model_dump")
+                                    else gate
+                                ),
                                 "completed_steps": list(completed_steps),
                                 "step_outputs": step_outputs,
                                 "created_at": _utc_now().isoformat(),
@@ -812,7 +816,11 @@ class WorkflowOrchestrator:
                                 "status": "paused",
                                 "pause_reason": "waiting_gate",
                                 "paused_step_id": step.id,
-                                "gate": gate.dict() if hasattr(gate, "dict") else gate,
+                                "gate": (
+                                    gate.model_dump()
+                                    if hasattr(gate, "model_dump")
+                                    else gate
+                                ),
                                 "step_outputs": step_outputs,
                                 "outputs": partial_outputs,
                                 "checkpoint": checkpoint,

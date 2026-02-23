@@ -466,7 +466,7 @@ Generate a natural response that:
 3. Includes the complete HandoffPlan in <playbook_handoff> tags
 
 HandoffPlan JSON:
-{json.dumps(handoff_plan.dict(), indent=2, ensure_ascii=False)}"""
+{json.dumps(handoff_plan.model_dump(), indent=2, ensure_ascii=False)}"""
 
         try:
             result = await llm_generate(

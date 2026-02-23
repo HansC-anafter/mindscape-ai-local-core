@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Union, Literal, TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._common import _utc_now
 from .enums import ExecutionChatMessageType, TaskStatus
@@ -129,8 +129,7 @@ class ExecutionPlan(BaseModel):
         description="Project assignment decision: {project_id, relation, confidence, reasoning, candidates}",
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
     def to_event_payload(self) -> Dict[str, Any]:
         """Convert to payload for EXECUTION_PLAN MindEvent"""
@@ -144,7 +143,7 @@ class ExecutionPlan(BaseModel):
             "user_request_summary": self.user_request_summary,
             "reasoning": self.reasoning,
             "plan_summary": self.plan_summary,
-            "steps": [step.dict() for step in self.steps],
+            "steps": [step.model_dump() for step in self.steps],
             "execution_mode": self.execution_mode,
             "confidence": self.confidence,
             "step_count": len(self.steps),
@@ -430,5 +429,4 @@ class ExecutionChatMessage(BaseModel):
             created_at=timestamp,
         )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

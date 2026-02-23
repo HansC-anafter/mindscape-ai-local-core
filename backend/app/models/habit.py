@@ -7,7 +7,7 @@ Defines data models for habit observations, candidate habits, and audit records.
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HabitCategory(str, Enum):
@@ -58,10 +58,7 @@ class HabitObservation(BaseModel):
     observed_at: datetime = Field(default_factory=datetime.utcnow, description="Observation time")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation time")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class HabitCandidate(BaseModel):
@@ -90,10 +87,7 @@ class HabitCandidate(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation time")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Update time")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class HabitAuditLog(BaseModel):
@@ -118,10 +112,7 @@ class HabitAuditLog(BaseModel):
     # Timestamp
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation time")
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 # API Request/Response models

@@ -14,6 +14,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.models.playbook import ToolPolicy
 from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class PolicyViolationError(Exception):
     """Raised when tool execution violates policy"""
+
     pass
 
 
@@ -45,7 +47,7 @@ class ToolPolicyEngine:
         tool_id: str,
         policy: Optional[ToolPolicy],
         workspace_id: Optional[str] = None,
-        execution_id: Optional[str] = None
+        execution_id: Optional[str] = None,
     ) -> bool:
         """
         Check if tool execution conforms to policy
@@ -79,7 +81,11 @@ class ToolPolicyEngine:
                     name=f"policy:tool_check:{tool_id}",
                     input_data={
                         "tool_id": tool_id,
-                        "policy": policy.dict() if policy and hasattr(policy, 'dict') else str(policy),
+                        "policy": (
+                            policy.model_dump()
+                            if policy and hasattr(policy, "model_dump")
+                            else str(policy)
+                        ),
                     },
                     metadata={
                         "workspace_id": workspace_id,
@@ -97,7 +103,10 @@ class ToolPolicyEngine:
                         trace_id=trace_id,
                         node_id=trace_node_id,
                         status=TraceStatus.SUCCESS,
-                        output_data={"result": "approved", "reason": "No policy restrictions"},
+                        output_data={
+                            "result": "approved",
+                            "reason": "No policy restrictions",
+                        },
                     )
                 except Exception as e:
                     logger.warning(f"Failed to end trace node for policy check: {e}")
@@ -108,8 +117,11 @@ class ToolPolicyEngine:
             if not self._matches_patterns(tool_id, policy.allowed_tool_patterns):
                 # Integrate policy decision → DecisionState (rejection)
                 try:
-                    from backend.app.core.state.state_integration import StateIntegrationAdapter
+                    from backend.app.core.state.state_integration import (
+                        StateIntegrationAdapter,
+                    )
                     from backend.app.core.state.decision_state import DecisionType
+
                     state_adapter = StateIntegrationAdapter()
                     decision_state = state_adapter.policy_decision_to_decision_state(
                         workspace_id=workspace_id or "",
@@ -117,16 +129,25 @@ class ToolPolicyEngine:
                         decision_type=DecisionType.POLICY_OVERRIDE,
                         decision_data={
                             "tool_id": tool_id,
-                            "policy": policy.dict() if hasattr(policy, 'dict') else str(policy),
+                            "policy": (
+                                policy.model_dump()
+                                if hasattr(policy, "model_dump")
+                                else str(policy)
+                            ),
                             "result": "rejected",
-                            "reason": f"Tool '{tool_id}' does not match allowed patterns: {policy.allowed_tool_patterns}"
+                            "reason": f"Tool '{tool_id}' does not match allowed patterns: {policy.allowed_tool_patterns}",
                         },
                         policy_name=f"policy_tool_policy_engine",
-                        reasoning=f"Tool pattern mismatch: {tool_id} not in {policy.allowed_tool_patterns}"
+                        reasoning=f"Tool pattern mismatch: {tool_id} not in {policy.allowed_tool_patterns}",
                     )
-                    logger.debug(f"ToolPolicyEngine: Recorded policy rejection in DecisionState (decision_id={decision_state.decision_id})")
+                    logger.debug(
+                        f"ToolPolicyEngine: Recorded policy rejection in DecisionState (decision_id={decision_state.decision_id})"
+                    )
                 except Exception as e:
-                    logger.warning(f"Failed to integrate policy decision to DecisionState: {e}", exc_info=True)
+                    logger.warning(
+                        f"Failed to integrate policy decision to DecisionState: {e}",
+                        exc_info=True,
+                    )
 
                 # End trace node for rejected policy check
                 if trace_node_id and trace_id:
@@ -138,12 +159,14 @@ class ToolPolicyEngine:
                             status=TraceStatus.FAILED,
                             output_data={
                                 "result": "rejected",
-                                "reason": f"Tool '{tool_id}' does not match allowed patterns: {policy.allowed_tool_patterns}"
+                                "reason": f"Tool '{tool_id}' does not match allowed patterns: {policy.allowed_tool_patterns}",
                             },
                             error_message=f"Tool '{tool_id}' does not match allowed patterns: {policy.allowed_tool_patterns}",
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to end trace node for rejected policy check: {e}")
+                        logger.warning(
+                            f"Failed to end trace node for rejected policy check: {e}"
+                        )
 
                 raise PolicyViolationError(
                     f"Tool '{tool_id}' does not match allowed patterns: {policy.allowed_tool_patterns}"
@@ -162,6 +185,7 @@ class ToolPolicyEngine:
             from backend.app.core.state.state_integration import StateIntegrationAdapter
             from backend.app.core.state.decision_state import DecisionType
             from datetime import datetime, timezone
+
             state_adapter = StateIntegrationAdapter()
             decision_state = state_adapter.policy_decision_to_decision_state(
                 workspace_id=workspace_id or "",
@@ -169,19 +193,30 @@ class ToolPolicyEngine:
                 decision_type=DecisionType.POLICY_OVERRIDE,
                 decision_data={
                     "tool_id": tool_id,
-                    "policy": policy.dict() if hasattr(policy, 'dict') else str(policy),
+                    "policy": (
+                        policy.model_dump() if hasattr(policy, "model_dump") else str(policy)
+                    ),
                     "result": "approved",
-                    "risk_level": policy.risk_level if hasattr(policy, 'risk_level') else None,
-                    "env": policy.env if hasattr(policy, 'env') else None,
+                    "risk_level": (
+                        policy.risk_level if hasattr(policy, "risk_level") else None
+                    ),
+                    "env": policy.env if hasattr(policy, "env") else None,
                 },
                 policy_name=f"policy_tool_policy_engine",
-                reasoning=f"Tool '{tool_id}' passed policy checks"
+                reasoning=f"Tool '{tool_id}' passed policy checks",
             )
-            logger.debug(f"ToolPolicyEngine: Recorded policy approval in DecisionState (decision_id={decision_state.decision_id})")
+            logger.debug(
+                f"ToolPolicyEngine: Recorded policy approval in DecisionState (decision_id={decision_state.decision_id})"
+            )
         except Exception as e:
-            logger.warning(f"Failed to integrate policy decision to DecisionState: {e}", exc_info=True)
+            logger.warning(
+                f"Failed to integrate policy decision to DecisionState: {e}",
+                exc_info=True,
+            )
 
-        logger.debug(f"Tool '{tool_id}' passed policy checks: risk={policy.risk_level}, env={policy.env}")
+        logger.debug(
+            f"Tool '{tool_id}' passed policy checks: risk={policy.risk_level}, env={policy.env}"
+        )
 
         # End trace node for approved policy check
         if trace_node_id and trace_id:
@@ -193,11 +228,13 @@ class ToolPolicyEngine:
                     status=TraceStatus.SUCCESS,
                     output_data={
                         "result": "approved",
-                        "reason": "Tool conforms to policy"
+                        "reason": "Tool conforms to policy",
                     },
                 )
             except Exception as e:
-                logger.warning(f"Failed to end trace node for approved policy check: {e}")
+                logger.warning(
+                    f"Failed to end trace node for approved policy check: {e}"
+                )
 
         return True
 
@@ -218,9 +255,9 @@ class ToolPolicyEngine:
         """
         for pattern in patterns:
             # Convert wildcard pattern to regex
-            regex_pattern = pattern.replace('.', r'\.')  # Escape dots
-            regex_pattern = regex_pattern.replace('*', '.*')  # * -> .*
-            regex_pattern = regex_pattern.replace('?', '.')  # ? -> .
+            regex_pattern = pattern.replace(".", r"\.")  # Escape dots
+            regex_pattern = regex_pattern.replace("*", ".*")  # * -> .*
+            regex_pattern = regex_pattern.replace("?", ".")  # ? -> .
             regex_pattern = f"^{regex_pattern}$"  # Anchor to start and end
 
             if re.match(regex_pattern, tool_id):
@@ -229,10 +266,7 @@ class ToolPolicyEngine:
         return False
 
     def check_risk_level(
-        self,
-        tool_id: str,
-        operation_type: str,
-        policy: Optional[ToolPolicy]
+        self, tool_id: str, operation_type: str, policy: Optional[ToolPolicy]
     ) -> bool:
         """
         Check if operation type conforms to policy risk level
@@ -259,10 +293,7 @@ class ToolPolicyEngine:
         return True
 
     def check_environment(
-        self,
-        tool_id: str,
-        environment: str,
-        policy: Optional[ToolPolicy]
+        self, tool_id: str, environment: str, policy: Optional[ToolPolicy]
     ) -> bool:
         """
         Check if environment conforms to policy
@@ -289,10 +320,7 @@ class ToolPolicyEngine:
         return True
 
     def requires_preview(
-        self,
-        tool_id: str,
-        operation_type: str,
-        policy: Optional[ToolPolicy]
+        self, tool_id: str, operation_type: str, policy: Optional[ToolPolicy]
     ) -> bool:
         """
         Check if operation requires preview before execution
@@ -329,4 +357,3 @@ def get_tool_policy_engine() -> ToolPolicyEngine:
     if _policy_engine_instance is None:
         _policy_engine_instance = ToolPolicyEngine()
     return _policy_engine_instance
-

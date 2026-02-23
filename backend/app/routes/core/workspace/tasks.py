@@ -43,7 +43,7 @@ async def get_workspace_tasks(
             running = tasks_store.list_running_tasks(workspace_id)
             all_tasks = (pending + running)[:limit]
 
-        return {"tasks": [task.dict() for task in all_tasks]}
+        return {"tasks": [task.model_dump() for task in all_tasks]}
     except Exception as e:
         logger.error(f"Failed to get workspace tasks: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

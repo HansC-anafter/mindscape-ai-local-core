@@ -245,7 +245,7 @@ class PortConfigService:
 
             # Prepare update dictionary
             updates = {}
-            for key, value in config.dict(exclude_none=True).items():
+            for key, value in config.model_dump(exclude_none=True).items():
                 # Skip scope fields
                 if key in ["cluster", "environment", "site"]:
                     continue
@@ -260,7 +260,7 @@ class PortConfigService:
             self._config_cache = None
             self._cache_key = None
 
-            logger.info(f"Port config updated: {config.dict()}")
+            logger.info(f"Port config updated: {config.model_dump()}")
 
             # Build restart notification
             restart_services = []

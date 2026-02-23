@@ -3,7 +3,7 @@ Lens Receipt models for Mind-Lens observability.
 
 Lens Receipt records how the lens affected the execution output.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -18,8 +18,7 @@ class TriggeredNode(BaseModel):
     effective_scope: str
     contribution: Optional[str] = None
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class LensReceipt(BaseModel):
@@ -34,6 +33,5 @@ class LensReceipt(BaseModel):
     diff_summary: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 

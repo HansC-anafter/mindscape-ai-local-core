@@ -3,7 +3,7 @@ Evidence models for Mind-Lens observability.
 
 Evidence tracks how lens nodes are triggered during execution.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -19,8 +19,7 @@ class Evidence(BaseModel):
     output_snippet: str = Field(description="Output snippet proving node influence")
     triggered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class DriftReport(BaseModel):
@@ -31,6 +30,5 @@ class DriftReport(BaseModel):
     node_drift: List[dict] = Field(default_factory=list, description="Node usage drift data")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 

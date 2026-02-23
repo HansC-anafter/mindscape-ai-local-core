@@ -77,10 +77,10 @@ class CoreExportService:
             backup_version="1.0.0",
             backup_timestamp=_utc_now(),
             source="my-agent-mindscape",
-            mindscape_profile=profile.dict(),
-            intent_cards=[intent.dict() for intent in intents],
-            ai_roles=[role.dict() for role in ai_roles],
-            playbooks=[pb.dict() for pb in playbooks],
+            mindscape_profile=profile.model_dump(),
+            intent_cards=[intent.model_dump() for intent in intents],
+            ai_roles=[role.model_dump() for role in ai_roles],
+            playbooks=[pb.model_dump() for pb in playbooks],
             tool_connections=[
                 self._serialize_connection_for_backup(conn, request.include_credentials)
                 for conn in tool_connections
@@ -152,7 +152,7 @@ class CoreExportService:
             mindscape_template=self._sanitize_profile(profile),
             ai_roles=[self._serialize_ai_role(role) for role in ai_roles],
             playbooks=[self._serialize_playbook(pb) for pb in playbooks],
-            tool_connection_templates=[template.dict() for template in tool_templates],
+            tool_connection_templates=[template.model_dump() for template in tool_templates],
             role_tool_mappings=self._build_role_tool_mappings(ai_roles),
             intent_templates=[
                 self._serialize_intent_template(intent)
@@ -224,7 +224,7 @@ class CoreExportService:
         filepath = Path(output_dir) / filename
 
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(config.dict(), f, indent=2, ensure_ascii=False)
+            json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
 
         return str(filepath)
 
@@ -235,7 +235,7 @@ class CoreExportService:
         return {
             "default_roles": profile.roles,
             "default_domains": profile.domains,
-            "default_preferences": profile.preferences.dict(),
+            "default_preferences": profile.preferences.model_dump(),
             "self_description_template": profile.self_description,
             "tags": profile.tags,
             # Filtered: email, external_ref
@@ -286,7 +286,7 @@ class CoreExportService:
         include_credentials: bool
     ) -> Dict[str, Any]:
         """Serialize connection for backup (optionally with credentials)"""
-        data = conn.dict()
+        data = conn.model_dump()
 
         if not include_credentials:
             # Remove sensitive fields

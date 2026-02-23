@@ -159,8 +159,8 @@ class PlaybookScopeResolver:
                 # Convert to dict if needed
                 if not isinstance(pb, dict):
                     pb_dict = (
-                        pb.dict()
-                        if hasattr(pb, "dict")
+                        pb.model_dump()
+                        if hasattr(pb, "model_dump")
                         else pb.model_dump() if hasattr(pb, "model_dump") else {}
                     )
                 else:
@@ -178,8 +178,8 @@ class PlaybookScopeResolver:
                     # Convert to dict if needed
                     if not isinstance(pb, dict):
                         pb_dict = (
-                            pb.dict()
-                            if hasattr(pb, "dict")
+                            pb.model_dump()
+                            if hasattr(pb, "model_dump")
                             else pb.model_dump() if hasattr(pb, "model_dump") else {}
                         )
                     else:

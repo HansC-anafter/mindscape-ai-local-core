@@ -5,7 +5,7 @@ Defines export formats for external platform integration
 
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConsoleKitTemplate(BaseModel):
@@ -73,8 +73,7 @@ class ConsoleKitTemplate(BaseModel):
         default_factory=dict, description="Additional metadata about this template"
     )
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ExportPreview(BaseModel):
@@ -111,8 +110,7 @@ class ExportPreview(BaseModel):
     # Estimated template size
     estimated_size_kb: float = Field(0.0, description="Estimated template size in KB")
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ConsoleKitExportRequest(BaseModel):
@@ -141,8 +139,7 @@ class ConsoleKitExportResponse(BaseModel):
     exported_at: datetime = Field(default_factory=datetime.utcnow)
     file_size_bytes: int = 0
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ConsoleKitImportValidationResult(BaseModel):
@@ -170,5 +167,4 @@ class ConsoleKitImportValidationResult(BaseModel):
     playbooks_count: int = 0
     tools_count: int = 0
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

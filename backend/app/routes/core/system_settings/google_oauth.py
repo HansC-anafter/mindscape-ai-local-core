@@ -67,7 +67,7 @@ async def update_google_oauth_config(request: GoogleOAuthConfigUpdate):
     try:
         from backend.app.models.system_settings import SystemSetting, SettingType
 
-        request_dict = request.dict(exclude_none=True)
+        request_dict = request.model_dump(exclude_none=True)
         logger.info(f"Received Google OAuth update request with {len(request_dict)} fields: {list(request_dict.keys())}")
         for key, value in request_dict.items():
             if key == "client_secret":

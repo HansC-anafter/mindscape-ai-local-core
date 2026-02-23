@@ -419,7 +419,7 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
             except Exception as e:
                 logger.warning(f"Failed to fetch associated intent: {e}")
 
-        workspace_dict = workspace.dict()
+        workspace_dict = workspace.model_dump()
         if associated_intent:
             workspace_dict["associated_intent"] = associated_intent
 
@@ -446,7 +446,7 @@ async def update_workspace(
     """
     try:
         logger.info(
-            f"Updating workspace {workspace_id} with request: {request.dict(exclude_unset=True)}"
+            f"Updating workspace {workspace_id} with request: {request.model_dump(exclude_unset=True)}"
         )
         workspace = await store.get_workspace(workspace_id)
         if not workspace:
@@ -469,7 +469,7 @@ async def update_workspace(
             workspace.default_playbook_id = request.default_playbook_id
         if request.default_locale is not None:
             workspace.default_locale = request.default_locale
-        request_dict = request.dict(exclude_unset=False)
+        request_dict = request.model_dump(exclude_unset=False)
         if "mode" in request_dict:
             workspace.mode = request.mode
         if (
@@ -689,7 +689,7 @@ async def update_workspace(
             event_type=EventType.PROJECT_UPDATED,
             payload={
                 "workspace_id": workspace_id,
-                "updated_fields": request.dict(exclude_unset=True),
+                "updated_fields": request.model_dump(exclude_unset=True),
             },
             entity_ids=[],
             metadata={},

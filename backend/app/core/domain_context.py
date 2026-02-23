@@ -12,7 +12,7 @@ For cloud handoff/communication, must use external tools (not in local-core repo
 """
 
 from typing import Dict, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class LocalDomainContext(BaseModel):
@@ -35,8 +35,7 @@ class LocalDomainContext(BaseModel):
     tags: Optional[Dict[str, Any]] = None
     mind_lens: Optional[Dict[str, Any]] = None
 
-    class Config:
-        json_encoders = {dict: lambda v: v}
+    model_config = ConfigDict(json_encoders={dict: lambda v: v})
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
