@@ -36,6 +36,7 @@ class PipelineResult:
     suggestion_cards: List[Dict[str, Any]] = field(default_factory=list)
     meeting_session_id: Optional[str] = None
     task_ir_id: Optional[str] = None
+    dispatch_result: Optional[Dict[str, Any]] = None
     success: bool = True
     error: Optional[str] = None
 
@@ -182,6 +183,9 @@ class PipelineCore:
                 if meeting_result.task_ir:
                     await self._persist_meeting_task_ir(meeting_result.task_ir)
                     result.task_ir_id = meeting_result.task_ir.task_id
+                    dispatch = await self._dispatch_task_ir(meeting_result.task_ir)
+                    if dispatch:
+                        result.dispatch_result = dispatch
 
                 # Early return path must still finalize session metadata.
                 await self._finalize_meeting_session(result)
@@ -712,6 +716,63 @@ class PipelineCore:
                 e,
                 exc_info=True,
             )
+
+    async def _dispatch_task_ir(self, task_ir) -> Optional[Dict[str, Any]]:
+        """Dispatch persisted TaskIR via HandoffHandler.
+
+        Performs actuation plan lowering, then dispatches the first
+        executable phase via HandoffHandler.
+
+        Args:
+            task_ir: Compiled and persisted TaskIR.
+
+        Returns:
+            Dispatch result dict or None on failure.
+        """
+        try:
+            from backend.app.services.stores.task_ir_store import TaskIRStore
+            from backend.app.services.handoff_handler import HandoffHandler
+            from backend.app.services.artifact_registry import ArtifactRegistry
+
+            db_path = getattr(self.store, "db_path", None)
+            if not db_path:
+                return None
+
+            ir_store = TaskIRStore(db_path=db_path)
+            artifact_registry = ArtifactRegistry(db_path=db_path)
+            handler = HandoffHandler(
+                task_ir_store=ir_store,
+                artifact_registry=artifact_registry,
+            )
+
+            # Lower phases to actuation plan
+            task_ir.lower_to_actuation_plan()
+            ir_store.replace_task_ir(task_ir)
+
+            # Dispatch first executable phase
+            first_phases = task_ir.get_next_executable_phases()
+            if not first_phases:
+                logger.info(
+                    "[PipelineCore] No executable phases for %s", task_ir.task_id
+                )
+                return None
+
+            engine = first_phases[0].preferred_engine or "playbook:generic"
+            result = await handler.initiate_task_execution(task_ir, engine)
+            logger.info(
+                "[PipelineCore] Dispatched TaskIR %s via %s",
+                task_ir.task_id,
+                engine,
+            )
+            return result
+        except Exception as e:
+            logger.warning(
+                "[PipelineCore] Dispatch failed for %s: %s",
+                task_ir.task_id,
+                e,
+                exc_info=True,
+            )
+            return None
 
     async def _emit_pipeline_stage(
         self,
