@@ -6,4 +6,10 @@ Modular components for conversation orchestration:
 - task_manager: Task and TimelineItem lifecycle management
 - cta_handler: CTA handling and external write operations
 - intent_extractor: LLM-based intent extraction and timeline item creation
+- llm_provider_factory: Centralized LLM provider construction
+- pipeline_core_shim: PipelineCore feature-flag routing
+- project_detector_handler: Project detection and creation
+- legacy_message_router: Legacy routing path orchestration
+- response_assembler: Event serialization and response building
+- thread_stats_updater: Thread statistics update helper
 """

@@ -1,22 +1,20 @@
 """
 Chat Orchestrator Service
+
 Decoupled service for managing chat generation in background tasks.
 Persists intermediate states to MindscapeStore as events.
+
+Implementation logic is delegated to:
+- chat_session_setup: Unified session initialization
+- thread_stats_updater: Thread statistics updates
+- pipeline_core: PipelineCore feature-flag routing
 """
 
 import logging
-import uuid
-import sys
 import json
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Optional
 from datetime import datetime, timezone
-
-
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
-
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.models.workspace import Workspace, WorkspaceChatRequest
@@ -27,14 +25,21 @@ from backend.app.services.stores.workspace_runtime_profile_store import (
 from backend.app.shared.i18n_loader import get_locale_from_context, load_i18n_string
 from backend.app.utils.runtime_profile import get_resolved_mode
 from backend.features.workspace.chat.streaming.llm_streaming import stream_llm_response
-
-# Re-use helpers (could be moved to shared utils later)
-from backend.features.workspace.chat.streaming.generator import (
-    _get_or_create_default_thread,
-    _smart_truncate_message,
+from backend.features.workspace.chat.streaming.chat_session_setup import (
+    setup_chat_session,
+    smart_truncate_message,
 )
+from backend.app.services.conversation.thread_stats_updater import update_thread_stats
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
+
+
+import uuid
 
 
 class ChatOrchestratorService:
@@ -51,147 +56,45 @@ class ChatOrchestratorService:
     ):
         """
         Run chat generation in background, persisting events to DB.
+
+        Handles: session setup, PipelineCore routing, agent dispatch,
+        LLM streaming, and thread summarization.
         """
-        logger.info(
-            f"[AsyncChat] Starting background task for workspace {workspace_id}"
-        )
+        logger.info("Starting background task for workspace %s", workspace_id)
 
         try:
-            # Setup context (profile, thread, project)
-            profile = None
-            try:
-                if profile_id:
-                    # Offload blocking DB call
-                    loop = asyncio.get_running_loop()
-                    profile = await loop.run_in_executor(
-                        None, lambda: self.orchestrator.store.get_profile(profile_id)
-                    )
-            except Exception:
-                pass
-
-            # Detect Project (simplified from generator.py)
-            from backend.app.services.project.project_creation_helper import (
-                detect_and_create_project_if_needed,
-            )
-
-            # Respect explicit project context from frontend first.
-            requested_project_id = request.project_id
-            project_id, _ = await detect_and_create_project_if_needed(
-                message=request.message,
+            # 1. Unified session setup
+            session = await setup_chat_session(
+                request=request,
+                workspace=workspace,
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 store=self.orchestrator.store,
-                workspace=workspace,
-                existing_project_id=requested_project_id,
-                create_on_medium_confidence=True,
-            )
-            if requested_project_id and project_id != requested_project_id:
-                logger.warning(
-                    "[AsyncChat] Project resolution mismatch: requested=%s resolved=%s",
-                    requested_project_id,
-                    project_id,
-                )
-
-            # Thread ID
-            thread_id = request.thread_id
-            if not thread_id:
-                thread_id = _get_or_create_default_thread(
-                    workspace_id, self.orchestrator.store
-                )
-
-            # Create user event (persist immediately)
-            event_id = user_event_id or str(uuid.uuid4())
-            user_event = MindEvent(
-                id=event_id,
-                timestamp=_utc_now(),
-                actor=EventActor.USER,
-                channel="local_workspace",
-                profile_id=profile_id,
-                project_id=project_id,
-                workspace_id=workspace_id,
-                thread_id=thread_id,
-                event_type=EventType.MESSAGE,
-                payload={
-                    "message": request.message,
-                    "files": request.files,
-                    "mode": request.mode,
-                },
-                entity_ids=[],
-                metadata={"async_processed": True},
-            )
-            # Offload blocking DB call
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, lambda: self.orchestrator.store.create_event(user_event)
-            )
-            logger.info(f"[AsyncChat] Created user event {user_event.id}")
-
-            # Update thread stats
-            try:
-                # Offload blocking DB calls to thread pool
-                loop = asyncio.get_running_loop()
-                message_count = await loop.run_in_executor(
-                    None,
-                    lambda: self.orchestrator.store.events.count_messages_by_thread(
-                        workspace_id=workspace_id, thread_id=thread_id
-                    ),
-                )
-                await loop.run_in_executor(
-                    None,
-                    lambda: self.orchestrator.store.conversation_threads.update_thread(
-                        thread_id=thread_id,
-                        last_message_at=datetime.now(timezone.utc),
-                        message_count=message_count,
-                    ),
-                )
-            except Exception as e:
-                logger.warning(f"Failed to update thread stats: {e}")
-
-            # Pipeline stages (persist as events)
-
-            # Determine Mode
-            runtime_profile_store = WorkspaceRuntimeProfileStore(
-                db_path=self.orchestrator.store.db_path
-            )
-            runtime_profile = await runtime_profile_store.get_runtime_profile(
-                workspace_id
-            )
-            if not runtime_profile:
-                runtime_profile = await runtime_profile_store.create_default_profile(
-                    workspace_id
-                )
-
-            resolved_mode_enum = get_resolved_mode(workspace, runtime_profile)
-            execution_mode = (
-                resolved_mode_enum.value
-                if resolved_mode_enum
-                else (getattr(workspace, "execution_mode", None) or "qa")
+                user_event_id=user_event_id,
             )
 
-            # ADR-002: PipelineCore feature flag routing
+            # 2. PipelineCore routing (feature flag)
             from backend.app.services.conversation.pipeline_core import (
                 PipelineCore,
                 should_use_pipeline_core,
             )
 
             if should_use_pipeline_core(workspace):
-                logger.info(
-                    f"[AsyncChat] PipelineCore enabled for workspace {workspace_id}"
-                )
+                logger.info("PipelineCore enabled for workspace %s", workspace_id)
                 pipeline = PipelineCore(
                     orchestrator_store=self.orchestrator.store,
                     workspace=workspace,
-                    profile=profile,
-                    runtime_profile=runtime_profile,
+                    profile=session.profile,
+                    runtime_profile=session.runtime_profile,
                 )
                 pipeline_result = await pipeline.process(
                     workspace_id=workspace_id,
                     profile_id=profile_id,
-                    thread_id=thread_id,
-                    project_id=project_id,
+                    thread_id=session.thread_id,
+                    project_id=session.project_id,
                     message=request.message,
-                    user_event_id=user_event.id,
-                    execution_mode=execution_mode,
+                    user_event_id=session.user_event.id,
+                    execution_mode=session.execution_mode,
                     model_name=request.model_name,
                     request=request,
                 )
@@ -199,378 +102,338 @@ class ChatOrchestratorService:
                     await self._create_error_event(
                         workspace_id,
                         profile_id,
-                        thread_id,
+                        session.thread_id,
                         pipeline_result.error or "Pipeline processing failed",
                         retry_data={"message": request.message},
                     )
-                # Update thread stats
-                try:
-                    message_count = (
-                        self.orchestrator.store.events.count_messages_by_thread(
-                            workspace_id=workspace_id, thread_id=thread_id
-                        )
-                    )
-                    self.orchestrator.store.conversation_threads.update_thread(
-                        thread_id=thread_id,
-                        last_message_at=datetime.now(timezone.utc),
-                        message_count=message_count,
-                    )
-                except Exception:
-                    pass
-                logger.info(f"[AsyncChat] PipelineCore completed for {user_event.id}")
-                return  # PipelineCore handled everything
+                # Final thread stats update
+                await update_thread_stats(
+                    self.orchestrator.store, workspace_id, session.thread_id
+                )
+                logger.info("PipelineCore completed for %s", session.user_event.id)
+                return
 
-            # --- Legacy path (feature flag off) ---
+            # 3. Legacy path (feature flag off)
 
-            # Intent Extraction Stage
-            if execution_mode in ("execution", "hybrid"):
-                locale = get_locale_from_context(profile=profile, workspace=workspace)
-                user_message_preview = _smart_truncate_message(
+            # Intent extraction stage (execution/hybrid modes)
+            if session.execution_mode in ("execution", "hybrid"):
+                user_message_preview = smart_truncate_message(
                     request.message, max_length=60
                 )
                 intent_message = load_i18n_string(
                     "workspace.pipeline_stage.intent_extraction",
-                    locale=locale,
+                    locale=session.locale,
                     default=f"Analyzing: understanding your request '{user_message_preview}', finding a suitable Playbook.",
                 ).format(user_message=user_message_preview)
 
                 await self._create_pipeline_event(
                     workspace_id,
                     profile_id,
-                    thread_id,
-                    project_id,
+                    session.thread_id,
+                    session.project_id,
                     "intent_extraction",
                     intent_message,
-                    user_event.id,
+                    session.user_event.id,
                 )
 
-            # Context Building Stage
-            locale = (
-                get_locale_from_context(profile=profile, workspace=workspace) or "zh-TW"
-            )
+            # Context building stage
             context_message = load_i18n_string(
                 "workspace.pipeline_stage.context_building",
-                locale=locale,
+                locale=session.locale,
                 default="Preparing context: gathering relevant documents and project context.",
             )
             await self._create_pipeline_event(
                 workspace_id,
                 profile_id,
-                thread_id,
-                project_id,
+                session.thread_id,
+                session.project_id,
                 "context_building",
                 context_message,
-                user_event.id,
+                session.user_event.id,
             )
 
-            # Check if workspace has executor_runtime
-            # If so, route to WorkspaceAgentExecutor instead of LLM
+            # 4. Agent dispatch (if workspace has executor_runtime)
             executor_runtime = getattr(workspace, "executor_runtime", None)
-
             if executor_runtime:
-                logger.info(
-                    f"[AsyncChat] Workspace has executor_runtime={executor_runtime}, "
-                    f"routing to WorkspaceAgentExecutor"
+                await self._handle_agent_dispatch(
+                    request=request,
+                    workspace=workspace,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    session=session,
+                    executor_runtime=executor_runtime,
                 )
+                return
 
-                from backend.app.services.workspace_agent_executor import (
-                    WorkspaceAgentExecutor,
-                    AgentExecutionResponse,
-                )
-
-                # Pre-check: is the agent runtime actually connected?
-                executor = WorkspaceAgentExecutor(workspace)
-                agent_available = await executor.check_agent_available(executor_runtime)
-
-                if not agent_available:
-                    await self._create_error_event(
-                        workspace_id,
-                        profile_id,
-                        thread_id,
-                        f"Agent {executor_runtime} is unavailable: "
-                        f"no runtime connected. "
-                        f"Start the CLI bridge or switch to Mindscape LLM.",
-                    )
-                    logger.warning(
-                        f"[AsyncChat] Agent {executor_runtime} unavailable, "
-                        f"no runtime connected"
-                    )
-                    return
-                else:
-                    # Agent is available -- emit progress event before dispatch
-                    await self._create_pipeline_event(
-                        workspace_id,
-                        profile_id,
-                        thread_id,
-                        project_id,
-                        "agent_dispatching",
-                        f"Dispatching task to agent {executor_runtime}...",
-                        user_event_id or event_id,
-                    )
-
-                    # Build conversation context (same pipeline as LLM path)
-                    from backend.features.workspace.chat.streaming.context_builder import (
-                        build_streaming_context,
-                    )
-                    from backend.app.services.stores.timeline_items_store import (
-                        TimelineItemsStore,
-                    )
-
-                    timeline_items_store = TimelineItemsStore(
-                        self.orchestrator.store.db_path
-                    )
-                    conversation_context = await build_streaming_context(
-                        workspace_id=workspace_id,
-                        message=request.message,
-                        profile_id=profile_id,
-                        workspace=workspace,
-                        store=self.orchestrator.store,
-                        timeline_items_store=timeline_items_store,
-                        model_name=None,
-                        thread_id=thread_id,
-                    )
-
-                    agent_response: AgentExecutionResponse = await executor.execute(
-                        task=request.message,
-                        agent_id=executor_runtime,
-                        context_overrides={
-                            "conversation_context": conversation_context or "",
-                            "thread_id": thread_id,
-                            "project_id": project_id,
-                        },
-                    )
-
-                    # Emit completion/failure progress event
-                    exec_time = agent_response.execution_time_seconds
-                    if agent_response.success:
-                        await self._create_pipeline_event(
-                            workspace_id,
-                            profile_id,
-                            thread_id,
-                            project_id,
-                            "agent_completed",
-                            f"Agent completed in {exec_time:.0f}s",
-                            user_event_id or event_id,
-                        )
-                    else:
-                        await self._create_pipeline_event(
-                            workspace_id,
-                            profile_id,
-                            thread_id,
-                            project_id,
-                            "agent_failed",
-                            f"Agent execution failed after {exec_time:.0f}s",
-                            user_event_id or event_id,
-                        )
-
-                    # Create assistant event with agent response
-                    if agent_response.success:
-                        assistant_event = MindEvent(
-                            id=str(uuid.uuid4()),
-                            timestamp=_utc_now(),
-                            actor=EventActor.ASSISTANT,
-                            channel="local_workspace",
-                            profile_id=profile_id,
-                            project_id=project_id,
-                            workspace_id=workspace_id,
-                            thread_id=thread_id,
-                            event_type=EventType.MESSAGE,
-                            payload={
-                                "message": agent_response.output,
-                                "agent_id": executor_runtime,
-                                "trace_id": agent_response.trace_id,
-                                "execution_time": agent_response.execution_time_seconds,
-                            },
-                            entity_ids=[],
-                            metadata={
-                                "external_agent": True,
-                                "agent_id": executor_runtime,
-                            },
-                        )
-                        loop = asyncio.get_running_loop()
-                        await loop.run_in_executor(
-                            None,
-                            lambda: self.orchestrator.store.create_event(
-                                assistant_event
-                            ),
-                        )
-                        logger.info(
-                            f"[AsyncChat] External agent {executor_runtime} completed, "
-                            f"trace_id={agent_response.trace_id}"
-                        )
-                        return  # Agent succeeded, done
-
-                    # Agent execution failed -- report error, never silent fallback
-                    error_msg = (
-                        agent_response.error or "External agent execution failed"
-                    )
-                    await self._create_error_event(
-                        workspace_id,
-                        profile_id,
-                        thread_id,
-                        f"Agent {executor_runtime} execution failed: {error_msg}. "
-                        f"Check the CLI bridge logs or switch to Mindscape LLM.",
-                        retry_data={
-                            "message": request.message,
-                            "agent_id": executor_runtime,
-                        },
-                    )
-                    logger.error(
-                        f"[AsyncChat] External agent {executor_runtime} failed: "
-                        f"{error_msg}"
-                    )
-                    logger.warning(
-                        f"[AsyncChat] DIAGNOSTIC: agent_response details: "
-                        f"error={agent_response.error!r}, "
-                        f"output={str(agent_response.output)[:500]!r}, "
-                        f"trace_id={agent_response.trace_id}"
-                    )
-                    return
-
-                logger.info(
-                    f"[AsyncChat] Background task completed for {user_event.id}"
-                )
-
-            # Generate response (consume stream) via default LLM path
-
-            # Setup dependencies for stream_llm_response
-            from backend.features.workspace.chat.streaming.llm_streaming import (
-                stream_llm_response,
-            )
-            from backend.features.workspace.chat.utils.llm_provider import (
-                get_llm_provider_manager,
-                get_llm_provider,
-            )
-
-            # Resolve Model Name with ultimate fallback
-            model_name = request.model_name
-            if not model_name:
-                try:
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
-                    )
-
-                    settings_store = SystemSettingsStore()
-                    chat_setting = settings_store.get_setting("chat_model")
-                    if chat_setting and chat_setting.value:
-                        model_name = str(chat_setting.value)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to fetch default chat model from settings: {e}"
-                    )
-
-            if not model_name or str(model_name).strip() == "":
-                model_name = "gpt-4"  # Ultimate safety fallback
-                logger.info(f"Using ultimate fallback model_name: {model_name}")
-
-            provider_manager = get_llm_provider_manager()
-            provider, provider_type = get_llm_provider(
-                model_name=model_name,
-                llm_provider_manager=provider_manager,
-                profile_id=profile_id,
-                db_path=self.orchestrator.store.db_path,
-            )
-
-            # Build Context (Logic from generator.py)
-            from backend.features.workspace.chat.streaming.context_builder import (
-                build_streaming_context,
-            )
-            from backend.app.services.stores.timeline_items_store import (
-                TimelineItemsStore,
-            )
-
-            # Instantiate TimelineItemsStore locally as it's required by context builder
-            timeline_items_store = TimelineItemsStore(self.orchestrator.store.db_path)
-
-            context_str = await build_streaming_context(
-                workspace_id=workspace_id,
-                message=request.message,
-                profile_id=profile_id,
+            # 5. Default LLM path
+            await self._handle_llm_path(
+                request=request,
                 workspace=workspace,
-                store=self.orchestrator.store,
-                timeline_items_store=timeline_items_store,
-                model_name=model_name,
-                thread_id=thread_id,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                session=session,
             )
 
-            # Construct messages list for LLM
-            messages = []
-            if context_str:
-                messages.append({"role": "system", "content": context_str})
-            messages.append({"role": "user", "content": request.message})
+            # Final thread stats update
+            await update_thread_stats(
+                self.orchestrator.store, workspace_id, session.thread_id
+            )
 
-            # SGR prompt injection (feature-gated via workspace.metadata)
-            sgr_enabled = False
-            try:
-                ws_metadata = workspace.metadata or {}
-                sgr_enabled = ws_metadata.get("sgr_enabled", False)
-            except Exception:
-                pass
-
-            if sgr_enabled:
-                from backend.app.services.sgr_reasoning_service import SGRReasoningService
-
-                sgr_service = SGRReasoningService()
-                messages = sgr_service.inject_sgr_prompt(messages)
-                logger.info("[AsyncChat] SGR prompt injected into messages")
-
-            # Estimate token count (approx 4 chars per token)
-            context_token_count = len(context_str) // 4 if context_str else 0
-
-            logger.info(f"[AsyncChat] Consuming LLM stream for mode {execution_mode}")
-
-            async for chunk in stream_llm_response(
-                provider=provider,
-                provider_type=provider_type,
-                messages=messages,
-                model_name=model_name,
-                execution_mode=execution_mode,
-                user_event_id=user_event.id,
-                profile_id=profile_id,
-                project_id=project_id,
-                workspace_id=workspace_id,
-                thread_id=thread_id,
-                workspace=workspace,
-                message=request.message,
-                profile=profile,
-                store=self.orchestrator.store,
-                context_token_count=context_token_count,
-                execution_playbook_result=None,
-                openai_key=None,
-            ):
-                # We consume the stream to trigger internal logic (Assistant Event creation, Playbook Execution)
-                pass
-
-            logger.info(f"[AsyncChat] Background task completed for {user_event.id}")
-
-            # Final update to thread stats
-            try:
-                message_count = self.orchestrator.store.events.count_messages_by_thread(
-                    workspace_id=workspace_id, thread_id=thread_id
-                )
-                self.orchestrator.store.conversation_threads.update_thread(
-                    thread_id=thread_id,
-                    last_message_at=datetime.now(timezone.utc),
-                    message_count=message_count,
-                )
-            except Exception:
-                pass
+            logger.info("Background task completed for %s", session.user_event.id)
 
         except Exception as e:
-            logger.error(f"[AsyncChat] Error in background task: {e}", exc_info=True)
-            # Create Error Event with retry data so frontend can offer retry
+            logger.error("Error in background task: %s", e, exc_info=True)
             await self._create_error_event(
                 workspace_id,
                 profile_id,
-                thread_id,
+                getattr(locals().get("session"), "thread_id", None) or "",
                 str(e),
                 retry_data={"message": request.message},
             )
 
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    async def _handle_agent_dispatch(
+        self, request, workspace, workspace_id, profile_id, session, executor_runtime
+    ):
+        """Route to WorkspaceAgentExecutor when agent runtime is configured."""
+        logger.info(
+            "Workspace has executor_runtime=%s, routing to agent", executor_runtime
+        )
+
+        from backend.app.services.workspace_agent_executor import (
+            WorkspaceAgentExecutor,
+            AgentExecutionResponse,
+        )
+
+        executor = WorkspaceAgentExecutor(workspace)
+        agent_available = await executor.check_agent_available(executor_runtime)
+
+        if not agent_available:
+            await self._create_error_event(
+                workspace_id,
+                profile_id,
+                session.thread_id,
+                f"Agent {executor_runtime} is unavailable: no runtime connected. "
+                f"Start the CLI bridge or switch to Mindscape LLM.",
+            )
+            logger.warning(
+                "Agent %s unavailable, no runtime connected", executor_runtime
+            )
+            return
+
+        # Agent is available -- dispatch
+        await self._create_pipeline_event(
+            workspace_id,
+            profile_id,
+            session.thread_id,
+            session.project_id,
+            "agent_dispatching",
+            f"Dispatching task to agent {executor_runtime}...",
+            session.user_event.id,
+        )
+
+        # Build conversation context
+        from backend.features.workspace.chat.streaming.context_builder import (
+            build_streaming_context,
+        )
+        from backend.app.services.stores.timeline_items_store import (
+            TimelineItemsStore,
+        )
+
+        timeline_items_store = TimelineItemsStore(self.orchestrator.store.db_path)
+        conversation_context = await build_streaming_context(
+            workspace_id=workspace_id,
+            message=request.message,
+            profile_id=profile_id,
+            workspace=workspace,
+            store=self.orchestrator.store,
+            timeline_items_store=timeline_items_store,
+            model_name=None,
+            thread_id=session.thread_id,
+        )
+
+        agent_response: AgentExecutionResponse = await executor.execute(
+            task=request.message,
+            agent_id=executor_runtime,
+            context_overrides={
+                "conversation_context": conversation_context or "",
+                "thread_id": session.thread_id,
+                "project_id": session.project_id,
+            },
+        )
+
+        exec_time = agent_response.execution_time_seconds
+        if agent_response.success:
+            await self._create_pipeline_event(
+                workspace_id,
+                profile_id,
+                session.thread_id,
+                session.project_id,
+                "agent_completed",
+                f"Agent completed in {exec_time:.0f}s",
+                session.user_event.id,
+            )
+
+            # Persist agent response
+            assistant_event = MindEvent(
+                id=str(uuid.uuid4()),
+                timestamp=_utc_now(),
+                actor=EventActor.ASSISTANT,
+                channel="local_workspace",
+                profile_id=profile_id,
+                project_id=session.project_id,
+                workspace_id=workspace_id,
+                thread_id=session.thread_id,
+                event_type=EventType.MESSAGE,
+                payload={
+                    "message": agent_response.output,
+                    "agent_id": executor_runtime,
+                    "trace_id": agent_response.trace_id,
+                    "execution_time": agent_response.execution_time_seconds,
+                },
+                entity_ids=[],
+                metadata={
+                    "external_agent": True,
+                    "agent_id": executor_runtime,
+                },
+            )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self.orchestrator.store.create_event(assistant_event),
+            )
+            logger.info(
+                "External agent %s completed, trace_id=%s",
+                executor_runtime,
+                agent_response.trace_id,
+            )
+            return
+
+        # Agent failed
+        error_msg = agent_response.error or "External agent execution failed"
+        await self._create_error_event(
+            workspace_id,
+            profile_id,
+            session.thread_id,
+            f"Agent {executor_runtime} execution failed: {error_msg}. "
+            f"Check the CLI bridge logs or switch to Mindscape LLM.",
+            retry_data={
+                "message": request.message,
+                "agent_id": executor_runtime,
+            },
+        )
+        logger.error("External agent %s failed: %s", executor_runtime, error_msg)
+
+    async def _handle_llm_path(
+        self, request, workspace, workspace_id, profile_id, session
+    ):
+        """Generate response via default LLM streaming path."""
+        from backend.features.workspace.chat.streaming.llm_streaming import (
+            stream_llm_response,
+        )
+        from backend.features.workspace.chat.utils.llm_provider import (
+            get_llm_provider_manager,
+            get_llm_provider,
+        )
+
+        # Resolve model name
+        model_name = request.model_name
+        if not model_name:
+            try:
+                from backend.app.services.system_settings_store import (
+                    SystemSettingsStore,
+                )
+
+                settings_store = SystemSettingsStore()
+                chat_setting = settings_store.get_setting("chat_model")
+                if chat_setting and chat_setting.value:
+                    model_name = str(chat_setting.value)
+            except Exception as e:
+                logger.warning("Failed to fetch default chat model: %s", e)
+
+        if not model_name or str(model_name).strip() == "":
+            model_name = "gpt-4"
+
+        provider_manager = get_llm_provider_manager()
+        provider, provider_type = get_llm_provider(
+            model_name=model_name,
+            llm_provider_manager=provider_manager,
+            profile_id=profile_id,
+            db_path=self.orchestrator.store.db_path,
+        )
+
+        # Build context
+        from backend.features.workspace.chat.streaming.context_builder import (
+            build_streaming_context,
+        )
+        from backend.app.services.stores.timeline_items_store import (
+            TimelineItemsStore,
+        )
+
+        timeline_items_store = TimelineItemsStore(self.orchestrator.store.db_path)
+        context_str = await build_streaming_context(
+            workspace_id=workspace_id,
+            message=request.message,
+            profile_id=profile_id,
+            workspace=workspace,
+            store=self.orchestrator.store,
+            timeline_items_store=timeline_items_store,
+            model_name=model_name,
+            thread_id=session.thread_id,
+        )
+
+        messages = []
+        if context_str:
+            messages.append({"role": "system", "content": context_str})
+        messages.append({"role": "user", "content": request.message})
+
+        # SGR prompt injection (feature-gated)
+        sgr_enabled = False
+        try:
+            ws_metadata = workspace.metadata or {}
+            sgr_enabled = ws_metadata.get("sgr_enabled", False)
+        except Exception:
+            pass
+
+        if sgr_enabled:
+            from backend.app.services.sgr_reasoning_service import SGRReasoningService
+
+            sgr_service = SGRReasoningService()
+            messages = sgr_service.inject_sgr_prompt(messages)
+            logger.info("SGR prompt injected into messages")
+
+        context_token_count = len(context_str) // 4 if context_str else 0
+
+        logger.info("Consuming LLM stream for mode %s", session.execution_mode)
+
+        async for _ in stream_llm_response(
+            provider=provider,
+            provider_type=provider_type,
+            messages=messages,
+            model_name=model_name,
+            execution_mode=session.execution_mode,
+            user_event_id=session.user_event.id,
+            profile_id=profile_id,
+            project_id=session.project_id,
+            workspace_id=workspace_id,
+            thread_id=session.thread_id,
+            workspace=workspace,
+            message=request.message,
+            profile=session.profile,
+            store=self.orchestrator.store,
+            context_token_count=context_token_count,
+            execution_playbook_result=None,
+            openai_key=None,
+        ):
+            pass  # Consume stream to trigger internal logic
+
     async def _create_pipeline_event(
         self, workspace_id, profile_id, thread_id, project_id, stage, message, run_id
     ):
-        """Create a persisted pipeline stage event"""
+        """Create a persisted pipeline stage event."""
         event = MindEvent(
             id=str(uuid.uuid4()),
             timestamp=_utc_now(),
@@ -590,7 +453,6 @@ class ChatOrchestratorService:
             entity_ids=[],
             metadata={},
         )
-        # Offload blocking DB call
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -600,11 +462,12 @@ class ChatOrchestratorService:
         await loop.run_in_executor(
             None, lambda: self.orchestrator.store.create_event(event)
         )
-        logger.info(f"[AsyncChat] Persisted pipeline event: {stage}")
+        logger.info("Persisted pipeline event: %s", stage)
 
     async def _create_error_event(
         self, workspace_id, profile_id, thread_id, error_msg, retry_data=None
     ):
+        """Create a persisted error event."""
         metadata = {"is_error": True}
         if retry_data:
             metadata["retry_data"] = retry_data
@@ -624,7 +487,6 @@ class ChatOrchestratorService:
             entity_ids=[],
             metadata=metadata,
         )
-        # Offload blocking DB call
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
