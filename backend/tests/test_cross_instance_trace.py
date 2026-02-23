@@ -9,9 +9,39 @@ Covers:
 """
 
 import uuid
+import os
+import importlib.util
 from datetime import datetime, timezone
 
 import pytest
+
+# --- importlib-based imports (no PYTHONPATH required) ---
+
+_test_dir = os.path.dirname(os.path.abspath(__file__))
+_backend_root = os.path.dirname(_test_dir)
+
+# Load ReasoningTrace models
+_rt_spec = importlib.util.spec_from_file_location(
+    "reasoning_trace",
+    os.path.join(_backend_root, "app", "models", "reasoning_trace.py"),
+)
+_rt_mod = importlib.util.module_from_spec(_rt_spec)
+_rt_spec.loader.exec_module(_rt_mod)
+
+ReasoningTrace = _rt_mod.ReasoningTrace
+ReasoningGraph = _rt_mod.ReasoningGraph
+SGRMode = _rt_mod.SGRMode
+
+# Load HandoffRegistryClient
+_handoff_dir = os.path.join(_backend_root, "app", "services", "handoff")
+_client_spec = importlib.util.spec_from_file_location(
+    "registry_client",
+    os.path.join(_handoff_dir, "registry_client.py"),
+)
+_client_mod = importlib.util.module_from_spec(_client_spec)
+_client_spec.loader.exec_module(_client_mod)
+
+HandoffRegistryClient = _client_mod.HandoffRegistryClient
 
 # --- ReasoningTrace model tests ---
 
@@ -20,8 +50,6 @@ class TestReasoningTraceCrossInstance:
     """Test device_id and remote_parent_trace_id fields on ReasoningTrace."""
 
     def test_new_trace_with_device_id(self):
-        from app.models.reasoning_trace import ReasoningTrace, ReasoningGraph, SGRMode
-
         graph = ReasoningGraph(nodes=[], edges=[], answer="test", schema_version=2)
         trace = ReasoningTrace.new(
             workspace_id="ws-1",
@@ -32,8 +60,6 @@ class TestReasoningTraceCrossInstance:
         assert trace.remote_parent_trace_id is None
 
     def test_new_trace_with_remote_parent(self):
-        from app.models.reasoning_trace import ReasoningTrace, ReasoningGraph, SGRMode
-
         graph = ReasoningGraph(nodes=[], edges=[], answer="test", schema_version=2)
         parent_id = str(uuid.uuid4())
         trace = ReasoningTrace.new(
@@ -47,8 +73,6 @@ class TestReasoningTraceCrossInstance:
 
     def test_cross_instance_chain(self):
         """Simulate cross-instance trace chain: A creates -> B extends."""
-        from app.models.reasoning_trace import ReasoningTrace, ReasoningGraph
-
         graph = ReasoningGraph(nodes=[], edges=[], answer="a")
 
         trace_a = ReasoningTrace.new(
@@ -72,8 +96,6 @@ class TestReasoningTraceCrossInstance:
 
     def test_backward_compat_no_device_id(self):
         """ReasoningTrace without device_id still works."""
-        from app.models.reasoning_trace import ReasoningTrace, ReasoningGraph
-
         graph = ReasoningGraph(nodes=[], edges=[], answer="test")
         trace = ReasoningTrace.new(workspace_id="ws-1", graph=graph)
         assert trace.device_id is None
@@ -90,8 +112,6 @@ class TestTraceContextPropagation:
         """Verify client builds correct body with trace_context."""
         import asyncio
         from unittest.mock import AsyncMock, patch
-
-        from app.services.handoff.registry_client import HandoffRegistryClient
 
         client = HandoffRegistryClient(
             registry_url="http://test:8000",
@@ -131,8 +151,6 @@ class TestTraceContextPropagation:
         """When trace_context is None, it should not be in the body."""
         import asyncio
 
-        from app.services.handoff.registry_client import HandoffRegistryClient
-
         client = HandoffRegistryClient(
             registry_url="http://test:8000",
             device_id="dev-A",
@@ -155,8 +173,6 @@ class TestTraceContextPropagation:
     def test_client_get_trace_dag(self):
         """Verify get_trace_dag calls GET on the right path."""
         import asyncio
-
-        from app.services.handoff.registry_client import HandoffRegistryClient
 
         client = HandoffRegistryClient(
             registry_url="http://test:8000",

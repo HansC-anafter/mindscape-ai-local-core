@@ -39,6 +39,29 @@ _client_spec.loader.exec_module(_client_mod)
 HandoffRegistryClient = _client_mod.HandoffRegistryClient
 RegistryUnavailable = _client_mod.RegistryUnavailable
 
+_models_dir = os.path.join(_backend_root, "app", "models")
+
+# Load handoff models (HandoffIn, Commitment)
+_handoff_model_spec = importlib.util.spec_from_file_location(
+    "handoff_models",
+    os.path.join(_models_dir, "handoff.py"),
+)
+_handoff_model_mod = importlib.util.module_from_spec(_handoff_model_spec)
+_handoff_model_spec.loader.exec_module(_handoff_model_mod)
+
+HandoffIn = _handoff_model_mod.HandoffIn
+Commitment = _handoff_model_mod.Commitment
+
+# Load signed_bundle model
+_bundle_spec = importlib.util.spec_from_file_location(
+    "signed_bundle",
+    os.path.join(_models_dir, "signed_bundle.py"),
+)
+_bundle_mod = importlib.util.module_from_spec(_bundle_spec)
+_bundle_spec.loader.exec_module(_bundle_mod)
+
+SignedHandoffBundle = _bundle_mod.SignedHandoffBundle
+
 
 # --- Extended In-Memory Registry with trace_context ---
 
@@ -348,9 +371,6 @@ class TestSignedBundleRoundtrip:
     """Create, sign, transport, verify, extract — full bundle lifecycle."""
 
     def test_handoff_bundle_create_verify(self):
-        from app.models.handoff import HandoffIn
-        from app.models.signed_bundle import SignedHandoffBundle
-
         handoff_in = HandoffIn(
             handoff_id=str(uuid.uuid4()),
             workspace_id="ws-1",
@@ -389,9 +409,6 @@ class TestSignedBundleRoundtrip:
         assert bundle.verify("wrong-secret") is False
 
     def test_commitment_bundle_roundtrip(self):
-        from app.models.handoff import Commitment
-        from app.models.signed_bundle import SignedHandoffBundle
-
         commitment = Commitment(
             commitment_id=str(uuid.uuid4()),
             handoff_id=str(uuid.uuid4()),
