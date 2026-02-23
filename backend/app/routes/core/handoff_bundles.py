@@ -127,11 +127,11 @@ async def verify_bundle(request: VerifyRequest) -> VerifyResponse:
 
 @router.post("/intake")
 async def intake_bundle(request: IntakeRequest) -> Dict[str, Any]:
-    """Verify bundle and extract typed payload for processing.
+    """Verify bundle and extract typed payload.
 
-    For handoff_in: returns the deserialized HandoffIn ready for
-    meeting engine compilation.
-    For commitment: returns the deserialized Commitment.
+    Lightweight intake: verifies signature, deserializes payload, returns
+    the typed content. Does NOT trigger meeting compile or TaskIR
+    persistence. Use POST /compile for the full pipeline.
     """
     try:
         bundle = SignedHandoffBundle(**request.bundle)
@@ -154,3 +154,75 @@ async def intake_bundle(request: IntakeRequest) -> Dict[str, Any]:
         "source_device_id": bundle.source_device_id,
         "verified": True,
     }
+
+
+class CompileRequest(BaseModel):
+    """Request body for full intake+compile pipeline."""
+
+    bundle: Dict[str, Any] = Field(..., description="SignedHandoffBundle as JSON dict")
+    workspace_id: str = Field(..., description="Target workspace for meeting compile")
+    project_id: str = Field(..., description="Project scope for meeting session")
+    profile_id: str = Field(..., description="User profile triggering the compile")
+    thread_id: str = Field(..., description="Conversation thread ID")
+    secret_key: Optional[str] = Field(None, description="Override secret")
+    model_name: Optional[str] = Field(None, description="LLM model override")
+
+
+@router.post("/compile")
+async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
+    """Full intake pipeline: verify -> extract -> MeetingEngine compile -> persist TaskIR.
+
+    This is the primary intake entry point for cross-boundary handoffs.
+    It verifies the bundle, extracts the HandoffIn, runs the meeting
+    engine to produce a compiled TaskIR, and persists it.
+    """
+    try:
+        bundle = SignedHandoffBundle(**request.bundle)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid bundle format: {exc}")
+
+    if bundle.payload_type != "handoff_in":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Compile requires handoff_in bundle, got {bundle.payload_type}",
+        )
+
+    # Resolve workspace context
+    try:
+        from backend.app.services.stores.postgres.workspaces_store import (
+            WorkspacesStore,
+        )
+
+        ws_store = WorkspacesStore()
+        workspace = ws_store.get_workspace(request.workspace_id)
+        if not workspace:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workspace {request.workspace_id} not found",
+            )
+
+        store = ws_store
+        runtime_profile = getattr(workspace, "runtime_profile", None)
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Workspace store not available",
+        )
+
+    svc = HandoffBundleService()
+    try:
+        result = await svc.intake_and_compile(
+            bundle=bundle,
+            workspace=workspace,
+            store=store,
+            runtime_profile=runtime_profile,
+            profile_id=request.profile_id,
+            thread_id=request.thread_id,
+            project_id=request.project_id,
+            secret_key=request.secret_key,
+            model_name=request.model_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    return result
