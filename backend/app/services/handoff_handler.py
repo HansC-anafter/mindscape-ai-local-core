@@ -29,7 +29,7 @@ from backend.app.models.task_ir import (
     PhaseStatus,
     ExecutionMetadata,
 )
-from backend.app.services.stores.task_ir_store import TaskIRStore
+from backend.app.services.stores.postgres.task_ir_store import PostgresTaskIRStore
 from backend.app.services.artifact_registry import ArtifactRegistry
 from backend.app.services.playbook_ir_adapter import PlaybookIRAdapter
 from backend.app.services.skill_ir_adapter import SkillIRAdapter
@@ -48,7 +48,7 @@ class HandoffHandler:
 
     def __init__(
         self,
-        task_ir_store: TaskIRStore,
+        task_ir_store: PostgresTaskIRStore,
         artifact_registry: ArtifactRegistry,
         playbook_adapter: Optional[PlaybookIRAdapter] = None,
         skill_adapter: Optional[SkillIRAdapter] = None,

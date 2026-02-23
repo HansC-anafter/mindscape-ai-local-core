@@ -694,16 +694,11 @@ class PipelineCore:
             task_ir: Compiled TaskIR from meeting engine.
         """
         try:
-            from backend.app.services.stores.task_ir_store import TaskIRStore
+            from backend.app.services.stores.postgres.task_ir_store import (
+                PostgresTaskIRStore,
+            )
 
-            db_path = getattr(self.store, "db_path", None)
-            if not db_path:
-                logger.warning(
-                    "[PipelineCore] Cannot persist TaskIR: no db_path on store"
-                )
-                return
-
-            store = TaskIRStore(db_path=db_path)
+            store = PostgresTaskIRStore()
             replaced = store.replace_task_ir(task_ir)
             logger.info(
                 "[PipelineCore] Persisted TaskIR %s (replaced=%s)",
@@ -730,7 +725,9 @@ class PipelineCore:
             Dispatch result dict or None on failure.
         """
         try:
-            from backend.app.services.stores.task_ir_store import TaskIRStore
+            from backend.app.services.stores.postgres.task_ir_store import (
+                PostgresTaskIRStore,
+            )
             from backend.app.services.handoff_handler import HandoffHandler
             from backend.app.services.artifact_registry import ArtifactRegistry
 
@@ -738,7 +735,7 @@ class PipelineCore:
             if not db_path:
                 return None
 
-            ir_store = TaskIRStore(db_path=db_path)
+            ir_store = PostgresTaskIRStore()
             artifact_registry = ArtifactRegistry(db_path=db_path)
             handler = HandoffHandler(
                 task_ir_store=ir_store,

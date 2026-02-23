@@ -161,7 +161,6 @@ class CompileRequest(BaseModel):
 
     bundle: Dict[str, Any] = Field(..., description="SignedHandoffBundle as JSON dict")
     workspace_id: str = Field(..., description="Target workspace for meeting compile")
-    db_path: str = Field(..., description="SQLite database path for TaskIR persistence")
     project_id: str = Field(..., description="Project scope for meeting session")
     profile_id: str = Field(..., description="User profile triggering the compile")
     thread_id: str = Field(..., description="Conversation thread ID")
@@ -195,7 +194,7 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
         )
 
         ws_store = PostgresWorkspacesStore()
-        workspace = ws_store.get_workspace(request.workspace_id)
+        workspace = await ws_store.get_workspace(request.workspace_id)
         if not workspace:
             raise HTTPException(
                 status_code=404,
@@ -214,7 +213,6 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
         result = await svc.intake_and_compile(
             bundle=bundle,
             workspace=workspace,
-            db_path=request.db_path,
             runtime_profile=runtime_profile,
             profile_id=request.profile_id,
             thread_id=request.thread_id,
