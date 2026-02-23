@@ -1,11 +1,13 @@
 """
-Agent Dispatch Manager — Composed class with mixin architecture.
+Agent Dispatch Manager -- Composed class with mixin architecture.
 
-The AgentDispatchManager composes five focused mixins:
+The AgentDispatchManager composes seven focused mixins:
   - ConnectionMixin: client connect/disconnect/lookup
   - BridgeControlMixin: bridge control channel
   - AuthMixin: token + HMAC nonce authentication
-  - TaskDispatchMixin: task dispatch + WS message handling
+  - TaskDispatchMixin: core task dispatch + pending queue
+  - MessageHandlersMixin: WS message routing and result handling
+  - CrossWorkerMixin: cross-worker dispatch via PostgreSQL
   - LeaseManagerMixin: REST polling lease management
 """
 
@@ -26,6 +28,8 @@ from .connection_manager import ConnectionMixin
 from .bridge_control import BridgeControlMixin
 from .auth import AuthMixin
 from .task_dispatcher import TaskDispatchMixin
+from .message_handlers import MessageHandlersMixin
+from .cross_worker import CrossWorkerMixin
 from .lease_manager import LeaseManagerMixin
 
 logger = logging.getLogger(__name__)
@@ -36,6 +40,8 @@ class AgentDispatchManager(
     BridgeControlMixin,
     AuthMixin,
     TaskDispatchMixin,
+    MessageHandlersMixin,
+    CrossWorkerMixin,
     LeaseManagerMixin,
 ):
     """
@@ -58,10 +64,10 @@ class AgentDispatchManager(
     # Heartbeat interval (seconds)
     HEARTBEAT_INTERVAL: float = 30.0
 
-    # Client timeout — mark as dead if no heartbeat after this
+    # Client timeout -- mark as dead if no heartbeat after this
     CLIENT_TIMEOUT: float = 90.0
 
-    # Auth timeout — client must authenticate within this window
+    # Auth timeout -- client must authenticate within this window
     AUTH_TIMEOUT: float = 10.0
 
     # Max pending queue size per workspace
@@ -102,7 +108,7 @@ class AgentDispatchManager(
         # execution_id -> nonce (for auth challenges)
         self._nonces: Dict[str, str] = {}
 
-        # Completed execution IDs — OrderedDict for FIFO eviction
+        # Completed execution IDs -- OrderedDict for FIFO eviction
         self._completed: OrderedDict = OrderedDict()
 
         # execution_id -> ReservedTask (for REST polling lease)
