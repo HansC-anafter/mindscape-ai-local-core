@@ -130,6 +130,7 @@ class AgentDispatchManager(
     def get_status(self) -> Dict[str, Any]:
         """Get current dispatch manager status."""
         return {
+            "device_id": os.environ.get("DEVICE_ID", "local"),
             "connected_workspaces": len(self._clients),
             "total_clients": sum(len(clients) for clients in self._clients.values()),
             "authenticated_clients": sum(
@@ -146,6 +147,7 @@ class AgentDispatchManager(
                             "client_id": c.client_id,
                             "surface_type": c.surface_type,
                             "authenticated": c.authenticated,
+                            "last_heartbeat": getattr(c, "last_heartbeat", None),
                         }
                         for c in clients.values()
                     ],

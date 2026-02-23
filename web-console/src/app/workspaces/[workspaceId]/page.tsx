@@ -10,6 +10,7 @@ import PublishingModePanel from '../../../components/PublishingModePanel';
 import PlanningModePanel from '../../../components/PlanningModePanel';
 import IntegratedSystemStatusCard from '../../../components/IntegratedSystemStatusCard';
 import WorkspaceScopePanel from '../components/WorkspaceScopePanel';
+import { DeviceStatusIndicator } from '../components/DeviceStatusIndicator';
 import StoragePathConfigModal from '@/components/StoragePathConfigModal';
 import TimelinePanel from '../components/TimelinePanel';
 import LeftSidebarTabs from './components/LeftSidebarTabs';
@@ -465,6 +466,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             />
             {/* Action Buttons - Right side of header */}
             <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 z-20">
+              {/* Device Status Indicator */}
+              <DeviceStatusIndicator apiUrl={API_URL} />
               {/* Mind Graph Button */}
               <button
                 onClick={() => router.push(`/mindscape/canvas?workspaceId=${workspaceId}`)}
