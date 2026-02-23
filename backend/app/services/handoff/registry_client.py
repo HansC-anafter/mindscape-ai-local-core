@@ -186,19 +186,27 @@ class HandoffRegistryClient:
         handoff_id: str,
         event_type: str,
         payload: Optional[Dict[str, Any]] = None,
+        trace_context: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """POST /handoffs/{id}/events — append proof event."""
+        """POST /handoffs/{id}/events — append proof event with trace context."""
         event_id = str(uuid.uuid4())
+        body: Dict[str, Any] = {
+            "event_id": event_id,
+            "event_type": event_type,
+            "actor_device_id": self.device_id,
+            "payload": payload or {},
+        }
+        if trace_context:
+            body["trace_context"] = trace_context
         result = await self._post(
             f"/handoffs/{handoff_id}/events",
-            json={
-                "event_id": event_id,
-                "event_type": event_type,
-                "actor_device_id": self.device_id,
-                "payload": payload or {},
-            },
+            json=body,
         )
         return result.get("event_id", event_id)
+
+    async def get_trace_dag(self, handoff_id: str) -> Dict[str, Any]:
+        """GET /handoffs/{id}/trace-dag — cross-instance trace DAG."""
+        return await self._get(f"/handoffs/{handoff_id}/trace-dag")
 
     # --- Internal HTTP helpers with retry ---
 
