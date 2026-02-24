@@ -106,7 +106,7 @@ def _get_gca_token() -> dict:
         if gcp_project:
             env["GOOGLE_CLOUD_PROJECT"] = gcp_project
 
-        return {"env": env}
+        return {"env": env, "selected_runtime_id": runtime.id}
     finally:
         db.close()
 

@@ -37,18 +37,19 @@ _bridge_backend_url = ""
 
 
 def _fetch_auth_env():
-    """Fetch auth env vars and model from backend /api/v1/auth/cli-token.
+    """Fetch auth env vars, model, and runtime ID from backend.
 
-    Returns a tuple of (env_vars, model):
+    Returns a tuple of (env_vars, model, runtime_id):
       env_vars: dict of env vars to inject into subprocess
       model: agent CLI model from system settings (or None for default)
+      runtime_id: selected runtime ID for quota attribution (or None)
 
     Falls back to host env vars if the backend is unreachable.
     Raises SystemExit with clear message if auth is configured but broken.
     """
     api_url = _bridge_backend_url or os.environ.get("MINDSCAPE_BACKEND_API_URL", "")
     if not api_url:
-        return _env_fallback(), None
+        return _env_fallback(), None, None
 
     url = f"{api_url.rstrip('/')}/api/v1/auth/cli-token"
     try:
@@ -58,28 +59,27 @@ def _fetch_auth_env():
             data = json.loads(resp.read().decode())
             env_vars = data.get("env", {})
             api_model = data.get("model") or None
+            runtime_id = data.get("selected_runtime_id") or None
             if env_vars:
                 mode = data.get("auth_mode", "unknown")
                 log(
-                    f"Auth env injected (mode={mode}, model={api_model}, keys={list(env_vars.keys())})"
+                    f"Auth env injected (mode={mode}, model={api_model}, "
+                    f"runtime_id={runtime_id}, keys={list(env_vars.keys())})"
                 )
-                return env_vars, api_model
-            # Backend returned empty env -- check for auth error
+                return env_vars, api_model, runtime_id
             auth_mode = data.get("auth_mode", "unknown")
             error = data.get("error", "no env vars returned")
             log(f"Backend auth returned empty: mode={auth_mode}, error={error}")
-            # Try host env fallback
             fallback = _env_fallback()
             if fallback:
-                return fallback, api_model
-            # No fallback available -- fail with clear message
+                return fallback, api_model, runtime_id
             _fail_auth(auth_mode, error)
     except urllib.error.URLError as e:
         log(f"Failed to fetch auth env: {e}")
-        return _env_fallback(), None
+        return _env_fallback(), None, None
     except Exception as e:
         log(f"Auth env fetch error: {e}")
-        return _env_fallback(), None
+        return _env_fallback(), None, None
 
 
 def _env_fallback():
@@ -109,6 +109,23 @@ def _env_fallback():
 
     log("WARNING: No auth configuration found (no API key, no Vertex AI, no GCA)")
     return {}
+
+
+def _report_quota_exhausted(runtime_id):
+    """Report quota exhaustion for the given runtime to the backend."""
+    if not runtime_id:
+        return
+    api_url = _bridge_backend_url or os.environ.get("MINDSCAPE_BACKEND_API_URL", "")
+    if not api_url:
+        return
+    url = f"{api_url.rstrip('/')}/api/v1/gca-pool/{runtime_id}/quota-exhausted"
+    try:
+        req = urllib.request.Request(url, method="POST")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            log(f"Reported quota exhaustion for runtime {runtime_id}")
+    except Exception as e:
+        log(f"Failed to report quota exhaustion for {runtime_id}: {e}")
 
 
 def _fail_auth(auth_mode: str, error: str):
@@ -328,15 +345,12 @@ def main():
     # Determine working directory
     cwd = sandbox_path if sandbox_path and os.path.isdir(sandbox_path) else os.getcwd()
 
-    # Fetch auth env vars + model from system settings
-    auth_env, api_model = _fetch_auth_env()
+    # Fetch auth env vars, model, and runtime ID from system settings
+    auth_env, api_model, selected_runtime_id = _fetch_auth_env()
 
-    # Use model from system settings if available, else fall back to env/default
     effective_model = api_model or GEMINI_CLI_MODEL
 
     # Build gemini CLI command with JSON output for structured response
-    # --yolo: auto-approve all tool calls (required for headless -p mode)
-    # --model: explicitly set model (from system settings or GEMINI_CLI_MODEL env)
     cmd = [
         GEMINI_CLI,
         "--model",
@@ -383,9 +397,12 @@ def main():
             auth_in_stderr or auth_in_json or quota_in_stderr or quota_in_json
         )
         if result.returncode != 0 and is_retriable:
-            error_kind = "quota" if (quota_in_stderr or quota_in_json) else "auth"
+            is_quota = quota_in_stderr or quota_in_json
+            error_kind = "quota" if is_quota else "auth"
             log(f"{error_kind} error detected, retrying with fresh auth env")
-            fresh_env, _ = _fetch_auth_env()
+            if is_quota:
+                _report_quota_exhausted(selected_runtime_id)
+            fresh_env, _, selected_runtime_id = _fetch_auth_env()
             if fresh_env:
                 sub_env.update(fresh_env)
                 remaining = max_duration - duration
@@ -402,19 +419,25 @@ def main():
                     stdout, json_error = _extract_response(raw_stdout)
                     stderr = (result.stderr or "")[:MAX_OUTPUT].strip()
 
+        # Check for quota error after retry (both attempts exhausted)
+        final_quota = _looks_like_quota_error(
+            (result.stderr or "") + (json_error or "")
+        )
+        if result.returncode != 0 and final_quota:
+            _report_quota_exhausted(selected_runtime_id)
+
         if result.returncode == 0:
-            # Even on exit 0, check for JSON error (CLI may still report issues)
             if json_error:
                 emit_result(
                     "completed",
                     output=stdout or json_error,
+                    runtime_id=selected_runtime_id,
                 )
             else:
                 if not stdout:
                     log(
                         f"WARNING: empty response from CLI. raw_stdout={raw_stdout[:500]}"
                     )
-                # Defensive: never send raw CLI stats JSON as output.
                 # _extract_response already handles tool-stats extraction,
                 # so stdout should be a proper summary. If still empty,
                 # prefer a clear fallback over dumping raw JSON.
@@ -422,9 +445,9 @@ def main():
                 emit_result(
                     "completed",
                     output=output,
+                    runtime_id=selected_runtime_id,
                 )
         else:
-            # Build error message from both stderr and JSON error
             error_parts = []
             if json_error:
                 error_parts.append(json_error)
@@ -439,6 +462,7 @@ def main():
                 "failed",
                 output=stdout,
                 error=f"Exit code {result.returncode}: {error_msg}",
+                runtime_id=selected_runtime_id,
             )
 
     except subprocess.TimeoutExpired:
@@ -452,11 +476,15 @@ def main():
         emit_result("failed", error=str(e))
 
 
-def emit_result(status: str, output: str = "", error: str = None):
+def emit_result(
+    status: str, output: str = "", error: str = None, runtime_id: str = None
+):
     """Write JSON result to stdout."""
     result = {"status": status, "output": output}
     if error:
         result["error"] = error
+    if runtime_id:
+        result["runtime_id"] = runtime_id
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
     sys.stdout.flush()

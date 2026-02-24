@@ -305,6 +305,9 @@ class GeminiCLIWSClient:
                     "files_modified": result.get("files_modified", []),
                     "files_created": result.get("files_created", []),
                     "error": result.get("error"),
+                    "metadata": {
+                        "runtime_id": result.get("runtime_id"),
+                    },
                     "governance": {
                         "output_hash": hashlib.sha256(
                             result.get("output", "").encode()
