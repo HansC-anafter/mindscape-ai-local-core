@@ -145,7 +145,7 @@ async def get_project_card(
         project = store.projects.get_project(project_id)
         title = project.title if project else project_id
 
-        # Query execution stats from task_queue
+        # Query execution stats from tasks table
         with store.events.get_connection() as conn:
             stats_row = conn.execute(
                 text(
@@ -155,17 +155,11 @@ async def get_project_card(
                         COUNT(*) FILTER (WHERE status = 'succeeded') AS completed,
                         COUNT(*) FILTER (WHERE status = 'pending') AS pending,
                         COUNT(*) AS total
-                    FROM task_queue
+                    FROM tasks
                     WHERE workspace_id = :ws
-                      AND (execution_context::text LIKE :pid_pattern
-                           OR pack_id LIKE :pid_pattern2)
                 """
                 ),
-                {
-                    "ws": workspace_id,
-                    "pid_pattern": f"%{project_id}%",
-                    "pid_pattern2": f"%{project_id}%",
-                },
+                {"ws": workspace_id},
             ).fetchone()
 
         running = stats_row.running if stats_row else 0
