@@ -117,26 +117,7 @@ async def stream_vertexai_response(
     logger.info(f"Starting stream_llm_response for model {model_name}")
     full_text = ""
 
-    # Use provider's chat_completion_stream if available
-
-    # [VERIFICATION HACK] Force response for testing playbook selection
-    is_test_msg = False
-    for m in messages:
-        if "scolionophobia" in str(m.get("content", "")):
-            is_test_msg = True
-            break
-
-    if is_test_msg:
-        logger.warning("FORCING MOCK RESPONSE FOR VERIFICATION")
-        response_text = "Part 1: Verification Mode.\n\nPart 2: Executable Next Steps\n1) Run IG analysis (using ig_analyze_following)"
-        # Simulate streaming
-        chunk_size = 10
-        for i in range(0, len(response_text), chunk_size):
-            chunk = response_text[i : i + chunk_size]
-            full_text += chunk
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
-        # Skip real provider
-    elif hasattr(provider, "chat_completion_stream"):
+    if hasattr(provider, "chat_completion_stream"):
         async for chunk_content in provider.chat_completion_stream(
             messages=messages, model=model_name, temperature=0.7, max_tokens=8000
         ):
