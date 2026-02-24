@@ -113,16 +113,35 @@ async def stream_execution_events(
 
     tasks_store = TasksStore()
 
-    TERMINAL_STATUSES = {
-        "completed",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "cancelled_by_user",
-        "expired",
-        "SUCCEEDED",
-        "FAILED",
-    }
+    FAILED_STATUSES = {"failed", "cancelled", "cancelled_by_user", "expired", "FAILED"}
+    COMPLETED_STATUSES = {"completed", "succeeded", "SUCCEEDED"}
+    TERMINAL_STATUSES = FAILED_STATUSES | COMPLETED_STATUSES
+
+    def _make_terminal_event(task_obj):
+        """Build the correct terminal event type for the UI hook."""
+        ctx = (
+            task_obj.execution_context
+            if isinstance(task_obj.execution_context, dict)
+            else {}
+        )
+        raw = (task_obj.status or "").lower().replace(" ", "_")
+        if raw in FAILED_STATUSES or task_obj.status in FAILED_STATUSES:
+            return json.dumps(
+                {
+                    "type": "execution_error",
+                    "error": ctx.get("error") or f"Execution {raw}",
+                    "status": task_obj.status,
+                    "execution_context": ctx,
+                }
+            )
+        else:
+            return json.dumps(
+                {
+                    "type": "execution_complete",
+                    "status": task_obj.status,
+                    "execution_context": ctx,
+                }
+            )
 
     async def event_generator():
         # Check initial task status
@@ -131,22 +150,17 @@ async def stream_execution_events(
             task = tasks_store.get_task(execution_id)
 
         if not task:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Execution not found'})}\n\n"
+            yield f"data: {json.dumps({'type': 'execution_error', 'error': 'Execution not found'})}\n\n"
             yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
             return
 
         status = (task.status or "").lower().replace(" ", "_")
         if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
-            ctx = (
-                task.execution_context
-                if isinstance(task.execution_context, dict)
-                else {}
-            )
-            yield f"data: {json.dumps({'type': 'status', 'status': task.status, 'execution_context': ctx})}\n\n"
+            yield f"data: {_make_terminal_event(task)}\n\n"
             yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
             return
 
-        # For running tasks: poll and emit heartbeats
+        # For running tasks: poll and emit progress heartbeats
         for _ in range(600):  # max ~30 min (600 * 3s)
             task = tasks_store.get_task_by_execution_id(execution_id)
             if not task:
@@ -160,12 +174,15 @@ async def stream_execution_events(
                 if isinstance(task.execution_context, dict)
                 else {}
             )
-            yield f"data: {json.dumps({'type': 'heartbeat', 'status': task.status, 'execution_context': ctx})}\n\n"
-
             status = (task.status or "").lower().replace(" ", "_")
+
             if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
+                yield f"data: {_make_terminal_event(task)}\n\n"
                 yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
                 return
+
+            # Emit a progress-style heartbeat that the UI can display
+            yield f"data: {json.dumps({'type': 'progress', 'status': task.status, 'current': 0, 'total': 0})}\n\n"
 
             await asyncio.sleep(3)
 
