@@ -352,7 +352,8 @@ class TaskExecutor:
         tool_calls = runtime_data.get("tool_calls") or []
         files_modified = runtime_data.get("files_modified") or []
         files_created = runtime_data.get("files_created") or []
-        return ExecutionResult(
+        runtime_id = runtime_data.get("runtime_id")
+        result = ExecutionResult(
             status=status,
             output=output,
             error=str(error) if error else None,
@@ -360,6 +361,10 @@ class TaskExecutor:
             files_modified=files_modified if isinstance(files_modified, list) else [],
             files_created=files_created if isinstance(files_created, list) else [],
         )
+        result_dict = result.to_dict()
+        if runtime_id:
+            result_dict["runtime_id"] = runtime_id
+        return result_dict
 
     async def _run_subprocess(
         self,
