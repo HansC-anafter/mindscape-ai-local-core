@@ -265,7 +265,7 @@ async def start_playbook_execution(
                 from backend.app.models.workspace import Task, TaskStatus
 
                 store = MindscapeStore()
-                tasks_store = TasksStore(db_path=store.db_path)
+                tasks_store = TasksStore()
 
                 # Calculate total_steps from playbook for frontend progress display
                 total_steps = (
@@ -291,6 +291,22 @@ async def start_playbook_execution(
                         "max_parallel": c.max_parallel,
                         "lock_scope": c.lock_scope,
                     }
+
+                # Extract runner_timeout_seconds from execution_profile (if declared)
+                runner_timeout_seconds = None
+                if (
+                    playbook_run.playbook_json
+                    and playbook_run.playbook_json.execution_profile
+                ):
+                    ep = playbook_run.playbook_json.execution_profile
+                    raw_timeout = ep.get("runner_timeout_seconds")
+                    if isinstance(raw_timeout, (int, float)) and raw_timeout > 0:
+                        max_ceiling = int(
+                            os.environ.get(
+                                "LOCAL_CORE_RUNNER_MAX_TIMEOUT_SECONDS", "43200"
+                            )
+                        )
+                        runner_timeout_seconds = min(int(raw_timeout), max_ceiling)
 
                 await asyncio.to_thread(
                     tasks_store.create_task,
@@ -320,6 +336,11 @@ async def start_playbook_execution(
                             **(
                                 {"concurrency": concurrency_config}
                                 if concurrency_config
+                                else {}
+                            ),
+                            **(
+                                {"runner_timeout_seconds": runner_timeout_seconds}
+                                if runner_timeout_seconds
                                 else {}
                             ),
                         },
@@ -409,7 +430,7 @@ async def get_playbook_result(execution_id: str):
         from backend.app.services.mindscape_store import MindscapeStore
 
         store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
         )
@@ -522,7 +543,7 @@ async def get_playbook_status(execution_id: str):
         from backend.app.services.mindscape_store import MindscapeStore
 
         store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
         )
@@ -558,7 +579,7 @@ async def resume_playbook_execution(
         from backend.app.models.workspace import TaskStatus
 
         store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
         )
@@ -675,7 +696,7 @@ async def cancel_playbook_execution(
         )
 
         store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
         )
@@ -740,10 +761,12 @@ async def rerun_playbook_execution(
     try:
         from backend.app.services.stores.tasks_store import TasksStore
         from backend.app.services.mindscape_store import MindscapeStore
-        from backend.app.services.stores.artifacts_store import ArtifactsStore
+        from backend.app.services.stores.postgres.artifacts_store import (
+            PostgresArtifactsStore,
+        )
 
         store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
         )
@@ -772,7 +795,7 @@ async def rerun_playbook_execution(
             workspace_id: str, exec_id: str
         ) -> Optional[str]:
             try:
-                artifacts_store = ArtifactsStore(db_path=store.db_path)
+                artifacts_store = PostgresArtifactsStore()
                 arts = artifacts_store.list_artifacts_by_workspace(
                     workspace_id=workspace_id, limit=300
                 )
