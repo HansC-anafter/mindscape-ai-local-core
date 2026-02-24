@@ -24,7 +24,9 @@ from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.runner_locks_store import RunnerLocksStore
+from backend.app.services.stores.postgres.runner_locks_store import (
+    PostgresRunnerLocksStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -600,7 +602,7 @@ async def _run_single_task(
     if lock_key:
         try:
             store = MindscapeStore()
-            locks_store = RunnerLocksStore(db_path=store.db_path)
+            locks_store = PostgresRunnerLocksStore()
             acquired = locks_store.try_acquire(
                 lock_key=lock_key, owner_id=runner_id, ttl_seconds=lock_ttl_seconds
             )
@@ -686,7 +688,19 @@ async def _run_single_task(
 
     try:
         cancel_poll_ms = _env_int("LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS", 2000)
-        task_timeout_seconds = _env_int("LOCAL_CORE_RUNNER_TASK_TIMEOUT_SECONDS", 3600)
+        # Dynamic timeout: playbook-declared > env var > default 3600s
+        ctx_timeout = ctx.get("runner_timeout_seconds")
+        if isinstance(ctx_timeout, (int, float)) and ctx_timeout > 0:
+            max_ceiling = _env_int("LOCAL_CORE_RUNNER_MAX_TIMEOUT_SECONDS", 43200)
+            task_timeout_seconds = min(int(ctx_timeout), max_ceiling)
+            logger.info(
+                f"Runner using spec-declared timeout={task_timeout_seconds}s "
+                f"for task {task.id} (ceiling={max_ceiling}s)"
+            )
+        else:
+            task_timeout_seconds = _env_int(
+                "LOCAL_CORE_RUNNER_TASK_TIMEOUT_SECONDS", 3600
+            )
         ctx_mp = mp.get_context("spawn")
 
         async def _wait_for_cancel() -> bool:
@@ -905,8 +919,8 @@ async def run_forever() -> None:
     runner_id = _runner_id()
 
     store = MindscapeStore()
-    tasks_store = TasksStore(db_path=store.db_path)
-    locks_store = RunnerLocksStore(db_path=store.db_path)
+    tasks_store = TasksStore()
+    locks_store = PostgresRunnerLocksStore()
 
     logger.info(
         f"Local-Core runner started runner_id={runner_id} poll_interval_ms={poll_interval_ms} max_inflight={max_inflight}"
@@ -1019,12 +1033,10 @@ def main() -> None:
     _initialize_capability_packages_for_runner()
     try:
         store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         rid = _runner_id()
         _reap_stale_running_tasks(tasks_store, runner_id=rid)
-        _reap_stale_runner_locks(
-            tasks_store, RunnerLocksStore(db_path=store.db_path), runner_id=rid
-        )
+        _reap_stale_runner_locks(tasks_store, PostgresRunnerLocksStore(), runner_id=rid)
     except Exception:
         pass
     asyncio.run(run_forever())
