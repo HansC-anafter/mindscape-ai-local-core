@@ -10,6 +10,7 @@ from . import (
     profiles,
     runtime,
     pinned,
+    stubs,
 )
 
 # Initialize the main workspace router
@@ -28,6 +29,7 @@ router.include_router(health.router)
 router.include_router(profiles.router)
 router.include_router(runtime.router)
 router.include_router(pinned.router)
+router.include_router(stubs.router)
 
 # Import and mount workspace governance router
 # This was previously in workspace.py at the end
