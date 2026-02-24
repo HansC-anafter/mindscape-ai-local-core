@@ -9,7 +9,11 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-from .registry_client import HandoffRegistryClient, RegistryUnavailable
+from .registry_client import (
+    HandoffRegistryClient,
+    RegistryUnavailable,
+    RegistryRequestError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +88,16 @@ class HandoffAdapter:
                 extra={"handoff_id": handoff_id, "error": str(e)},
             )
             return {"handoff_id": handoff_id, "state": "queued_offline"}
+        except RegistryRequestError as e:
+            logger.error(
+                "Registry rejected publish",
+                extra={
+                    "handoff_id": handoff_id,
+                    "status": e.status_code,
+                    "detail": e.detail,
+                },
+            )
+            return None
 
     # --- Receiver (B) operations ---
 
@@ -96,6 +110,12 @@ class HandoffAdapter:
             return await self.client.list_pending(state="created")
         except RegistryUnavailable:
             logger.warning("Registry unavailable during poll")
+            return []
+        except RegistryRequestError as e:
+            logger.warning(
+                "Registry rejected poll request",
+                extra={"status": e.status_code, "detail": e.detail},
+            )
             return []
 
     async def claim_and_compile(
@@ -147,6 +167,16 @@ class HandoffAdapter:
             logger.info("Committed handoff", extra={"handoff_id": handoff_id})
             return result
 
+        except RegistryRequestError as e:
+            logger.error(
+                "Registry rejected request during claim/compile",
+                extra={
+                    "handoff_id": handoff_id,
+                    "status": e.status_code,
+                    "detail": e.detail,
+                },
+            )
+            return None
         except RegistryUnavailable as e:
             logger.error(
                 "Registry unavailable during claim/compile",
@@ -160,7 +190,7 @@ class HandoffAdapter:
             )
             try:
                 await self.client.fail_handoff(handoff_id, str(e))
-            except RegistryUnavailable:
+            except (RegistryUnavailable, RegistryRequestError):
                 pass
             return None
 
@@ -172,12 +202,14 @@ class HandoffAdapter:
         Dispatch a committed handoff via local HandoffHandler.
 
         Steps:
-        1. Append dispatch_started event
+        1. Transition state: committed -> dispatched (includes dispatch_started event)
         2. Dispatch via existing HandoffHandler
-        3. On success: complete_handoff. On failure: fail_handoff.
+        3. On success: complete_handoff (dispatched -> completed)
+        4. On failure: fail_handoff (dispatched -> failed)
         """
         try:
-            await self.client.append_event(handoff_id, "dispatch_started")
+            # Transition committed -> dispatched (emits dispatch_started event)
+            await self.client.dispatch_handoff(handoff_id)
 
             dispatch_result = await self._dispatch_locally(handoff_id)
 
@@ -194,6 +226,16 @@ class HandoffAdapter:
                 )
                 return dispatch_result
 
+        except RegistryRequestError as e:
+            logger.error(
+                "Registry rejected request during dispatch",
+                extra={
+                    "handoff_id": handoff_id,
+                    "status": e.status_code,
+                    "detail": e.detail,
+                },
+            )
+            return None
         except RegistryUnavailable as e:
             logger.error(
                 "Registry unavailable during dispatch",
@@ -229,19 +271,53 @@ class HandoffAdapter:
         handoff: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Bridge to existing HandoffBundleService.compile().
+        Bridge to HandoffBundleService.compile_handoff_in().
 
-        This is a thin wrapper that translates the registry handoff format
-        to the local HandoffBundleService format.
+        Registry-native path: no bundle verification needed. Translates
+        registry handoff format to the compile_handoff_in interface.
         """
         try:
-            from app.services.handoff_bundle_service import HandoffBundleService
+            from backend.app.services.handoff_bundle_service import (
+                HandoffBundleService,
+            )
+            from backend.app.models.handoff import HandoffIn
+            from backend.app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
 
-            service = HandoffBundleService()
-            result = await service.compile_handoff_in(handoff.get("payload_json", {}))
+            payload = handoff.get("payload_json", {})
+            if isinstance(payload, str):
+                import json
+
+                payload = json.loads(payload)
+
+            handoff_in = HandoffIn(**payload)
+
+            # Resolve workspace context
+            workspace_id = getattr(
+                handoff_in, "workspace_id", payload.get("workspace_id", "")
+            )
+            ws_store = PostgresWorkspacesStore()
+            workspace = await ws_store.get_workspace(workspace_id)
+            if not workspace:
+                raise ValueError(f"Workspace {workspace_id} not found")
+
+            runtime_profile = getattr(workspace, "runtime_profile", None)
+
+            result = await HandoffBundleService.compile_handoff_in(
+                handoff_in=handoff_in,
+                workspace=workspace,
+                runtime_profile=runtime_profile,
+                profile_id=payload.get("profile_id", "default-user"),
+                thread_id=payload.get("thread_id", handoff.get("id", "")),
+                project_id=payload.get("project_id", ""),
+                source_device_id=handoff.get("source_device_id"),
+            )
             return result
-        except ImportError:
-            logger.warning("HandoffBundleService not available, returning stub")
+        except ImportError as exc:
+            logger.warning(
+                "HandoffBundleService not available, returning stub: %s", exc
+            )
             return {
                 "task_ir_id": f"stub-{handoff.get('id', 'unknown')}",
                 "scope": {},
@@ -254,16 +330,71 @@ class HandoffAdapter:
         """
         Bridge to existing dispatch_task_ir().
 
-        Fetches the TaskIR associated with the handoff and dispatches it.
+        Fetches the TaskIR associated with the handoff (via commitment
+        payload stored in registry) and dispatches it through HandoffHandler.
         """
         try:
-            from app.services.conversation.pipeline_meeting import dispatch_task_ir
-            from app.services.stores.postgres.task_ir_store import PostgresTaskIRStore
+            from backend.app.services.conversation.pipeline_meeting import (
+                dispatch_task_ir,
+            )
+            from backend.app.services.stores.postgres.task_ir_store import (
+                PostgresTaskIRStore,
+            )
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            # Fetch handoff to get commitment payload with task_ir_id
+            handoff_data = await self.client._get(f"/handoffs/{handoff_id}")
+            payload_json = handoff_data.get("payload_json", {})
+            commitment = payload_json.get("commitment", {})
+            task_ir_id = commitment.get("task_ir_id")
+
+            if not task_ir_id:
+                return {
+                    "success": False,
+                    "handoff_id": handoff_id,
+                    "error": "No task_ir_id in commitment payload",
+                }
 
             ir_store = PostgresTaskIRStore()
-            # The task_ir_id would be stored in the commitment payload
-            # For now, return a stub
-            return {"success": True, "handoff_id": handoff_id}
-        except ImportError:
-            logger.warning("dispatch_task_ir not available, returning stub")
-            return {"success": True, "handoff_id": handoff_id}
+            task_ir = ir_store.get_task_ir(task_ir_id)
+            if not task_ir:
+                return {
+                    "success": False,
+                    "handoff_id": handoff_id,
+                    "error": f"TaskIR {task_ir_id} not found",
+                }
+
+            store = MindscapeStore()
+            result = await dispatch_task_ir(task_ir, store)
+
+            if result is not None:
+                return {
+                    "success": True,
+                    "handoff_id": handoff_id,
+                    "task_ir_id": task_ir_id,
+                    "dispatch_result": result,
+                }
+            else:
+                return {
+                    "success": False,
+                    "handoff_id": handoff_id,
+                    "error": "dispatch_task_ir returned None",
+                }
+        except ImportError as exc:
+            logger.warning("dispatch_task_ir not available: %s", exc)
+            return {
+                "success": False,
+                "handoff_id": handoff_id,
+                "error": f"Import error: {exc}",
+            }
+        except Exception as exc:
+            logger.error(
+                "dispatch_locally failed",
+                extra={"handoff_id": handoff_id, "error": str(exc)},
+                exc_info=True,
+            )
+            return {
+                "success": False,
+                "handoff_id": handoff_id,
+                "error": str(exc),
+            }

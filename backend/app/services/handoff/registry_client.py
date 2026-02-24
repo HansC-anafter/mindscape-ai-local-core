@@ -41,6 +41,15 @@ class RegistryUnavailable(Exception):
     pass
 
 
+class RegistryRequestError(Exception):
+    """Raised on 4xx client errors from registry."""
+
+    def __init__(self, status_code: int, detail: Any):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(f"Registry {status_code}: {detail}")
+
+
 class HandoffRegistryClient:
     """
     HTTP client for site-hub Handoff Registry API.
@@ -57,11 +66,13 @@ class HandoffRegistryClient:
         self,
         registry_url: Optional[str] = None,
         device_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
         max_retries: int = 3,
         base_delay: float = 1.0,
     ):
         self.registry_url = registry_url or os.getenv("HANDOFF_REGISTRY_URL")
         self.device_id = device_id or os.getenv("DEVICE_ID", "unknown")
+        self.tenant_id = tenant_id or os.getenv("TENANT_ID")
         self.max_retries = max_retries
         self.base_delay = base_delay
 
@@ -98,9 +109,12 @@ class HandoffRegistryClient:
 
     async def claim_handoff(self, handoff_id: str) -> Dict[str, Any]:
         """POST /handoffs/{id}/claim — claim for processing."""
+        headers = {"X-Device-ID": self.device_id}
+        if self.tenant_id:
+            headers["X-Tenant-ID"] = self.tenant_id
         return await self._post(
             f"/handoffs/{handoff_id}/claim",
-            headers={"X-Device-ID": self.device_id},
+            headers=headers,
         )
 
     async def commit_handoff(
@@ -109,12 +123,15 @@ class HandoffRegistryClient:
         commitment: Dict[str, Any],
     ) -> Dict[str, Any]:
         """POST /handoffs/{id}/commit — submit commitment."""
+        body: Dict[str, Any] = {
+            "payload": commitment,
+            "actor_device_id": self.device_id,
+        }
+        if self.tenant_id:
+            body["tenant_id"] = self.tenant_id
         return await self._post(
             f"/handoffs/{handoff_id}/commit",
-            json={
-                "payload": commitment,
-                "actor_device_id": self.device_id,
-            },
+            json=body,
         )
 
     async def complete_handoff(
@@ -123,12 +140,15 @@ class HandoffRegistryClient:
         result_payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """POST /handoffs/{id}/complete — mark completed."""
+        body: Dict[str, Any] = {
+            "payload": result_payload or {},
+            "actor_device_id": self.device_id,
+        }
+        if self.tenant_id:
+            body["tenant_id"] = self.tenant_id
         return await self._post(
             f"/handoffs/{handoff_id}/complete",
-            json={
-                "payload": result_payload or {},
-                "actor_device_id": self.device_id,
-            },
+            json=body,
         )
 
     async def fail_handoff(
@@ -137,12 +157,15 @@ class HandoffRegistryClient:
         reason: str,
     ) -> Dict[str, Any]:
         """POST /handoffs/{id}/fail — mark failed."""
+        body: Dict[str, Any] = {
+            "reason": reason,
+            "actor_device_id": self.device_id,
+        }
+        if self.tenant_id:
+            body["tenant_id"] = self.tenant_id
         return await self._post(
             f"/handoffs/{handoff_id}/fail",
-            json={
-                "reason": reason,
-                "actor_device_id": self.device_id,
-            },
+            json=body,
         )
 
     async def cancel_handoff(
@@ -151,12 +174,25 @@ class HandoffRegistryClient:
         reason: str = "",
     ) -> Dict[str, Any]:
         """POST /handoffs/{id}/cancel — cancel handoff."""
+        body: Dict[str, Any] = {
+            "reason": reason,
+            "actor_device_id": self.device_id,
+        }
+        if self.tenant_id:
+            body["tenant_id"] = self.tenant_id
         return await self._post(
             f"/handoffs/{handoff_id}/cancel",
-            json={
-                "reason": reason,
-                "actor_device_id": self.device_id,
-            },
+            json=body,
+        )
+
+    async def dispatch_handoff(self, handoff_id: str) -> Dict[str, Any]:
+        """POST /handoffs/{id}/dispatch — transition committed -> dispatched."""
+        body: Dict[str, Any] = {"actor_device_id": self.device_id}
+        if self.tenant_id:
+            body["tenant_id"] = self.tenant_id
+        return await self._post(
+            f"/handoffs/{handoff_id}/dispatch",
+            json=body,
         )
 
     # --- Query endpoints ---
@@ -263,9 +299,16 @@ class HandoffRegistryClient:
                 )
                 await asyncio.sleep(delay)
             except httpx.HTTPStatusError as e:
-                # Don't retry 4xx errors
+                # 4xx: client error, raise immediately (no retry)
                 if 400 <= e.response.status_code < 500:
-                    return e.response.json()
+                    try:
+                        body = e.response.json()
+                    except Exception:
+                        body = {"detail": e.response.text}
+                    raise RegistryRequestError(
+                        e.response.status_code,
+                        body.get("detail", body),
+                    )
                 last_error = e
                 delay = self.base_delay * (2**attempt)
                 await asyncio.sleep(delay)
