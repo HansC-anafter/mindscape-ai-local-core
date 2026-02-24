@@ -106,4 +106,5 @@ async def list_workspace_threads(
     workspace_id: str = PathParam(...),
     limit: int = Query(50),
 ):
-    return {"threads": [], "total": 0}
+    # ConversationsList.tsx does setThreads(data || []) — expects raw array
+    return []
