@@ -35,6 +35,7 @@ class StartSessionRequest(BaseModel):
     agenda: List[str] = Field(default_factory=list)
     success_criteria: List[str] = Field(default_factory=list)
     max_rounds: Optional[int] = None
+    lens_id: Optional[str] = None
 
 
 class EndSessionRequest(BaseModel):
@@ -105,10 +106,36 @@ async def start_session(
             f"before starting new one"
         )
 
+    # Pre-1: Resolve lens_id via EffectiveLensResolver if not provided
+    lens_id = body.lens_id
+    if not lens_id:
+        try:
+            from backend.app.services.stores.graph_store import GraphStore
+            from backend.app.services.lens.effective_lens_resolver import (
+                EffectiveLensResolver,
+            )
+            from backend.app.services.lens.session_override_store import (
+                InMemorySessionStore,
+            )
+
+            graph_store = GraphStore()
+            session_override_store = InMemorySessionStore()
+            resolver = EffectiveLensResolver(graph_store, session_override_store)
+            effective = resolver.resolve(
+                profile_id="default-user",
+                workspace_id=workspace_id,
+            )
+            lens_id = effective.global_preset_id
+        except Exception as exc:
+            logger.warning(
+                "[MeetingSession] Failed to resolve lens_id for session: %s", exc
+            )
+
     new_session = MeetingSession.new(
         workspace_id=workspace_id,
         project_id=body.project_id,
         thread_id=body.thread_id,
+        lens_id=lens_id,
         meeting_type=body.meeting_type,
         agenda=body.agenda,
         success_criteria=body.success_criteria,

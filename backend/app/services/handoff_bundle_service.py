@@ -234,16 +234,41 @@ class HandoffBundleService:
         if not session:
             from backend.app.models.meeting_session import MeetingSession
 
+            # Pre-1: Resolve lens_id via EffectiveLensResolver
+            lens_id = None
+            try:
+                from backend.app.services.stores.graph_store import GraphStore
+                from backend.app.services.lens.effective_lens_resolver import (
+                    EffectiveLensResolver,
+                )
+                from backend.app.services.lens.session_override_store import (
+                    InMemorySessionStore,
+                )
+
+                graph_store = GraphStore()
+                session_override_store = InMemorySessionStore()
+                resolver = EffectiveLensResolver(graph_store, session_override_store)
+                effective = resolver.resolve(
+                    profile_id=profile_id,
+                    workspace_id=workspace_id,
+                )
+                lens_id = effective.global_preset_id
+            except Exception as exc:
+                logger.warning("[HandoffBundle] Failed to resolve lens_id: %s", exc)
+
             session = MeetingSession.new(
                 workspace_id=workspace_id,
                 project_id=project_id,
                 thread_id=thread_id,
+                lens_id=lens_id,
             )
             session_store.create(session)
 
+        from backend.app.services.mindscape_store import MindscapeStore
+
         engine = MeetingEngine(
             session=session,
-            store=None,
+            store=MindscapeStore(),
             workspace=workspace,
             runtime_profile=runtime_profile,
             profile_id=profile_id,

@@ -72,6 +72,111 @@ class MeetingPromptsMixin:
 
         return "\n".join(parts) if parts else ""
 
+    def _build_lens_context(self) -> str:
+        """Build lens context block for prompt injection.
+
+        Uses the EffectiveLens resolved at engine init. Returns a concise
+        summary of non-OFF lens dimensions suitable for prompt injection.
+        """
+        lens = getattr(self, "_effective_lens", None)
+        if not lens:
+            return ""
+
+        parts: List[str] = []
+        try:
+            parts.append(f"Active Lens: {lens.global_preset_name}")
+            parts.append(f"Lens Hash: {lens.hash}")
+            # LensNodeState values: OFF, KEEP, EMPHASIZE (not 'active')
+            engaged_nodes = [n for n in lens.nodes if n.state.value != "off"]
+            emphasized = [n for n in lens.nodes if n.state.value == "emphasize"]
+            if emphasized:
+                parts.append("Emphasized dimensions:")
+                for node in emphasized[:10]:
+                    parts.append(
+                        f"  - {node.node_label} (scope: {node.effective_scope})"
+                    )
+            if engaged_nodes:
+                parts.append(f"Total active dimensions: {len(engaged_nodes)}")
+        except Exception as exc:
+            logger.warning("Failed to build lens context: %s", exc)
+
+        return "\n".join(parts) if parts else ""
+
+    def _build_previous_decisions_context(self) -> str:
+        """Build previous meeting decisions context from DECISION_FINAL events.
+
+        Queries the event store for DECISION_FINAL events from the most recent
+        closed session, avoiding semantic pollution from session.decisions.
+        """
+        if not self.project_id:
+            return ""
+
+        parts: List[str] = []
+        try:
+            workspace_id = (
+                getattr(self.workspace, "id", None) or self.session.workspace_id
+            )
+
+            session_store = getattr(self, "session_store", None)
+            if not session_store:
+                return ""
+
+            previous_sessions = session_store.list_by_workspace(
+                workspace_id=workspace_id,
+                project_id=self.project_id,
+                limit=2,
+            )
+            # Skip current session, take the most recent closed one
+            prev = None
+            for s in previous_sessions:
+                if s.id != self.session.id and not s.is_active:
+                    prev = s
+                    break
+
+            if not prev:
+                return ""
+
+            # Query DECISION_FINAL events from the event store
+            decision_events = []
+            try:
+                events = self.store.list_events(
+                    entity_id=prev.id,
+                    event_type="DECISION_FINAL",
+                    limit=10,
+                )
+                decision_events = events or []
+            except Exception:
+                # Store may not support event_type filter
+                pass
+
+            if decision_events:
+                parts.append("Previous meeting decisions:")
+                for evt in decision_events[:5]:
+                    payload = getattr(evt, "payload", {}) or {}
+                    decision_text = payload.get("decision", "")
+                    if decision_text:
+                        round_num = payload.get("round_number", "?")
+                        parts.append(f"  - [R{round_num}] {decision_text[:200]}")
+            elif prev.minutes_md:
+                # Fallback to minutes_md if no DECISION_FINAL events found
+                minutes_snippet = prev.minutes_md[:800]
+                if len(prev.minutes_md) > 800:
+                    minutes_snippet += "\n... (truncated)"
+                parts.append("Previous meeting summary:")
+                parts.append(minutes_snippet)
+
+            if prev.action_items:
+                parts.append("Previous action items:")
+                for item in prev.action_items[:5]:
+                    title = item.get("title", "Untitled")
+                    status = item.get("status", "pending")
+                    parts.append(f"  - {title} [{status}]")
+
+        except Exception as exc:
+            logger.warning("Failed to build previous decisions context: %s", exc)
+
+        return "\n".join(parts) if parts else ""
+
     def _build_turn_prompt(
         self,
         agent_id: str,
@@ -121,6 +226,54 @@ class MeetingPromptsMixin:
             f"Latest critic note:\n{latest_critic}\n\n"
             f"Recent turns:\n{history}\n\n"
         )
+
+        # A1: Inject lens context (AgentSpec Agent Core requirement)
+        lens_ctx = self._build_lens_context()
+        if lens_ctx:
+            common += (
+                f"=== Active Lens ===\n"
+                f"{lens_ctx}\n"
+                f"=== End Lens ===\n\n"
+                f"Consider the active lens dimensions when framing your response.\n\n"
+            )
+
+        # A1: Inject active intents (AgentSpec Agent Core requirement)
+        intent_ids = getattr(self, "_active_intent_ids", [])
+        if intent_ids:
+            try:
+                intents = self.store.list_intents(
+                    self.profile_id,
+                    project_id=self.project_id,
+                )
+                active = [i for i in intents if i.id in intent_ids]
+                if active:
+                    intent_lines = []
+                    for i in active[:5]:
+                        status_val = (
+                            i.status.value
+                            if hasattr(i.status, "value")
+                            else str(i.status)
+                        )
+                        intent_lines.append(
+                            f"  - {i.title} [{status_val}] "
+                            f"(progress: {i.progress_percentage}%)"
+                        )
+                    common += (
+                        f"=== Active Intents ===\n"
+                        + "\n".join(intent_lines)
+                        + "\n=== End Intents ===\n\n"
+                    )
+            except Exception as exc:
+                logger.warning("Failed to inject intents into prompt: %s", exc)
+
+        # A1: Inject previous meeting decisions (Agent Core project memory)
+        prev_ctx = self._build_previous_decisions_context()
+        if prev_ctx:
+            common += (
+                f"=== Previous Meeting Decisions ===\n"
+                f"{prev_ctx}\n"
+                f"=== End Previous Decisions ===\n\n"
+            )
 
         if agent_id == "facilitator":
             return (

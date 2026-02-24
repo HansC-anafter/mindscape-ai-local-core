@@ -185,13 +185,35 @@ async def ensure_meeting_session(
             logger.info(f"[PipelineCore] Reusing active session {session.id}")
             return session
 
-        # Create new session
+        # Create new session with lens_id resolved from active preset
         from backend.app.models.meeting_session import MeetingSession
+
+        lens_id = None
+        try:
+            from backend.app.services.stores.graph_store import GraphStore
+            from backend.app.services.lens.effective_lens_resolver import (
+                EffectiveLensResolver,
+            )
+            from backend.app.services.lens.session_override_store import (
+                InMemorySessionStore,
+            )
+
+            graph_store = GraphStore()
+            session_override_store = InMemorySessionStore()
+            resolver = EffectiveLensResolver(graph_store, session_override_store)
+            effective = resolver.resolve(
+                profile_id="default-user",
+                workspace_id=workspace_id,
+            )
+            lens_id = effective.global_preset_id
+        except Exception as exc:
+            logger.warning("[PipelineCore] Failed to resolve lens for session: %s", exc)
 
         new_session = MeetingSession.new(
             workspace_id=workspace_id,
             project_id=project_id,
             thread_id=thread_id,
+            lens_id=lens_id,
         )
         await loop.run_in_executor(
             None,
@@ -268,9 +290,10 @@ async def finalize_meeting_session(
         if not session:
             return
 
-        # Append execution_id to decisions list if playbook was triggered
-        if result.execution_id and result.execution_id not in session.decisions:
-            session.decisions.append(result.execution_id)
+        # NOTE: Do NOT append execution_id to session.decisions.
+        # session.decisions is reserved for DECISION_FINAL event IDs,
+        # tracked via the event store. Mixing in execution_ids causes
+        # semantic pollution (Pre-2 decision).
 
         # Metadata enrichment
         run_meta = session.metadata.get("runs", [])
