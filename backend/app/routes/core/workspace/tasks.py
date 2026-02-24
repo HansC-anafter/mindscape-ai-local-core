@@ -34,7 +34,7 @@ async def get_workspace_tasks(
 ):
     """Get tasks for a workspace"""
     try:
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
 
         if include_completed:
             all_tasks = tasks_store.list_tasks_by_workspace(workspace_id, limit=limit)
@@ -46,6 +46,54 @@ async def get_workspace_tasks(
         return {"tasks": [task.model_dump() for task in all_tasks]}
     except Exception as e:
         logger.error(f"Failed to get workspace tasks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/executions")
+async def get_workspace_executions(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    limit: int = Query(30, ge=1, le=200, description="Maximum number of executions"),
+    playbook_code_prefix: Optional[str] = Query(
+        None, description="Filter by playbook code prefix (e.g., 'ig_')"
+    ),
+    playbook_code: Optional[str] = Query(
+        None, description="Filter by exact playbook code"
+    ),
+    order_by: str = Query("created_at", description="Field to order by"),
+    order: str = Query("desc", description="Sort order: asc or desc"),
+):
+    """List executions (tasks) for a workspace with optional playbook filters."""
+    try:
+        from sqlalchemy import text
+
+        tasks_store = TasksStore()
+
+        query_parts = ["SELECT * FROM tasks WHERE workspace_id = :workspace_id"]
+        params: dict = {"workspace_id": workspace_id}
+
+        if playbook_code:
+            query_parts.append("AND pack_id = :pack_id")
+            params["pack_id"] = playbook_code
+        elif playbook_code_prefix:
+            query_parts.append("AND pack_id LIKE :pack_prefix")
+            params["pack_prefix"] = f"{playbook_code_prefix}%"
+
+        safe_order = "DESC" if order.lower() == "desc" else "ASC"
+        safe_col = "created_at"
+        if order_by in ("created_at", "started_at", "completed_at", "status"):
+            safe_col = order_by
+        query_parts.append(f"ORDER BY {safe_col} {safe_order}")
+
+        query_parts.append("LIMIT :limit")
+        params["limit"] = limit
+
+        with tasks_store.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            tasks = [tasks_store._row_to_task(row) for row in rows]
+
+        return [task.model_dump() for task in tasks]
+    except Exception as e:
+        logger.error(f"Failed to get workspace executions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -66,8 +114,8 @@ async def reject_task(
 ):
     """Reject a task"""
     try:
-        tasks_store = TasksStore(db_path=store.db_path)
-        feedback_store = TaskFeedbackStore(db_path=store.db_path)
+        tasks_store = TasksStore()
+        feedback_store = PostgresTaskFeedbackStore()
 
         task = tasks_store.get_task(task_id)
         if not task:
@@ -116,7 +164,7 @@ async def cancel_task(
 ):
     """Cancel a pending or running task"""
     try:
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         task = tasks_store.get_task(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -166,7 +214,7 @@ async def fix_task_status(
         )
 
         # Also run zombie reaper
-        tasks_store = TasksStore(db_path=store.db_path)
+        tasks_store = TasksStore()
         reaped_ids = tasks_store.reap_zombie_tasks()
         result["zombie_tasks_reaped"] = len(reaped_ids)
         result["zombie_task_ids"] = reaped_ids
