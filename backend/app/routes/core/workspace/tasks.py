@@ -97,6 +97,91 @@ async def get_workspace_executions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{workspace_id}/executions/{execution_id}/stream")
+async def stream_execution_events(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    execution_id: str = PathParam(..., description="Execution ID"),
+):
+    """SSE stream for execution progress events.
+
+    For completed/failed/cancelled tasks: sends stream_end immediately.
+    For running tasks: sends heartbeat events until completion.
+    """
+    import asyncio
+    import json
+    from starlette.responses import StreamingResponse
+
+    tasks_store = TasksStore()
+
+    TERMINAL_STATUSES = {
+        "completed",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "cancelled_by_user",
+        "expired",
+        "SUCCEEDED",
+        "FAILED",
+    }
+
+    async def event_generator():
+        # Check initial task status
+        task = tasks_store.get_task_by_execution_id(execution_id)
+        if not task:
+            task = tasks_store.get_task(execution_id)
+
+        if not task:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Execution not found'})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+            return
+
+        status = (task.status or "").lower().replace(" ", "_")
+        if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
+            ctx = (
+                task.execution_context
+                if isinstance(task.execution_context, dict)
+                else {}
+            )
+            yield f"data: {json.dumps({'type': 'status', 'status': task.status, 'execution_context': ctx})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+            return
+
+        # For running tasks: poll and emit heartbeats
+        for _ in range(600):  # max ~30 min (600 * 3s)
+            task = tasks_store.get_task_by_execution_id(execution_id)
+            if not task:
+                task = tasks_store.get_task(execution_id)
+            if not task:
+                yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+                return
+
+            ctx = (
+                task.execution_context
+                if isinstance(task.execution_context, dict)
+                else {}
+            )
+            yield f"data: {json.dumps({'type': 'heartbeat', 'status': task.status, 'execution_context': ctx})}\n\n"
+
+            status = (task.status or "").lower().replace(" ", "_")
+            if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
+                yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+                return
+
+            await asyncio.sleep(3)
+
+        yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 class RejectTaskRequest(BaseModel):
     """Request model for rejecting a task"""
 
