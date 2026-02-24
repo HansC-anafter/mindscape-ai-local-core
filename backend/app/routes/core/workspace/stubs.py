@@ -376,3 +376,143 @@ async def list_workspace_threads(
     except Exception as exc:
         logger.warning(f"Failed to list threads for workspace {workspace_id}: {exc}")
         return []
+
+
+@router.get("/{workspace_id}/threads/{thread_id}/bundle")
+async def get_thread_bundle(
+    workspace_id: str = PathParam(...),
+    thread_id: str = PathParam(...),
+):
+    """Return ThreadBundle for ThreadBundlePanel.tsx"""
+    try:
+        # Get thread info
+        with store.events.get_connection() as conn:
+            thread_row = conn.execute(
+                text(
+                    "SELECT * FROM conversation_threads "
+                    "WHERE id = :tid AND workspace_id = :ws"
+                ),
+                {"tid": thread_id, "ws": workspace_id},
+            ).fetchone()
+
+        title = thread_row.title if thread_row else "Thread"
+        project_id = (
+            str(thread_row.project_id) if thread_row and thread_row.project_id else None
+        )
+
+        # Get thread references
+        references = []
+        try:
+            with store.events.get_connection() as conn:
+                ref_rows = conn.execute(
+                    text(
+                        "SELECT * FROM thread_references "
+                        "WHERE thread_id = :tid ORDER BY created_at DESC LIMIT 20"
+                    ),
+                    {"tid": thread_id},
+                ).fetchall()
+            for ref in ref_rows:
+                references.append(
+                    {
+                        "id": str(ref.id),
+                        "source_type": getattr(ref, "source_type", "url"),
+                        "uri": getattr(ref, "uri", ""),
+                        "title": getattr(ref, "title", ""),
+                        "snippet": getattr(ref, "snippet", None),
+                        "reason": getattr(ref, "reason", None),
+                        "created_at": (
+                            str(ref.created_at)
+                            if hasattr(ref, "created_at") and ref.created_at
+                            else ""
+                        ),
+                        "pinned_by": getattr(ref, "pinned_by", "ai"),
+                    }
+                )
+        except Exception:
+            pass
+
+        # Get runs (executions) related to this thread
+        runs = []
+        try:
+            with store.events.get_connection() as conn:
+                run_rows = conn.execute(
+                    text(
+                        "SELECT id, pack_id, status, created_at, updated_at, "
+                        "execution_context, result "
+                        "FROM tasks WHERE workspace_id = :ws "
+                        "ORDER BY created_at DESC LIMIT 10"
+                    ),
+                    {"ws": workspace_id},
+                ).fetchall()
+            for r in run_rows:
+                ctx = (
+                    r.execution_context if isinstance(r.execution_context, dict) else {}
+                )
+                started = str(r.created_at) if r.created_at else ""
+                duration = None
+                if r.created_at and r.updated_at:
+                    try:
+                        duration = int(
+                            (r.updated_at - r.created_at).total_seconds() * 1000
+                        )
+                    except Exception:
+                        pass
+                runs.append(
+                    {
+                        "id": str(r.id),
+                        "playbook_name": ctx.get("playbook_name", r.pack_id or ""),
+                        "status": _map_status(r.status),
+                        "started_at": started,
+                        "duration_ms": duration,
+                        "steps_completed": 0,
+                        "steps_total": 0,
+                        "deliverable_ids": [],
+                        "result_summary": None,
+                    }
+                )
+        except Exception:
+            pass
+
+        return {
+            "thread_id": thread_id,
+            "overview": {
+                "title": title,
+                "brief": None,
+                "status": "in_progress",
+                "summary": None,
+                "project_id": project_id,
+                "labels": [],
+                "pinned_scope": None,
+            },
+            "deliverables": [],
+            "references": references,
+            "runs": runs,
+            "sources": [],
+        }
+    except Exception as exc:
+        logger.warning(f"Failed to build thread bundle for {thread_id}: {exc}")
+        return {
+            "thread_id": thread_id,
+            "overview": {
+                "title": "Thread",
+                "status": "in_progress",
+                "labels": [],
+            },
+            "deliverables": [],
+            "references": [],
+            "runs": [],
+            "sources": [],
+        }
+
+
+def _map_status(status: str) -> str:
+    """Map tasks.status to ThreadRun status values."""
+    mapping = {
+        "running": "running",
+        "succeeded": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "cancelled_by_user": "cancelled",
+        "pending": "running",
+    }
+    return mapping.get(status, "running")
