@@ -26,6 +26,7 @@ class MeetingEventsMixin:
                 "round_number": turn.round_number,
                 "content": turn.content,
                 "lens_id": self.session.lens_id,
+                "lens_hash": getattr(self, "_lens_hash", None),
                 "intent_ids": self._get_active_intent_ids(),
             },
         )
@@ -46,7 +47,7 @@ class MeetingEventsMixin:
         )
 
     def _emit_decision_final(self, decision: str, round_number: int) -> None:
-        """Emit a DECISION_FINAL event summarizing the accepted decision."""
+        """Emit a DECISION_FINAL event with full provenance chain."""
         self._emit_event(
             EventType.DECISION_FINAL,
             payload={
@@ -56,6 +57,19 @@ class MeetingEventsMixin:
                 "decision": decision,
                 "rationale": "Planner proposal accepted after critic review.",
                 "dissenting_views": [],
+                # A3: Decision provenance (Agent OS requirement)
+                "lens_id": self.session.lens_id,
+                "lens_hash": getattr(self, "_lens_hash", None),
+                "intent_ids": getattr(self, "_active_intent_ids", []),
+                "input_context_summary": {
+                    "project_id": self.project_id,
+                    "lens_preset": (
+                        self._effective_lens.global_preset_name
+                        if getattr(self, "_effective_lens", None)
+                        else None
+                    ),
+                    "round_count": round_number,
+                },
             },
         )
 

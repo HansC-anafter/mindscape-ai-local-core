@@ -91,6 +91,14 @@ class MeetingEngine(
         executor_runtime: Optional[str] = None,
     ):
         self.session = session
+        # Pre-0: store contract — never None
+        if store is None:
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            store = MindscapeStore()
+            logger.warning(
+                "MeetingEngine received store=None, using fallback MindscapeStore"
+            )
         self.store = store
         self.workspace = workspace
         self.runtime_profile = runtime_profile
@@ -105,7 +113,7 @@ class MeetingEngine(
         self._agent_executor = None
         self.tasks_store: Optional[TasksStore] = None
         try:
-            self.tasks_store = TasksStore(db_path=getattr(store, "db_path", None))
+            self.tasks_store = TasksStore()
         except Exception as exc:
             logger.warning("MeetingEngine failed to initialize TasksStore: %s", exc)
         self._events: List[Any] = []
@@ -113,6 +121,33 @@ class MeetingEngine(
 
         # Resolve locale from workspace settings
         self._locale = getattr(workspace, "default_locale", None) or "en"
+
+        # A1: Resolve EffectiveLens for prompt injection + hash
+        self._effective_lens = None
+        self._lens_hash = None
+        try:
+            from backend.app.services.stores.graph_store import GraphStore
+            from backend.app.services.lens.effective_lens_resolver import (
+                EffectiveLensResolver,
+            )
+            from backend.app.services.lens.session_override_store import (
+                InMemorySessionStore,
+            )
+
+            graph_store = GraphStore()
+            session_override_store = InMemorySessionStore()
+            resolver = EffectiveLensResolver(graph_store, session_override_store)
+            workspace_id = getattr(workspace, "id", None) or session.workspace_id
+            self._effective_lens = resolver.resolve(
+                profile_id=profile_id,
+                workspace_id=workspace_id,
+            )
+            self._lens_hash = self._effective_lens.hash
+        except Exception as exc:
+            logger.warning("MeetingEngine failed to resolve EffectiveLens: %s", exc)
+
+        # A1: Cache active intent IDs for prompt injection
+        self._active_intent_ids = self._get_active_intent_ids()
 
         # Fetch project data for meeting context
         self._project_context = self._build_project_context()
