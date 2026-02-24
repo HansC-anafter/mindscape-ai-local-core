@@ -91,7 +91,7 @@ async def get_workspace_executions(
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             tasks = [tasks_store._row_to_task(row) for row in rows]
 
-        return [task.model_dump() for task in tasks]
+        return {"executions": [task.model_dump() for task in tasks]}
     except Exception as e:
         logger.error(f"Failed to get workspace executions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
