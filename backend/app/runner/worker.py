@@ -182,7 +182,7 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
 
 
 def _reap_stale_runner_locks(
-    tasks_store: TasksStore, locks_store: RunnerLocksStore, runner_id: str
+    tasks_store: TasksStore, locks_store: PostgresRunnerLocksStore, runner_id: str
 ) -> None:
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_LOCK_SECONDS", 300)
     now = _utc_now()
