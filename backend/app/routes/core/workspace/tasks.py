@@ -91,7 +91,17 @@ async def get_workspace_executions(
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             tasks = [tasks_store._row_to_task(row) for row in rows]
 
-        return {"executions": [task.model_dump() for task in tasks]}
+        # Enrich with fields the UI expects (RunLogCard reads playbook_code, not pack_id)
+        executions = []
+        for task in tasks:
+            d = task.model_dump()
+            d["playbook_code"] = d.get("pack_id") or (
+                d.get("execution_context") or {}
+            ).get("playbook_code")
+            d["execution_id"] = d.get("execution_id") or d.get("id")
+            executions.append(d)
+
+        return {"executions": executions}
     except Exception as e:
         logger.error(f"Failed to get workspace executions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
