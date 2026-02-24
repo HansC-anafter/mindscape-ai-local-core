@@ -1,14 +1,11 @@
 """
-Stub endpoints for workspace features referenced by web-console hooks
-(useChatEvents, ConversationsList, TimelinePanel, useWorkspaceProjects)
-that call cloud-only endpoints not yet implemented in local-core.
+Endpoints for workspace features that web-console hooks depend on.
 
-Returning well-formed empty responses prevents the workspace page from
-showing "載入工作空間失敗" due to 404 retry loops.
+These serve real data from Postgres stores (projects, events, threads, timeline).
+Previously returning 404, causing the workspace page to fail loading.
 
 Root cause: commit f4e83da9 decomposed page.tsx into hooks that call
-/events, /threads, /timeline with strict error handling.  These routes
-never existed in local-core backend.
+/events, /threads, /timeline with strict error handling.
 """
 
 import json
@@ -16,10 +13,14 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Path as PathParam, Query
+from sqlalchemy import text
 from starlette.responses import StreamingResponse
+
+from ....services.mindscape_store import MindscapeStore
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+store = MindscapeStore()
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +34,28 @@ async def get_workspace_events(
     limit: int = Query(200),
     _t: Optional[str] = Query(None),
 ):
-    return {"events": [], "total": 0}
+    try:
+        type_list = None
+        if event_types:
+            type_list = [t.strip() for t in event_types.split(",") if t.strip()]
+
+        events = store.events.get_events_by_workspace(
+            workspace_id=workspace_id,
+            limit=limit,
+        )
+
+        result = []
+        for e in events:
+            d = e.model_dump()
+            # Filter by event_types if specified
+            if type_list and d.get("event_type") not in type_list:
+                continue
+            result.append(d)
+
+        return {"events": result, "has_more": len(events) >= limit}
+    except Exception as exc:
+        logger.warning(f"Failed to load events for workspace {workspace_id}: {exc}")
+        return {"events": [], "has_more": False}
 
 
 @router.get("/{workspace_id}/events/stream")
@@ -66,7 +88,16 @@ async def get_workspace_timeline(
     workspace_id: str = PathParam(...),
     limit: int = Query(50),
 ):
-    return {"items": [], "total": 0}
+    try:
+        events = store.events.get_timeline(
+            profile_id="default-user",
+            workspace_id=workspace_id,
+            limit=limit,
+        )
+        return {"items": [e.model_dump() for e in events], "total": len(events)}
+    except Exception as exc:
+        logger.warning(f"Failed to load timeline for workspace {workspace_id}: {exc}")
+        return {"items": [], "total": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +111,17 @@ async def list_workspace_projects(
     limit: int = Query(20),
     project_type: Optional[str] = Query(None),
 ):
-    return {"projects": []}
+    try:
+        projects = store.projects.list_projects(
+            workspace_id=workspace_id,
+            state=state,
+            project_type=project_type,
+            limit=limit,
+        )
+        return {"projects": [p.model_dump() for p in projects]}
+    except Exception as exc:
+        logger.warning(f"Failed to list projects for workspace {workspace_id}: {exc}")
+        return {"projects": []}
 
 
 @router.get("/{workspace_id}/projects/{project_id}")
@@ -88,23 +129,66 @@ async def get_workspace_project(
     workspace_id: str = PathParam(...),
     project_id: str = PathParam(...),
 ):
-    return {
-        "id": project_id,
-        "workspace_id": workspace_id,
-        "title": project_id,
-        "state": "open",
-        "created_at": None,
-    }
+    try:
+        project = store.projects.get_project(project_id)
+        if project:
+            return project.model_dump()
+        return {"id": project_id, "title": project_id, "state": "unknown"}
+    except Exception as exc:
+        logger.warning(f"Failed to get project {project_id}: {exc}")
+        return {"id": project_id, "title": project_id, "state": "unknown"}
 
 
 # ---------------------------------------------------------------------------
 # Threads (conversations list)
 # Called by: ConversationsList.tsx
+# ConversationsList.tsx line 55: setThreads(data || []) — expects raw array
 # ---------------------------------------------------------------------------
 @router.get("/{workspace_id}/threads")
 async def list_workspace_threads(
     workspace_id: str = PathParam(...),
     limit: int = Query(50),
 ):
-    # ConversationsList.tsx does setThreads(data || []) — expects raw array
-    return []
+    try:
+        # conversation_threads table is in Postgres, query directly
+        with store.events.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT * FROM conversation_threads "
+                    "WHERE workspace_id = :ws "
+                    "ORDER BY updated_at DESC LIMIT :lim"
+                ),
+                {"ws": workspace_id, "lim": limit},
+            ).fetchall()
+
+        threads = []
+        for r in rows:
+            threads.append(
+                {
+                    "id": str(r.id),
+                    "workspace_id": str(r.workspace_id),
+                    "title": r.title or "",
+                    "project_id": str(r.project_id) if r.project_id else None,
+                    "pinned_scope": (
+                        r.pinned_scope if hasattr(r, "pinned_scope") else None
+                    ),
+                    "created_at": str(r.created_at) if r.created_at else None,
+                    "updated_at": str(r.updated_at) if r.updated_at else None,
+                    "last_message_at": (
+                        str(r.last_message_at)
+                        if hasattr(r, "last_message_at") and r.last_message_at
+                        else str(r.updated_at)
+                    ),
+                    "message_count": (
+                        r.message_count if hasattr(r, "message_count") else 0
+                    ),
+                    "metadata": {},
+                    "is_default": (
+                        bool(r.is_default) if hasattr(r, "is_default") else False
+                    ),
+                }
+            )
+        return threads
+    except Exception as exc:
+        logger.warning(f"Failed to list threads for workspace {workspace_id}: {exc}")
+        return []
