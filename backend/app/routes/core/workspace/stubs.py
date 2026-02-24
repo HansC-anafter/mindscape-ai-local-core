@@ -35,24 +35,25 @@ async def get_workspace_events(
     _t: Optional[str] = Query(None),
 ):
     try:
-        type_list = None
+        # Build query with event_type filtering at SQL level
+        query_str = "SELECT * FROM mind_events WHERE workspace_id = :ws"
+        params: dict = {"ws": workspace_id, "lim": limit}
+
         if event_types:
             type_list = [t.strip() for t in event_types.split(",") if t.strip()]
+            if type_list:
+                placeholders = ", ".join(f":et{i}" for i in range(len(type_list)))
+                query_str += f" AND event_type IN ({placeholders})"
+                for i, et in enumerate(type_list):
+                    params[f"et{i}"] = et
 
-        events = store.events.get_events_by_workspace(
-            workspace_id=workspace_id,
-            limit=limit,
-        )
+        query_str += " ORDER BY timestamp DESC, id DESC LIMIT :lim"
 
-        result = []
-        for e in events:
-            d = e.model_dump()
-            # Filter by event_types if specified
-            if type_list and d.get("event_type") not in type_list:
-                continue
-            result.append(d)
+        with store.events.get_connection() as conn:
+            rows = conn.execute(text(query_str), params).fetchall()
 
-        return {"events": result, "has_more": len(events) >= limit}
+        events = [store.events._row_to_event(r).model_dump() for r in rows]
+        return {"events": events, "has_more": len(events) >= limit}
     except Exception as exc:
         logger.warning(f"Failed to load events for workspace {workspace_id}: {exc}")
         return {"events": [], "has_more": False}
