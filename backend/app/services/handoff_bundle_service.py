@@ -223,6 +223,46 @@ class HandoffBundleService:
 
         handoff_in = HandoffIn(**bundle.payload)
 
+        return await HandoffBundleService.compile_handoff_in(
+            handoff_in=handoff_in,
+            workspace=workspace,
+            runtime_profile=runtime_profile,
+            profile_id=profile_id,
+            thread_id=thread_id,
+            project_id=project_id,
+            model_name=model_name,
+            source_device_id=bundle.source_device_id,
+        )
+
+    @staticmethod
+    async def compile_handoff_in(
+        handoff_in: HandoffIn,
+        workspace: Any,
+        runtime_profile: Any,
+        profile_id: str,
+        thread_id: str,
+        project_id: str,
+        model_name: Optional[str] = None,
+        source_device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Compile a HandoffIn via MeetingEngine (no bundle verification).
+
+        This is the Registry-native compile entry point. It accepts
+        a pre-validated HandoffIn object and produces a TaskIR.
+
+        Args:
+            handoff_in: Pre-validated HandoffIn payload.
+            workspace: Workspace ORM instance.
+            runtime_profile: Active runtime profile.
+            profile_id: User profile ID.
+            thread_id: Conversation thread ID.
+            project_id: Project ID for meeting scope.
+            model_name: LLM model override.
+            source_device_id: Originating device (for intake message).
+
+        Returns:
+            Dict with task_ir_id, session_id, persisted status.
+        """
         from backend.app.services.orchestration.meeting import MeetingEngine
         from backend.app.services.stores.meeting_session_store import (
             MeetingSessionStore,
@@ -234,7 +274,7 @@ class HandoffBundleService:
         if not session:
             from backend.app.models.meeting_session import MeetingSession
 
-            # Pre-1: Resolve lens_id via EffectiveLensResolver
+            # Resolve lens_id via EffectiveLensResolver
             lens_id = None
             try:
                 from backend.app.services.stores.graph_store import GraphStore
@@ -280,7 +320,7 @@ class HandoffBundleService:
         intake_message = (
             f"[Handoff Intake] {handoff_in.intent_summary}\n"
             f"Goals: {', '.join(handoff_in.goals)}\n"
-            f"Source: {bundle.source_device_id}"
+            f"Source: {source_device_id or 'unknown'}"
         )
 
         meeting_result = await engine.run(intake_message, handoff_in=handoff_in)
