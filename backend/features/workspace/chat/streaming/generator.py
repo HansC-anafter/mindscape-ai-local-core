@@ -329,8 +329,10 @@ def _resolve_model_name(request) -> Optional[str]:
             logger.warning("Failed to fetch model_name from settings: %s", e)
 
     if not model_name or str(model_name).strip() == "":
-        model_name = "gpt-4"
-        logger.info("Using ultimate fallback model_name: %s", model_name)
+        logger.error(
+            "No chat_model configured in system settings and no model in request"
+        )
+        return None  # Caller (step 15) handles None -> error SSE
 
     return model_name
 

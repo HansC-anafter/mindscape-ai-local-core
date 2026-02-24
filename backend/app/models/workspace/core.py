@@ -134,9 +134,10 @@ class Workspace(BaseModel):
         "{filesystem_scope: [...], network_allowlist: [...], tool_policies: {...}, max_execution_time_seconds: int}. "
         "Applied automatically when using external runtimes.",
     )
-    agent_fallback_enabled: bool = Field(
-        default=True,
-        description="If executor_runtime fails or is unavailable, fallback to Mindscape LLM",
+    fallback_model: Optional[str] = Field(
+        default=None,
+        description="Explicit fallback model name when executor_runtime fails. "
+        "None = no fallback, report error to user.",
     )
 
     # Extensible metadata for features (core_memory, preferences, etc.)
@@ -213,8 +214,9 @@ class CreateWorkspaceRequest(BaseModel):
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None, description="Sandbox configuration for runtime execution"
     )
-    agent_fallback_enabled: bool = Field(
-        default=True, description="Fallback to Mindscape LLM if runtime fails"
+    fallback_model: Optional[str] = Field(
+        default=None,
+        description="Explicit fallback model name when executor_runtime fails. None = no fallback.",
     )
     # Workspace launch enhancement fields (optional, can be set via seed/blueprint flow)
     workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
@@ -273,8 +275,9 @@ class UpdateWorkspaceRequest(BaseModel):
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None, description="Sandbox configuration for runtime execution"
     )
-    agent_fallback_enabled: Optional[bool] = Field(
-        None, description="Fallback to Mindscape LLM if runtime fails"
+    fallback_model: Optional[str] = Field(
+        None,
+        description="Explicit fallback model name when executor_runtime fails. None = no fallback.",
     )
     # Workspace launch enhancement fields (optional)
     workspace_blueprint: Optional[WorkspaceBlueprint] = Field(

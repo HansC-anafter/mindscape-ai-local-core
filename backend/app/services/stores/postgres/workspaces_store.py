@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 
@@ -38,6 +40,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     playbook_storage_config, cloud_remote_tools_config,
                     execution_mode, expected_artifacts, execution_priority,
                     project_assignment_mode, metadata, workspace_blueprint, launch_status, starter_kit_type,
+                    executor_runtime, sandbox_config, fallback_model,
                     created_at, updated_at
                 ) VALUES (
                     :id, :owner_user_id, :title, :description, :workspace_type, :primary_project_id,
@@ -47,6 +50,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     :playbook_storage_config, :cloud_remote_tools_config,
                     :execution_mode, :expected_artifacts, :execution_priority,
                     :project_assignment_mode, :metadata, :workspace_blueprint, :launch_status, :starter_kit_type,
+                    :executor_runtime, :sandbox_config, :fallback_model,
                     :created_at, :updated_at
                 )
             """
@@ -128,6 +132,13 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else LaunchStatus.PENDING.value
                 ),
                 "starter_kit_type": workspace.starter_kit_type,
+                "executor_runtime": workspace.executor_runtime,
+                "sandbox_config": (
+                    self.serialize_json(workspace.sandbox_config)
+                    if workspace.sandbox_config
+                    else None
+                ),
+                "fallback_model": getattr(workspace, "fallback_model", None),
                 "created_at": workspace.created_at,
                 "updated_at": workspace.updated_at,
             }
@@ -199,7 +210,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     starter_kit_type = :starter_kit_type,
                     executor_runtime = :executor_runtime,
                     sandbox_config = :sandbox_config,
-                    doer_fallback_to_mindscape = :doer_fallback_to_mindscape,
+                    fallback_model = :fallback_model,
                     updated_at = :updated_at
                 WHERE id = :id
             """
@@ -285,9 +296,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     if workspace.sandbox_config
                     else None
                 ),
-                "doer_fallback_to_mindscape": getattr(
-                    workspace, "doer_fallback_to_mindscape", True
-                ),
+                "fallback_model": getattr(workspace, "fallback_model", None),
                 "updated_at": workspace.updated_at,
                 "id": workspace.id,
             }
@@ -389,7 +398,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             starter_kit_type=row.starter_kit_type,
             executor_runtime=getattr(row, "executor_runtime", None),
             sandbox_config=self.deserialize_json(getattr(row, "sandbox_config", None)),
-            doer_fallback_to_mindscape=getattr(row, "doer_fallback_to_mindscape", True),
+            fallback_model=getattr(row, "fallback_model", None),
             created_at=row.created_at,
             updated_at=row.updated_at,
             # cloud_remote_tools_config is ignored as per reference implementation

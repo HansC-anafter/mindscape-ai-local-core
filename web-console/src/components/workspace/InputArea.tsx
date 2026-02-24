@@ -59,8 +59,8 @@ export function InputArea({
     currentChatModel,
     availableChatModels,
     contextTokenCount,
-    preferredAgent,
-    setPreferredAgent,
+    executorRuntime,
+    setExecutorRuntime,
   } = useWorkspaceMetadata();
   const { messages } = useMessages();
   const { selectModel } = useChatModel(apiUrl, { workspaceId });
@@ -87,9 +87,9 @@ export function InputArea({
   }, [apiUrl]);
 
   const handleAgentChange = async (agentId: string | null) => {
-    const previousAgent = preferredAgent;
+    const previousAgent = executorRuntime;
     // Optimistic update
-    setPreferredAgent(agentId);
+    setExecutorRuntime(agentId);
 
     // Determine display name for the agent
     const agentDisplayName = agentId
@@ -98,7 +98,7 @@ export function InputArea({
 
     try {
       const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/preferred-agent`,
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/executor-runtime`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -109,7 +109,7 @@ export function InputArea({
       if (!response.ok) {
         console.error('[InputArea] Failed to set preferred agent:', await response.text());
         // Revert on failure
-        setPreferredAgent(previousAgent);
+        setExecutorRuntime(previousAgent);
         showToast({
           type: 'error',
           message: `Failed to switch executor to ${agentDisplayName}`,
@@ -127,7 +127,7 @@ export function InputArea({
       }
     } catch (err) {
       console.error('[InputArea] Error setting preferred agent:', err);
-      setPreferredAgent(previousAgent);
+      setExecutorRuntime(previousAgent);
       showToast({
         type: 'error',
         message: `Failed to switch executor: network error`,
@@ -269,7 +269,7 @@ export function InputArea({
           canSend={canSend}
           llmConfigured={llmConfigured}
           availableAgents={availableAgents}
-          currentAgent={preferredAgent}
+          currentAgent={executorRuntime}
           onAgentChange={handleAgentChange}
         />
       </div>

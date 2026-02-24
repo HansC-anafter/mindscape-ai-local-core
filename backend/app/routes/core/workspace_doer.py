@@ -75,7 +75,8 @@ class AgentConfigResponse(BaseModel):
     agent_status: Optional[dict] = None
     sandbox_config: Optional[DoerWorkspaceConfig] = None
     available_presets: List[str] = ["conservative", "balanced", "permissive"]
-    agent_fallback_enabled: bool = True
+    agent_fallback_enabled: bool = True  # Deprecated, kept for backward compat
+    fallback_model: Optional[str] = None
 
 
 # ==================== API Endpoints ====================
@@ -129,7 +130,9 @@ async def get_agent_config(
             executor_runtime=workspace.executor_runtime,
             agent_status=agent_status,
             sandbox_config=sandbox_config,
-            agent_fallback_enabled=getattr(workspace, "agent_fallback_enabled", True),
+            agent_fallback_enabled=getattr(workspace, "fallback_model", None)
+            is not None,
+            fallback_model=getattr(workspace, "fallback_model", None),
         )
 
     except HTTPException:
@@ -189,17 +192,13 @@ async def configure_agent(
 
             sandbox_config.updated_at = _utc_now()
 
-        # Update workspace
-        await store.update_workspace(
-            workspace_id,
-            {
-                "executor_runtime": request.executor_runtime,
-                "sandbox_config": (
-                    sandbox_config.model_dump() if sandbox_config else None
-                ),
-                "updated_at": _utc_now(),
-            },
+        # Update workspace (fix: pass Workspace object, not dict)
+        workspace.executor_runtime = request.executor_runtime
+        workspace.sandbox_config = (
+            sandbox_config.model_dump() if sandbox_config else None
         )
+        workspace.updated_at = _utc_now()
+        await store.update_workspace(workspace)
 
         agent_desc = request.executor_runtime or "Mindscape LLM"
         logger.info(f"Workspace {workspace_id} configured to use {agent_desc}")
@@ -249,14 +248,10 @@ async def update_agent_config(
 
         current_config.updated_at = _utc_now()
 
-        # Save
-        await store.update_workspace(
-            workspace_id,
-            {
-                "sandbox_config": current_config.model_dump(),
-                "updated_at": _utc_now(),
-            },
-        )
+        # Save (fix: pass Workspace object, not dict)
+        workspace.sandbox_config = current_config.model_dump()
+        workspace.updated_at = _utc_now()
+        await store.update_workspace(workspace)
 
         logger.info(f"Updated agent config for workspace {workspace_id}")
 
@@ -285,14 +280,11 @@ async def clear_agent_config(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        await store.update_workspace(
-            workspace_id,
-            {
-                "executor_runtime": None,
-                "sandbox_config": None,
-                "updated_at": _utc_now(),
-            },
-        )
+        # Clear config (fix: pass Workspace object, not dict)
+        workspace.executor_runtime = None
+        workspace.sandbox_config = None
+        workspace.updated_at = _utc_now()
+        await store.update_workspace(workspace)
 
         logger.info(f"Cleared agent config for workspace {workspace_id}")
 
@@ -368,8 +360,8 @@ async def list_available_agents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{workspace_id}/preferred-agent")
-async def set_preferred_agent(
+@router.post("/{workspace_id}/executor-runtime")
+async def set_executor_runtime(
     workspace_id: str = Path(..., description="Workspace ID"),
     agent_id: Optional[str] = Body(None, embed=True, description="Agent ID to set"),
 ) -> dict:
@@ -434,3 +426,17 @@ async def set_preferred_agent(
     except Exception as e:
         logger.error(f"Failed to set executor runtime: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Deprecated alias — keep for backward compatibility
+@router.post("/{workspace_id}/preferred-agent", deprecated=True)
+async def set_preferred_agent(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    agent_id: Optional[str] = Body(None, embed=True, description="Agent ID to set"),
+) -> dict:
+    """Deprecated: use POST /{workspace_id}/executor-runtime instead."""
+    logger.warning(
+        f"Deprecated endpoint /preferred-agent called for workspace {workspace_id}. "
+        "Use /executor-runtime instead."
+    )
+    return await set_executor_runtime(workspace_id=workspace_id, agent_id=agent_id)

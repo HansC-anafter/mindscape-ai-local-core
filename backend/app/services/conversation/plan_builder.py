@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
 from ...capabilities.registry import get_registry
 from backend.app.services.pack_info_collector import PackInfoCollector
@@ -61,7 +63,7 @@ class PlanBuilder:
         self.model_name = model_name  # Direct model name (highest priority)
         from ...services.config_store import ConfigStore
 
-        self.config_store = ConfigStore(db_path=store.db_path)
+        self.config_store = ConfigStore()
         self.external_backend = None
         self._external_backend_loaded = False
         # Cache LLMProviderManager to avoid recreating it on every call
@@ -209,11 +211,12 @@ class PlanBuilder:
             logger.debug(f"Using chat_model fallback: {model_name}")
             return model_name
 
-        # Ultimate fallback
-        logger.warning(
-            "PlanBuilder: All model selection methods failed, using default gpt-4"
+        # All model selection methods failed -- fail-loud, no silent gpt-4
+        logger.error(
+            "PlanBuilder: All model selection methods failed. "
+            "Configure chat_model in system settings."
         )
-        return "gpt-4"
+        raise ValueError("No chat model configured. Set chat_model in system settings.")
 
     async def _ensure_external_backend_loaded(self, profile_id: Optional[str] = None):
         """
@@ -516,9 +519,11 @@ class PlanBuilder:
                 return []
 
             from backend.app.services.conversation.context_builder import ContextBuilder
-            from ...services.stores.timeline_items_store import TimelineItemsStore
+            from backend.app.services.stores.postgres.timeline_items_store import (
+                PostgresTimelineItemsStore,
+            )
 
-            timeline_items_store = TimelineItemsStore(self.store.db_path)
+            timeline_items_store = PostgresTimelineItemsStore()
 
             # Use _select_model_for_plan to select model (with fallback to chat_model)
             # Determine risk_level from project_assignment_decision or default to "read"

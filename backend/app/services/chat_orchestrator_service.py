@@ -212,12 +212,38 @@ class ChatOrchestratorService:
         agent_available = await executor.check_agent_available(executor_runtime)
 
         if not agent_available:
+            # P0 Fail-Loud: check for explicit fallback model
+            fallback_model = getattr(workspace, "fallback_model", None)
+            if fallback_model:
+                logger.info(
+                    "Agent %s unavailable, using fallback model %s",
+                    executor_runtime,
+                    fallback_model,
+                )
+                await self._create_pipeline_event(
+                    workspace_id,
+                    profile_id,
+                    session.thread_id,
+                    session.project_id,
+                    "agent_fallback",
+                    f"Executor {executor_runtime} unavailable, using fallback model {fallback_model}",
+                    session.user_event.id,
+                )
+                return await self._handle_llm_path(
+                    request,
+                    workspace,
+                    workspace_id,
+                    profile_id,
+                    session,
+                    model_name_override=fallback_model,
+                    is_fallback=True,
+                )
             await self._create_error_event(
                 workspace_id,
                 profile_id,
                 session.thread_id,
-                f"Agent {executor_runtime} is unavailable: no runtime connected. "
-                f"Start the CLI bridge or switch to Mindscape LLM.",
+                f"Executor {executor_runtime} unavailable: no runtime connected. "
+                f"Start the CLI bridge or configure a fallback model.",
             )
             logger.warning(
                 "Agent %s unavailable, no runtime connected", executor_runtime
@@ -243,7 +269,7 @@ class ChatOrchestratorService:
             TimelineItemsStore,
         )
 
-        timeline_items_store = TimelineItemsStore(self.orchestrator.store.db_path)
+        timeline_items_store = PostgresTimelineItemsStore()
         conversation_context = await build_streaming_context(
             workspace_id=workspace_id,
             message=request.message,
@@ -312,14 +338,39 @@ class ChatOrchestratorService:
             )
             return
 
-        # Agent failed
+        # Agent failed -- P0 Fail-Loud: check for fallback
         error_msg = agent_response.error or "External agent execution failed"
+        fallback_model = getattr(workspace, "fallback_model", None)
+        if fallback_model:
+            logger.info(
+                "Agent %s failed, using fallback model %s",
+                executor_runtime,
+                fallback_model,
+            )
+            await self._create_pipeline_event(
+                workspace_id,
+                profile_id,
+                session.thread_id,
+                session.project_id,
+                "agent_fallback",
+                f"Executor {executor_runtime} failed: {error_msg}, using fallback model {fallback_model}",
+                session.user_event.id,
+            )
+            return await self._handle_llm_path(
+                request,
+                workspace,
+                workspace_id,
+                profile_id,
+                session,
+                model_name_override=fallback_model,
+                is_fallback=True,
+            )
         await self._create_error_event(
             workspace_id,
             profile_id,
             session.thread_id,
-            f"Agent {executor_runtime} execution failed: {error_msg}. "
-            f"Check the CLI bridge logs or switch to Mindscape LLM.",
+            f"Executor {executor_runtime} execution failed: {error_msg}. "
+            f"Configure a fallback model to avoid this.",
             retry_data={
                 "message": request.message,
                 "agent_id": executor_runtime,
@@ -328,9 +379,22 @@ class ChatOrchestratorService:
         logger.error("External agent %s failed: %s", executor_runtime, error_msg)
 
     async def _handle_llm_path(
-        self, request, workspace, workspace_id, profile_id, session
+        self,
+        request,
+        workspace,
+        workspace_id,
+        profile_id,
+        session,
+        model_name_override: str = None,
+        is_fallback: bool = False,
     ):
-        """Generate response via default LLM streaming path."""
+        """Generate response via default LLM streaming path.
+
+        Args:
+            model_name_override: If set (e.g. from fallback_model),
+                use this model instead of request.model_name.
+            is_fallback: True when using fallback model after agent failure.
+        """
         from backend.features.workspace.chat.streaming.llm_streaming import (
             stream_llm_response,
         )
@@ -340,7 +404,7 @@ class ChatOrchestratorService:
         )
 
         # Resolve model name
-        model_name = request.model_name
+        model_name = model_name_override or request.model_name
         if not model_name:
             try:
                 from backend.app.services.system_settings_store import (
@@ -355,7 +419,13 @@ class ChatOrchestratorService:
                 logger.warning("Failed to fetch default chat model: %s", e)
 
         if not model_name or str(model_name).strip() == "":
-            model_name = "gpt-4"
+            await self._create_error_event(
+                workspace_id,
+                profile_id,
+                session.thread_id,
+                "No chat model configured. Set chat_model in system settings.",
+            )
+            return
 
         provider_manager = get_llm_provider_manager()
         provider, provider_type = get_llm_provider(
@@ -373,7 +443,7 @@ class ChatOrchestratorService:
             TimelineItemsStore,
         )
 
-        timeline_items_store = TimelineItemsStore(self.orchestrator.store.db_path)
+        timeline_items_store = PostgresTimelineItemsStore()
         context_str = await build_streaming_context(
             workspace_id=workspace_id,
             message=request.message,
@@ -427,6 +497,7 @@ class ChatOrchestratorService:
             context_token_count=context_token_count,
             execution_playbook_result=None,
             openai_key=None,
+            is_fallback=is_fallback,
         ):
             pass  # Consume stream to trigger internal logic
 

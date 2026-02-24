@@ -238,7 +238,7 @@ class PipelineCore:
                 TimelineItemsStore,
             )
 
-            timeline_items_store = TimelineItemsStore(self.store.db_path)
+            timeline_items_store = PostgresTimelineItemsStore()
             context_str = await build_streaming_context(
                 workspace_id=workspace_id,
                 message=message,
@@ -267,6 +267,9 @@ class PipelineCore:
                     workspace=self.workspace,
                     result=result,
                     emit_pipeline_stage=self._emit_pipeline_stage,
+                    execution_mode=execution_mode,
+                    model_name=model_name,
+                    profile=self.profile,
                 )
             else:
                 result = await dispatch_to_llm(

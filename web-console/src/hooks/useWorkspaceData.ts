@@ -32,7 +32,7 @@ export function useWorkspaceData(
     setSystemHealth,
     contextTokenCount,
     setContextTokenCount,
-    setPreferredAgent,
+    setExecutorRuntime,
   } = useWorkspaceMetadata();
 
   const { messagesLoading } = useMessages();
@@ -63,7 +63,7 @@ export function useWorkspaceData(
         setWorkspaceTitle(data.title || data.name || '');
         // Load executor_runtime if exists
         if (data.executor_runtime !== undefined) {
-          setPreferredAgent(data.executor_runtime);
+          setExecutorRuntime(data.executor_runtime);
         }
         onWorkspaceLoaded?.(data);
       }
@@ -73,7 +73,7 @@ export function useWorkspaceData(
         console.error('Failed to load workspace info:', err);
       }
     }
-  }, [workspaceId, apiUrl, enabled, setWorkspaceTitle, setPreferredAgent, onWorkspaceLoaded]);
+  }, [workspaceId, apiUrl, enabled, setWorkspaceTitle, setExecutorRuntime, onWorkspaceLoaded]);
 
   const loadSystemHealth = useCallback(async () => {
     if (!enabled || !workspaceId || !apiUrl) {

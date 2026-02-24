@@ -30,8 +30,16 @@ async def dispatch_to_agent(
     workspace: Any,
     result: Any,
     emit_pipeline_stage,
+    # Fallback chain params (P0 Fail-Loud)
+    execution_mode: str = "qa",
+    model_name: Optional[str] = None,
+    profile: Any = None,
 ) -> Any:
     """Dispatch to external agent runtime (e.g. Gemini CLI).
+
+    P0 Fail-Loud: When the agent is unavailable or fails, check
+    workspace.fallback_model. If set, delegate to dispatch_to_llm
+    with that model. If not set, report error (no silent fallback).
 
     Args:
         workspace_id: Workspace ID.
@@ -46,6 +54,9 @@ async def dispatch_to_agent(
         workspace: Workspace object.
         result: PipelineResult accumulator.
         emit_pipeline_stage: Callback to emit pipeline stage events.
+        execution_mode: qa | execution | hybrid (for fallback dispatch).
+        model_name: LLM model name (for fallback dispatch).
+        profile: UserProfile object (for fallback dispatch).
 
     Returns:
         Updated PipelineResult.
@@ -59,10 +70,38 @@ async def dispatch_to_agent(
     agent_available = await executor.check_agent_available(executor_runtime)
 
     if not agent_available:
+        # P0 Fail-Loud: check for explicit fallback model
+        fallback_model = getattr(workspace, "fallback_model", None)
+        if fallback_model:
+            await emit_pipeline_stage(
+                workspace_id,
+                profile_id,
+                thread_id,
+                project_id,
+                "agent_fallback",
+                f"Executor {executor_runtime} unavailable, using fallback model {fallback_model}",
+                user_event_id,
+            )
+            return await dispatch_to_llm(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                thread_id=thread_id,
+                project_id=project_id,
+                message=message,
+                user_event_id=user_event_id,
+                execution_mode=execution_mode,
+                model_name=fallback_model,
+                context_str=context_str,
+                store=store,
+                workspace=workspace,
+                profile=profile,
+                result=result,
+                is_fallback=True,
+            )
         result.success = False
         result.error = (
-            f"Agent {executor_runtime} is unavailable: no runtime connected. "
-            f"Start the CLI bridge or switch to Mindscape LLM."
+            f"Executor {executor_runtime} unavailable: no runtime connected. "
+            f"Start the CLI bridge or configure a fallback model."
         )
         return result
 
@@ -141,8 +180,40 @@ async def dispatch_to_agent(
             else {"id": assistant_event.id}
         )
     else:
+        # P0 Fail-Loud: agent execution failed, check for fallback
+        fallback_model = getattr(workspace, "fallback_model", None)
+        if fallback_model:
+            await emit_pipeline_stage(
+                workspace_id,
+                profile_id,
+                thread_id,
+                project_id,
+                "agent_fallback",
+                f"Executor {executor_runtime} failed: {agent_response.error}, using fallback model {fallback_model}",
+                user_event_id,
+            )
+            return await dispatch_to_llm(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                thread_id=thread_id,
+                project_id=project_id,
+                message=message,
+                user_event_id=user_event_id,
+                execution_mode=execution_mode,
+                model_name=fallback_model,
+                context_str=context_str,
+                store=store,
+                workspace=workspace,
+                profile=profile,
+                result=result,
+                is_fallback=True,
+            )
         result.success = False
-        result.error = agent_response.error or "Agent execution failed"
+        result.error = (
+            f"Executor {executor_runtime} execution failed: "
+            f"{agent_response.error or 'unknown error'}. "
+            f"Configure a fallback model to avoid this."
+        )
 
     return result
 
@@ -161,6 +232,7 @@ async def dispatch_to_llm(
     workspace: Any,
     profile: Any,
     result: Any,
+    is_fallback: bool = False,
 ) -> Any:
     """Dispatch to LLM streaming (pure generation, no decisions).
 
@@ -205,7 +277,12 @@ async def dispatch_to_llm(
             logger.warning(f"Failed to fetch default chat model: {e}")
 
     if not model_name or str(model_name).strip() == "":
-        model_name = "gpt-4"
+        result.success = False
+        result.error = (
+            "No chat model configured. "
+            "Set chat_model in system settings or configure a fallback model."
+        )
+        return result
 
     provider_manager = get_llm_provider_manager()
     provider, provider_type = get_llm_provider(
@@ -261,6 +338,7 @@ async def dispatch_to_llm(
         execution_playbook_result=None,
         openai_key=None,
         meeting_session_id=result.meeting_session_id,
+        is_fallback=is_fallback,
     ):
         # Accumulate full text from chunks
         if chunk.startswith("data: "):

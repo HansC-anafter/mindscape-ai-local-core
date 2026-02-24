@@ -24,6 +24,7 @@ async def stream_openai_response(
     messages: List[Dict[str, Any]],
     model_name: str,
     openai_key: Optional[str] = None,
+    is_fallback: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Stream response from OpenAI provider
@@ -53,7 +54,6 @@ async def stream_openai_response(
 
     full_text = ""
 
-    is_fallback = model_name == "gpt-4"  # Simplified detection
     if use_provider_stream:
         # Use improved provider abstraction
         async for chunk_content in provider.chat_completion_stream(
@@ -91,7 +91,10 @@ async def stream_openai_response(
 
 
 async def stream_vertexai_response(
-    provider: Any, messages: List[Dict[str, Any]], model_name: str
+    provider: Any,
+    messages: List[Dict[str, Any]],
+    model_name: str,
+    is_fallback: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Stream response from VertexAI provider
@@ -131,14 +134,14 @@ async def stream_vertexai_response(
         for i in range(0, len(response_text), chunk_size):
             chunk = response_text[i : i + chunk_size]
             full_text += chunk
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
         # Skip real provider
     elif hasattr(provider, "chat_completion_stream"):
         async for chunk_content in provider.chat_completion_stream(
             messages=messages, model=model_name, temperature=0.7, max_tokens=8000
         ):
             full_text += chunk_content
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name, 'is_fallback': model_name == 'gpt-4'})}\n\n"
+            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
     else:
         # Fallback: use non-streaming and simulate streaming
         logger.warning(
@@ -152,7 +155,7 @@ async def stream_vertexai_response(
         for i in range(0, len(response_text), chunk_size):
             chunk = response_text[i : i + chunk_size]
             full_text += chunk
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
 
 
 def create_assistant_event(
@@ -390,6 +393,7 @@ async def stream_llm_response(
     execution_playbook_result: Optional[Dict[str, Any]] = None,
     openai_key: Optional[str] = None,
     meeting_session_id: Optional[str] = None,
+    is_fallback: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Stream LLM response based on provider type and handle post-processing
@@ -418,17 +422,15 @@ async def stream_llm_response(
     """
     # CRITICAL FIX: Ensure model_name is never None
     if not model_name:
-        model_name = "gpt-4"
-        logger.warning(
-            f"[stream_llm_response] model_name was None, using ultimate fallback: {model_name}"
-        )
+        yield f"data: {json.dumps({'type': 'error', 'message': 'No chat model configured. Set chat_model in system settings.'})}\n\n"
+        return
 
     full_text = ""
 
     if provider_type == "OpenAIProvider":
         # Stream OpenAI response
         async for event in stream_openai_response(
-            provider, messages, model_name, openai_key
+            provider, messages, model_name, openai_key, is_fallback=is_fallback
         ):
             yield event
             # Extract chunk content to accumulate full_text
@@ -480,7 +482,7 @@ async def stream_llm_response(
                 yield event
 
         # Send final completion event (main response is complete)
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': model_name == 'gpt-4', 'is_final': True})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': is_fallback, 'is_final': True})}\n\n"
         logger.info(
             f"[LLMStreaming] Sent final complete event (OpenAI), full_text length: {len(full_text)} chars"
         )
@@ -492,7 +494,9 @@ async def stream_llm_response(
 
     elif provider_type == "VertexAIProvider":
         # Stream VertexAI response
-        async for event in stream_vertexai_response(provider, messages, model_name):
+        async for event in stream_vertexai_response(
+            provider, messages, model_name, is_fallback=is_fallback
+        ):
             yield event
             # Extract chunk content to accumulate full_text
             if event.startswith("data: "):
@@ -538,7 +542,7 @@ async def stream_llm_response(
                 yield event
 
         # Send final completion event (main response is complete)
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': model_name == 'gpt-4', 'is_final': True})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': is_fallback, 'is_final': True})}\n\n"
         logger.info(
             f"[LLMStreaming] Sent final complete event (VertexAI), full_text length: {len(full_text)} chars"
         )
