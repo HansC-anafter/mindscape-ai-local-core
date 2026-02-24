@@ -275,6 +275,10 @@ class MeetingEngine(
         )
 
         self._close_session(minutes_md=minutes_md, action_items=action_items)
+
+        # B8: Run L2 Bridge extraction pipeline (non-fatal)
+        self._run_l2_bridge_pipeline()
+
         self._emit_minutes_message(minutes_md)
 
         # Compile structured TaskIR from meeting output
@@ -334,6 +338,98 @@ class MeetingEngine(
                 "state_diff": self.session.state_diff,
             },
         )
+
+    def _run_l2_bridge_pipeline(self) -> None:
+        """Run L2 Bridge extraction pipeline after session close.
+
+        Pipeline: events → MeetingExtract → GoalLinking → LensPatch
+        All failures are non-fatal (logged, never breaks the meeting).
+        """
+        try:
+            from backend.app.services.orchestration.meeting.extract_service import (
+                MeetingExtractService,
+            )
+            from backend.app.services.orchestration.meeting.lens_patch_service import (
+                LensPatchService,
+            )
+            from backend.app.services.orchestration.meeting.goal_linking_service import (
+                GoalLinkingService,
+            )
+            from backend.app.services.stores.meeting_extract_store import (
+                MeetingExtractStore,
+            )
+            from backend.app.services.stores.lens_patch_store import LensPatchStore
+            from backend.app.services.stores.goal_set_store import GoalSetStore
+
+            # Step 1: Extract structured items from meeting events
+            extract_svc = MeetingExtractService()
+            extract = extract_svc.extract_from_events(
+                meeting_session_id=self.session.id,
+                events=self._events,
+            )
+
+            # Step 2: Link extract items to active GoalSet (if any)
+            goal_store = GoalSetStore()
+            active_goals = goal_store.list_by_project(
+                workspace_id=self.session.workspace_id,
+                project_id=self.project_id or "",
+                limit=1,
+            )
+            if active_goals:
+                linking_svc = GoalLinkingService()
+                extract = linking_svc.link_extract_to_goals(extract, active_goals[0])
+                extract.goal_set_id = active_goals[0].id
+
+            # Step 3: Persist the extract
+            extract_store = MeetingExtractStore()
+            extract_store.create(extract)
+            logger.info(
+                "L2 Bridge: persisted MeetingExtract %s (%d items) for session %s",
+                extract.id,
+                len(extract.items),
+                self.session.id,
+            )
+
+            # Step 4: Generate lens patch (compare before/after)
+            lens_after = None
+            try:
+                from backend.app.services.stores.graph_store import GraphStore
+                from backend.app.services.lens.effective_lens_resolver import (
+                    EffectiveLensResolver,
+                )
+                from backend.app.services.lens.session_override_store import (
+                    InMemorySessionStore,
+                )
+
+                resolver = EffectiveLensResolver(GraphStore(), InMemorySessionStore())
+                lens_after = resolver.resolve(
+                    profile_id=self.profile_id,
+                    workspace_id=self.session.workspace_id,
+                )
+            except Exception as exc:
+                logger.debug("L2 Bridge: could not resolve post-session lens: %s", exc)
+
+            patch_svc = LensPatchService()
+            patch = patch_svc.generate_patch_from_session(
+                session=self.session,
+                lens_before=self._effective_lens,
+                lens_after=lens_after,
+            )
+            if patch:
+                patch_store = LensPatchStore()
+                patch_store.create(patch)
+                logger.info(
+                    "L2 Bridge: persisted LensPatch %s for session %s",
+                    patch.id,
+                    self.session.id,
+                )
+
+        except Exception as exc:
+            logger.warning(
+                "L2 Bridge pipeline failed (non-fatal) for session %s: %s",
+                self.session.id,
+                exc,
+            )
 
     async def _agent_turn(
         self,
