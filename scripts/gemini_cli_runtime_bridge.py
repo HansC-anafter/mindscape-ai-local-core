@@ -170,6 +170,22 @@ def _looks_like_auth_error(stderr_text: str) -> bool:
     return any(p in lower for p in auth_patterns)
 
 
+def _looks_like_quota_error(text: str) -> bool:
+    """Detect quota/rate-limit errors (429 RESOURCE_EXHAUSTED)."""
+    if not text:
+        return False
+    lower = text.lower()
+    quota_patterns = (
+        "429",
+        "resource_exhausted",
+        "resource exhausted",
+        "quota exceeded",
+        "rate limit",
+        "too many requests",
+    )
+    return any(p in lower for p in quota_patterns)
+
+
 def _extract_response(raw_stdout: str) -> tuple:
     """Extract the final response and error from Gemini CLI JSON output.
 
@@ -357,13 +373,19 @@ def main():
         stdout, json_error = _extract_response(raw_stdout)
         stderr = (result.stderr or "")[:MAX_OUTPUT].strip()
 
-        # Retry once with fresh auth on auth-related failure
-        # Check both stderr AND stdout JSON error for auth indicators
+        # Retry once with fresh auth on auth-related or quota failure
+        # Check both stderr AND stdout JSON error for indicators
         auth_in_stderr = _looks_like_auth_error(stderr)
         auth_in_json = _looks_like_auth_error(json_error or "")
-        if result.returncode != 0 and (auth_in_stderr or auth_in_json):
-            log("Auth error detected, retrying with fresh auth env")
-            fresh_env = _fetch_auth_env()
+        quota_in_stderr = _looks_like_quota_error(stderr)
+        quota_in_json = _looks_like_quota_error(json_error or "")
+        is_retriable = (
+            auth_in_stderr or auth_in_json or quota_in_stderr or quota_in_json
+        )
+        if result.returncode != 0 and is_retriable:
+            error_kind = "quota" if (quota_in_stderr or quota_in_json) else "auth"
+            log(f"{error_kind} error detected, retrying with fresh auth env")
+            fresh_env, _ = _fetch_auth_env()
             if fresh_env:
                 sub_env.update(fresh_env)
                 remaining = max_duration - duration
