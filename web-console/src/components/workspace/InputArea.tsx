@@ -10,6 +10,7 @@ import { InputBottomBar } from './InputBottomBar';
 import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useMessages } from '@/contexts/MessagesContext';
 import { useChatModel } from '@/hooks/useChatModel';
+import { useExecutorSpecs, ExecutorSpec } from '@/hooks/useExecutorSpecs';
 import IntentChips from '../../app/workspaces/components/IntentChips';
 import { useToast } from '@/components/Toast';
 
@@ -64,6 +65,7 @@ export function InputArea({
   } = useWorkspaceMetadata();
   const { messages } = useMessages();
   const { selectModel } = useChatModel(apiUrl, { workspaceId });
+  const { specs, resolvedRuntime, addSpec, setPrimary, removeSpec } = useExecutorSpecs(workspaceId, apiUrl);
 
   // Fetch available agents from API
   const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([]);
@@ -91,24 +93,39 @@ export function InputArea({
     // Optimistic update
     setExecutorRuntime(agentId);
 
-    // Determine display name for the agent
     const agentDisplayName = agentId
       ? availableAgents.find(a => a.id === agentId)?.name || agentId
       : 'Mindscape LLM';
 
     try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/executor-runtime`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agent_id: agentId }),
+      let success = false;
+      if (agentId) {
+        // Check if already bound
+        const alreadyBound = specs.some((s: ExecutorSpec) => s.runtime_id === agentId);
+        if (alreadyBound) {
+          success = await setPrimary(agentId);
+        } else {
+          success = await addSpec({
+            runtime_id: agentId,
+            display_name: agentDisplayName,
+            is_primary: true,
+            priority: 0,
+          });
         }
-      );
+      } else {
+        // Clear: POST to legacy endpoint for backward compat
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/executor-runtime`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: null }),
+          }
+        );
+        success = response.ok;
+      }
 
-      if (!response.ok) {
-        console.error('[InputArea] Failed to set preferred agent:', await response.text());
-        // Revert on failure
+      if (!success) {
         setExecutorRuntime(previousAgent);
         showToast({
           type: 'error',
@@ -116,7 +133,6 @@ export function InputArea({
           duration: 3000,
         });
       } else {
-        console.log('[InputArea] Agent persisted:', agentId);
         showToast({
           type: 'success',
           message: agentId
@@ -126,11 +142,11 @@ export function InputArea({
         });
       }
     } catch (err) {
-      console.error('[InputArea] Error setting preferred agent:', err);
+      console.error('[InputArea] Error setting executor:', err);
       setExecutorRuntime(previousAgent);
       showToast({
         type: 'error',
-        message: `Failed to switch executor: network error`,
+        message: 'Failed to switch executor: network error',
         duration: 3000,
       });
     }
