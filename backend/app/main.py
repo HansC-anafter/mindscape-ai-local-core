@@ -237,6 +237,15 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.debug(f"CLI token routes not registered: {e}")
 
+    # GCA Pool API (multi-account pool management and quota reporting)
+    try:
+        from .routes.core.gca_pool_api import router as gca_pool_router
+
+        app.include_router(gca_pool_router, tags=["gca-pool"])
+        logger.info("GCA Pool API routes registered")
+    except Exception as e:
+        logger.debug(f"GCA Pool API routes not registered: {e}")
+
     app.include_router(tools.router, tags=["tools"])
     app.include_router(sandbox.router, tags=["sandboxes"])
     app.include_router(deployment.router, tags=["deployment"])
@@ -668,30 +677,7 @@ async def startup_event():
                 f"Failed to initialize mindscape tables (will retry on first use): {e2}"
             )
 
-    # Auto-migrate SQLite data if legacy database detected
-    try:
-        from backend.app.services.sqlite_auto_migrator import run_auto_migration
-
-        migration_result = run_auto_migration()
-        if migration_result.get("status") == "migrated":
-            logger.info(
-                f"SQLite auto migration completed: {migration_result.get('total_rows', 0)} rows, "
-                f"critical tables verified: {migration_result.get('critical_verified')}"
-            )
-        elif migration_result.get("status") == "skipped":
-            logger.debug(
-                f"SQLite auto migration skipped: {migration_result.get('reason')}"
-            )
-        elif migration_result.get("status") == "error":
-            logger.error(
-                f"SQLite auto migration error: {migration_result.get('error')}"
-            )
-            logger.error(
-                "Manual migration available: docker compose exec backend "
-                "python /app/backend/scripts/migrate_all_data_to_postgres.py"
-            )
-    except Exception as e:
-        logger.warning(f"SQLite auto migration failed (non-blocking): {e}")
+    # SQLite auto-migration removed (2026-02-23) — PostgreSQL is the only backend
 
     # Reap zombie tasks on startup and start periodic background reaper
     try:

@@ -5,7 +5,16 @@ Defines the data model for external runtime environments (e.g., cloud providers,
 Supports authentication configuration and encrypted storage of credentials.
 """
 
-from sqlalchemy import Column, String, Text, JSON, Boolean, DateTime, ForeignKey
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    JSON,
+    Boolean,
+    DateTime,
+    Integer,
+    ForeignKey,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
@@ -83,6 +92,14 @@ class RuntimeEnvironment(Base):
     # Custom metadata (avoiding SQLAlchemy reserved word 'metadata')
     extra_metadata = Column(JSON, nullable=True, default=dict)
 
+    # Multi-account pool support
+    pool_group = Column(String, nullable=True, index=True)
+    pool_enabled = Column(Boolean, nullable=False, default=True)
+    pool_priority = Column(Integer, nullable=False, default=0)
+    cooldown_until = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    last_error_code = Column(String, nullable=True)
+
     # Timestamps
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -123,6 +140,16 @@ class RuntimeEnvironment(Base):
                 if self.auth_status == "connected"
                 else None
             ),
+            "pool_group": self.pool_group,
+            "pool_enabled": self.pool_enabled,
+            "pool_priority": self.pool_priority,
+            "cooldown_until": (
+                self.cooldown_until.isoformat() if self.cooldown_until else None
+            ),
+            "last_used_at": (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
+            "last_error_code": self.last_error_code,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
