@@ -330,56 +330,6 @@ export default function CliApiKeysSection() {
                 </p>
             </div>
 
-            {/* Active mode + model indicator */}
-            <div className="mb-3 flex items-center gap-4 text-xs flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span className="text-gray-500 dark:text-gray-400">Active mode:</span>
-                    <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
-                        {currentAuthMode === 'gca' ? 'Google Account (GCA)'
-                            : currentAuthMode === 'gemini_api_key' ? 'Gemini API Key'
-                                : currentAuthMode === 'vertex_ai' ? 'Vertex AI'
-                                    : currentAuthMode}
-                    </span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-gray-500 dark:text-gray-400">Agent model:</span>
-                    <select
-                        value={agentModel}
-                        onChange={async (e) => {
-                            const newModel = e.target.value;
-                            setAgentModel(newModel);
-                            setSavingModel(true);
-                            try {
-                                const base = getApiBaseUrl();
-                                const resp = await fetch(
-                                    `${base}/api/v1/system-settings/agent_cli_model?value=${encodeURIComponent(newModel)}`,
-                                    { method: 'PUT' }
-                                );
-                                if (resp.ok) {
-                                    setSavedModel(true);
-                                    setTimeout(() => setSavedModel(false), 2000);
-                                }
-                            } catch { /* ignore */ }
-                            finally { setSavingModel(false); }
-                        }}
-                        disabled={savingModel}
-                        className="px-2 py-0.5 text-xs rounded-md border
-                            border-gray-300 dark:border-gray-600
-                            bg-white dark:bg-gray-700
-                            text-gray-900 dark:text-gray-100
-                            focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                            disabled:opacity-50"
-                    >
-                        <option value="gemini-3-pro">Gemini 3 Pro</option>
-                        <option value="gemini-3-flash">Gemini 3 Flash</option>
-                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    </select>
-                    {savedModel && (
-                        <span className="text-green-600 dark:text-green-400">✓</span>
-                    )}
-                </div>
-            </div>
 
             {/* Tabs */}
             <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
@@ -407,6 +357,59 @@ export default function CliApiKeysSection() {
                     </button>
                 ))}
             </div>
+
+            {/* Active mode + model indicator (Gemini-specific, inside tab content) */}
+            {(activeTab === 'gca' || activeTab === 'gemini') && (
+                <div className="mb-3 flex items-center gap-4 text-xs flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <span className="text-gray-500 dark:text-gray-400">Active mode:</span>
+                        <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
+                            {currentAuthMode === 'gca' ? 'Google Account (GCA)'
+                                : currentAuthMode === 'gemini_api_key' ? 'Gemini API Key'
+                                    : currentAuthMode === 'vertex_ai' ? 'Vertex AI'
+                                        : currentAuthMode}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-gray-500 dark:text-gray-400">Agent model:</span>
+                        <select
+                            value={agentModel}
+                            onChange={async (e) => {
+                                const newModel = e.target.value;
+                                setAgentModel(newModel);
+                                setSavingModel(true);
+                                try {
+                                    const base = getApiBaseUrl();
+                                    const resp = await fetch(
+                                        `${base}/api/v1/system-settings/agent_cli_model?value=${encodeURIComponent(newModel)}`,
+                                        { method: 'PUT' }
+                                    );
+                                    if (resp.ok) {
+                                        setSavedModel(true);
+                                        setTimeout(() => setSavedModel(false), 2000);
+                                    }
+                                } catch { /* ignore */ }
+                                finally { setSavingModel(false); }
+                            }}
+                            disabled={savingModel}
+                            className="px-2 py-0.5 text-xs rounded-md border
+                                border-gray-300 dark:border-gray-600
+                                bg-white dark:bg-gray-700
+                                text-gray-900 dark:text-gray-100
+                                focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                                disabled:opacity-50"
+                        >
+                            <option value="gemini-3-pro">Gemini 3 Pro</option>
+                            <option value="gemini-3-flash">Gemini 3 Flash</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        </select>
+                        {savedModel && (
+                            <span className="text-green-600 dark:text-green-400">✓</span>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Active tab content */}
             <div className="space-y-4">
@@ -436,19 +439,19 @@ export default function CliApiKeysSection() {
                                     <div
                                         key={acct.id}
                                         className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${!acct.pool_enabled
-                                                ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 opacity-60'
-                                                : isCooling
-                                                    ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10'
-                                                    : acct.auth_status === 'connected'
-                                                        ? 'border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10'
-                                                        : 'border-gray-200 dark:border-gray-700'
+                                            ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 opacity-60'
+                                            : isCooling
+                                                ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10'
+                                                : acct.auth_status === 'connected'
+                                                    ? 'border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10'
+                                                    : 'border-gray-200 dark:border-gray-700'
                                             }`}
                                     >
                                         {/* Status dot */}
                                         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isPending ? 'bg-amber-400 animate-pulse'
-                                                : isCooling ? 'bg-amber-500'
-                                                    : acct.auth_status === 'connected' ? 'bg-green-500'
-                                                        : 'bg-gray-400'
+                                            : isCooling ? 'bg-amber-500'
+                                                : acct.auth_status === 'connected' ? 'bg-green-500'
+                                                    : 'bg-gray-400'
                                             }`} />
 
                                         {/* Account info */}
@@ -494,8 +497,8 @@ export default function CliApiKeysSection() {
                                                 onClick={() => handleToggleEnabled(acct.id, !acct.pool_enabled)}
                                                 title={acct.pool_enabled ? 'Disable' : 'Enable'}
                                                 className={`w-8 h-4 rounded-full relative transition-colors ${acct.pool_enabled
-                                                        ? 'bg-green-500'
-                                                        : 'bg-gray-300 dark:bg-gray-600'
+                                                    ? 'bg-green-500'
+                                                    : 'bg-gray-300 dark:bg-gray-600'
                                                     }`}
                                             >
                                                 <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${acct.pool_enabled ? 'left-[18px]' : 'left-0.5'
