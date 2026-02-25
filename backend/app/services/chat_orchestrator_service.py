@@ -153,7 +153,9 @@ class ChatOrchestratorService:
             )
 
             # 4. Agent dispatch (if workspace has executor_runtime)
-            executor_runtime = getattr(workspace, "executor_runtime", None)
+            executor_runtime = getattr(
+                workspace, "resolved_executor_runtime", None
+            ) or getattr(workspace, "executor_runtime", None)
             if executor_runtime:
                 await self._handle_agent_dispatch(
                     request=request,

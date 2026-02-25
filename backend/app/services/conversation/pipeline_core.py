@@ -171,7 +171,9 @@ class PipelineCore:
                 )
 
                 execution_launcher = build_execution_launcher(self.store)
-                executor_runtime = getattr(self.workspace, "executor_runtime", None)
+                executor_runtime = getattr(
+                    self.workspace, "resolved_executor_runtime", None
+                ) or getattr(self.workspace, "executor_runtime", None)
                 meeting_engine = MeetingEngine(
                     session=session,
                     store=self.store,
@@ -251,7 +253,9 @@ class PipelineCore:
             )
 
             # --- Stage 3: Dispatch ---
-            executor_runtime = getattr(self.workspace, "executor_runtime", None)
+            executor_runtime = getattr(
+                self.workspace, "resolved_executor_runtime", None
+            ) or getattr(self.workspace, "executor_runtime", None)
 
             if executor_runtime:
                 result = await dispatch_to_agent(
