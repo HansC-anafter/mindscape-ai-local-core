@@ -7,8 +7,18 @@ REST endpoints for managing the GCA multi-account pool.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+
+try:
+    from ...auth import get_current_user
+except ImportError:
+    from typing import Any
+
+    async def get_current_user() -> Any:
+        """Placeholder for development"""
+        return type("User", (), {"id": "dev-user"})()
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +45,14 @@ async def list_pool():
 
 
 @router.post("/add")
-async def add_account(user_id: str = "default"):
+async def add_account(current_user=Depends(get_current_user)):
     """Create a new pool runtime for OAuth enrollment.
 
     Returns the new runtime info. Caller should redirect to
     /api/v1/runtime-oauth/{runtime_id}/authorize to start OAuth.
     """
     service = _get_service()
-    account = service.add_account(user_id=user_id)
+    account = service.add_account(user_id=current_user.id)
     return {
         "account": account,
         "authorize_url": f"/api/v1/runtime-oauth/{account['id']}/authorize",
