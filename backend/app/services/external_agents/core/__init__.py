@@ -21,6 +21,10 @@ from backend.app.services.external_agents.core.execution_trace import (
     FileChange,
 )
 from backend.app.services.external_agents.core.registry import (
+    RuntimeRegistry,
+    RuntimeManifest,
+    get_runtime_registry,
+    # Backward compat aliases
     AgentRegistry,
     AgentManifest,
     get_agent_registry,
@@ -56,7 +60,11 @@ __all__ = [
     "ExecutionTraceCollector",
     "ToolCall",
     "FileChange",
-    # Registry
+    # Registry (new names)
+    "RuntimeRegistry",
+    "RuntimeManifest",
+    "get_runtime_registry",
+    # Registry (backward compat aliases)
     "AgentRegistry",
     "AgentManifest",
     "get_agent_registry",

@@ -1,8 +1,8 @@
 """
-Agent Registry
+Runtime Registry
 
 Auto-discovers and registers external runtime adapters from the agents/ directory.
-Each agent should have an AGENT.md manifest file.
+Each runtime should have a RUNTIME.md (or legacy AGENT.md) manifest file.
 """
 
 import importlib
@@ -26,27 +26,27 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class AgentManifest:
+class RuntimeManifest:
     """
-    Parsed AGENT.md manifest for an external agent.
+    Parsed RUNTIME.md manifest for an external runtime.
 
     Similar to SKILL.md for capability packs.
     """
 
     name: str
-    """Agent name (e.g., 'openclaw', 'autogpt')."""
+    """Runtime name (e.g., 'openclaw', 'gemini_cli')."""
 
     version: str
-    """Agent adapter version."""
+    """Runtime adapter version."""
 
     description: str
     """Human-readable description."""
 
     cli_command: Optional[str] = None
-    """CLI command to invoke the agent."""
+    """CLI command to invoke the runtime."""
 
     min_version: Optional[str] = None
-    """Minimum required agent version."""
+    """Minimum required runtime version."""
 
     # Default configuration
     defaults: Dict[str, Any] = field(default_factory=dict)
@@ -68,33 +68,37 @@ class AgentManifest:
     """Python module path for the adapter."""
 
     manifest_path: Optional[str] = None
-    """Path to the AGENT.md file."""
+    """Path to the RUNTIME.md file."""
 
 
-class AgentRegistry:
+# Backward compat alias
+AgentManifest = RuntimeManifest
+
+
+class RuntimeRegistry:
     """
-    Registry for external agent adapters.
+    Registry for external runtime adapters.
 
-    Auto-discovers agents from the agents/ directory and provides
+    Auto-discovers runtimes from the agents/ directory and provides
     a unified interface for the Playbook engine.
 
     Usage:
-        registry = get_agent_registry()
+        registry = get_runtime_registry()
         openclaw = registry.get_adapter("openclaw")
         if await openclaw.is_available():
             response = await openclaw.execute(request)
     """
 
-    _instance: Optional["AgentRegistry"] = None
+    _instance: Optional["RuntimeRegistry"] = None
 
     def __init__(self):
         """Initialize the registry."""
         self._adapters: Dict[str, BaseRuntimeAdapter] = {}
-        self._manifests: Dict[str, AgentManifest] = {}
+        self._manifests: Dict[str, RuntimeManifest] = {}
         self._agents_dir = Path(__file__).parent.parent / "agents"
 
     @classmethod
-    def get_instance(cls) -> "AgentRegistry":
+    def get_instance(cls) -> "RuntimeRegistry":
         """Get or create the singleton registry instance."""
         if cls._instance is None:
             cls._instance = cls()
@@ -103,10 +107,10 @@ class AgentRegistry:
 
     def discover_agents(self) -> None:
         """
-        Discover and register all agents in the agents/ directory.
+        Discover and register all runtimes in the agents/ directory.
 
-        Each agent directory should contain:
-        - AGENT.md: Manifest with metadata (YAML frontmatter)
+        Each runtime directory should contain:
+        - RUNTIME.md (or legacy AGENT.md): Manifest with metadata (YAML frontmatter)
         - adapter.py: Implementation of BaseRuntimeAdapter
         """
         if not self._agents_dir.exists():
@@ -123,23 +127,26 @@ class AgentRegistry:
             try:
                 self._load_agent(agent_dir)
             except Exception as e:
-                logger.error(f"Failed to load agent {agent_dir.name}: {e}")
+                logger.error(f"Failed to load runtime {agent_dir.name}: {e}")
 
     def _load_agent(self, agent_dir: Path) -> None:
-        """Load a single agent from its directory."""
+        """Load a single runtime from its directory."""
         agent_name = agent_dir.name
 
-        # Parse AGENT.md manifest
-        manifest_path = agent_dir / "AGENT.md"
+        # Parse RUNTIME.md manifest (fallback to legacy AGENT.md)
+        manifest_path = agent_dir / "RUNTIME.md"
+        if not manifest_path.exists():
+            manifest_path = agent_dir / "AGENT.md"
+
         if manifest_path.exists():
             manifest = self._parse_manifest(manifest_path)
             manifest.manifest_path = str(manifest_path)
         else:
             # Create default manifest
-            manifest = AgentManifest(
+            manifest = RuntimeManifest(
                 name=agent_name,
                 version="0.0.0",
-                description=f"Auto-discovered agent: {agent_name}",
+                description=f"Auto-discovered runtime: {agent_name}",
             )
 
         # Load adapter module
@@ -150,18 +157,18 @@ class AgentRegistry:
                 if adapter:
                     self._adapters[agent_name] = adapter
                     self._manifests[agent_name] = manifest
-                    logger.info(f"Registered agent: {agent_name}")
+                    logger.info(f"Registered runtime: {agent_name}")
             except Exception as e:
                 logger.error(f"Failed to load adapter for {agent_name}: {e}")
 
-    def _parse_manifest(self, manifest_path: Path) -> AgentManifest:
-        """Parse AGENT.md file with YAML frontmatter."""
+    def _parse_manifest(self, manifest_path: Path) -> RuntimeManifest:
+        """Parse RUNTIME.md (or AGENT.md) file with YAML frontmatter."""
         content = manifest_path.read_text()
 
         # Extract YAML frontmatter
         frontmatter_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
         if not frontmatter_match:
-            return AgentManifest(
+            return RuntimeManifest(
                 name=manifest_path.parent.name,
                 version="0.0.0",
                 description="No manifest found",
@@ -182,7 +189,7 @@ class AgentRegistry:
         # Extract governance settings
         governance = frontmatter.get("governance", {})
 
-        return AgentManifest(
+        return RuntimeManifest(
             name=frontmatter.get("name", manifest_path.parent.name),
             version=frontmatter.get("version", "0.0.0"),
             description=frontmatter.get("description", ""),
@@ -241,20 +248,20 @@ class AgentRegistry:
         """Get an adapter by name."""
         return self._adapters.get(agent_name)
 
-    def get_manifest(self, agent_name: str) -> Optional[AgentManifest]:
+    def get_manifest(self, agent_name: str) -> Optional[RuntimeManifest]:
         """Get a manifest by name."""
         return self._manifests.get(agent_name)
 
     def list_agents(self) -> List[str]:
-        """List all registered agent names."""
+        """List all registered runtime names."""
         return list(self._adapters.keys())
 
-    def get_all_manifests(self) -> Dict[str, AgentManifest]:
+    def get_all_manifests(self) -> Dict[str, RuntimeManifest]:
         """Get all registered manifests."""
         return self._manifests.copy()
 
     async def check_availability(self) -> Dict[str, bool]:
-        """Check availability of all registered agents."""
+        """Check availability of all registered runtimes."""
         result = {}
         for name, adapter in self._adapters.items():
             try:
@@ -264,7 +271,17 @@ class AgentRegistry:
         return result
 
 
+# Backward compat alias
+AgentRegistry = RuntimeRegistry
+
+
 # Singleton accessor
-def get_agent_registry() -> AgentRegistry:
-    """Get the global agent registry instance."""
-    return AgentRegistry.get_instance()
+def get_runtime_registry() -> RuntimeRegistry:
+    """Get the global runtime registry instance."""
+    return RuntimeRegistry.get_instance()
+
+
+# Backward compat alias
+def get_agent_registry() -> RuntimeRegistry:
+    """Deprecated: use get_runtime_registry() instead."""
+    return get_runtime_registry()

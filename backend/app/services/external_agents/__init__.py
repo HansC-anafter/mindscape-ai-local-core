@@ -1,7 +1,7 @@
 """
 External Agents Package
 
-Provides a pluggable architecture for integrating external AI agents
+Provides a pluggable architecture for integrating external AI runtimes
 within Mindscape's governance layer.
 
 ## Architecture
@@ -11,24 +11,24 @@ external_agents/
 ├── core/                      # Core framework
 │   ├── base_adapter.py        # Abstract base class
 │   ├── execution_trace.py     # Trace collection
-│   └── registry.py            # Agent discovery
+│   └── registry.py            # Runtime discovery
 │
-└── agents/                    # Pluggable agents
-    └── <agent_id>/            # Each agent as subdirectory
-        ├── AGENT.md           # Manifest
+└── agents/                    # Pluggable runtimes
+    └── <runtime_id>/          # Each runtime as subdirectory
+        ├── RUNTIME.md         # Manifest
         └── adapter.py         # Implementation
 ```
 
 ## Usage
 
 ```python
-from backend.app.services.external_agents import get_agent_registry
+from backend.app.services.external_agents import get_runtime_registry
 
-registry = get_agent_registry()
-agent = registry.get_adapter("your_agent_id")
+registry = get_runtime_registry()
+runtime = registry.get_adapter("your_runtime_id")
 
-if await agent.is_available():
-    response = await agent.execute(request)
+if await runtime.is_available():
+    response = await runtime.execute(request)
 ```
 """
 
@@ -47,7 +47,11 @@ from backend.app.services.external_agents.core import (
     ExecutionTraceCollector,
     ToolCall,
     FileChange,
-    # Registry
+    # Registry (new names)
+    RuntimeRegistry,
+    RuntimeManifest,
+    get_runtime_registry,
+    # Registry (backward compat aliases)
     AgentRegistry,
     AgentManifest,
     get_agent_registry,
@@ -76,6 +80,11 @@ __all__ = [
     "ExecutionTraceCollector",
     "ToolCall",
     "FileChange",
+    # Registry (new names)
+    "RuntimeRegistry",
+    "RuntimeManifest",
+    "get_runtime_registry",
+    # Registry (backward compat aliases)
     "AgentRegistry",
     "AgentManifest",
     "get_agent_registry",

@@ -29,7 +29,7 @@ from backend.app.models.doer_workspace_config import (
     get_default_doer_config,
 )
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.external_agents.core.registry import get_agent_registry
+from backend.app.services.external_agents.core.registry import get_runtime_registry
 from backend.app.models.executor_spec import (
     ExecutorSpec,
     validate_executor_specs,
@@ -169,7 +169,7 @@ async def configure_agent(
 
         # Validate executor_runtime if provided
         if request.executor_runtime:
-            registry = get_agent_registry()
+            registry = get_runtime_registry()
             if request.executor_runtime not in registry.list_agents():
                 raise HTTPException(
                     status_code=400,
@@ -328,7 +328,7 @@ async def list_available_agents(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        registry = get_agent_registry()
+        registry = get_runtime_registry()
         agents = []
 
         for agent_name in registry.list_agents():
@@ -389,7 +389,7 @@ async def set_executor_runtime(
 
         # Validate agent if provided
         if agent_id:
-            registry = get_agent_registry()
+            registry = get_runtime_registry()
             if agent_id not in registry.list_agents():
                 raise HTTPException(
                     status_code=400,
@@ -505,7 +505,7 @@ async def add_executor_spec(
         raise HTTPException(status_code=404, detail="Workspace not found")
 
     # Validate runtime exists in registry
-    registry = get_agent_registry()
+    registry = get_runtime_registry()
     if request.runtime_id not in registry.list_agents():
         raise HTTPException(
             status_code=400,

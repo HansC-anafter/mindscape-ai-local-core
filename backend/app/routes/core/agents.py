@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.app.services.external_agents.core.registry import get_agent_registry
+from backend.app.services.external_agents.core.registry import get_runtime_registry
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ async def list_agents():
     Returns agent metadata from AGENT.md manifests and availability status.
     """
     try:
-        registry = get_agent_registry()
+        registry = get_runtime_registry()
 
         # Ensure discovery has run
         if not registry._adapters:
@@ -115,7 +115,7 @@ async def get_agent(agent_id: str):
     Get details for a specific agent.
     """
     try:
-        registry = get_agent_registry()
+        registry = get_runtime_registry()
         manifest = registry.get_manifest(agent_id)
 
         if not manifest:
