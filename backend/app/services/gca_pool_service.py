@@ -27,16 +27,16 @@ class GCAPoolService:
 
     def _get_db(self):
         try:
-            from ..database.session import get_db_postgres as get_db
+            from backend.app.database.session import get_db_postgres as get_db
         except ImportError:
             try:
-                from ..database import get_db_postgres as get_db
+                from backend.app.database import get_db_postgres as get_db
             except ImportError:
                 from mindscape.di.providers import get_db_session as get_db
         return next(get_db())
 
     def _get_model(self):
-        from ..models.runtime_environment import RuntimeEnvironment
+        from backend.app.models.runtime_environment import RuntimeEnvironment
 
         return RuntimeEnvironment
 
@@ -194,7 +194,7 @@ class GCAPoolService:
         db = self._get_db()
         RuntimeEnvironment = self._get_model()
         try:
-            from ..services.runtime_auth_service import RuntimeAuthService
+            from backend.app.services.runtime_auth_service import RuntimeAuthService
 
             now = datetime.now(timezone.utc)
             runtimes = (
@@ -263,7 +263,7 @@ class GCAPoolService:
         if not refresh_token:
             return None
 
-        from ..routes.core.gca_constants import (
+        from backend.app.routes.core.gca_constants import (
             get_gca_client_id,
             get_gca_client_secret,
         )

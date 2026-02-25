@@ -21,7 +21,7 @@ class UpdateAccountRequest(BaseModel):
 
 
 def _get_service():
-    from ..services.gca_pool_service import GCAPoolService
+    from backend.app.services.gca_pool_service import GCAPoolService
 
     return GCAPoolService()
 
