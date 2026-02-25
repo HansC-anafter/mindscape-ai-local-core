@@ -54,7 +54,7 @@ async def execute_agent(
     """
     import uuid
     from backend.app.services.external_agents import (
-        get_agent_registry,
+        get_runtime_registry,
         RuntimeExecRequest,
     )
     from backend.app.services.external_agents.core.execution_trace import (
@@ -99,7 +99,7 @@ async def execute_agent(
         }
 
     # Get registry
-    registry = get_agent_registry()
+    registry = get_runtime_registry()
 
     # Get adapter
     adapter = registry.get_adapter(agent)
@@ -222,9 +222,9 @@ async def list_agents() -> Dict[str, Any]:
     Returns:
         dict with agents list and their availability
     """
-    from backend.app.services.external_agents import get_agent_registry
+    from backend.app.services.external_agents import get_runtime_registry
 
-    registry = get_agent_registry()
+    registry = get_runtime_registry()
     agents = registry.list_agents()
     manifests = registry.get_all_manifests()
     availability = await registry.check_availability()
@@ -254,9 +254,9 @@ async def check_agent(agent: str) -> Dict[str, Any]:
     Returns:
         dict with available, version, manifest info
     """
-    from backend.app.services.external_agents import get_agent_registry
+    from backend.app.services.external_agents import get_runtime_registry
 
-    registry = get_agent_registry()
+    registry = get_runtime_registry()
     adapter = registry.get_adapter(agent)
     manifest = registry.get_manifest(agent)
 

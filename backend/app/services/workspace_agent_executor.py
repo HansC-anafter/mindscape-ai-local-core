@@ -17,7 +17,7 @@ def _utc_now():
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
-from backend.app.services.external_agents.core.registry import get_agent_registry
+from backend.app.services.external_agents.core.registry import get_runtime_registry
 from backend.app.services.external_agents.core.base_adapter import (
     RuntimeExecRequest,
     RuntimeExecResponse,
@@ -78,7 +78,7 @@ class WorkspaceAgentExecutor:
             workspace: Workspace model instance
         """
         self.workspace = workspace
-        self.registry = get_agent_registry()
+        self.registry = get_runtime_registry()
         self.preflight = PlaybookPreflight()
         self.trace_service = ExecutionTraceService()
 
@@ -97,11 +97,7 @@ class WorkspaceAgentExecutor:
             return False
 
         try:
-            from backend.app.services.external_agents.core.registry import (
-                get_agent_registry,
-            )
-
-            registry = get_agent_registry()
+            registry = get_runtime_registry()
             adapter = registry.get_adapter(agent_id)
             if not adapter:
                 logger.debug(f"No adapter found for agent {agent_id}")

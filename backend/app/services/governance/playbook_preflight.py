@@ -457,10 +457,10 @@ class PlaybookPreflight:
         """
         try:
             from backend.app.services.external_agents.core.registry import (
-                get_agent_registry,
+                get_runtime_registry,
             )
 
-            registry = get_agent_registry()
+            registry = get_runtime_registry()
 
             # Check if agent is registered
             if agent_id not in registry.list_agents():
@@ -488,6 +488,32 @@ class PlaybookPreflight:
             logger.error(f"Error checking agent availability: {e}")
             return False, str(e)
 
+    def _get_bound_runtime_ids(self, workspace: Any) -> List[str]:
+        """Return workspace-bound runtime IDs from executor_specs or fallback field."""
+        runtime_ids: List[str] = []
+
+        executor_specs = getattr(workspace, "executor_specs", None) or []
+        for spec in executor_specs:
+            runtime_id = None
+            if isinstance(spec, dict):
+                runtime_id = spec.get("runtime_id")
+            else:
+                runtime_id = getattr(spec, "runtime_id", None)
+
+            if isinstance(runtime_id, str):
+                rid = runtime_id.strip()
+                if rid and rid not in runtime_ids:
+                    runtime_ids.append(rid)
+
+        if runtime_ids:
+            return runtime_ids
+
+        preferred = getattr(workspace, "executor_runtime", None)
+        if isinstance(preferred, str) and preferred.strip():
+            return [preferred.strip()]
+
+        return []
+
     def _check_sandbox_config(
         self,
         agent_id: str,
@@ -507,12 +533,12 @@ class PlaybookPreflight:
         Returns:
             Tuple of (approved, issue_description)
         """
-        # Verify the agent matches workspace preference (unified model - all workspaces equal)
-        preferred = getattr(workspace, "executor_runtime", None)
-        if preferred and preferred != agent_id:
+        # P2: allow all runtimes bound to the workspace (executor_specs first, then fallback field).
+        bound_runtimes = self._get_bound_runtime_ids(workspace)
+        if bound_runtimes and agent_id not in bound_runtimes:
             return (
                 False,
-                f"Workspace executor_runtime is '{preferred}', not '{agent_id}'",
+                f"Agent '{agent_id}' not in workspace executor_specs: {bound_runtimes}",
             )
 
         # Get sandbox config
