@@ -70,7 +70,8 @@ class HandoffRegistryClient:
         max_retries: int = 3,
         base_delay: float = 1.0,
     ):
-        self.registry_url = registry_url or os.getenv("HANDOFF_REGISTRY_URL")
+        # Reuse the same site-hub base URL as auth.py (no separate env var)
+        self.registry_url = registry_url or os.getenv("SITE_HUB_API_BASE")
         self.device_id = device_id or os.getenv("DEVICE_ID", "unknown")
         self.tenant_id = tenant_id or os.getenv("TENANT_ID")
         self.max_retries = max_retries
@@ -273,7 +274,7 @@ class HandoffRegistryClient:
         if not httpx:
             raise RegistryUnavailable("httpx not installed")
         if not self.registry_url:
-            raise RegistryUnavailable("HANDOFF_REGISTRY_URL not configured")
+            raise RegistryUnavailable("SITE_HUB_API_BASE not configured")
 
         url = f"{self.registry_url.rstrip('/')}/api/v1/registry{path}"
         last_error = None
