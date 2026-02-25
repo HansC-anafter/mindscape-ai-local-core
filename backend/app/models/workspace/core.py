@@ -123,10 +123,15 @@ class Workspace(BaseModel):
     # Users explicitly choose which runtime to use; governance applies automatically
     executor_runtime: Optional[str] = Field(
         None,
-        description="Currently selected executor runtime for task dispatch "
-        "(e.g., 'openclaw', 'gemini_cli'). When set, tasks are routed to "
-        "this runtime instead of Mindscape LLM. "
-        "All workspaces can use external runtimes - governance/sandbox applies automatically.",
+        description="Legacy: single executor runtime string. "
+        "Kept for backward compatibility (dual-write). "
+        "Use executor_specs for new code.",
+    )
+    executor_specs: Optional[List[Dict[str, Any]]] = Field(
+        default_factory=list,
+        description="Bound executor specifications (P2 ExecutorSpec). "
+        "Each entry: {runtime_id, display_name, is_primary, config, priority}. "
+        "Stored as JSONB. Supersedes executor_runtime.",
     )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None,
@@ -139,6 +144,23 @@ class Workspace(BaseModel):
         description="Explicit fallback model name when executor_runtime fails. "
         "None = no fallback, report error to user.",
     )
+
+    @property
+    def resolved_executor_runtime(self) -> Optional[str]:
+        """Primary executor runtime_id, derived from executor_specs with legacy fallback."""
+        if self.executor_specs:
+            for spec in self.executor_specs:
+                if isinstance(spec, dict) and spec.get("is_primary"):
+                    return spec["runtime_id"]
+            # No primary marked — return first by priority
+            sorted_specs = sorted(
+                self.executor_specs,
+                key=lambda s: s.get("priority", 999) if isinstance(s, dict) else 999,
+            )
+            if sorted_specs:
+                s = sorted_specs[0]
+                return s["runtime_id"] if isinstance(s, dict) else None
+        return self.executor_runtime
 
     # Extensible metadata for features (core_memory, preferences, etc.)
     metadata: Optional[Dict[str, Any]] = Field(
