@@ -30,6 +30,12 @@ from backend.app.models.doer_workspace_config import (
 )
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.external_agents.core.registry import get_agent_registry
+from backend.app.models.executor_spec import (
+    ExecutorSpec,
+    validate_executor_specs,
+    resolve_executor_chain,
+    promote_next_primary,
+)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspace-agents"])
 logger = logging.getLogger(__name__)
@@ -101,15 +107,16 @@ async def get_agent_config(
 
         # Get agent status if executor_runtime is set
         agent_status = None
-        if workspace.executor_runtime:
+        active_runtime = workspace.resolved_executor_runtime
+        if active_runtime:
             try:
                 from backend.app.routes.core.system_settings.governance_tools import (
                     get_agent_install_status,
                 )
 
-                status = get_agent_install_status(workspace.executor_runtime)
+                status = get_agent_install_status(active_runtime)
                 agent_status = {
-                    "agent_id": workspace.executor_runtime,
+                    "agent_id": active_runtime,
                     "status": status.status,
                     "cli_available": status.cli_available,
                     "version": status.version,
@@ -127,7 +134,7 @@ async def get_agent_config(
 
         return AgentConfigResponse(
             workspace_id=workspace_id,
-            executor_runtime=workspace.executor_runtime,
+            executor_runtime=active_runtime,
             agent_status=agent_status,
             sandbox_config=sandbox_config,
             agent_fallback_enabled=getattr(workspace, "fallback_model", None)
@@ -194,6 +201,8 @@ async def configure_agent(
 
         # Update workspace (fix: pass Workspace object, not dict)
         workspace.executor_runtime = request.executor_runtime
+        # Dual-write: sync executor_specs
+        _sync_executor_specs_from_runtime(workspace, request.executor_runtime)
         workspace.sandbox_config = (
             sandbox_config.model_dump() if sandbox_config else None
         )
@@ -405,6 +414,10 @@ async def set_executor_runtime(
 
         # Apply updates to workspace object
         workspace.executor_runtime = update_data.get("executor_runtime")
+        # Dual-write: sync executor_specs
+        _sync_executor_specs_from_runtime(
+            workspace, update_data.get("executor_runtime")
+        )
         workspace.updated_at = update_data.get("updated_at")
         if "sandbox_config" in update_data:
             workspace.sandbox_config = update_data.get("sandbox_config")
@@ -428,7 +441,7 @@ async def set_executor_runtime(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Deprecated alias — keep for backward compatibility
+# Deprecated alias
 @router.post("/{workspace_id}/preferred-agent", deprecated=True)
 async def set_preferred_agent(
     workspace_id: str = Path(..., description="Workspace ID"),
@@ -440,3 +453,220 @@ async def set_preferred_agent(
         "Use /executor-runtime instead."
     )
     return await set_executor_runtime(workspace_id=workspace_id, agent_id=agent_id)
+
+
+# ==================== ExecutorSpec CRUD (P2) ====================
+
+
+class AddExecutorSpecRequest(BaseModel):
+    """Request to bind an executor to a workspace."""
+
+    runtime_id: str = Field(
+        ..., description="Registry key (snake_case, e.g. 'gemini_cli')"
+    )
+    display_name: str = Field("", description="Display name")
+    is_primary: bool = Field(False, description="Set as primary executor")
+    config: dict = Field(
+        default_factory=dict, description="Workspace-specific config overrides"
+    )
+    priority: int = Field(0, description="Dispatch priority (lower = higher priority)")
+
+
+@router.get("/{workspace_id}/executor-specs")
+async def list_executor_specs(
+    workspace_id: str = Path(..., description="Workspace ID"),
+) -> dict:
+    """List bound executor specs for a workspace."""
+    store = MindscapeStore()
+    workspace = await store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    specs = workspace.executor_specs or []
+    return {
+        "workspace_id": workspace_id,
+        "executor_specs": specs,
+        "resolved_executor_runtime": workspace.resolved_executor_runtime,
+        "dispatch_chain": resolve_executor_chain(
+            [ExecutorSpec.from_dict(s) for s in specs if isinstance(s, dict)]
+        ),
+    }
+
+
+@router.post("/{workspace_id}/executor-specs")
+async def add_executor_spec(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    request: AddExecutorSpecRequest = Body(...),
+) -> dict:
+    """Bind a new executor to a workspace."""
+    store = MindscapeStore()
+    workspace = await store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    # Validate runtime exists in registry
+    registry = get_agent_registry()
+    if request.runtime_id not in registry.list_agents():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown runtime: {request.runtime_id}. "
+            f"Available: {', '.join(registry.list_agents())}",
+        )
+
+    specs = [
+        ExecutorSpec.from_dict(s)
+        for s in (workspace.executor_specs or [])
+        if isinstance(s, dict)
+    ]
+
+    # Check duplicate
+    if any(s.runtime_id == request.runtime_id for s in specs):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Runtime '{request.runtime_id}' already bound to this workspace",
+        )
+
+    # If setting as primary, demote existing primary
+    if request.is_primary:
+        for s in specs:
+            s.is_primary = False
+
+    # If first spec and not explicitly primary, auto-promote
+    if not specs and not request.is_primary:
+        request.is_primary = True
+
+    new_spec = ExecutorSpec(
+        runtime_id=request.runtime_id,
+        display_name=request.display_name or request.runtime_id,
+        is_primary=request.is_primary,
+        config=request.config,
+        priority=request.priority,
+    )
+    specs.append(new_spec)
+
+    # Validate constraints
+    errors = validate_executor_specs(specs)
+    if errors:
+        raise HTTPException(status_code=400, detail=f"Spec validation failed: {errors}")
+
+    workspace.executor_specs = [s.to_dict() for s in specs]
+    workspace.executor_runtime = workspace.resolved_executor_runtime
+    workspace.updated_at = _utc_now()
+    await store.update_workspace(workspace)
+
+    return {
+        "success": True,
+        "workspace_id": workspace_id,
+        "added": new_spec.to_dict(),
+        "total_specs": len(specs),
+    }
+
+
+@router.delete("/{workspace_id}/executor-specs/{runtime_id}")
+async def remove_executor_spec(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    runtime_id: str = Path(..., description="Runtime ID to unbind"),
+) -> dict:
+    """Unbind an executor from a workspace. Auto-promotes next primary if needed."""
+    store = MindscapeStore()
+    workspace = await store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    specs = [
+        ExecutorSpec.from_dict(s)
+        for s in (workspace.executor_specs or [])
+        if isinstance(s, dict)
+    ]
+    original_count = len(specs)
+    specs = [s for s in specs if s.runtime_id != runtime_id]
+
+    if len(specs) == original_count:
+        raise HTTPException(status_code=404, detail=f"Runtime '{runtime_id}' not bound")
+
+    # Auto-promote if primary was removed
+    specs = promote_next_primary(specs)
+
+    workspace.executor_specs = [s.to_dict() for s in specs]
+    workspace.executor_runtime = workspace.resolved_executor_runtime
+    workspace.updated_at = _utc_now()
+    await store.update_workspace(workspace)
+
+    return {
+        "success": True,
+        "workspace_id": workspace_id,
+        "removed": runtime_id,
+        "remaining_specs": len(specs),
+    }
+
+
+@router.patch("/{workspace_id}/executor-specs/{runtime_id}/primary")
+async def set_primary_executor_spec(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    runtime_id: str = Path(..., description="Runtime ID to set as primary"),
+) -> dict:
+    """Set a bound executor as the primary for this workspace."""
+    store = MindscapeStore()
+    workspace = await store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    specs = [
+        ExecutorSpec.from_dict(s)
+        for s in (workspace.executor_specs or [])
+        if isinstance(s, dict)
+    ]
+    found = False
+    for s in specs:
+        if s.runtime_id == runtime_id:
+            s.is_primary = True
+            found = True
+        else:
+            s.is_primary = False
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Runtime '{runtime_id}' not bound")
+
+    workspace.executor_specs = [s.to_dict() for s in specs]
+    workspace.executor_runtime = workspace.resolved_executor_runtime
+    workspace.updated_at = _utc_now()
+    await store.update_workspace(workspace)
+
+    return {
+        "success": True,
+        "workspace_id": workspace_id,
+        "primary": runtime_id,
+    }
+
+
+# ==================== Internal Helpers ====================
+
+
+def _sync_executor_specs_from_runtime(workspace, runtime_id: Optional[str]):
+    """Dual-write helper: sync executor_specs when legacy executor_runtime is set."""
+    if runtime_id:
+        specs = [
+            ExecutorSpec.from_dict(s)
+            for s in (workspace.executor_specs or [])
+            if isinstance(s, dict)
+        ]
+        existing = [s for s in specs if s.runtime_id == runtime_id]
+        if not existing:
+            # Demote all existing primaries
+            for s in specs:
+                s.is_primary = False
+            specs.append(
+                ExecutorSpec(
+                    runtime_id=runtime_id,
+                    display_name=runtime_id,
+                    is_primary=True,
+                    priority=0,
+                )
+            )
+        else:
+            # Promote the matching spec to primary
+            for s in specs:
+                s.is_primary = s.runtime_id == runtime_id
+        workspace.executor_specs = [s.to_dict() for s in specs]
+    else:
+        workspace.executor_specs = []
