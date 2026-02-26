@@ -329,6 +329,17 @@ export const settingsEn = {
   override: 'Override',
   location: 'Location',
   deprecated: 'Deprecated',
+  save: 'Save',
+  howToGetGeminiApiKey: 'How to get a Gemini API Key:',
+  geminiApiStep1: 'Go to ',
+  geminiApiStep2: 'Sign in with your Google Account',
+  geminiApiStep3: 'Click "Create API Key" and select a project',
+  geminiApiStep4: 'Copy the generated key and paste it above',
+  geminiApiFreeTier: 'Free tier: 1,500 requests/day for embedding models',
+  howToGetOpenaiApiKey: 'How to get an OpenAI API Key:',
+  openaiApiStep1: 'Go to ',
+  openaiApiStep2: 'Sign in and click "Create new secret key"',
+  openaiApiStep3: 'Copy the key and paste it above',
 
   // Obsidian
   obsidianConfig: 'Obsidian Configuration',
