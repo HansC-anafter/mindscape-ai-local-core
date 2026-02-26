@@ -329,6 +329,17 @@ export const settingsZhTW = {
   override: '覆寫',
   location: '位置',
   deprecated: '已棄用',
+  save: '儲存',
+  howToGetGeminiApiKey: '如何取得 Gemini API Key：',
+  geminiApiStep1: '前往 ',
+  geminiApiStep2: '使用 Google 帳號登入',
+  geminiApiStep3: '點擊「Create API Key」並選擇專案',
+  geminiApiStep4: '複製生成的金鑰並貼上到上方欄位',
+  geminiApiFreeTier: '免費方案：embedding 模型每日 1,500 次請求',
+  howToGetOpenaiApiKey: '如何取得 OpenAI API Key：',
+  openaiApiStep1: '前往 ',
+  openaiApiStep2: '登入後點擊「Create new secret key」',
+  openaiApiStep3: '複製金鑰並貼上到上方欄位',
 
   // Obsidian
   obsidianConfig: 'Obsidian 設定',

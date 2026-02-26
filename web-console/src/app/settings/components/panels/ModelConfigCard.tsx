@@ -237,7 +237,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             disabled={saving || !jsonFileName}
             className="px-4 py-1.5 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? (t('saving' as any) || 'Saving...') : (provider_config?.api_key_configured ? t('update' as any) : t('saveConfiguration' as any))}
+            {saving ? (t('saving' as any) || '...') : (t('save' as any) || 'Save')}
           </button>
         )}
         {model.provider !== 'vertex-ai' && (
@@ -246,7 +246,7 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             disabled={saving}
             className="px-4 py-1.5 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? (t('saving' as any) || 'Saving...') : (provider_config?.api_key_configured ? t('update' as any) : t('saveConfiguration' as any))}
+            {saving ? (t('saving' as any) || '...') : (t('save' as any) || 'Save')}
           </button>
         )}
       </div>
@@ -334,6 +334,54 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
                   <span className="text-xs text-green-600 dark:text-green-400 mt-1 block">
                     {t('apiKeyConfigured' as any) || 'API Key configured'}
                   </span>
+                )}
+                {model.provider === 'gemini-api' && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-xs mt-3">
+                    <p className="font-medium text-blue-900 dark:text-blue-200 mb-2">
+                      {t('howToGetGeminiApiKey' as any) || 'How to get a Gemini API Key'}
+                    </p>
+                    <ol className="list-decimal list-inside space-y-1 text-blue-800 dark:text-blue-300">
+                      <li>
+                        {t('geminiApiStep1' as any) || 'Go to '}
+                        <a
+                          href="https://aistudio.google.com/apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-blue-600 dark:hover:text-blue-200"
+                        >
+                          Google AI Studio
+                        </a>
+                      </li>
+                      <li>{t('geminiApiStep2' as any) || 'Sign in with your Google Account'}</li>
+                      <li>{t('geminiApiStep3' as any) || 'Click "Create API Key" and select a project'}</li>
+                      <li>{t('geminiApiStep4' as any) || 'Copy the generated key and paste it above'}</li>
+                    </ol>
+                    <p className="mt-2 text-blue-700 dark:text-blue-400">
+                      {t('geminiApiFreeTier' as any) || 'Free tier: 1,500 requests/day for embedding models'}
+                    </p>
+                  </div>
+                )}
+                {model.provider === 'openai' && !provider_config?.api_key_configured && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-xs mt-3">
+                    <p className="font-medium text-blue-900 dark:text-blue-200 mb-2">
+                      {t('howToGetOpenaiApiKey' as any) || 'How to get an OpenAI API Key'}
+                    </p>
+                    <ol className="list-decimal list-inside space-y-1 text-blue-800 dark:text-blue-300">
+                      <li>
+                        {t('openaiApiStep1' as any) || 'Go to '}
+                        <a
+                          href="https://platform.openai.com/api-keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-blue-600 dark:hover:text-blue-200"
+                        >
+                          OpenAI Platform
+                        </a>
+                      </li>
+                      <li>{t('openaiApiStep2' as any) || 'Sign in and click "Create new secret key"'}</li>
+                      <li>{t('openaiApiStep3' as any) || 'Copy the key and paste it above'}</li>
+                    </ol>
+                  </div>
                 )}
               </div>
             )}
@@ -519,11 +567,10 @@ export function ModelConfigCard({ card, onConfigSaved }: ModelConfigCardProps) {
             {testing ? t('testing' as any) : t('testConnection' as any)}
           </button>
           {testResult && (
-            <div className={`mt-2 p-2 rounded text-sm ${
-              testResult.includes('success') || testResult.includes('Success')
+            <div className={`mt-2 p-2 rounded text-sm ${testResult.includes('success') || testResult.includes('Success')
                 ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
                 : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300'
-            }`}>
+              }`}>
               {testResult}
             </div>
           )}
