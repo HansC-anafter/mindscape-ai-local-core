@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from uuid import UUID
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
@@ -27,7 +29,7 @@ from backend.app.models.embedding_migration import (
     EmbeddingMigrationCreate,
     MigrationStatus,
     MigrationStrategy,
-    ItemStatus
+    ItemStatus,
 )
 from backend.app.services.embedding_migration_store import EmbeddingMigrationStore
 
@@ -56,9 +58,7 @@ class EmbeddingMigrationService:
         return psycopg2.connect(**self._get_postgres_config())
 
     async def create_migration_task(
-        self,
-        request: EmbeddingMigrationCreate,
-        user_id: str
+        self, request: EmbeddingMigrationCreate, user_id: str
     ) -> EmbeddingMigration:
         """
         Create a new migration task
@@ -76,7 +76,7 @@ class EmbeddingMigrationService:
             source_provider=request.source_provider,
             workspace_id=request.workspace_id,
             intent_id=request.intent_id,
-            scope=request.scope
+            scope=request.scope,
         )
 
         # Create migration task
@@ -91,11 +91,13 @@ class EmbeddingMigrationService:
             scope=request.scope,
             strategy=request.strategy,
             total_count=total_count,
-            metadata=request.metadata
+            metadata=request.metadata,
         )
 
         created_migration = self.store.create_migration(migration)
-        logger.info(f"Created migration task {created_migration.id} with {total_count} embeddings to migrate")
+        logger.info(
+            f"Created migration task {created_migration.id} with {total_count} embeddings to migrate"
+        )
 
         return created_migration
 
@@ -105,7 +107,7 @@ class EmbeddingMigrationService:
         source_provider: str,
         workspace_id: Optional[str] = None,
         intent_id: Optional[str] = None,
-        scope: Optional[str] = None
+        scope: Optional[str] = None,
     ) -> int:
         """
         Count embeddings that need to be migrated
@@ -120,6 +122,7 @@ class EmbeddingMigrationService:
         Returns:
             Number of embeddings to migrate
         """
+
         def _count_sync():
             conn = self._get_connection()
             try:
@@ -127,7 +130,7 @@ class EmbeddingMigrationService:
 
                 where_clauses = [
                     "metadata->>'embedding_model' = %s",
-                    "metadata->>'embedding_provider' = %s"
+                    "metadata->>'embedding_provider' = %s",
                 ]
                 params = [source_model, source_provider]
 
@@ -160,7 +163,9 @@ class EmbeddingMigrationService:
 
         return await asyncio.to_thread(_count_sync)
 
-    async def get_migration_status(self, migration_id: UUID) -> Optional[EmbeddingMigration]:
+    async def get_migration_status(
+        self, migration_id: UUID
+    ) -> Optional[EmbeddingMigration]:
         """
         Get migration task status
 
@@ -177,7 +182,7 @@ class EmbeddingMigrationService:
         user_id: Optional[str] = None,
         status: Optional[MigrationStatus] = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[EmbeddingMigration]:
         """
         List migration tasks
@@ -191,7 +196,9 @@ class EmbeddingMigrationService:
         Returns:
             List of migration tasks
         """
-        return self.store.list_migrations(user_id=user_id, status=status, limit=limit, offset=offset)
+        return self.store.list_migrations(
+            user_id=user_id, status=status, limit=limit, offset=offset
+        )
 
     async def execute_migration(self, migration_id: UUID) -> None:
         """
@@ -241,12 +248,15 @@ class EmbeddingMigrationService:
             # Process embeddings in batches
             batch_size = 10
             for i in range(0, len(embeddings), batch_size):
-                batch = embeddings[i:i + batch_size]
+                batch = embeddings[i : i + batch_size]
                 await self._process_batch(migration, batch)
 
                 # Check for cancellation
                 current_migration = self.store.get_migration(migration.id)
-                if current_migration and current_migration.status == MigrationStatus.CANCELLED:
+                if (
+                    current_migration
+                    and current_migration.status == MigrationStatus.CANCELLED
+                ):
                     logger.info(f"Migration {migration.id} was cancelled")
                     return
 
@@ -270,8 +280,7 @@ class EmbeddingMigrationService:
                 del self._active_migrations[migration.id]
 
     async def _fetch_embeddings_to_migrate(
-        self,
-        migration: EmbeddingMigration
+        self, migration: EmbeddingMigration
     ) -> List[Dict[str, Any]]:
         """
         Fetch embeddings that need to be migrated
@@ -282,6 +291,7 @@ class EmbeddingMigrationService:
         Returns:
             List of embedding records
         """
+
         def _fetch_sync():
             conn = self._get_connection()
             try:
@@ -289,7 +299,7 @@ class EmbeddingMigrationService:
 
                 where_clauses = [
                     "metadata->>'embedding_model' = %s",
-                    "metadata->>'embedding_provider' = %s"
+                    "metadata->>'embedding_provider' = %s",
                 ]
                 params = [migration.source_model, migration.source_provider]
 
@@ -324,9 +334,7 @@ class EmbeddingMigrationService:
         return await asyncio.to_thread(_fetch_sync)
 
     async def _create_migration_items(
-        self,
-        migration: EmbeddingMigration,
-        embeddings: List[Dict[str, Any]]
+        self, migration: EmbeddingMigration, embeddings: List[Dict[str, Any]]
     ) -> None:
         """
         Create migration items for all embeddings
@@ -340,14 +348,12 @@ class EmbeddingMigrationService:
                 migration_id=migration.id,
                 source_embedding_id=str(embedding_record["id"]),
                 source_table="mindscape_personal",
-                status=ItemStatus.PENDING
+                status=ItemStatus.PENDING,
             )
             self.store.create_migration_item(item)
 
     async def _process_batch(
-        self,
-        migration: EmbeddingMigration,
-        batch: List[Dict[str, Any]]
+        self, migration: EmbeddingMigration, batch: List[Dict[str, Any]]
     ) -> None:
         """
         Process a batch of embeddings
@@ -360,7 +366,10 @@ class EmbeddingMigrationService:
             try:
                 await self._migrate_single_embedding(migration, embedding_record)
             except Exception as e:
-                logger.error(f"Failed to migrate embedding {embedding_record['id']}: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to migrate embedding {embedding_record['id']}: {e}",
+                    exc_info=True,
+                )
                 # Update migration item status
                 items = self.store.get_migration_items(migration.id)
                 for item in items:
@@ -375,9 +384,7 @@ class EmbeddingMigrationService:
                 self.store.update_migration(migration)
 
     async def _migrate_single_embedding(
-        self,
-        migration: EmbeddingMigration,
-        embedding_record: Dict[str, Any]
+        self, migration: EmbeddingMigration, embedding_record: Dict[str, Any]
     ) -> None:
         """
         Migrate a single embedding
@@ -395,7 +402,9 @@ class EmbeddingMigrationService:
                 break
 
         if not migration_item:
-            logger.warning(f"Migration item not found for embedding {embedding_record['id']}")
+            logger.warning(
+                f"Migration item not found for embedding {embedding_record['id']}"
+            )
             return
 
         # Update item status to in_progress
@@ -405,24 +414,28 @@ class EmbeddingMigrationService:
         # Extract source text
         source_text = self._extract_source_text(embedding_record)
         if not source_text:
-            raise ValueError(f"Could not extract text from embedding {embedding_record['id']}")
+            raise ValueError(
+                f"Could not extract text from embedding {embedding_record['id']}"
+            )
 
         # Regenerate embedding with target model
         new_embedding = await self._regenerate_embedding(
             source_text=source_text,
             target_model=migration.target_model,
-            target_provider=migration.target_provider
+            target_provider=migration.target_provider,
         )
 
         if not new_embedding:
-            raise ValueError(f"Failed to regenerate embedding for {embedding_record['id']}")
+            raise ValueError(
+                f"Failed to regenerate embedding for {embedding_record['id']}"
+            )
 
         # Apply migration strategy
         await self._apply_migration_strategy(
             migration=migration,
             embedding_record=embedding_record,
             new_embedding=new_embedding,
-            migration_item=migration_item
+            migration_item=migration_item,
         )
 
         # Update item status to completed
@@ -451,6 +464,7 @@ class EmbeddingMigrationService:
         metadata = embedding_record.get("metadata", {})
         if isinstance(metadata, str):
             import json
+
             try:
                 metadata = json.loads(metadata)
             except json.JSONDecodeError:
@@ -465,10 +479,7 @@ class EmbeddingMigrationService:
         return None
 
     async def _regenerate_embedding(
-        self,
-        source_text: str,
-        target_model: str,
-        target_provider: str
+        self, source_text: str, target_model: str, target_provider: str
     ) -> Optional[List[float]]:
         """
         Regenerate embedding with target model
@@ -485,25 +496,99 @@ class EmbeddingMigrationService:
             from backend.app.services.config_store import ConfigStore
             import os
 
-            # Get API key
             config_store = ConfigStore()
             config = config_store.get_or_create_config("default-user")
 
             if target_provider == "openai":
-                api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+                api_key = config.agent_backend.openai_api_key or os.getenv(
+                    "OPENAI_API_KEY"
+                )
                 if not api_key:
                     logger.error("OpenAI API key not configured")
                     return None
 
                 import openai
+
                 client = openai.OpenAI(api_key=api_key)
                 response = client.embeddings.create(
-                    model=target_model,
-                    input=source_text
+                    model=target_model, input=source_text
                 )
 
                 if response.data and len(response.data) > 0:
                     return response.data[0].embedding
+
+            elif target_provider == "gemini-api":
+                api_key = os.getenv("GOOGLE_AI_API_KEY") or os.getenv("GEMINI_API_KEY")
+                if not api_key:
+                    logger.error("Google AI API key not configured")
+                    return None
+
+                import google.generativeai as genai
+
+                genai.configure(api_key=api_key)
+                result = genai.embed_content(
+                    model=f"models/{target_model}",
+                    content=source_text,
+                )
+                embedding = result.get("embedding", [])
+                return embedding if embedding else None
+
+            elif target_provider == "vertex-ai":
+                from backend.app.routes.core.system_settings.shared import (
+                    settings_store,
+                )
+
+                service_account_setting = settings_store.get_setting(
+                    "vertex_ai_service_account_json"
+                )
+                project_id_setting = settings_store.get_setting("vertex_ai_project_id")
+                location_setting = settings_store.get_setting("vertex_ai_location")
+
+                vertex_sa_json = (
+                    service_account_setting.value
+                    if service_account_setting and service_account_setting.value
+                    else os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                )
+                vertex_project_id = (
+                    project_id_setting.value
+                    if project_id_setting and project_id_setting.value
+                    else os.getenv("GOOGLE_CLOUD_PROJECT")
+                )
+                vertex_location = (
+                    location_setting.value
+                    if location_setting and location_setting.value
+                    else os.getenv("VERTEX_LOCATION", "us-central1")
+                )
+
+                if not vertex_sa_json or not vertex_project_id:
+                    logger.error("Vertex AI credentials not configured")
+                    return None
+
+                import json
+                from google.oauth2 import service_account
+                from vertexai.language_models import TextEmbeddingModel
+                import vertexai
+
+                try:
+                    sa_info = json.loads(vertex_sa_json)
+                    credentials = service_account.Credentials.from_service_account_info(
+                        sa_info
+                    )
+                except (json.JSONDecodeError, ValueError):
+                    credentials = service_account.Credentials.from_service_account_file(
+                        vertex_sa_json
+                    )
+
+                vertexai.init(
+                    project=vertex_project_id,
+                    location=vertex_location,
+                    credentials=credentials,
+                )
+
+                model = TextEmbeddingModel.from_pretrained(target_model)
+                embeddings = model.get_embeddings([source_text])
+                if embeddings and len(embeddings) > 0 and embeddings[0].values:
+                    return embeddings[0].values
 
             else:
                 logger.error(f"Unsupported provider: {target_provider}")
@@ -518,7 +603,7 @@ class EmbeddingMigrationService:
         migration: EmbeddingMigration,
         embedding_record: Dict[str, Any],
         new_embedding: List[float],
-        migration_item: EmbeddingMigrationItem
+        migration_item: EmbeddingMigrationItem,
     ) -> None:
         """
         Apply migration strategy to update embedding
@@ -529,6 +614,7 @@ class EmbeddingMigrationService:
             new_embedding: New embedding vector
             migration_item: Migration item
         """
+
         def _apply_sync():
             conn = self._get_connection()
             try:
@@ -539,6 +625,7 @@ class EmbeddingMigrationService:
                     metadata = embedding_record.get("metadata", {})
                     if isinstance(metadata, str):
                         import json
+
                         try:
                             metadata = json.loads(metadata)
                         except json.JSONDecodeError:
@@ -553,17 +640,16 @@ class EmbeddingMigrationService:
                     metadata["migrated_at"] = _utc_now().isoformat()
                     metadata["migrated_from"] = migration.source_model
 
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         UPDATE mindscape_personal
                         SET embedding = %s::vector,
                             metadata = %s,
                             updated_at = NOW()
                         WHERE id = %s
-                    """, (
-                        new_embedding,
-                        Json(metadata),
-                        embedding_record["id"]
-                    ))
+                    """,
+                        (new_embedding, Json(metadata), embedding_record["id"]),
+                    )
 
                     migration_item.target_embedding_id = str(embedding_record["id"])
                     self.store.update_migration_item(migration_item)
@@ -571,11 +657,13 @@ class EmbeddingMigrationService:
                 elif migration.strategy == MigrationStrategy.PRESERVE:
                     # Create new record with new embedding
                     import uuid
+
                     new_id = str(uuid.uuid4())
 
                     metadata = embedding_record.get("metadata", {})
                     if isinstance(metadata, str):
                         import json
+
                         try:
                             metadata = json.loads(metadata)
                         except json.JSONDecodeError:
@@ -591,27 +679,30 @@ class EmbeddingMigrationService:
                     metadata["migrated_from"] = migration.source_model
                     metadata["original_id"] = str(embedding_record["id"])
 
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         INSERT INTO mindscape_personal
                         (id, user_id, source_type, content, metadata, confidence, weight,
                          embedding, scope, workspace_id, intent_id, importance, tags,
                          created_at, updated_at, last_used_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
-                    """, (
-                        new_id,
-                        embedding_record.get("user_id"),
-                        embedding_record.get("source_type"),
-                        embedding_record.get("content"),
-                        Json(metadata),
-                        embedding_record.get("confidence", 1.0),
-                        embedding_record.get("weight", 1.0),
-                        new_embedding,
-                        embedding_record.get("scope"),
-                        embedding_record.get("workspace_id"),
-                        embedding_record.get("intent_id"),
-                        embedding_record.get("importance", 0.5),
-                        embedding_record.get("tags", []),
-                    ))
+                    """,
+                        (
+                            new_id,
+                            embedding_record.get("user_id"),
+                            embedding_record.get("source_type"),
+                            embedding_record.get("content"),
+                            Json(metadata),
+                            embedding_record.get("confidence", 1.0),
+                            embedding_record.get("weight", 1.0),
+                            new_embedding,
+                            embedding_record.get("scope"),
+                            embedding_record.get("workspace_id"),
+                            embedding_record.get("intent_id"),
+                            embedding_record.get("importance", 0.5),
+                            embedding_record.get("tags", []),
+                        ),
+                    )
 
                     migration_item.target_embedding_id = new_id
                     self.store.update_migration_item(migration_item)
@@ -621,6 +712,7 @@ class EmbeddingMigrationService:
                     old_metadata = embedding_record.get("metadata", {})
                     if isinstance(old_metadata, str):
                         import json
+
                         try:
                             old_metadata = json.loads(old_metadata)
                         except json.JSONDecodeError:
@@ -633,18 +725,19 @@ class EmbeddingMigrationService:
                     old_metadata["deprecated_at"] = _utc_now().isoformat()
                     old_metadata["deprecated_by"] = str(migration.id)
 
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         UPDATE mindscape_personal
                         SET metadata = %s,
                             updated_at = NOW()
                         WHERE id = %s
-                    """, (
-                        Json(old_metadata),
-                        embedding_record["id"]
-                    ))
+                    """,
+                        (Json(old_metadata), embedding_record["id"]),
+                    )
 
                     # Create new record
                     import uuid
+
                     new_id = str(uuid.uuid4())
 
                     new_metadata = old_metadata.copy()
@@ -657,27 +750,30 @@ class EmbeddingMigrationService:
                     new_metadata.pop("deprecated_at", None)
                     new_metadata.pop("deprecated_by", None)
 
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         INSERT INTO mindscape_personal
                         (id, user_id, source_type, content, metadata, confidence, weight,
                          embedding, scope, workspace_id, intent_id, importance, tags,
                          created_at, updated_at, last_used_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
-                    """, (
-                        new_id,
-                        embedding_record.get("user_id"),
-                        embedding_record.get("source_type"),
-                        embedding_record.get("content"),
-                        Json(new_metadata),
-                        embedding_record.get("confidence", 1.0),
-                        embedding_record.get("weight", 1.0),
-                        new_embedding,
-                        embedding_record.get("scope"),
-                        embedding_record.get("workspace_id"),
-                        embedding_record.get("intent_id"),
-                        embedding_record.get("importance", 0.5),
-                        embedding_record.get("tags", []),
-                    ))
+                    """,
+                        (
+                            new_id,
+                            embedding_record.get("user_id"),
+                            embedding_record.get("source_type"),
+                            embedding_record.get("content"),
+                            Json(new_metadata),
+                            embedding_record.get("confidence", 1.0),
+                            embedding_record.get("weight", 1.0),
+                            new_embedding,
+                            embedding_record.get("scope"),
+                            embedding_record.get("workspace_id"),
+                            embedding_record.get("intent_id"),
+                            embedding_record.get("importance", 0.5),
+                            embedding_record.get("tags", []),
+                        ),
+                    )
 
                     migration_item.target_embedding_id = new_id
                     self.store.update_migration_item(migration_item)
@@ -703,8 +799,13 @@ class EmbeddingMigrationService:
         if not migration:
             return False
 
-        if migration.status not in [MigrationStatus.PENDING, MigrationStatus.IN_PROGRESS]:
-            logger.warning(f"Cannot cancel migration {migration_id} with status {migration.status}")
+        if migration.status not in [
+            MigrationStatus.PENDING,
+            MigrationStatus.IN_PROGRESS,
+        ]:
+            logger.warning(
+                f"Cannot cancel migration {migration_id} with status {migration.status}"
+            )
             return False
 
         migration.status = MigrationStatus.CANCELLED

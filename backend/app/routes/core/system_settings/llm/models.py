@@ -44,6 +44,8 @@ async def get_models(
         if not models:
             await asyncio.to_thread(store.initialize_default_models)
             models = await asyncio.to_thread(store.get_all_models)
+        else:
+            await asyncio.to_thread(store.sync_default_models)
 
         model_type_enum = None
         if model_type:
@@ -155,6 +157,8 @@ async def get_model_config(model_id: int):
             )
 
         api_key_setting_key = f"{model.provider_name}_api_key"
+        if model.provider_name == "gemini-api":
+            api_key_setting_key = "gemini-api_api_key"
         api_key_setting = await asyncio.to_thread(
             settings_store.get_setting, api_key_setting_key
         )
@@ -368,13 +372,11 @@ async def test_model_connection(model_id: int):
         provider = model.provider_name
         model_type = model.model_type
 
-        # Get API key or configuration
         config_store = ConfigStore()
         config = await asyncio.to_thread(
             config_store.get_or_create_config, "default-user"
         )
 
-        # Test based on provider and model type
         if provider == "openai":
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             if not api_key:
@@ -530,6 +532,51 @@ async def test_model_connection(model_id: int):
                 return {
                     "success": False,
                     "message": f"Ollama connection failed: {str(e)}",
+                }
+
+        elif provider == "gemini-api":
+            api_key = os.getenv("GOOGLE_AI_API_KEY") or os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                api_key_setting = await asyncio.to_thread(
+                    settings_store.get_setting, "gemini-api_api_key"
+                )
+                api_key = api_key_setting.value if api_key_setting else None
+            if not api_key:
+                return {
+                    "success": False,
+                    "message": "Google AI API key not configured (set GOOGLE_AI_API_KEY or GEMINI_API_KEY)",
+                }
+
+            try:
+                import google.generativeai as genai
+
+                genai.configure(api_key=api_key)
+                if model_type == "embedding":
+                    result = genai.embed_content(
+                        model=f"models/{model_name}",
+                        content="test",
+                    )
+                    embedding = result.get("embedding", [])
+                    if embedding:
+                        return {
+                            "success": True,
+                            "message": f"Gemini embedding connection successful (dimensions: {len(embedding)})",
+                        }
+                    return {
+                        "success": False,
+                        "message": "Gemini embedding returned empty result",
+                    }
+                else:
+                    model_instance = genai.GenerativeModel(model_name)
+                    response = model_instance.generate_content("test")
+                    return {
+                        "success": True,
+                        "message": "Gemini chat model connection successful",
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Gemini connection failed: {str(e)}",
                 }
 
         return {
