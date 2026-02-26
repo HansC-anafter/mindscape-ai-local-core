@@ -61,7 +61,7 @@ export default function CapabilityPage() {
   const workspaceId = params?.workspaceId as string;
   const capabilityCode = params?.capabilityCode as string;
 
-  // 从环境变量或配置获取 API URL
+  // Resolve API URL from env or config
   const apiUrl = typeof window !== 'undefined'
     ? window.location.origin.replace(/:\d+$/, ':8200')
     : 'http://localhost:8200';
@@ -81,7 +81,7 @@ export default function CapabilityPage() {
     setError(null);
 
     try {
-      // 先从列表 API 获取所有 installed capabilities，然后查找匹配的
+      // Fetch all installed capabilities then find the matching one
       const listResponse = await fetch(
         `${apiUrl}/api/v1/capability-packs/installed-capabilities`
       );
@@ -102,10 +102,10 @@ export default function CapabilityPage() {
 
       setCapabilityInfo(capabilityData);
 
-      // 后端 UI components API 使用 id 来匹配，所以使用 id 而不是 code
+      // Backend UI components API matches by id, not code
       const capabilityId = capabilityData.id || capabilityCode;
 
-      // 加载 UI components 信息
+      // Load UI components info
       const componentsResponse = await fetch(
         `${apiUrl}/api/v1/capability-packs/installed-capabilities/${capabilityId}/ui-components`
       );
@@ -160,7 +160,7 @@ export default function CapabilityPage() {
         ? err.message
         : 'Failed to load capability';
       setError(errorMessage);
-      // 即使 capability 不存在，也设置 loading 为 false 以显示错误信息
+      // Set loading to false even on error to display error UI
     } finally {
       setLoading(false);
     }

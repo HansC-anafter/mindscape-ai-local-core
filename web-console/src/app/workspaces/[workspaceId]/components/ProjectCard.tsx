@@ -33,7 +33,7 @@ interface ProjectCardData {
     stepName?: string;
     timestamp: string;
     metadata?: Record<string, any>;
-    projectId?: string;  // 添加 project 归属信息
+    projectId?: string;
     projectName?: string;
   }>;
   playbooks?: Array<{
@@ -688,13 +688,12 @@ export default function ProjectCard({
                 </div>
                 <div className="events-list space-y-1 max-h-48 overflow-y-auto">
                   {(() => {
-                    // 过滤只显示属于当前 project 的 events
+                    // Filter to only show events belonging to this project
                     const filteredEvents = cardData.recentEvents.filter(event => {
-                      // 如果 event 有 projectId，只显示匹配的
                       if (event.projectId) {
                         return event.projectId === project.id;
                       }
-                      // 如果没有 projectId 信息，假设属于当前 project（向后兼容）
+                      // No projectId info: assume current project (backward compat)
                       return true;
                     });
 

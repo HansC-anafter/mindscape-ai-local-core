@@ -71,24 +71,6 @@ const navigationItems: NavigationItem[] = [
         section: 'models-and-quota',
       },
       {
-        id: 'api-quota',
-        label: 'apiAndQuota',
-        tab: 'basic',
-        section: 'api-quota',
-      },
-      {
-        id: 'embedding',
-        label: 'embeddingModel',
-        tab: 'basic',
-        section: 'embedding',
-      },
-      {
-        id: 'llm-chat',
-        label: 'llmChatModel',
-        tab: 'basic',
-        section: 'llm-chat',
-      },
-      {
         id: 'oauth',
         label: 'oauthIntegration',
         tab: 'basic',
@@ -108,7 +90,7 @@ const navigationItems: NavigationItem[] = [
       },
       {
         id: 'port-configuration',
-        label: '端口配置',
+        label: 'portConfiguration',
         tab: 'basic',
         section: 'port-configuration',
       },
