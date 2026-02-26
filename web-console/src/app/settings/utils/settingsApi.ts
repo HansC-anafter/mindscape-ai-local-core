@@ -1,54 +1,50 @@
-// 获取初始 API URL（避免循环依赖）
+// Get initial API URL (avoids circular dependency)
 const getInitialApiUrl = (): string => {
-  // 优先使用环境变量
   if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http')) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
 
-  // 使用同源代理（如果前端和后端在同一域名下）
+  // Use same-origin proxy (when frontend and backend share the same hostname)
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    // 首先尝试从端口配置服务获取（如果可用）
-    // 如果失败，回退到实际运行的后端端口（8200，端口配置系统默认值）
-    // 注意：端口配置系统默认是 8200
-    // 这里使用 8200 作为初始值，后续会通过端口配置 API 动态更新
+    // Port config system default: 8200
+    // Initial value; dynamically updated via port config API later
     return `${protocol}//${hostname}:8200`;
   }
 
-  // 服务端渲染时使用默认值（端口配置系统默认值）
+  // SSR fallback (port config system default)
   return 'http://localhost:8200';
 };
 
-// 动态获取 API URL（从端口配置服务读取，支持作用域）
+// Dynamically resolve API URL from port config service (scope-aware)
 let apiUrlCache: string | null = null;
 let apiUrlPromise: Promise<string> | null = null;
 let lastValidationTime: number = 0;
-let failedUrls: Set<string> = new Set(); // 记录验证失败的 URL，避免反复尝试
-const VALIDATION_INTERVAL = 30000; // 30 秒内只验证一次
+let failedUrls: Set<string> = new Set(); // Track failed URLs to avoid retrying
+const VALIDATION_INTERVAL = 30000; // Validate at most once per 30 seconds
 
 const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   const now = Date.now();
 
-  // 如果已有缓存且不强制刷新
+  // Return cached URL if available and not force-refreshing
   if (apiUrlCache && !forceRefresh) {
-    // 如果缓存的 URL 之前验证失败过，直接跳过验证，使用初始 URL
+    // Skip validation if cached URL previously failed
     if (failedUrls.has(apiUrlCache as string)) {
       const initialUrl = getInitialApiUrl();
       if (initialUrl !== apiUrlCache) {
-        // 如果初始 URL 不同，使用初始 URL 并清除失败记录
         apiUrlCache = initialUrl;
         failedUrls.clear();
         return apiUrlCache;
       }
     }
 
-    // 减少验证频率：只在距离上次验证超过 30 秒时才验证
+    // Rate-limit validation: only re-validate after VALIDATION_INTERVAL
     if (now - lastValidationTime < VALIDATION_INTERVAL) {
-      return apiUrlCache; // 直接返回缓存，不验证
+      return apiUrlCache;
     }
 
-    // 快速验证缓存的 URL 是否可访问（仅检查健康端点）
+    // Quick health check on cached URL
     try {
       const testController = new AbortController();
       const testTimeoutId = setTimeout(() => testController.abort(), 500);
@@ -59,43 +55,39 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
       clearTimeout(testTimeoutId);
       lastValidationTime = now;
       if (testResponse.ok) {
-        // 验证成功，清除失败记录
         failedUrls.delete(apiUrlCache);
-        return apiUrlCache; // 缓存有效，直接返回
+        return apiUrlCache;
       }
-      // 响应不 OK，记录失败并清除缓存
       failedUrls.add(apiUrlCache);
       apiUrlCache = null;
       apiUrlPromise = null;
     } catch (e) {
-      // 缓存无效，记录失败并清除缓存
       lastValidationTime = now;
       if (apiUrlCache) {
         failedUrls.add(apiUrlCache);
-        console.warn(`缓存的 API URL (${apiUrlCache}) 不可访问，清除缓存并重新获取`);
+        console.warn(`Cached API URL (${apiUrlCache}) unreachable, clearing cache`);
       }
       apiUrlCache = null;
       apiUrlPromise = null;
     }
   }
 
-  // 如果正在加载，等待加载完成
+  // Wait for in-flight request if available
   if (apiUrlPromise && !forceRefresh) {
     return apiUrlPromise;
   }
 
-  // 首次加载或强制刷新
+  // First load or force refresh
   apiUrlPromise = (async () => {
-    // 先尝试从实际运行的后端端口（8000）获取配置
     const initialUrl = getInitialApiUrl();
 
     try {
-      // 获取当前作用域（优先从全局状态/UI 状态，回退到环境变量）
+      // Resolve current scope (priority: global state > localStorage > env vars)
       let cluster: string | undefined;
       let environment: string | undefined;
       let site: string | undefined;
 
-      // 方法 1: 从全局状态管理器获取（如果存在）
+      // Method 1: Global state manager
       if (typeof window !== 'undefined' && (window as any).__PORT_CONFIG_SCOPE__) {
         const scope = (window as any).__PORT_CONFIG_SCOPE__;
         cluster = scope.cluster;
@@ -103,7 +95,7 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
         site = scope.site;
       }
 
-      // 方法 2: 从 localStorage 获取（UI 设置页面保存的作用域）
+      // Method 2: localStorage (persisted from settings UI)
       if (typeof window !== 'undefined' && !cluster && !environment && !site) {
         try {
           const savedScope = localStorage.getItem('port_config_scope');
@@ -114,23 +106,23 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
             site = scope.site || undefined;
           }
         } catch (e) {
-          // 忽略解析错误
+          // Ignore parse errors
         }
       }
 
-      // 方法 3: 回退到环境变量
+      // Method 3: Fall back to env vars
       if (!cluster && !environment && !site) {
         cluster = process.env.NEXT_PUBLIC_CLUSTER;
         environment = process.env.NEXT_PUBLIC_ENVIRONMENT;
         site = process.env.NEXT_PUBLIC_SITE;
       }
 
-      // 清理 "default" 值：如果 environment 是 "default"，不传该参数（使用全局配置）
+      // Normalize: treat "default" as unset (use global config)
       if (environment === 'default') {
         environment = undefined;
       }
 
-      // 构建带作用域参数的 URL
+      // Build scoped query params
       const params = new URLSearchParams();
       if (cluster) params.append('cluster', cluster);
       if (environment) params.append('environment', environment);
@@ -138,9 +130,8 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
 
       const url = `${initialUrl}/api/v1/system-settings/ports/urls${params.toString() ? '?' + params.toString() : ''}`;
 
-      // 创建超时控制器（兼容性处理）
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000); // 减少超时时间到 2 秒
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const response = await fetch(url, {
         signal: controller.signal,
@@ -150,9 +141,8 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
 
       if (response.ok) {
         const urls: { backend_api_url: string } = await response.json();
-        // 验证返回的 URL 是否可访问
         const backendUrl = urls.backend_api_url;
-        // 如果返回的 URL 与初始 URL 不同，尝试验证它是否可访问
+        // Verify the returned URL is reachable if different from initial
         if (backendUrl !== initialUrl) {
           try {
             const testController = new AbortController();
@@ -163,33 +153,30 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
             clearTimeout(testTimeoutId);
             if (testResponse.ok) {
               apiUrlCache = backendUrl;
-              failedUrls.delete(backendUrl); // 验证成功，清除失败记录
+              failedUrls.delete(backendUrl);
               return apiUrlCache;
             } else {
-              // 验证失败，记录失败的 URL
               failedUrls.add(backendUrl);
             }
           } catch (e) {
-            // 如果配置的 URL 不可访问，记录失败并回退到初始 URL
             failedUrls.add(backendUrl);
-            console.warn(`配置的 API URL (${backendUrl}) 不可访问，回退到初始 URL (${initialUrl})`);
+            console.warn(`Configured API URL (${backendUrl}) unreachable, falling back to initial URL (${initialUrl})`);
           }
         } else {
           apiUrlCache = backendUrl;
-          failedUrls.delete(backendUrl); // 验证成功，清除失败记录
+          failedUrls.delete(backendUrl);
           return apiUrlCache;
         }
       }
     } catch (error) {
-      // 如果无法从端口配置服务获取 URL（可能服务未启动或端口不匹配），
-      // 回退到初始 URL（实际运行的后端端口）
-      console.warn('无法从配置服务获取 API URL，使用初始 URL:', error);
+      // Port config service unavailable; fall back to initial URL
+      console.warn('Cannot fetch API URL from config service, using initial URL:', error);
     }
 
-    // 回退到初始 URL（实际运行的后端端口，通常是 8000）
+    // Fallback to initial URL
     const fallbackUrl = getInitialApiUrl();
     apiUrlCache = fallbackUrl;
-    failedUrls.delete(fallbackUrl); // 清除失败记录，因为这是可靠的初始 URL
+    failedUrls.delete(fallbackUrl);
     lastValidationTime = now;
     return apiUrlCache;
   })();
@@ -197,12 +184,11 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   return apiUrlPromise;
 };
 
-// 同步版本的 getApiUrl（用于初始化，返回初始 URL）
+// Synchronous version (returns initial URL, for initialization)
 const getApiUrlSync = (): string => {
   return getInitialApiUrl();
 };
 
-// 导出初始 API URL 获取函数，供其他模块使用
 export const getInitialApiUrlForClient = (): string => {
   return getInitialApiUrl();
 };
@@ -234,7 +220,6 @@ export const settingsApi = {
       if (!response.ok) {
         // For expected errors (501, 404) with silent flag, return empty/default data instead of throwing
         if (options?.silent && (response.status === 501 || response.status === 404)) {
-          // Suppress error for expected cases - return empty object/array based on endpoint
           if (endpoint.includes('/connections') || endpoint.includes('/capability-packs') || endpoint.includes('/capability-suites') || endpoint.includes('/playbooks')) {
             return [] as T;
           }
@@ -247,7 +232,6 @@ export const settingsApi = {
 
       return response.json();
     } catch (error) {
-      // If silent flag is set and it's a network error, return default value
       if (options?.silent) {
         if (endpoint.includes('/connections') || endpoint.includes('/capability-packs') || endpoint.includes('/capability-suites') || endpoint.includes('/playbooks')) {
           return [] as T;

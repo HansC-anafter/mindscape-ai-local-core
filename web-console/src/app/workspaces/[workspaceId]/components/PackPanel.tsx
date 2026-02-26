@@ -61,7 +61,7 @@ export function PackPanel({
   };
 
   const openCapabilityUI = (capabilityCode: string) => {
-    // 在新标签页中打开该 capability 的 UI 页面
+    // Open capability UI page in new tab
     const url = `/workspaces/${workspaceId}/capabilities/${capabilityCode}`;
     window.open(url, '_blank');
   };
@@ -73,11 +73,10 @@ export function PackPanel({
         <div className="flex items-center gap-1 px-2 pt-2 pb-1">
           <button
             onClick={() => setActiveSubTab('apps')}
-            className={`p-1.5 rounded transition-colors ${
-              activeSubTab === 'apps'
-                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
+            className={`p-1.5 rounded transition-colors ${activeSubTab === 'apps'
+              ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
             title={t('appsWithUI' as any) || 'Apps'}
           >
             <svg
@@ -97,11 +96,10 @@ export function PackPanel({
           </button>
           <button
             onClick={() => setActiveSubTab('thinking')}
-            className={`p-1.5 rounded transition-colors ${
-              activeSubTab === 'thinking'
-                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
+            className={`p-1.5 rounded transition-colors ${activeSubTab === 'thinking'
+              ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
             title={t('tabBackgroundTasks' as any) || 'Thinking'}
           >
             <svg
@@ -121,11 +119,10 @@ export function PackPanel({
           </button>
           <button
             onClick={() => setActiveSubTab('capabilities')}
-            className={`p-1.5 rounded transition-colors ${
-              activeSubTab === 'capabilities'
-                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
+            className={`p-1.5 rounded transition-colors ${activeSubTab === 'capabilities'
+              ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
             title={t('installedCapabilities' as any) || 'Capabilities'}
           >
             <svg
@@ -169,7 +166,7 @@ export function PackPanel({
                     {t('appsWithUI' as any) || 'Apps with UI'} ({appsWithUI.length})
                   </div>
                   {appsWithUI.map((cap, index) => {
-                    // 后端 API 使用 id 来匹配，所以优先使用 id，如果没有则使用 code
+                    // Backend API matches by id; prefer id, fall back to code
                     const capabilityIdentifier = cap.id || cap.code;
 
                     return (
@@ -209,7 +206,7 @@ export function PackPanel({
                             }}
                             className="px-2 py-1 text-[10px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded transition-colors"
                           >
-                            {t('openUI' as any) || '打开 UI'}
+                            {t('openUI' as any) || 'Open UI'}
                           </button>
                         </div>
                       </div>
@@ -284,7 +281,7 @@ export function PackPanel({
                             onClick={() => capabilityCode && openCapabilityUI(capabilityCode)}
                             className="px-2 py-1 text-[10px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded transition-colors"
                           >
-                            {t('openUI' as any) || '打开 UI'}
+                            {t('openUI' as any) || 'Open UI'}
                           </button>
                         </div>
                       )}
