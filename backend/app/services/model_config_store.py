@@ -305,3 +305,109 @@ class ModelConfigStore(PostgresStoreBase):
             self.create_or_update_model(model)
 
         logger.info("Default models initialized")
+
+    _synced = False
+
+    def sync_default_models(self):
+        """Insert any new default models that don't yet exist in DB.
+        Also updates metadata (description, deprecated flags) for existing models.
+        Runs at most once per process lifetime.
+        """
+        if ModelConfigStore._synced:
+            return
+        ModelConfigStore._synced = True
+
+        from backend.app.routes.core.system_settings.constants import (
+            DEFAULT_CHAT_MODELS,
+            DEFAULT_EMBEDDING_MODELS,
+        )
+
+        all_defaults = []
+        for md in DEFAULT_CHAT_MODELS:
+            all_defaults.append(("chat", md))
+        for md in DEFAULT_EMBEDDING_MODELS:
+            all_defaults.append(("embedding", md))
+
+        added = 0
+        with self.transaction() as conn:
+
+            conn.execute(
+                text(
+                    """
+                SELECT setval(
+                    pg_get_serial_sequence('model_configs', 'id'),
+                    COALESCE((SELECT MAX(id) FROM model_configs), 0) + 1,
+                    false
+                )
+            """
+                )
+            )
+            for model_type_str, model_data in all_defaults:
+                is_latest = model_data.get("is_latest", False)
+                result = conn.execute(
+                    text(
+                        """
+                        INSERT INTO model_configs (
+                            model_name, provider_name, model_type, display_name,
+                            description, enabled, is_latest, is_recommended,
+                            is_deprecated, dimensions, context_window
+                        )
+                        SELECT
+                            :model_name, :provider_name, :model_type, :display_name,
+                            :description, :enabled, :is_latest, :is_recommended,
+                            :is_deprecated, :dimensions, :context_window
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM model_configs
+                            WHERE model_name = :model_name
+                              AND provider_name = :provider_name
+                              AND model_type = :model_type
+                        )
+                        RETURNING id
+                    """
+                    ),
+                    {
+                        "model_name": model_data["model_name"],
+                        "provider_name": model_data["provider"],
+                        "model_type": model_type_str,
+                        "display_name": model_data["model_name"],
+                        "description": model_data.get("description", ""),
+                        "enabled": False,
+                        "is_latest": is_latest,
+                        "is_recommended": model_data.get("is_recommended", False),
+                        "is_deprecated": model_data.get("is_deprecated", False),
+                        "dimensions": model_data.get("dimensions"),
+                        "context_window": model_data.get("context_window"),
+                    },
+                )
+                row = result.fetchone()
+                if row:
+                    added += 1
+
+                if model_data.get("is_deprecated", False) or model_data.get(
+                    "is_legacy", False
+                ):
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE model_configs
+                            SET description = :description,
+                                is_deprecated = :is_deprecated,
+                                updated_at = :updated_at
+                            WHERE model_name = :model_name
+                              AND provider_name = :provider_name
+                              AND model_type = :model_type
+                              AND (is_deprecated = false OR description != :description)
+                        """
+                        ),
+                        {
+                            "model_name": model_data["model_name"],
+                            "provider_name": model_data["provider"],
+                            "model_type": model_type_str,
+                            "description": model_data.get("description", ""),
+                            "is_deprecated": True,
+                            "updated_at": _utc_now(),
+                        },
+                    )
+
+        if added:
+            logger.info("Synced %d new default models", added)
