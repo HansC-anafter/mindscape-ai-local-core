@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
+from backend.app.models.mindscape import EventType
 
 
 class FakePreviousSession:
@@ -62,13 +63,14 @@ class TestPreviousDecisionsFromEvents:
         prev.minutes_md = "Should be ignored"
         engine.session_store.list_by_workspace.return_value = [prev]
 
-        # Mock store.list_events to return DECISION_FINAL events
+        # Mock store.get_events_by_meeting_session to return DECISION_FINAL events
         fake_event = MagicMock()
+        fake_event.event_type = EventType.DECISION_FINAL
         fake_event.payload = {
             "decision": "Approved the design",
             "round_number": 2,
         }
-        engine.store.list_events.return_value = [fake_event]
+        engine.store.get_events_by_meeting_session.return_value = [fake_event]
 
         result = engine._build_previous_decisions_context()
         assert "Previous meeting decisions:" in result
@@ -85,7 +87,7 @@ class TestPreviousDecisionsFromEvents:
         engine.session_store.list_by_workspace.return_value = [prev]
 
         # No DECISION_FINAL events
-        engine.store.list_events.return_value = []
+        engine.store.get_events_by_meeting_session.return_value = []
 
         result = engine._build_previous_decisions_context()
         assert "Previous meeting summary:" in result
@@ -97,7 +99,9 @@ class TestPreviousDecisionsFromEvents:
         prev = FakePreviousSession()
         prev.minutes_md = "Fallback content here."
         engine.session_store.list_by_workspace.return_value = [prev]
-        engine.store.list_events.side_effect = AttributeError("no such method")
+        engine.store.get_events_by_meeting_session.side_effect = AttributeError(
+            "no such method"
+        )
 
         result = engine._build_previous_decisions_context()
         assert "Fallback content here" in result
@@ -110,7 +114,7 @@ class TestPreviousDecisionsFromEvents:
             {"title": "Review PR", "status": "pending"},
         ]
         engine.session_store.list_by_workspace.return_value = [prev]
-        engine.store.list_events.return_value = []
+        engine.store.get_events_by_meeting_session.return_value = []
 
         result = engine._build_previous_decisions_context()
         assert "Deploy to staging" in result
@@ -122,7 +126,7 @@ class TestPreviousDecisionsFromEvents:
         prev = FakePreviousSession()
         prev.minutes_md = "x" * 1000
         engine.session_store.list_by_workspace.return_value = [prev]
-        engine.store.list_events.return_value = []
+        engine.store.get_events_by_meeting_session.return_value = []
 
         result = engine._build_previous_decisions_context()
         assert "(truncated)" in result

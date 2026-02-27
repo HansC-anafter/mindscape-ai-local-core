@@ -44,7 +44,7 @@ class TestExtractFromEvents:
     def test_decision_final_classified_as_decision(self):
         evt = FakeEvent(
             id="e1",
-            event_type="DECISION_FINAL",
+            event_type="decision_final",
             payload={"decision": "Approved design", "round_number": 2},
         )
         svc = MeetingExtractService()
@@ -57,7 +57,7 @@ class TestExtractFromEvents:
     def test_planner_agent_turn_classified_as_action(self):
         evt = FakeEvent(
             id="e2",
-            event_type="AGENT_TURN",
+            event_type="agent_turn",
             payload={
                 "agent_role": "planner",
                 "content": "Build landing page",
@@ -72,7 +72,7 @@ class TestExtractFromEvents:
     def test_critic_agent_turn_classified_as_risk(self):
         evt = FakeEvent(
             id="e3",
-            event_type="AGENT_TURN",
+            event_type="agent_turn",
             payload={
                 "agent_role": "critic",
                 "content": "Timeline too aggressive",
@@ -87,7 +87,7 @@ class TestExtractFromEvents:
     def test_unknown_role_skipped(self):
         evt = FakeEvent(
             id="e4",
-            event_type="AGENT_TURN",
+            event_type="agent_turn",
             payload={"agent_role": "unknown_role", "content": "Should be ignored"},
         )
         svc = MeetingExtractService()
@@ -97,7 +97,7 @@ class TestExtractFromEvents:
     def test_empty_content_skipped(self):
         evt = FakeEvent(
             id="e5",
-            event_type="DECISION_FINAL",
+            event_type="decision_final",
             payload={"decision": ""},
         )
         svc = MeetingExtractService()
@@ -106,14 +106,14 @@ class TestExtractFromEvents:
 
     def test_mixed_events(self):
         events = [
-            FakeEvent("e1", "DECISION_FINAL", {"decision": "Go ahead"}),
+            FakeEvent("e1", "decision_final", {"decision": "Go ahead"}),
             FakeEvent(
-                "e2", "AGENT_TURN", {"agent_role": "planner", "content": "Plan A"}
+                "e2", "agent_turn", {"agent_role": "planner", "content": "Plan A"}
             ),
             FakeEvent(
-                "e3", "AGENT_TURN", {"agent_role": "critic", "content": "Risk B"}
+                "e3", "agent_turn", {"agent_role": "critic", "content": "Risk B"}
             ),
-            FakeEvent("e4", "MEETING_START", {"meeting_session_id": "sess-006"}),
+            FakeEvent("e4", "meeting_start", {"meeting_session_id": "sess-006"}),
         ]
         svc = MeetingExtractService()
         extract = svc.extract_from_events("sess-006", events)
@@ -126,8 +126,8 @@ class TestExtractFromEvents:
 
     def test_extract_has_unique_ids(self):
         events = [
-            FakeEvent("e1", "DECISION_FINAL", {"decision": "A"}),
-            FakeEvent("e2", "DECISION_FINAL", {"decision": "B"}),
+            FakeEvent("e1", "decision_final", {"decision": "A"}),
+            FakeEvent("e2", "decision_final", {"decision": "B"}),
         ]
         svc = MeetingExtractService()
         extract = svc.extract_from_events("sess-007", events)
@@ -137,7 +137,7 @@ class TestExtractFromEvents:
     def test_session_id_mismatch_filtered(self):
         evt = FakeEvent(
             id="e1",
-            event_type="DECISION_FINAL",
+            event_type="decision_final",
             payload={"decision": "Wrong session", "meeting_session_id": "other-sess"},
         )
         svc = MeetingExtractService()
