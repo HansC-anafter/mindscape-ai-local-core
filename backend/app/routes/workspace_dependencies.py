@@ -19,7 +19,7 @@ from ..services.playbook_service import PlaybookService
 from ..services.conversation_orchestrator import ConversationOrchestrator
 from ..services.stores.tasks_store import TasksStore
 from ..services.stores.timeline_items_store import TimelineItemsStore
-from ..services.stores.artifacts_store import ArtifactsStore
+from ..services.stores.postgres.artifacts_store import PostgresArtifactsStore
 from ..core.ports.identity_port import IdentityPort
 from ..adapters.local.local_identity_adapter import LocalIdentityAdapter
 
@@ -124,19 +124,21 @@ def get_orchestrator(
 
 def get_tasks_store(store: MindscapeStore = Depends(get_store)) -> TasksStore:
     """Get TasksStore instance"""
-    return TasksStore(store.db_path)
+    return TasksStore()
 
 
 def get_timeline_items_store(
     store: MindscapeStore = Depends(get_store),
 ) -> TimelineItemsStore:
     """Get TimelineItemsStore instance"""
-    return TimelineItemsStore(store.db_path)
+    return PostgresTimelineItemsStore()
 
 
-def get_artifacts_store(store: MindscapeStore = Depends(get_store)) -> ArtifactsStore:
+def get_artifacts_store(
+    store: MindscapeStore = Depends(get_store),
+) -> PostgresArtifactsStore:
     """Get ArtifactsStore instance"""
-    return ArtifactsStore(store.db_path)
+    return PostgresArtifactsStore()
 
 
 # Global singleton for IdentityPort

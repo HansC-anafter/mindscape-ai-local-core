@@ -46,7 +46,7 @@ async def get_candidate_intent_tags(
     to suggest possible directions the AI sees.
     """
     try:
-        intent_tags_store = IntentTagsStore(db_path=store.db_path)
+        intent_tags_store = IntentTagsStore()
 
         # Get candidate intent tags for this workspace
         candidate_tags = await asyncio.to_thread(
@@ -98,7 +98,7 @@ async def confirm_intent_tag(
     Only confirmed intents are written to long-term memory.
     """
     try:
-        intent_tags_store = IntentTagsStore(db_path=store.db_path)
+        intent_tags_store = IntentTagsStore()
 
         # Get the intent tag to verify it belongs to this workspace
         intent_tag = await asyncio.to_thread(
@@ -210,7 +210,7 @@ async def update_intent_tag_label(
     Allows users to edit the label of an intent tag.
     """
     try:
-        intent_tags_store = IntentTagsStore(db_path=store.db_path)
+        intent_tags_store = IntentTagsStore()
 
         # Get the intent tag to verify it belongs to this workspace
         intent_tag = await asyncio.to_thread(

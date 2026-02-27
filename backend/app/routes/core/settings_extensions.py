@@ -70,7 +70,14 @@ def load_manifest(capability_code: str) -> Optional[Dict[str, Any]]:
     if manifest_path.exists():
         try:
             with manifest_path.open("r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                manifest = yaml.safe_load(f)
+            if manifest:
+                from backend.app.services.manifest_utils import (
+                    resolve_tool_schema_paths,
+                )
+
+                resolve_tool_schema_paths(manifest, manifest_path.parent)
+            return manifest
         except Exception as e:
             logger.warning(f"Failed to load manifest for {capability_code}: {e}")
     return None

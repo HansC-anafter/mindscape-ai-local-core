@@ -17,7 +17,7 @@ from fastapi import (
 
 from ....services.mindscape_store import MindscapeStore
 from ....services.file_analysis_service import FileAnalysisService
-from ....services.stores.timeline_items_store import TimelineItemsStore
+from ....services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
 from ....services.stores.tasks_store import TasksStore
 
 router = APIRouter()
@@ -93,8 +93,8 @@ async def upload_file(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        timeline_items_store = TimelineItemsStore(db_path=store.db_path)
-        tasks_store = TasksStore(db_path=store.db_path)
+        timeline_items_store = PostgresTimelineItemsStore()
+        tasks_store = TasksStore()
         file_service = FileAnalysisService(store, timeline_items_store, tasks_store)
 
         # Read file content
@@ -152,8 +152,8 @@ async def analyze_file(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        timeline_items_store = TimelineItemsStore(db_path=store.db_path)
-        tasks_store = TasksStore(db_path=store.db_path)
+        timeline_items_store = PostgresTimelineItemsStore()
+        tasks_store = TasksStore()
         file_service = FileAnalysisService(store, timeline_items_store, tasks_store)
 
         file_id = request.get("file_id")

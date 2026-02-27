@@ -63,7 +63,24 @@ async def get_llm_model_settings(
                 metadata=embedding_setting.metadata,
             )
 
-        available_chat_models = DEFAULT_CHAT_MODELS
+        # Return only enabled models (respects user's toggle settings)
+        from backend.app.services.model_config_store import ModelConfigStore
+        from backend.app.models.model_provider import ModelType as MT
+
+        _store = ModelConfigStore()
+        _enabled_chat = _store.get_all_models(model_type=MT.CHAT, enabled=True)
+        available_chat_models = (
+            [
+                {
+                    "model_name": m.model_name,
+                    "provider": m.provider_name,
+                    "description": m.description or "",
+                }
+                for m in _enabled_chat
+            ]
+            if _enabled_chat
+            else DEFAULT_CHAT_MODELS
+        )
         available_embedding_models = DEFAULT_EMBEDDING_MODELS
 
         response = {

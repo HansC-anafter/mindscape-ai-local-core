@@ -196,7 +196,7 @@ async def list_decision_cards(
         if include_legacy:
             from backend.app.services.stores.tasks_store import TasksStore
 
-            tasks_store = TasksStore(db_path=store.db_path)
+            tasks_store = TasksStore()
             # TODO: Query legacy tasks and mark as legacy
             pass
 

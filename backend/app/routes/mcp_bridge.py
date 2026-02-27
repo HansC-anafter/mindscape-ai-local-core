@@ -273,7 +273,7 @@ async def intent_submit(req: IntentSubmitRequest = Body(...)) -> Dict[str, Any]:
 
         store = MindscapeStore()
         store.ensure_default_profile()
-        intent_tags_store = IntentTagsStore(db_path=store.db_path)
+        intent_tags_store = IntentTagsStore()
 
         created_tags = []
         for intent in req.extracted_intents:

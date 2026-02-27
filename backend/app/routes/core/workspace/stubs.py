@@ -61,32 +61,9 @@ async def get_workspace_events(
         return {"events": [], "has_more": False}
 
 
-@router.get("/{workspace_id}/events/stream")
-async def stream_workspace_events(
-    workspace_id: str = PathParam(...),
-    event_types: Optional[str] = Query(None),
-):
-    """SSE endpoint: sends keepalive pings to prevent client reconnection loops."""
-
-    async def _gen():
-        # Send initial connected event
-        yield f"data: {json.dumps({'type': 'connected'})}\n\n"
-        # Keep connection alive with periodic pings (every 15s, up to 5 min)
-        for _ in range(20):
-            await asyncio.sleep(15)
-            yield f": ping\n\n"
-        # After 5 min, close gracefully — client will reconnect once
-        yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
-
-    return StreamingResponse(
-        _gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+# NOTE: SSE streaming endpoint has been moved to features/workspace/timeline.py
+# (event_stream_generator) which actually polls DB for new events.
+# The stub here was shadowing the real implementation, preventing real-time updates.
 
 
 # ---------------------------------------------------------------------------

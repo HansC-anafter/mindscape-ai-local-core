@@ -254,7 +254,7 @@ async def create_workspace(
                     BackgroundRoutinesStore,
                 )
 
-                routines_store = BackgroundRoutinesStore(db_path=store.db_path)
+                routines_store = PostgresBackgroundRoutinesStore()
 
                 # Check if state sync routine already exists for this workspace
                 existing = await asyncio.to_thread(
@@ -402,9 +402,11 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
         associated_intent = None
         if workspace.primary_project_id:
             try:
-                from ....services.stores.intents_store import IntentsStore
+                from ....services.stores.postgres.intents_store import (
+                    PostgresIntentsStore,
+                )
 
-                intents_store = IntentsStore(store.db_path)
+                intents_store = PostgresIntentsStore()
                 intent = await asyncio.to_thread(
                     intents_store.get_intent, workspace.primary_project_id
                 )
