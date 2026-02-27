@@ -403,7 +403,7 @@ export default function ExecutionChatPanel({
 
     setMessages(prev => {
       const updated = [...prev, userMessage].sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        (toTimestampMs(a.created_at) ?? 0) - (toTimestampMs(b.created_at) ?? 0)
       );
       return updated;
     });
