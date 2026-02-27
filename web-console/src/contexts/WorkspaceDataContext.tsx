@@ -473,7 +473,7 @@ export function WorkspaceDataProvider({
   // Debounced refresh for event handlers (2 second debounce)
   const debouncedRefresh = useDebounce(async () => {
     if (!mountedRef.current) return;
-    await Promise.all([loadTasks(), loadExecutions()]);
+    await Promise.all([loadTasks(), loadExecutions(), loadSystemStatus()]);
   }, 2000);
 
   // Update workspace
@@ -568,19 +568,15 @@ export function WorkspaceDataProvider({
         }
       }
 
-      // Load other data sequentially with delays to avoid overwhelming the browser
-      // Load tasks and executions regardless of workspace state (they can exist independently)
+      // Load other data in parallel after workspace loads
       // Use workspaceId instead of workspace state since state updates are async
       if (mountedRef.current && workspaceId && workspaceId !== 'new') {
         await new Promise(resolve => setTimeout(resolve, 300));
-        await loadTasks();
-      }
-      if (mountedRef.current && workspaceId && workspaceId !== 'new') {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        await loadExecutions();
-      }
-      if (mountedRef.current && workspaceId && workspaceId !== 'new') {
-        await loadSystemStatus();
+        await Promise.all([
+          loadTasks(),
+          loadExecutions(),
+          loadSystemStatus()
+        ]);
       }
 
       console.log(`[WorkspaceDataContext] Initial load completed for workspace ${workspaceId}`);
