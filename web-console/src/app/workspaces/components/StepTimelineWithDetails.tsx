@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useT } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface ExecutionStep {
   id: string;
@@ -174,12 +175,9 @@ export default function StepTimelineWithDetails({
 
   const formatTime = (timeStr?: string) => {
     if (!timeStr) return '';
-    try {
-      const date = new Date(timeStr);
-      return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    } catch {
-      return '';
-    }
+    const date = parseServerTimestamp(timeStr);
+    if (!date) return '';
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
   return (
