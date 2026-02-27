@@ -375,6 +375,11 @@ class EventType(str, Enum):
         "reasoning_committed"  # SGR reasoning trace committed to graph
     )
     INTENT_PATCHED = "intent_patched"  # IntentCard modified during governance session
+    # L3: Scoring and convergence events
+    STATE_VECTOR_COMPUTED = (
+        "state_vector_computed"  # StateVector s_t computed after meeting close
+    )
+    MODE_TRANSITION = "mode_transition"  # Meeting mode FSM transition (Explore/Converge/Deliver/Debug)
 
 
 class EventActor(str, Enum):

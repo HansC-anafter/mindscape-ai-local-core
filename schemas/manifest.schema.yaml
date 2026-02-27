@@ -12,11 +12,10 @@ description: |
   Manifest schema for Mindscape capability packs.
   Includes portability requirements for cross-environment deployment.
 type: object
-
 required:
   - code
   - version
-  - portability  # 必需
+  - portability # 必需
 
 properties:
   # ============================================================================
@@ -262,6 +261,14 @@ properties:
             - "capabilities.example_capability.tools.data_processor:process_data"
         description:
           type: string
+        schema_path:
+          type: string
+          pattern: "^tools/schemas/.*\\.(json|yaml)$"
+          description: |
+            External file path for input_schema (relative to pack root).
+            When specified, the schema file is loaded at runtime and
+            injected as input_schema.  Mutually exclusive with inline
+            input_schema (schema_path takes lower priority).
         input_schema:
           type: object
           description: "Tool 輸入 schema (JSON Schema)"
@@ -526,4 +533,3 @@ examples:
         router_export: router
         prefix: /example_capability
         enabled_by_default: true
-
