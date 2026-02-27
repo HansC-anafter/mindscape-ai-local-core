@@ -55,7 +55,7 @@ class WorkspaceGetExecutionTool(MindscapeTool):
         from backend.app.models.workspace import ExecutionSession
 
         store = MindscapeStore()
-        tasks_store = TasksStore(store.db_path)
+        tasks_store = TasksStore()
 
         task = tasks_store.get_task_by_execution_id(execution_id)
         if not task:
@@ -168,7 +168,7 @@ class WorkspaceListExecutionsTool(MindscapeTool):
         from backend.app.models.workspace import ExecutionSession
 
         store = MindscapeStore()
-        tasks_store = TasksStore(store.db_path)
+        tasks_store = TasksStore()
 
         since_dt = None
         if since:
@@ -382,30 +382,73 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
     - Read-only connection session
     """
 
-    # Tables that agents are allowed to query
-    ALLOWED_TABLES = {
-        "ig_accounts_flat",
-        "ig_account_profiles",
-        "ig_follow_edges",
-        "ig_posts",
-        "ig_generated_personas",
-    }
-
-    # Tables that have a workspace_id column for isolation
-    WORKSPACE_SCOPED_TABLES = {
-        "ig_accounts_flat",
-        "ig_account_profiles",
-        "ig_follow_edges",
-        "ig_posts",
-        "ig_generated_personas",
-    }
+    # Tables that agents are allowed to query - dynamically collected
+    # from installed pack manifests (`queryable_tables` field).
+    ALLOWED_TABLES: set = set()
+    WORKSPACE_SCOPED_TABLES: set = set()
 
     MAX_ROWS = 100
     STATEMENT_TIMEOUT_MS = 10_000  # 10 seconds
     MAX_RESPONSE_BYTES = 500_000  # 500 KB
 
+    @classmethod
+    def _collect_tables_from_registry(cls) -> tuple:
+        """Collect queryable_tables from enabled pack manifests only.
+
+        Returns (allowed_tables, workspace_scoped_tables) as sets.
+        """
+        try:
+            from backend.app.capabilities.registry import (
+                get_registry,
+                load_capabilities,
+            )
+
+            registry = get_registry()
+            if not registry.capabilities:
+                load_capabilities()
+
+            # Only include tables from enabled packs
+            enabled_codes = set()
+            try:
+                from backend.app.services.stores.installed_packs_store import (
+                    InstalledPacksStore,
+                )
+
+                store = InstalledPacksStore()
+                enabled_codes = set(store.list_enabled_pack_ids())
+            except Exception as e:
+                # Strict fallback: if DB unreachable, allow no tables
+                logger.warning("Could not query enabled packs: %s", e)
+                enabled_codes = set()
+
+            allowed = set()
+            scoped = set()
+            for cap_code, cap_info in registry.capabilities.items():
+                if cap_code not in enabled_codes:
+                    continue
+                manifest = cap_info.get("manifest", {})
+                for table in manifest.get("queryable_tables", []):
+                    if isinstance(table, dict):
+                        name = table.get("name", "")
+                        if name:
+                            allowed.add(name)
+                            if table.get("workspace_scoped", True):
+                                scoped.add(name)
+                    elif isinstance(table, str) and table:
+                        allowed.add(table)
+                        scoped.add(table)  # default: workspace-scoped
+            return allowed, scoped
+        except Exception as e:
+            logger.warning("Failed to collect queryable_tables from registry: %s", e)
+            return set(), set()
+
     def __init__(self):
-        table_list = ", ".join(sorted(self.ALLOWED_TABLES))
+        # Re-collect on each init to reflect pack enable/disable changes
+        allowed, scoped = self._collect_tables_from_registry()
+        WorkspaceQueryDatabaseTool.ALLOWED_TABLES = allowed
+        WorkspaceQueryDatabaseTool.WORKSPACE_SCOPED_TABLES = scoped
+
+        table_list = ", ".join(sorted(self.ALLOWED_TABLES)) or "(none registered)"
         metadata = ToolMetadata(
             name="workspace_query_database",
             description=(

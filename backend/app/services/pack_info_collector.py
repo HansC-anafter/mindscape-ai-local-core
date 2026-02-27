@@ -55,6 +55,32 @@ class PackInfoCollector:
                     continue
 
                 manifest = capability_info.get("manifest", {})
+
+                # Load agent_guide content from docs directory
+                agent_guide_content = ""
+                guide_ref = manifest.get("agent_guide")
+                if guide_ref:
+                    directory = capability_info.get("directory")
+                    if directory:
+                        # Path traversal guard
+                        guide_path = (directory / guide_ref).resolve()
+                        dir_resolved = directory.resolve()
+                        if not guide_path.is_relative_to(dir_resolved):
+                            logger.warning(
+                                "Blocked path traversal in agent_guide for %s: %s",
+                                pack_id,
+                                guide_ref,
+                            )
+                        elif guide_path.exists():
+                            try:
+                                agent_guide_content = guide_path.read_text(
+                                    encoding="utf-8"
+                                ).strip()[:500]
+                            except Exception as e:
+                                logger.debug(
+                                    f"Failed to read agent_guide for {pack_id}: {e}"
+                                )
+
                 installed_packs.append(
                     {
                         "pack_id": pack_id,
@@ -64,6 +90,7 @@ class PackInfoCollector:
                         or manifest.get("side_effect_level", "readonly"),
                         "manifest": manifest,
                         "metadata": metadata,
+                        "agent_guide": agent_guide_content,
                     }
                 )
         except Exception as e:
@@ -95,11 +122,15 @@ class PackInfoCollector:
             # Add use cases for better LLM understanding
             use_cases = self._get_pack_use_cases(pack_id)
             use_cases_str = f"Use cases: {', '.join(use_cases)}" if use_cases else ""
+            agent_guide = pack.get("agent_guide", "")
 
-            descriptions.append(
+            desc_line = (
                 f"- {pack_id} ({display_name}): {description} [{side_effect}]\n"
                 f"  {use_cases_str}"
             )
+            if agent_guide:
+                desc_line += f"\n  [Agent Guide] {agent_guide}"
+            descriptions.append(desc_line)
 
         return "\n".join(descriptions)
 

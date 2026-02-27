@@ -289,10 +289,9 @@ async def get_cli_token():
 async def get_agent_context():
     """Return dynamic context for agent system instruction.
 
-    Reads available tables from WorkspaceQueryTool.ALLOWED_TABLES
-    and dynamically fetches their column schemas from the DB.
-    This auto-scales: any new capability pack that adds tables to
-    ALLOWED_TABLES will have its schema included automatically.
+    Reads available tables from WorkspaceQueryDatabaseTool which
+    dynamically collects ``queryable_tables`` from installed pack
+    manifests.  Each table's column schema is fetched from the DB.
 
     Returns:
         JSON with table schemas, role, data_tool, and data_guidance.
@@ -300,7 +299,9 @@ async def get_agent_context():
     try:
         from ...services.tools.workspace_tools import WorkspaceQueryDatabaseTool
 
-        tables = sorted(WorkspaceQueryDatabaseTool.ALLOWED_TABLES)
+        # Instantiate to trigger dynamic table collection from registry
+        tool = WorkspaceQueryDatabaseTool()
+        tables = sorted(tool.ALLOWED_TABLES)
     except Exception as e:
         logger.warning("Failed to read ALLOWED_TABLES: %s", e)
         tables = []
@@ -357,4 +358,96 @@ async def get_agent_context():
             "Always provide the actual data in your response. "
             "IMPORTANT: Always reply in the same language the user used."
         ),
+        "installed_pack_guides": _get_pack_agent_guides(),
     }
+
+
+def _get_pack_agent_guides() -> list:
+    """Load agent_guide content from **enabled** packs only.
+
+    Security:
+      - Path traversal guard: guide_ref is resolved and checked to stay
+        within the pack directory.
+      - Only enabled packs are considered (via ``list_enabled_pack_ids``).
+      - Total budget cap prevents prompt size explosion.
+    """
+    import os
+
+    MAX_PER_GUIDE = 500
+    MAX_TOTAL_CHARS = int(os.environ.get("AGENT_GUIDE_BUDGET", "3000"))
+
+    guides: list = []
+    try:
+        from ...capabilities.registry import get_registry, load_capabilities
+        from ...services.stores.installed_packs_store import InstalledPacksStore
+
+        registry = get_registry()
+
+        # Lazy-load if registry is empty (dual-import-path singleton issue)
+        if not registry.capabilities:
+            load_capabilities()
+
+        store = InstalledPacksStore()
+        enabled_ids = set(store.list_enabled_pack_ids())
+
+        for code in enabled_ids:
+            cap_info = registry.capabilities.get(code)
+            if not cap_info:
+                continue
+            manifest = cap_info.get("manifest", {})
+            guide_ref = manifest.get("agent_guide")
+            if not guide_ref:
+                continue
+            directory = cap_info.get("directory")
+            if not directory:
+                continue
+
+            # Path traversal guard
+            guide_path = (directory / guide_ref).resolve()
+            if not guide_path.is_relative_to(directory.resolve()):
+                logger.warning(
+                    "Blocked path traversal in agent_guide for %s: %s",
+                    code,
+                    guide_ref,
+                )
+                continue
+            if not guide_path.exists():
+                continue
+
+            content = guide_path.read_text(encoding="utf-8").strip()[:MAX_PER_GUIDE]
+            guides.append(
+                {
+                    "pack_code": code,
+                    "display_name": manifest.get("display_name", code),
+                    "guide": content,
+                }
+            )
+
+        # Deterministic order + total budget cap
+        guides.sort(key=lambda g: g["pack_code"])
+        total = 0
+        capped: list = []
+        for g in guides:
+            if total + len(g["guide"]) > MAX_TOTAL_CHARS:
+                break
+            capped.append(g)
+            total += len(g["guide"])
+
+        truncated_count = len(guides) - len(capped)
+        if truncated_count > 0:
+            logger.info(
+                "Agent guide budget reached: kept %d/%d guides (%d chars)",
+                len(capped),
+                len(guides),
+                total,
+            )
+
+        result = capped
+        if truncated_count > 0:
+            # Attach metadata for observability
+            result = capped  # still a list; caller can check length vs total
+    except Exception as e:
+        logger.warning("Failed to load pack agent guides: %s", e)
+        result = []
+        truncated_count = 0
+    return result

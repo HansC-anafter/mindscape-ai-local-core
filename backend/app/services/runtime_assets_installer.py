@@ -89,6 +89,9 @@ class RuntimeAssetsInstaller:
         # 11. Install root-level Python files and YAML files
         self.install_root_files(cap_dir, capability_code, result)
 
+        # 12. Install docs directory (agent_guide, etc.)
+        self.install_docs(cap_dir, capability_code, result)
+
     def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability tools"""
         tools_dir = cap_dir / "tools"
@@ -430,11 +433,64 @@ class RuntimeAssetsInstaller:
             logger.debug(f"Installed migration: {migration_file.name}")
             installed_files.append(migration_file.name)
 
+            # Warn if branch_labels not set on pack migration
+            branch = self._extract_branch_labels(migration_file)
+            if not branch:
+                result.add_warning(
+                    f"Migration {migration_file.name} has no branch_labels. "
+                    f"Set branch_labels = ('{capability_code}',) for Hybrid migration support."
+                )
+
         if installed_files:
             result.extend_installed("migrations", installed_files)
             logger.info(
                 f"Installed {len(installed_files)} migration files for {capability_code}"
             )
+
+    @staticmethod
+    def _extract_branch_labels(migration_file: Path) -> tuple:
+        """Extract branch_labels from a migration .py file.
+
+        Returns a tuple of branch labels, or empty tuple if not set / None.
+        """
+        import re
+
+        try:
+            content = migration_file.read_text()
+            # Match: branch_labels = ("foo",) or branch_labels = ('foo',)
+            # Also handles: branch_labels: ... = ("foo",)
+            match = re.search(
+                r"""branch_labels\s*(?::\s*[^=]+)?\s*=\s*\(([^)]*)\)""",
+                content,
+            )
+            if match:
+                inner = match.group(1).strip()
+                if inner:
+                    # Parse comma-separated quoted strings
+                    labels = re.findall(r"""['"]([^'"]+)['"]""", inner)
+                    return tuple(labels)
+            # Check for branch_labels = None
+            if re.search(r"""branch_labels\s*(?::\s*[^=]+)?\s*=\s*None""", content):
+                return ()
+        except Exception:
+            pass
+        return ()
+
+    def _pack_has_branch_label(
+        self, capability_code: str, alembic_versions_dir: Path
+    ) -> bool:
+        """Check if any installed migration file declares branch_labels
+        matching the given capability_code.
+        """
+        if not alembic_versions_dir.exists():
+            return False
+        for mf in alembic_versions_dir.glob("*.py"):
+            if mf.name.startswith("__"):
+                continue
+            labels = self._extract_branch_labels(mf)
+            if capability_code in labels:
+                return True
+        return False
 
     def execute_migrations(self, capability_code: str, result: InstallResult):
         """Execute database migrations for a specific capability only"""
@@ -455,6 +511,16 @@ class RuntimeAssetsInstaller:
             capability_dir = self.capabilities_dir / capability_code
             migrations_yaml = capability_dir / "migrations.yaml"
             revisions = []
+            use_branch_scoped = False
+
+            # Needed by both migrations.yaml and fallback paths
+            alembic_versions_dir = (
+                self.local_core_root
+                / "backend"
+                / "alembic_migrations"
+                / "postgres"
+                / "versions"
+            )
 
             if migrations_yaml.exists():
                 import yaml
@@ -495,58 +561,35 @@ class RuntimeAssetsInstaller:
                     logger.warning(drift_msg)
                     result.add_warning(drift_msg)
             else:
-                # No migrations.yaml - attempt fallback: run alembic upgrade heads
-                # This ensures newly copied migration files get executed even without
-                # explicit revision declarations
-                logger.warning(
-                    f"No migrations.yaml found for {capability_code}, "
-                    f"attempting fallback: alembic upgrade heads"
-                )
-                try:
-                    from app.services.migrations.orchestrator import (
-                        MigrationOrchestrator,
-                    )
-
-                    alembic_configs = {"postgres": alembic_config}
-                    capabilities_root = (
-                        self.local_core_root / "backend" / "app" / "capabilities"
-                    )
-                    orchestrator = MigrationOrchestrator(
-                        capabilities_root, alembic_configs
-                    )
-                    fallback_result = orchestrator.apply("postgres", dry_run=False)
-                    applied = fallback_result.get("migrations_applied", 0)
+                # No migrations.yaml - check if pack uses branch_labels
+                # for auto-discover, otherwise skip (don't run global upgrade heads)
+                if self._pack_has_branch_label(capability_code, alembic_versions_dir):
                     logger.info(
-                        f"Fallback migration completed for {capability_code}: "
-                        f"status={fallback_result.get('status')}, applied={applied}"
+                        f"No migrations.yaml for {capability_code}, "
+                        f"but branch_labels found — will use branch-scoped auto-discover"
                     )
-                    if result.migration_status is None:
-                        result.migration_status = {}
-                    result.migration_status[capability_code] = "applied_fallback"
-                except Exception as e:
-                    logger.error(
-                        f"Fallback migration failed for {capability_code}: {e}",
-                        exc_info=True,
+                    # Fall through to execute section below with empty revisions
+                    revisions = []
+                    use_branch_scoped = True
+                else:
+                    logger.warning(
+                        f"No migrations.yaml and no branch_labels for {capability_code}, "
+                        f"skipping migration execution (set branch_labels to enable auto-discover)"
                     )
-                    result.add_warning(f"Migration fallback failed: {e}")
-                    if result.migration_status is None:
-                        result.migration_status = {}
-                    result.migration_status[capability_code] = "error"
-                return
+                    result.add_warning(
+                        f"Migrations installed but not executed for {capability_code}: "
+                        f"no migrations.yaml and no branch_labels. "
+                        f"Add branch_labels = ('{capability_code}',) to enable auto-discover."
+                    )
+                    return
 
-            if not revisions:
+            if not revisions and not use_branch_scoped:
                 logger.info(f"No migrations found for {capability_code}")
                 return
 
             # Validate revision IDs for uniqueness across all installed migrations
             # Only check for conflicts with OTHER capabilities, not the same capability
-            alembic_versions_dir = (
-                self.local_core_root
-                / "backend"
-                / "alembic_migrations"
-                / "postgres"
-                / "versions"
-            )
+            # alembic_versions_dir already declared above
             if alembic_versions_dir.exists():
                 existing_revisions = {}
                 capability_patterns = [
@@ -704,32 +747,92 @@ class RuntimeAssetsInstaller:
                                     f"Removed revision {revision}, will re-execute migration"
                                 )
 
-            # Execute each revision individually to avoid conflicts with other capabilities
-            for revision in revisions:
-                logger.info(f"Executing migration {revision} for {capability_code}...")
-                upgrade_result = orchestrator._run_alembic_upgrade(
-                    alembic_config, revision
+            # Hybrid migration: branch-scoped or legacy per-revision
+            if self._pack_has_branch_label(capability_code, alembic_versions_dir):
+                # New path: branch-scoped auto-discover
+                target = f"{capability_code}@head"
+                logger.info(
+                    f"Branch-scoped migration: upgrading {target} for {capability_code}"
                 )
+                try:
+                    upgrade_result = orchestrator._run_alembic_upgrade(
+                        alembic_config, target
+                    )
+                except Exception as e:
+                    # branch might not exist yet if never applied
+                    logger.warning(
+                        f"Branch {target} upgrade failed ({e}), "
+                        f"falling back to per-revision"
+                    )
+                    upgrade_result = False
 
-                if not upgrade_result:
-                    error_msg = f"Migration {revision} failed for {capability_code}"
+                if upgrade_result:
+                    logger.info(
+                        f"Branch-scoped migration completed for {capability_code}"
+                    )
+                elif revisions:
+                    logger.info(f"Falling back to per-revision for {capability_code}")
+                    for revision in revisions:
+                        logger.info(
+                            f"Executing migration {revision} for {capability_code}..."
+                        )
+                        rev_result = orchestrator._run_alembic_upgrade(
+                            alembic_config, revision
+                        )
+                        if not rev_result:
+                            error_msg = (
+                                f"Migration {revision} failed for {capability_code}"
+                            )
+                            logger.error(error_msg)
+                            result.add_warning(error_msg)
+                            if result.migration_status is None:
+                                result.migration_status = {}
+                            result.migration_status[capability_code] = "failed"
+                            return
+                else:
+                    error_msg = (
+                        f"Branch-scoped migration failed for {capability_code} "
+                        f"and no revisions list to fall back to"
+                    )
                     logger.error(error_msg)
                     result.add_warning(error_msg)
                     if result.migration_status is None:
                         result.migration_status = {}
                     result.migration_status[capability_code] = "failed"
                     return
+            else:
+                # Legacy path: per-revision from migrations.yaml
+                for revision in revisions:
+                    logger.info(
+                        f"Executing migration {revision} for {capability_code}..."
+                    )
+                    upgrade_result = orchestrator._run_alembic_upgrade(
+                        alembic_config, revision
+                    )
 
-                # Verify tables were created after migration
-                inspector = inspect(engine)
-                existing_tables_after = set(inspector.get_table_names())
+                    if not upgrade_result:
+                        error_msg = f"Migration {revision} failed for {capability_code}"
+                        logger.error(error_msg)
+                        result.add_warning(error_msg)
+                        if result.migration_status is None:
+                            result.migration_status = {}
+                        result.migration_status[capability_code] = "failed"
+                        return
+
+            # Verify tables after migration (both paths)
+            inspector = inspect(engine)
+            existing_tables_after = set(inspector.get_table_names())
+            for revision in revisions:
                 expected_tables = revision_expected_tables.get(revision, [])
                 if expected_tables:
                     still_missing = [
                         t for t in expected_tables if t not in existing_tables_after
                     ]
                     if still_missing:
-                        error_msg = f"Migration {revision} completed but tables still missing: {still_missing}"
+                        error_msg = (
+                            f"Migration {revision} completed but tables "
+                            f"still missing: {still_missing}"
+                        )
                         logger.error(error_msg)
                         result.add_warning(error_msg)
                         if result.migration_status is None:
@@ -1106,3 +1209,23 @@ class RuntimeAssetsInstaller:
                 shutil.copy2(yaml_file, target_file)
                 logger.debug(f"Installed root YAML file: {yaml_file.name}")
                 result.add_installed("root_files", yaml_file.name)
+
+    def install_docs(self, cap_dir: Path, capability_code: str, result: InstallResult):
+        """Install docs directory (contains agent_guide.md etc.)"""
+        docs_dir = cap_dir / "docs"
+        if not docs_dir.exists():
+            return
+
+        target_docs_dir = self.capabilities_dir / capability_code / "docs"
+        if target_docs_dir.exists():
+            shutil.rmtree(target_docs_dir)
+        target_docs_dir.mkdir(parents=True, exist_ok=True)
+
+        for doc_file in docs_dir.rglob("*"):
+            if doc_file.is_file():
+                rel = doc_file.relative_to(docs_dir)
+                target = target_docs_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(doc_file, target)
+                result.add_installed("docs", str(rel))
+                logger.debug(f"Installed doc: {rel}")
