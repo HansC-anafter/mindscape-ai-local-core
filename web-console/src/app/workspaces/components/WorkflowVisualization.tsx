@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import WorkflowStepCard from './WorkflowStepCard';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface WorkflowStep {
   playbook_code: string;
@@ -260,13 +261,13 @@ export default function WorkflowVisualization({
 
                         {step.started_at && (
                           <div className="text-xs text-gray-500 dark:text-gray-400">
-                            Started: {new Date(step.started_at).toLocaleString()}
+                            Started: {formatLocalDateTime(step.started_at)}
                           </div>
                         )}
 
                         {step.completed_at && (
                           <div className="text-xs text-gray-500 dark:text-gray-400">
-                            Completed: {new Date(step.completed_at).toLocaleString()}
+                            Completed: {formatLocalDateTime(step.completed_at)}
                           </div>
                         )}
                       </div>
