@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface Artifact {
   id: string;
@@ -308,193 +309,193 @@ export default function OutcomeDetailModal({
       <div
         className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         onClick={onClose}
-    >
-      <div
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-        style={{ marginRight: '320px' }} // Leave space for right sidebar (w-80 = 320px)
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b dark:border-gray-700 px-6 py-4 shrink-0">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h2>
-            <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
-              <span>{artifact.playbook_code}</span>
-              <span>•</span>
-              <span>{new Date(artifact.created_at).toLocaleString('zh-TW')}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 ml-4">
-            {artifact.primary_action_type === 'copy' && (
-              <button
-                onClick={handleCopy}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors"
-              >
-                {loading ? '複製中...' : '複製全部'}
-              </button>
-            )}
-            {artifact.primary_action_type === 'open_external' && (
-              <button
-                onClick={handleOpenExternal}
-                className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
-              >
-                開啟
-              </button>
-            )}
-            {artifact.primary_action_type === 'download' && (
-              <button
-                onClick={handleOpenExternal}
-                className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
-              >
-                下載
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none ml-2"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-          {renderContent()}
-        </div>
-
-        {/* Footer - Metadata */}
-        <div className="border-t dark:border-gray-700 px-6 py-3 bg-gray-50 dark:bg-gray-800 shrink-0">
-          <div className="space-y-3">
-            {/* Basic Metadata */}
-            <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
-              <div className="flex items-center gap-4">
-                <span>Playbook: {artifact.playbook_code}</span>
-                {artifact.execution_id && (
-                  <span>執行 ID: {artifact.execution_id.substring(0, 8)}...</span>
-                )}
-                {artifact.intent_id && (
-                  <span className="text-blue-600 dark:text-blue-400">來源 Intent</span>
-                )}
+        <div
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+          style={{ marginRight: '320px' }} // Leave space for right sidebar (w-80 = 320px)
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b dark:border-gray-700 px-6 py-4 shrink-0">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h2>
+              <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <span>{artifact.playbook_code}</span>
+                <span>•</span>
+                <span>{formatLocalDateTime(artifact.created_at)}</span>
               </div>
-              {artifact.intent_id && (
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              {artifact.primary_action_type === 'copy' && (
                 <button
-                  onClick={() => {
-                    // TODO: Navigate to intent or scroll to timeline item
-                    console.log('Navigate to intent:', artifact.intent_id);
-                  }}
-                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+                  onClick={handleCopy}
+                  disabled={loading}
+                  className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors"
                 >
-                  回到該次對話／意圖
+                  {loading ? '複製中...' : '複製全部'}
                 </button>
               )}
+              {artifact.primary_action_type === 'open_external' && (
+                <button
+                  onClick={handleOpenExternal}
+                  className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
+                >
+                  開啟
+                </button>
+              )}
+              {artifact.primary_action_type === 'download' && (
+                <button
+                  onClick={handleOpenExternal}
+                  className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
+                >
+                  下載
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none ml-2"
+              >
+                ×
+              </button>
             </div>
+          </div>
 
-            {/* Version Info */}
-            {artifact.metadata?.version && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-600 dark:text-gray-400">版本:</span>
-                <span className="font-mono font-semibold dark:text-gray-100">v{artifact.metadata.version}</span>
-                {artifact.metadata.is_latest && (
-                  <span className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded">
-                    最新
-                  </span>
+          {/* Main Content */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+            {renderContent()}
+          </div>
+
+          {/* Footer - Metadata */}
+          <div className="border-t dark:border-gray-700 px-6 py-3 bg-gray-50 dark:bg-gray-800 shrink-0">
+            <div className="space-y-3">
+              {/* Basic Metadata */}
+              <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+                <div className="flex items-center gap-4">
+                  <span>Playbook: {artifact.playbook_code}</span>
+                  {artifact.execution_id && (
+                    <span>執行 ID: {artifact.execution_id.substring(0, 8)}...</span>
+                  )}
+                  {artifact.intent_id && (
+                    <span className="text-blue-600 dark:text-blue-400">來源 Intent</span>
+                  )}
+                </div>
+                {artifact.intent_id && (
+                  <button
+                    onClick={() => {
+                      // TODO: Navigate to intent or scroll to timeline item
+                      console.log('Navigate to intent:', artifact.intent_id);
+                    }}
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+                  >
+                    回到該次對話／意圖
+                  </button>
                 )}
               </div>
-            )}
 
-            {/* Storage Path */}
-            {artifact.storage_ref && (
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">存儲路徑</label>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-800 dark:text-gray-200 break-all">
-                    {artifact.storage_ref}
-                  </code>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(artifact.storage_ref || '');
-                        showToast({
-                          message: '路徑已複製到剪貼板',
-                          type: 'success',
-                          duration: 3000
-                        });
-                      } catch (err) {
-                        console.error('Failed to copy path:', err);
-                        showToast({
-                          message: '複製路徑失敗，請重試',
-                          type: 'error',
-                          duration: 3000
-                        });
-                      }
-                    }}
-                    className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                    title="複製路徑"
-                  >
-                    複製
-                  </button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        // Open folder in system file manager
-                        const path = artifact.storage_ref || '';
-                        if (path) {
-                          // Try to extract directory path
+              {/* Version Info */}
+              {artifact.metadata?.version && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">版本:</span>
+                  <span className="font-mono font-semibold dark:text-gray-100">v{artifact.metadata.version}</span>
+                  {artifact.metadata.is_latest && (
+                    <span className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded">
+                      最新
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Storage Path */}
+              {artifact.storage_ref && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">存儲路徑</label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-800 dark:text-gray-200 break-all">
+                      {artifact.storage_ref}
+                    </code>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(artifact.storage_ref || '');
+                          showToast({
+                            message: '路徑已複製到剪貼板',
+                            type: 'success',
+                            duration: 3000
+                          });
+                        } catch (err) {
+                          console.error('Failed to copy path:', err);
+                          showToast({
+                            message: '複製路徑失敗，請重試',
+                            type: 'error',
+                            duration: 3000
+                          });
+                        }
+                      }}
+                      className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      title="複製路徑"
+                    >
+                      複製
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // Open folder in system file manager
+                          const path = artifact.storage_ref || '';
+                          if (path) {
+                            // Try to extract directory path
+                            const dirPath = path.includes('/')
+                              ? path.substring(0, path.lastIndexOf('/'))
+                              : path;
+
+                            // Call backend API to open folder
+                            const response = await fetch(
+                              `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/open-folder`,
+                              {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ path: dirPath })
+                              }
+                            );
+
+                            if (!response.ok) {
+                              throw new Error('Failed to open folder');
+                            }
+
+                            const result = await response.json();
+
+                            // If backend requires manual opening, show path dialog
+                            if (result.requires_manual_open && result.path) {
+                              alert(`路徑: ${result.path}\n\n請手動在檔案管理器中開啟此路徑。`);
+                            } else {
+                              showToast({
+                                message: '已開啟資料夾',
+                                type: 'success',
+                                duration: 3000
+                              });
+                            }
+                          }
+                        } catch (err) {
+                          console.error('Failed to open folder:', err);
+                          // Fallback: Show path in alert
+                          const path = artifact.storage_ref || '';
                           const dirPath = path.includes('/')
                             ? path.substring(0, path.lastIndexOf('/'))
                             : path;
-
-                          // Call backend API to open folder
-                          const response = await fetch(
-                            `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/open-folder`,
-                            {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ path: dirPath })
-                            }
-                          );
-
-                          if (!response.ok) {
-                            throw new Error('Failed to open folder');
-                          }
-
-                          const result = await response.json();
-
-                          // If backend requires manual opening, show path dialog
-                          if (result.requires_manual_open && result.path) {
-                            alert(`路徑: ${result.path}\n\n請手動在檔案管理器中開啟此路徑。`);
-                          } else {
-                            showToast({
-                              message: '已開啟資料夾',
-                              type: 'success',
-                              duration: 3000
-                            });
-                          }
+                          alert(`路徑: ${dirPath}\n\n請手動在檔案管理器中開啟此路徑。`);
                         }
-                      } catch (err) {
-                        console.error('Failed to open folder:', err);
-                        // Fallback: Show path in alert
-                        const path = artifact.storage_ref || '';
-                        const dirPath = path.includes('/')
-                          ? path.substring(0, path.lastIndexOf('/'))
-                          : path;
-                        alert(`路徑: ${dirPath}\n\n請手動在檔案管理器中開啟此路徑。`);
-                      }
-                    }}
-                    className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/40 transition-colors"
-                    title="開啟所在資料夾"
-                  >
-                    開啟資料夾
-                  </button>
+                      }}
+                      className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/40 transition-colors"
+                      title="開啟所在資料夾"
+                    >
+                      開啟資料夾
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </>
   );
 }

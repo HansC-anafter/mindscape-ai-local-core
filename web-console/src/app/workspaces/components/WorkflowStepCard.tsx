@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface ToolCall {
   id: string;
@@ -348,10 +349,10 @@ export default function WorkflowStepCard({
       {(step.started_at || step.completed_at) && (
         <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 pt-2">
           {step.started_at && (
-            <div>開始: {new Date(step.started_at).toLocaleString()}</div>
+            <div>開始: {formatLocalDateTime(step.started_at)}</div>
           )}
           {step.completed_at && (
-            <div>完成: {new Date(step.completed_at).toLocaleString()}</div>
+            <div>完成: {formatLocalDateTime(step.completed_at)}</div>
           )}
         </div>
       )}
