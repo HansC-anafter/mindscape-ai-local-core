@@ -87,6 +87,10 @@ from backend.app.services.stores.postgres.remaining_stores import (
     PostgresUserPlaybookMetaStore,
     PostgresThreadReferencesStore,
 )
+from backend.app.services.stores.postgres.intent_logs_store import (
+    PostgresIntentLogsStore,
+)
+from backend.app.services.stores.postgres.entities_store import PostgresEntitiesStore
 from backend.app.services.stores.projects_store import ProjectsStore
 
 logger = logging.getLogger(__name__)
@@ -143,6 +147,8 @@ class MindscapeStore:
             self.conversation_threads = PostgresConversationThreadsStore()
             self.thread_references = PostgresThreadReferencesStore()
             self.playbook_executions = PostgresPlaybookExecutionsStore()
+            self.intent_logs = PostgresIntentLogsStore()
+            self.entities = PostgresEntitiesStore()
         else:
             raise RuntimeError(
                 "SQLite is no longer supported for new deployments. Please configure PostgreSQL."

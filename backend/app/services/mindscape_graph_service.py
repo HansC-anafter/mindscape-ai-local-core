@@ -321,11 +321,13 @@ class MindscapeGraphService:
         graph = MindscapeGraph(scope_type=scope_type, scope_id=scope_id)
 
         # Import stores lazily to avoid circular imports
-        from app.services.stores.timeline_items_store import TimelineItemsStore
+        from app.services.stores.postgres.timeline_items_store import (
+            PostgresTimelineItemsStore,
+        )
         from app.services.stores.tasks_store import TasksStore
 
-        timeline_store = TimelineItemsStore(self.db_path)
-        tasks_store = TasksStore(self.db_path)
+        timeline_store = PostgresTimelineItemsStore()
+        tasks_store = TasksStore()
 
         # Get workspace IDs to process
         workspace_ids = await self._get_workspace_ids(scope_type, scope_id)
@@ -352,9 +354,11 @@ class MindscapeGraphService:
             return [scope_id]
         else:
             # For workspace groups, get all member workspaces
-            from app.services.stores.workspaces_store import WorkspacesStore
+            from app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
 
-            store = WorkspacesStore(self.db_path)
+            store = PostgresWorkspacesStore()
             group = store.get_workspace_group(scope_id)
             return group.workspace_ids if group else []
 

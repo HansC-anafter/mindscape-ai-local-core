@@ -53,7 +53,7 @@ class DashboardAggregator:
     def __init__(self, store: MindscapeStore):
         self.store = store
         self.executions_store = store.playbook_executions
-        self.tasks_store = TasksStore(store.db_path)
+        self.tasks_store = TasksStore()
 
     async def get_summary(
         self,

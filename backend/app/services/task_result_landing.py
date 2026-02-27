@@ -55,7 +55,7 @@ class TaskResultLandingService:
 
     def __init__(self, db_path: Optional[str] = None):
         self._db_path = db_path
-        self._tasks_store = TasksStore(db_path=db_path)
+        self._tasks_store = TasksStore()
         self._artifacts_store = PostgresArtifactsStore()
 
     def land_result(

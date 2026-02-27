@@ -191,11 +191,11 @@ class WorkspaceWelcomeService:
                 try:
                     from backend.app.services.conversation.context_builder import ContextBuilder
                     from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
-                    from backend.app.services.stores.timeline_items_store import TimelineItemsStore
+                    from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
                     from backend.app.capabilities.core_llm.services.generate import run as generate_text
                     from backend.app.services.system_settings_store import SystemSettingsStore
 
-                    timeline_items_store = TimelineItemsStore(store.db_path)
+                    timeline_items_store = PostgresTimelineItemsStore()
                     qa_generator = QAResponseGenerator(
                         store=store,
                         timeline_items_store=timeline_items_store,

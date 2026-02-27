@@ -50,8 +50,8 @@ class PlaybookRunner:
         self.config_store = config_store
         self.llm_manager = None  # Will be initialized per-profile
         self.active_conversations: Dict[str, PlaybookConversationManager] = {}
-        self.tool_calls_store = ToolCallsStore(db_path=self.store.db_path)
-        self.stage_results_store = StageResultsStore(db_path=self.store.db_path)
+        self.tool_calls_store = ToolCallsStore()
+        self.stage_results_store = StageResultsStore()
         self.workflow_tracker = WorkflowTracker(self.store)
         # Initialize modular components
         self.tool_executor = PlaybookToolExecutor(self.store, self.workflow_tracker)
@@ -573,7 +573,7 @@ class PlaybookRunner:
                 try:
                     from backend.app.services.stores.tasks_store import TasksStore
 
-                    tasks_store = TasksStore(db_path=self.store.db_path)
+                    tasks_store = TasksStore()
                     task = tasks_store.get_task_by_execution_id(execution_id)
                     if task:
                         execution_context = task.execution_context or {}
@@ -899,7 +899,7 @@ class PlaybookRunner:
                     raise ValueError(f"Execution not found: {execution_id}")
 
             # Get execution context to preserve sandbox_id
-            tasks_store = TasksStore(db_path=self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task_by_execution_id(execution_id)
             if not task:
                 raise ValueError(f"Task not found for execution_id: {execution_id}")

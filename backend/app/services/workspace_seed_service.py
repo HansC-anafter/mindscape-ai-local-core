@@ -13,9 +13,11 @@ Key rules:
 
 import logging
 from typing import Dict, Any, List, Optional
-from backend.app.services.stores.workspaces_store import WorkspacesStore
-from backend.app.services.stores.intents_store import IntentsStore
-from backend.app.services.stores.events_store import EventsStore
+from backend.app.services.stores.postgres.workspaces_store import (
+    PostgresWorkspacesStore,
+)
+from backend.app.services.stores.postgres.intents_store import PostgresIntentsStore
+from backend.app.services.stores.postgres.events_store import PostgresEventsStore
 from backend.app.models.workspace import Workspace, LaunchStatus
 from backend.app.models.workspace_blueprint import WorkspaceBlueprint
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
@@ -26,6 +28,7 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +44,9 @@ class WorkspaceSeedService:
             store: MindscapeStore instance (provides database connection)
         """
         self.store = store
-        self.workspaces_store = WorkspacesStore(store.db_path)
-        self.intents_store = IntentsStore(store.db_path)
-        self.events_store = EventsStore(store.db_path)
+        self.workspaces_store = PostgresWorkspacesStore()
+        self.intents_store = PostgresIntentsStore()
+        self.events_store = PostgresEventsStore()
 
     async def process_seed(
         self,
@@ -165,7 +168,7 @@ class WorkspaceSeedService:
         from backend.app.services.config_store import ConfigStore
         from backend.app.services.system_settings_store import SystemSettingsStore
 
-        config_store = ConfigStore(self.store.db_path)
+        config_store = ConfigStore()
         settings_store = SystemSettingsStore()
 
         config = config_store.get_or_create_config(profile_id)

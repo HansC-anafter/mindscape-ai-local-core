@@ -16,6 +16,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.system_health_checker import SystemHealthChecker
 
@@ -327,11 +328,11 @@ class WorkbenchService:
             # Get recent timeline items (LLM outputs) for playbook matching
             recent_timeline_items = []
             try:
-                from backend.app.services.stores.timeline_items_store import (
-                    TimelineItemsStore,
+                from backend.app.services.stores.postgres.timeline_items_store import (
+                    PostgresTimelineItemsStore,
                 )
 
-                timeline_store = TimelineItemsStore(self.store.db_path)
+                timeline_store = PostgresTimelineItemsStore()
                 timeline_items = timeline_store.list_timeline_items_by_workspace(
                     workspace_id=workspace_id, limit=10
                 )
@@ -402,11 +403,11 @@ class WorkbenchService:
         try:
             # First, try to get from recent timeline items (LLM outputs)
             try:
-                from backend.app.services.stores.timeline_items_store import (
-                    TimelineItemsStore,
+                from backend.app.services.stores.postgres.timeline_items_store import (
+                    PostgresTimelineItemsStore,
                 )
 
-                timeline_store = TimelineItemsStore(self.store.db_path)
+                timeline_store = PostgresTimelineItemsStore()
                 # Get workspace_id from events if available
                 workspace_id = None
                 for event in events[:5]:

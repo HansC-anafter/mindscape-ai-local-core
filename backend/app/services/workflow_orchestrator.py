@@ -857,9 +857,11 @@ class WorkflowOrchestrator:
                 from backend.app.services.playbook_output_artifact_creator import (
                     PlaybookOutputArtifactCreator,
                 )
-                from backend.app.services.stores.artifacts_store import ArtifactsStore
+                from backend.app.services.stores.postgres.artifacts_store import (
+                    PostgresArtifactsStore,
+                )
 
-                artifacts_store = ArtifactsStore(self.store.db_path)
+                artifacts_store = PostgresArtifactsStore()
                 artifact_creator = PlaybookOutputArtifactCreator(artifacts_store)
 
                 # Get playbook_code and metadata
@@ -964,7 +966,7 @@ class WorkflowOrchestrator:
                 try:
                     from backend.app.services.stores.tasks_store import TasksStore
 
-                    tasks_store = TasksStore(db_path=self.store.db_path)
+                    tasks_store = TasksStore()
                     logger.error(f"🔍 Getting task by execution_id: {execution_id}")
                     task = tasks_store.get_task_by_execution_id(execution_id)
                     logger.error(f"🔍 Task found: {task is not None}")

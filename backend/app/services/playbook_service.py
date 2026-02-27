@@ -577,7 +577,7 @@ class PlaybookService:
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.models.workspace import TaskStatus
 
-            tasks_store = TasksStore(self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task(execution_id)
 
             if task:
@@ -618,7 +618,7 @@ class PlaybookService:
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.models.workspace import TaskStatus
 
-            tasks_store = TasksStore(self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task(execution_id)
 
             if not task:
