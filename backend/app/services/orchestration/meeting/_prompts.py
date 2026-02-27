@@ -10,6 +10,8 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from backend.app.models.mindscape import EventType
+
 logger = logging.getLogger(__name__)
 
 
@@ -139,14 +141,21 @@ class MeetingPromptsMixin:
             # Query DECISION_FINAL events from the event store
             decision_events = []
             try:
-                events = self.store.list_events(
-                    entity_id=prev.id,
-                    event_type="DECISION_FINAL",
-                    limit=10,
+                all_session_events = self.store.get_events_by_meeting_session(
+                    meeting_session_id=prev.id,
+                    limit=50,
                 )
-                decision_events = events or []
+                decision_events = [
+                    e
+                    for e in (all_session_events or [])
+                    if (
+                        getattr(e, "event_type", None) == EventType.DECISION_FINAL
+                        or getattr(getattr(e, "event_type", None), "value", None)
+                        == "decision_final"
+                    )
+                ][:10]
             except Exception:
-                # Store may not support event_type filter
+                # Store may not support meeting session query
                 pass
 
             if decision_events:
@@ -351,6 +360,25 @@ class MeetingPromptsMixin:
     ) -> str:
         """Render final meeting minutes as markdown."""
         status = "converged" if converged else "partial"
+
+        # 1. Topic line: prefer project title, fallback to user_message
+        topic = self._extract_meeting_topic(user_message)
+
+        # 2. Decision summary: cap at 300 chars
+        decision_summary = decision[:300]
+        if len(decision) > 300:
+            decision_summary += "\n\n_(...truncated)_"
+
+        # 3. Risks summary: cap each critic note at 200 chars
+        risk_lines = []
+        for note in critic_notes:
+            summary = note[:200]
+            if len(note) > 200:
+                summary += "..."
+            risk_lines.append(f"- {summary}")
+        risk_text = "\n".join(risk_lines) or "- None"
+
+        # 4. Action Items table
         action_lines = "\n".join(
             [
                 (
@@ -362,17 +390,34 @@ class MeetingPromptsMixin:
         )
         if not action_lines:
             action_lines = "| 1 | No action item generated | executor | medium |"
-        risk_text = "\n".join([f"- {note}" for note in critic_notes]) or "- None"
+
+        # 5. Agenda from session record (Fix 2), fallback to user_message
+        agenda_items = self.session.agenda or [user_message]
+        agenda_text = "\n".join([f"- {a}" for a in agenda_items])
 
         return (
-            f"# Meeting Minutes — {self.session.id[:8]}\n"
-            f"**Status**: {status}  \n"
-            f"**Rounds**: {self.session.round_count}\n\n"
-            f"## Agenda\n- {user_message}\n\n"
-            f"## Decisions\n- {decision}\n\n"
+            f"# {topic}\n"
+            f"_Meeting {self.session.id[:8]} · {status} · {self.session.round_count} rounds_\n\n"
+            f"## Agenda\n{agenda_text}\n\n"
+            f"## Decisions\n{decision_summary}\n\n"
             f"## Risks & Concerns\n{risk_text}\n\n"
             "## Action Items\n"
             "| # | Task | Assigned To | Priority |\n"
             "|---|------|-------------|----------|\n"
             f"{action_lines}\n"
         )
+
+    def _extract_meeting_topic(self, user_message: str) -> str:
+        """Extract a concise topic line for meeting minutes title."""
+        # Prefer project title from context
+        project_ctx = getattr(self, "_project_context", "")
+        if project_ctx:
+            for line in project_ctx.split("\n"):
+                if line.startswith("Project:"):
+                    return line.replace("Project:", "").strip() + " — Meeting Minutes"
+
+        # Fallback: first 60 chars of user_message
+        topic = user_message[:60]
+        if len(user_message) > 60:
+            topic += "..."
+        return f"Meeting Minutes — {topic}"

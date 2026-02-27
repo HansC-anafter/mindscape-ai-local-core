@@ -69,11 +69,10 @@ class MeetingActionItemsMixin:
                     trace_id=str(uuid.uuid4()),
                 )
                 item["execution_id"] = result.get("execution_id")
-                if (
-                    item["execution_id"]
-                    and item["execution_id"] not in self.session.decisions
-                ):
-                    self.session.decisions.append(item["execution_id"])
+                if item["execution_id"]:
+                    exec_ids = self.session.metadata.setdefault("execution_ids", [])
+                    if item["execution_id"] not in exec_ids:
+                        exec_ids.append(item["execution_id"])
                 item["landing_status"] = (
                     "launched" if item.get("execution_id") else "launch_failed"
                 )
