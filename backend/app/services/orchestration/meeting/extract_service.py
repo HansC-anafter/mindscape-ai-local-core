@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Mapping from event type to extract type
 _EVENT_TYPE_MAP = {
-    "DECISION_FINAL": ExtractType.DECISION,
+    "decision_final": ExtractType.DECISION,
 }
 
 # Mapping from agent role to extract type
@@ -139,7 +139,7 @@ class MeetingExtractService:
             )
 
         # AGENT_TURN events classified by role
-        if event_type_str == "AGENT_TURN":
+        if event_type_str == "agent_turn":
             agent_role = payload.get("agent_role", "")
             extract_type = _AGENT_ROLE_MAP.get(agent_role)
             if not extract_type:
@@ -153,6 +153,7 @@ class MeetingExtractService:
                 extract_type=extract_type,
                 content=str(content)[:500],
                 source_event_ids=[event_id] if event_id else [],
+                evidence_refs=payload.get("evidence_refs", []),
                 confidence=0.8,
                 agent_id=payload.get("agent_id"),
                 round_number=payload.get("round_number"),

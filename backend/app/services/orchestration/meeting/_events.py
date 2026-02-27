@@ -1,10 +1,11 @@
 """
 Meeting engine event emission mixin.
 
-Consolidates all MindEvent emission methods used during meeting lifecycle,
-agent turns, decisions, action items, and minutes rendering.
+Handles emitting structured MindEvents for each stage of the meeting lifecycle
+(round start/end, agent turns, decisions, action items, state vector).
 """
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -28,8 +29,22 @@ class MeetingEventsMixin:
                 "lens_id": self.session.lens_id,
                 "lens_hash": getattr(self, "_lens_hash", None),
                 "intent_ids": self._get_active_intent_ids(),
+                "evidence_refs": self._extract_evidence_from_content(turn.content),
             },
         )
+
+    def _extract_evidence_from_content(self, content: str) -> List[str]:
+        """Extract evidence markers from turn content (URLs, file refs, explicit markers)."""
+        refs: List[str] = []
+        for _, url in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content):
+            refs.append(url)
+        for m in re.findall(
+            r"(?:evidence|source|reference|ref):\s*(.+?)(?:\n|$)",
+            content,
+            re.IGNORECASE,
+        ):
+            refs.append(m.strip())
+        return refs[:10]
 
     def _emit_decision_proposal(self, turn: Any) -> None:
         """Emit a DECISION_PROPOSAL event from a planner turn."""

@@ -14,19 +14,26 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.egb.schemas.correlation_ids import CorrelationIds
 from backend.app.egb.schemas.evidence_profile import IntentEvidenceProfile
 from backend.app.egb.schemas.drift_report import RunDriftReport
 from backend.app.egb.schemas.governance_prescription import GovernancePrescription
 from backend.app.egb.schemas.structured_evidence import StructuredEvidence
-from backend.app.egb.schemas.run_outcome import RunOutcome, determine_run_outcome  # ⚠️ P0-10 新增
+from backend.app.egb.schemas.run_outcome import (
+    RunOutcome,
+    determine_run_outcome,
+)  # ⚠️ P0-10 新增
 
 from backend.app.egb.components.trace_linker import TraceLinker
 from backend.app.egb.components.evidence_reducer import EvidenceReducer
 from backend.app.egb.components.drift_scorer import DriftScorer
 from backend.app.egb.components.policy_attributor import PolicyAttributor
 from backend.app.egb.components.lens_explainer import LensExplainer
-from backend.app.egb.components.governance_tuner import GovernanceTuner, GovernanceSettings
+from backend.app.egb.components.governance_tuner import (
+    GovernanceTuner,
+    GovernanceSettings,
+)
 
 from backend.app.core.trace.trace_schema import TraceGraph
 
@@ -36,6 +43,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EGBProcessResult:
     """EGB 處理結果"""
+
     correlation_ids: CorrelationIds
     structured_evidence: Optional[StructuredEvidence] = None
     drift_report: Optional[RunDriftReport] = None
@@ -110,14 +118,18 @@ class EGBOrchestrator:
                     correlation_ids=correlation_ids,
                     status="pending",
                 )
-                logger.debug(f"EGBOrchestrator: Saved/updated run {correlation_ids.run_id} to store")
+                logger.debug(
+                    f"EGBOrchestrator: Saved/updated run {correlation_ids.run_id} to store"
+                )
             except Exception as e:
                 logger.warning(f"EGBOrchestrator: Failed to save run index: {e}")
                 # Don't raise exception, allow execution to continue (may already exist)
 
         link_result = await self.trace_linker.register_run(correlation_ids)
         if not link_result.success:
-            logger.error(f"EGBOrchestrator: Failed to register run: {link_result.error}")
+            logger.error(
+                f"EGBOrchestrator: Failed to register run: {link_result.error}"
+            )
             raise RuntimeError(f"Failed to register run: {link_result.error}")
 
     async def process_run(
@@ -156,9 +168,13 @@ class EGBOrchestrator:
                         correlation_ids=correlation_ids,
                         status="pending",
                     )
-                    logger.debug(f"EGBOrchestrator: Saved/updated run {correlation_ids.run_id} to store in process_run")
+                    logger.debug(
+                        f"EGBOrchestrator: Saved/updated run {correlation_ids.run_id} to store in process_run"
+                    )
                 except Exception as e:
-                    logger.warning(f"EGBOrchestrator: Failed to save run index in process_run: {e}")
+                    logger.warning(
+                        f"EGBOrchestrator: Failed to save run index in process_run: {e}"
+                    )
                     # Don't raise exception, allow execution to continue
 
             # ⚠️ P0-3：TraceLinker 只負責索引查詢，不負責 propagation
@@ -168,8 +184,9 @@ class EGBOrchestrator:
 
             # ⚠️ P0-10：提取 external_jobs 用於 outcome 計算
             external_jobs = [
-                node for node in trace_graph.nodes
-                if hasattr(node, 'node_type') and node.node_type.value == "external_job"
+                node
+                for node in trace_graph.nodes
+                if hasattr(node, "node_type") and node.node_type.value == "external_job"
             ]
 
             # Step 2: 收斂證據
@@ -183,7 +200,10 @@ class EGBOrchestrator:
 
             # Step 3: 獲取基準並計算漂移
             # ⚠️ P0-5：使用 BaselinePicker（支援 policy_version 限制）
-            from backend.app.egb.services.baseline_picker import BaselinePicker, BaselineStrategy
+            from backend.app.egb.services.baseline_picker import (
+                BaselinePicker,
+                BaselineStrategy,
+            )
 
             baseline_picker = BaselinePicker(
                 trace_linker=self.trace_linker,
@@ -205,12 +225,18 @@ class EGBOrchestrator:
 
                 # ⚠️ 如果 cache 沒有，從 Langfuse 重建證據
                 if not baseline_evidence:
-                    baseline_correlation_ids = await self.trace_linker.get_run_by_id(baseline_run_id)
+                    baseline_correlation_ids = await self.trace_linker.get_run_by_id(
+                        baseline_run_id
+                    )
                     if baseline_correlation_ids:
-                        baseline_evidence = await self._rebuild_evidence(baseline_run_id, baseline_correlation_ids)
+                        baseline_evidence = await self._rebuild_evidence(
+                            baseline_run_id, baseline_correlation_ids
+                        )
                         if baseline_evidence:
                             self._evidence_cache[baseline_run_id] = baseline_evidence
-                            logger.info(f"EGBOrchestrator: Rebuilt baseline evidence for {baseline_run_id}")
+                            logger.info(
+                                f"EGBOrchestrator: Rebuilt baseline evidence for {baseline_run_id}"
+                            )
 
                 if baseline_evidence:
                     # Step 3a: 計算漂移分數
@@ -230,12 +256,19 @@ class EGBOrchestrator:
                     # Create drift report
                     # ⚠️ P0-5：新增 semantic_diff_pointers
                     semantic_diff_pointers = []
-                    if evidence.key_fields_hash_map and baseline_evidence.key_fields_hash_map:
+                    if (
+                        evidence.key_fields_hash_map
+                        and baseline_evidence.key_fields_hash_map
+                    ):
                         current_keys = set(evidence.key_fields_hash_map.keys())
-                        baseline_keys = set(baseline_evidence.key_fields_hash_map.keys())
+                        baseline_keys = set(
+                            baseline_evidence.key_fields_hash_map.keys()
+                        )
                         all_keys = current_keys | baseline_keys
                         for key in all_keys:
-                            if evidence.key_fields_hash_map.get(key) != baseline_evidence.key_fields_hash_map.get(key):
+                            if evidence.key_fields_hash_map.get(
+                                key
+                            ) != baseline_evidence.key_fields_hash_map.get(key):
                                 semantic_diff_pointers.append(key)
 
                     result.drift_report = RunDriftReport(
@@ -250,10 +283,12 @@ class EGBOrchestrator:
 
                     # Step 5: 生成治理處方
                     settings = current_settings or GovernanceSettings()
-                    result.prescription = await self.governance_tuner.generate_prescription(
-                        drift_report=result.drift_report,
-                        attribution=attributions,
-                        current_settings=settings,
+                    result.prescription = (
+                        await self.governance_tuner.generate_prescription(
+                            drift_report=result.drift_report,
+                            attribution=attributions,
+                            current_settings=settings,
+                        )
                     )
 
             # Update Intent Evidence Profile
@@ -298,6 +333,36 @@ class EGBOrchestrator:
 
         return profile
 
+    async def get_drift_score_for_intent(
+        self,
+        intent_id: str,
+        workspace_id: str,
+    ) -> float:
+        """
+        Get latest drift score for an intent (G3 bridge for meeting risk axis).
+
+        Queries the most recent drift report by intent_id and returns the
+        overall_drift_score. Falls back to 0.0 if no report exists.
+
+        Args:
+            intent_id: Intent ID from meeting session.
+            workspace_id: Workspace ID.
+
+        Returns:
+            Drift score (0.0-1.0), 0.0 if no data.
+        """
+        if not self.store:
+            return 0.0
+        try:
+            report = await self.store.get_latest_drift_report_by_intent(intent_id)
+            if report:
+                return report.overall_drift_score
+        except Exception as e:
+            logger.warning(
+                f"EGBOrchestrator: Failed to get drift score for intent {intent_id}: {e}"
+            )
+        return 0.0
+
     async def get_drift_report(
         self,
         run_id: str,
@@ -335,7 +400,9 @@ class EGBOrchestrator:
             # ⚠️ 從 Langfuse 獲取 trace 並重新計算證據
             current_evidence = await self._rebuild_evidence(run_id, correlation_ids)
             if not current_evidence:
-                logger.warning(f"EGBOrchestrator: Failed to rebuild evidence for run {run_id}")
+                logger.warning(
+                    f"EGBOrchestrator: Failed to rebuild evidence for run {run_id}"
+                )
                 return None
             # Store in cache
             self._evidence_cache[run_id] = current_evidence
@@ -345,17 +412,26 @@ class EGBOrchestrator:
             baseline_evidence = self._evidence_cache.get(baseline_run_id)
             if not baseline_evidence:
                 # ⚠️ 從 Langfuse 獲取 trace 並重新計算基準證據
-                baseline_correlation_ids = await self.trace_linker.get_run_by_id(baseline_run_id)
+                baseline_correlation_ids = await self.trace_linker.get_run_by_id(
+                    baseline_run_id
+                )
                 if baseline_correlation_ids:
-                    baseline_evidence = await self._rebuild_evidence(baseline_run_id, baseline_correlation_ids)
+                    baseline_evidence = await self._rebuild_evidence(
+                        baseline_run_id, baseline_correlation_ids
+                    )
                     if baseline_evidence:
                         self._evidence_cache[baseline_run_id] = baseline_evidence
                 if not baseline_evidence:
-                    logger.warning(f"EGBOrchestrator: Baseline evidence for {baseline_run_id} not found")
+                    logger.warning(
+                        f"EGBOrchestrator: Baseline evidence for {baseline_run_id} not found"
+                    )
                     return None
         else:
             # Use BaselinePicker to select baseline
-            from backend.app.egb.services.baseline_picker import BaselinePicker, BaselineStrategy
+            from backend.app.egb.services.baseline_picker import (
+                BaselinePicker,
+                BaselineStrategy,
+            )
 
             baseline_picker = BaselinePicker(
                 trace_linker=self.trace_linker,
@@ -380,13 +456,19 @@ class EGBOrchestrator:
 
             if not baseline_evidence:
                 # ⚠️ 從 Langfuse 獲取 trace 並重新計算基準證據
-                baseline_correlation_ids = await self.trace_linker.get_run_by_id(baseline_run_id)
+                baseline_correlation_ids = await self.trace_linker.get_run_by_id(
+                    baseline_run_id
+                )
                 if baseline_correlation_ids:
-                    baseline_evidence = await self._rebuild_evidence(baseline_run_id, baseline_correlation_ids)
+                    baseline_evidence = await self._rebuild_evidence(
+                        baseline_run_id, baseline_correlation_ids
+                    )
                     if baseline_evidence:
                         self._evidence_cache[baseline_run_id] = baseline_evidence
                 if not baseline_evidence:
-                    logger.warning(f"EGBOrchestrator: Baseline evidence for {baseline_run_id} not found")
+                    logger.warning(
+                        f"EGBOrchestrator: Baseline evidence for {baseline_run_id} not found"
+                    )
                     return None
 
         # 4. 計算漂移
@@ -405,12 +487,17 @@ class EGBOrchestrator:
 
         # 6. 計算 semantic_diff_pointers
         semantic_diff_pointers = []
-        if current_evidence.key_fields_hash_map and baseline_evidence.key_fields_hash_map:
+        if (
+            current_evidence.key_fields_hash_map
+            and baseline_evidence.key_fields_hash_map
+        ):
             current_keys = set(current_evidence.key_fields_hash_map.keys())
             baseline_keys = set(baseline_evidence.key_fields_hash_map.keys())
             all_keys = current_keys | baseline_keys
             for key in all_keys:
-                if current_evidence.key_fields_hash_map.get(key) != baseline_evidence.key_fields_hash_map.get(key):
+                if current_evidence.key_fields_hash_map.get(
+                    key
+                ) != baseline_evidence.key_fields_hash_map.get(key):
                     semantic_diff_pointers.append(key)
 
         # 7. 創建漂移報告
@@ -431,9 +518,7 @@ class EGBOrchestrator:
         return drift_report
 
     async def _rebuild_evidence(
-        self,
-        run_id: str,
-        correlation_ids: CorrelationIds
+        self, run_id: str, correlation_ids: CorrelationIds
     ) -> Optional[StructuredEvidence]:
         """
         從 Langfuse 重建證據
@@ -451,11 +536,15 @@ class EGBOrchestrator:
         """
         # ⚠️ 降級策略 1：如果 Langfuse 不可用，嘗試從 store 讀取已保存的 evidence
         if not self.langfuse_adapter or not self.langfuse_adapter._client:
-            logger.warning("EGBOrchestrator: No langfuse_adapter, trying to load evidence from store")
+            logger.warning(
+                "EGBOrchestrator: No langfuse_adapter, trying to load evidence from store"
+            )
             if self.store:
                 # TODO: 如果 store 支持保存/讀取 StructuredEvidence，可以從這裡讀取
                 # Store currently has no interface to save evidence, needs extension
-                logger.warning("EGBOrchestrator: Store does not support loading evidence yet")
+                logger.warning(
+                    "EGBOrchestrator: Store does not support loading evidence yet"
+                )
             return None
 
         try:
@@ -466,20 +555,27 @@ class EGBOrchestrator:
                 # ⚠️ 降級策略 2：如果 trace 不存在，嘗試從 store 讀取
                 if self.store:
                     # TODO: 從 store 讀取已保存的 evidence
-                    logger.warning("EGBOrchestrator: Store does not support loading evidence yet")
+                    logger.warning(
+                        "EGBOrchestrator: Store does not support loading evidence yet"
+                    )
                 return None
 
             # 2. Normalizer → TraceGraph
             from backend.app.egb.integrations.trace_normalizer import TraceNormalizer
+
             normalizer = TraceNormalizer()
             normalization_result = normalizer.normalize(langfuse_trace, run_id=run_id)
 
             if not normalization_result.success:
-                logger.warning(f"EGBOrchestrator: Failed to normalize trace {run_id}: {normalization_result.error}")
+                logger.warning(
+                    f"EGBOrchestrator: Failed to normalize trace {run_id}: {normalization_result.error}"
+                )
                 # ⚠️ 降級策略 3：如果 normalization 失敗，嘗試從 store 讀取
                 if self.store:
                     # TODO: 從 store 讀取已保存的 evidence
-                    logger.warning("EGBOrchestrator: Store does not support loading evidence yet")
+                    logger.warning(
+                        "EGBOrchestrator: Store does not support loading evidence yet"
+                    )
                 return None
 
             trace_graph = normalization_result.trace_graph
@@ -494,11 +590,15 @@ class EGBOrchestrator:
             return evidence
 
         except Exception as e:
-            logger.error(f"EGBOrchestrator: Failed to rebuild evidence for run {run_id}: {e}")
+            logger.error(
+                f"EGBOrchestrator: Failed to rebuild evidence for run {run_id}: {e}"
+            )
             # ⚠️ 降級策略 4：如果重建失敗，嘗試從 store 讀取
             if self.store:
                 # TODO: 從 store 讀取已保存的 evidence
-                logger.warning("EGBOrchestrator: Store does not support loading evidence yet")
+                logger.warning(
+                    "EGBOrchestrator: Store does not support loading evidence yet"
+                )
             return None
 
     async def explain_drift(
@@ -590,16 +690,19 @@ class EGBOrchestrator:
         # Update average latency
         if profile.total_runs > 0:
             profile.avg_latency_ms = (
-                (profile.avg_latency_ms * (profile.total_runs - 1) +
-                 evidence.metrics.total_latency_ms) / profile.total_runs
-            )
+                profile.avg_latency_ms * (profile.total_runs - 1)
+                + evidence.metrics.total_latency_ms
+            ) / profile.total_runs
 
         # Update stability (P0-10: Consider RunOutcome)
         # Extract external_jobs from trace_graph
         from backend.app.core.trace.trace_schema import TraceNodeType
+
         external_jobs = [
-            node for node in trace_graph.nodes
-            if hasattr(node, 'node_type') and node.node_type == TraceNodeType.EXTERNAL_JOB
+            node
+            for node in trace_graph.nodes
+            if hasattr(node, "node_type")
+            and node.node_type == TraceNodeType.EXTERNAL_JOB
         ]
 
         # Get gate_result (if available)
@@ -635,4 +738,3 @@ class EGBOrchestrator:
             profile.stability_score = max(0.0, profile.stability_score - 0.1)
 
         profile.updated_at = now
-

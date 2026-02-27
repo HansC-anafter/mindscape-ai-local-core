@@ -62,6 +62,8 @@ class MeetingIRCompilerMixin:
                 playbook_code = item.get("playbook_code")
                 if playbook_code:
                     engine = f"playbook:{playbook_code}"
+                else:
+                    engine = "playbook:generic"
 
             phase = PhaseIR(
                 id=f"action_{idx}",
@@ -101,13 +103,16 @@ class MeetingIRCompilerMixin:
             constraints = getattr(handoff_in, "constraints", None)
             if constraints is not None:
                 gov.constraints = (
-                    constraints.model_dump() if hasattr(constraints, "model_dump") else constraints
+                    constraints.model_dump()
+                    if hasattr(constraints, "model_dump")
+                    else constraints
                 )
 
             deliverables = getattr(handoff_in, "deliverables", None)
             if deliverables:
                 gov.deliverables = [
-                    d.model_dump() if hasattr(d, "model_dump") else d for d in deliverables
+                    d.model_dump() if hasattr(d, "model_dump") else d
+                    for d in deliverables
                 ]
 
             metadata.set_governance(gov)

@@ -19,6 +19,7 @@ from backend.app.services.conversation.execution_launcher import ExecutionLaunch
 from backend.app.services.orchestration.meeting_agents import (
     MEETING_AGENT_ROSTER,
     MEETING_TOPOLOGY,
+    build_meeting_roster,
 )
 from backend.app.services.orchestration.multi_agent_orchestrator import (
     MultiAgentOrchestrator,
@@ -120,7 +121,7 @@ class MeetingEngine(
         self._turn_history: List[Dict[str, Any]] = []
 
         # Resolve locale from workspace settings
-        self._locale = getattr(workspace, "default_locale", None) or "en"
+        self._locale = self._resolve_locale(workspace)
 
         # A1: Resolve EffectiveLens for prompt injection + hash
         self._effective_lens = None
@@ -152,8 +153,16 @@ class MeetingEngine(
         # Fetch project data for meeting context
         self._project_context = self._build_project_context()
 
+        # A4: Build dynamic roster from workspace/project context
+        workspace_id = getattr(workspace, "id", None) or session.workspace_id
+        self._roster = build_meeting_roster(
+            workspace_id=workspace_id,
+            project_id=self.project_id,
+            workspace_metadata=getattr(workspace, "metadata", None),
+        )
+
         self.orchestrator = MultiAgentOrchestrator(
-            agent_roster=MEETING_AGENT_ROSTER,
+            agent_roster=self._roster,
             topology=MEETING_TOPOLOGY,
             loop_budget=runtime_profile.loop_budget if runtime_profile else None,
             stop_conditions=(
@@ -166,6 +175,34 @@ class MeetingEngine(
         self.retry_strategy = str(
             getattr(recovery_policy, "retry_strategy", "exponential_backoff")
         )
+
+    @staticmethod
+    def _resolve_locale(workspace) -> str:
+        """Resolve locale with fallback chain.
+
+        Aligned with workspace_dependencies.py:100-112 get_orchestrator():
+        1. workspace.default_locale
+        2. system_settings "default_language"
+        3. "zh-TW" hardcoded fallback
+        """
+        # 1. Workspace direct field
+        ws_locale = getattr(workspace, "default_locale", None)
+        if ws_locale:
+            return ws_locale
+
+        # 2. System settings (key = "default_language", per workspace_dependencies.py:107)
+        try:
+            from backend.app.services.system_settings_store import SystemSettingsStore
+
+            store = SystemSettingsStore()
+            setting = store.get_setting("default_language")
+            if setting and setting.value:
+                return str(setting.value)
+        except Exception:
+            pass
+
+        # 3. Hardcoded fallback (per blueprint_loader.py:196 + workspace_dependencies.py:111)
+        return "zh-TW"
 
     async def run(
         self,
@@ -424,6 +461,123 @@ class MeetingEngine(
                     self.session.id,
                 )
 
+            # Step 5: L3 StateVector computation (non-fatal)
+            try:
+                from backend.app.services.orchestration.meeting.state_vector_service import (
+                    StateVectorService,
+                )
+                from backend.app.services.stores.state_vector_store import (
+                    StateVectorStore,
+                )
+                from backend.app.models.meeting_mode import MeetingMode
+
+                sv_svc = StateVectorService()
+                goal_set = active_goals[0] if active_goals else None
+
+                # Risk fallback: prefer EGB drift score, fall back to session metadata
+                risk_fallback = float(self.session.metadata.get("risk_score", 0.0))
+                intent_ids = self._get_active_intent_ids()
+                if intent_ids:
+                    try:
+                        from backend.app.database import get_db_postgres
+                        from sqlalchemy import text
+
+                        db_gen = get_db_postgres()
+                        db = next(db_gen)
+                        try:
+                            row = db.execute(
+                                text(
+                                    "SELECT overall_drift_score "
+                                    "FROM egb_drift_report "
+                                    "WHERE intent_id = :iid "
+                                    "ORDER BY created_at DESC LIMIT 1"
+                                ),
+                                {"iid": intent_ids[0]},
+                            ).fetchone()
+                            if row and row[0] and float(row[0]) > 0:
+                                risk_fallback = max(risk_fallback, float(row[0]))
+                        finally:
+                            next(db_gen, None)
+                    except Exception:
+                        pass  # EGB 不可用時回退到 session metadata
+
+                # Session count for evidence grace period
+                session_count = 0
+                if self.session_store and self.project_id:
+                    try:
+                        previous = self.session_store.list_by_workspace(
+                            workspace_id=self.session.workspace_id,
+                            project_id=self.project_id,
+                            limit=100,
+                        )
+                        session_count = len(previous)
+                    except Exception:
+                        pass
+
+                sv = sv_svc.compute(
+                    meeting_session_id=self.session.id,
+                    workspace_id=self.session.workspace_id,
+                    extract=extract,
+                    goal_set=goal_set,
+                    patches=[patch] if patch else [],
+                    current_lens_hash=getattr(self, "_lens_hash", None) or "",
+                    previous_lens_hash="",
+                    current_mode=MeetingMode(
+                        self.session.metadata.get("meeting_mode", "explore")
+                    ),
+                    session_count=session_count,
+                    risk_fallback=risk_fallback,
+                    project_id=self.project_id,
+                )
+
+                # Persist state vector
+                sv_store = StateVectorStore()
+                sv_store.create(sv)
+
+                # Emit STATE_VECTOR_COMPUTED event
+                self._emit_event(
+                    EventType.STATE_VECTOR_COMPUTED,
+                    payload={
+                        "meeting_session_id": self.session.id,
+                        "state_vector_id": sv.id,
+                        "axes": {
+                            "progress": sv.progress,
+                            "evidence": sv.evidence,
+                            "risk": sv.risk,
+                            "drift": sv.drift,
+                        },
+                        "lyapunov_v": sv.lyapunov_v,
+                        "mode": sv.mode,
+                    },
+                )
+
+                # Emit MODE_TRANSITION if mode changed
+                prev_mode = self.session.metadata.get("meeting_mode", "explore")
+                if sv.mode != prev_mode:
+                    self._emit_event(
+                        EventType.MODE_TRANSITION,
+                        payload={
+                            "meeting_session_id": self.session.id,
+                            "from_mode": prev_mode,
+                            "to_mode": sv.mode,
+                            "reason": f"StateVector triggered: V={sv.lyapunov_v:.3f}",
+                        },
+                    )
+
+                logger.info(
+                    "L3: StateVector %s computed for session %s (V=%.3f, mode=%s)",
+                    sv.id,
+                    self.session.id,
+                    sv.lyapunov_v,
+                    sv.mode,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "L3 StateVector computation failed (non-fatal) for session %s: %s",
+                    self.session.id,
+                    exc,
+                )
+
         except Exception as exc:
             logger.warning(
                 "L2 Bridge pipeline failed (non-fatal) for session %s: %s",
@@ -442,7 +596,7 @@ class MeetingEngine(
     ) -> AgentTurnResult:
         """Execute a single agent turn with prompt construction and LLM generation."""
         self.orchestrator.record_turn()
-        role_def = MEETING_AGENT_ROSTER[agent_id]
+        role_def = self._roster[agent_id]
         role = role_def.agent_name
 
         prompt = self._build_turn_prompt(

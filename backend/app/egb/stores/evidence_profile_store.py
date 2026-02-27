@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
 
@@ -74,7 +76,9 @@ class EvidenceProfileStore:
 
         if existing:
             # Update if exists (preserve existing status/outcome unless explicitly provided)
-            existing.correlation_ids_json = correlation_ids.to_dict()  # Update complete CorrelationIds
+            existing.correlation_ids_json = (
+                correlation_ids.to_dict()
+            )  # Update complete CorrelationIds
             existing.workspace_id = correlation_ids.workspace_id
             existing.intent_id = correlation_ids.intent_id
             existing.decision_id = correlation_ids.decision_id
@@ -154,9 +158,7 @@ class EvidenceProfileStore:
         ⚠️ P0-5：支持 policy_version 過濾
         ⚠️ P0-10：only_success 會過濾 outcome == "success" 的 runs（通過 is_success 欄位）
         """
-        query = select(EGBRunIndex).where(
-            EGBRunIndex.intent_id == intent_id
-        )
+        query = select(EGBRunIndex).where(EGBRunIndex.intent_id == intent_id)
 
         if policy_version:
             query = query.where(EGBRunIndex.policy_version == policy_version)
@@ -218,7 +220,9 @@ class EvidenceProfileStore:
             overall_drift_score=drift_report.overall_drift_score,
             drift_level=drift_report.drift_level.value,
             semantic_diff_pointers=drift_report.semantic_diff_pointers,
-            drift_explanations_json=[e.to_dict() for e in drift_report.drift_explanations],
+            drift_explanations_json=[
+                e.to_dict() for e in drift_report.drift_explanations
+            ],
             created_at=drift_report.created_at,
         )
 
@@ -231,7 +235,8 @@ class EvidenceProfileStore:
     async def get_drift_report(self, run_id: str) -> Optional[RunDriftReport]:
         """獲取漂移報告"""
         result = await self.db.execute(
-            select(EGBDriftReport).where(EGBDriftReport.run_id == run_id)
+            select(EGBDriftReport)
+            .where(EGBDriftReport.run_id == run_id)
             .order_by(desc(EGBDriftReport.created_at))
             .limit(1)
         )
@@ -240,17 +245,48 @@ class EvidenceProfileStore:
             return None
 
         # Rebuild RunDriftReport
-        return RunDriftReport.from_dict({
-            "report_id": db_report.report_id,
-            "run_id": db_report.run_id,
-            "baseline_run_id": db_report.baseline_run_id,
-            "intent_id": db_report.intent_id,
-            "workspace_id": db_report.workspace_id,
-            "drift_scores": db_report.drift_scores_json,
-            "semantic_diff_pointers": db_report.semantic_diff_pointers or [],
-            "drift_explanations": db_report.drift_explanations_json or [],
-            "created_at": db_report.created_at.isoformat(),
-        })
+        return RunDriftReport.from_dict(
+            {
+                "report_id": db_report.report_id,
+                "run_id": db_report.run_id,
+                "baseline_run_id": db_report.baseline_run_id,
+                "intent_id": db_report.intent_id,
+                "workspace_id": db_report.workspace_id,
+                "drift_scores": db_report.drift_scores_json,
+                "semantic_diff_pointers": db_report.semantic_diff_pointers or [],
+                "drift_explanations": db_report.drift_explanations_json or [],
+                "created_at": db_report.created_at.isoformat(),
+            }
+        )
+
+    async def get_latest_drift_report_by_intent(
+        self,
+        intent_id: str,
+    ) -> Optional[RunDriftReport]:
+        """Get most recent drift report for an intent (G3 bridge)."""
+        result = await self.db.execute(
+            select(EGBDriftReport)
+            .where(EGBDriftReport.intent_id == intent_id)
+            .order_by(desc(EGBDriftReport.created_at))
+            .limit(1)
+        )
+        db_report = result.scalar_one_or_none()
+        if not db_report:
+            return None
+
+        return RunDriftReport.from_dict(
+            {
+                "report_id": db_report.report_id,
+                "run_id": db_report.run_id,
+                "baseline_run_id": db_report.baseline_run_id,
+                "intent_id": db_report.intent_id,
+                "workspace_id": db_report.workspace_id,
+                "drift_scores": db_report.drift_scores_json,
+                "semantic_diff_pointers": db_report.semantic_diff_pointers or [],
+                "drift_explanations": db_report.drift_explanations_json or [],
+                "created_at": db_report.created_at.isoformat(),
+            }
+        )
 
     # ===== EGBIntentProfile 操作 =====
 
@@ -357,8 +393,7 @@ class EvidenceProfileStore:
         return mapping
 
     async def get_external_job_mapping(
-        self,
-        external_job_id: str
+        self, external_job_id: str
     ) -> Optional[ExternalJobMapping]:
         """根據 external_job_id 獲取映射"""
         result = await self.db.execute(
@@ -368,15 +403,10 @@ class EvidenceProfileStore:
         )
         return result.scalar_one_or_none()
 
-    async def get_external_jobs_by_run(
-        self,
-        run_id: str
-    ) -> List[ExternalJobMapping]:
+    async def get_external_jobs_by_run(self, run_id: str) -> List[ExternalJobMapping]:
         """獲取 run 的所有外部 job 映射"""
         result = await self.db.execute(
-            select(ExternalJobMapping).where(
-                ExternalJobMapping.run_id == run_id
-            )
+            select(ExternalJobMapping).where(ExternalJobMapping.run_id == run_id)
         )
         return list(result.scalars().all())
 
@@ -400,4 +430,3 @@ class EvidenceProfileStore:
         await self.db.refresh(mapping)
 
         return mapping
-
